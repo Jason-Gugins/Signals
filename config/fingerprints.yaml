@@ -1,0 +1,36 @@
+version: 1
+vendors:
+  hubspot:
+    display: "HubSpot"
+    category: [crm, marketing_automation]
+    tier: mid
+    match:
+      script_src: ["js.hs-scripts.com", "js.hsforms.net", "hs-analytics.net"]
+      dns_cname: ["hubspotusercontent", "hs-sites.com"]
+      spf_include: ["hubspotemail.net"]
+  salesforce:
+    display: "Salesforce"
+    category: [crm]
+    tier: enterprise
+    match:
+      script_src: ["force.com", "salesforceliveagent.com", "pardot.com"]
+      spf_include: ["salesforce.com", "pardot.com", "exacttarget.com"]
+      dns_cname: ["salesforce.com"]
+  marketo: { display: "Marketo", category: [marketing_automation], tier: enterprise,
+             match: { script_src: ["munchkin.marketo.net"], dns_cname: ["mktoweb.com"], spf_include: ["mktomail.com"] } }
+  google_workspace: { display: "Google Workspace", category: [email], tier: mid,
+             match: { mx: ["google.com", "googlemail.com"] } }
+  microsoft365: { display: "Microsoft 365", category: [email], tier: mid,
+             match: { mx: ["outlook.com", "protection.outlook.com"] } }
+  zendesk: { display: "Zendesk", category: [support], tier: mid,
+             match: { script_src: ["zdassets.com"], dns_cname: ["zendesk.com"], spf_include: ["zendesk.com"] } }
+  intercom: { display: "Intercom", category: [support, chat], tier: mid,
+             match: { script_src: ["widget.intercom.io", "js.intercomcdn.com"] } }
+  segment: { display: "Segment", category: [cdp], tier: mid,
+             match: { script_src: ["cdn.segment.com"] } }
+  snowflake: { display: "Snowflake", category: [data_warehouse], tier: enterprise,
+             match: { job_text: ["snowflake"] } }
+  workday: { display: "Workday", category: [hris], tier: enterprise,
+             match: { dns_cname: ["myworkdayjobs.com"], script_src: ["myworkday.com"] } }
+  statuspage: { display: "Atlassian Statuspage", category: [status], tier: mid,
+             match: { dns_cname: ["statuspage.io"] } }

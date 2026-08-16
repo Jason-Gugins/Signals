@@ -1,0 +1,45 @@
+http:
+  user_agent: "SignalsResearchBot/0.1 (+contact: REPLACE_ME@example.com)"
+  timeout_seconds: 30
+  max_retries: 3
+  backoff_base: 1.5          # seconds; delay = backoff_base ** attempt + jitter
+  respect_robots: true
+  max_workers: 6             # global thread pool for HTTP fan-out
+  default_rate_per_host: 1.0 # requests/sec
+  verify_tls: true
+
+browser:
+  enabled: false
+  headless: true
+  viewport: { width: 1920, height: 1080 }
+  locale: en-US
+  timezone: America/Toronto
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  proxy_server: null         # e.g. "http://127.0.0.1:8443" to reuse ../Linkedin egress proxy
+  min_delay: 5.0
+  max_delay: 15.0
+  session_dir: "data/state"
+
+storage:
+  db_path: "data/signals.db"
+  raw_dir: "data/raw"
+  export_dir: "data/exports"
+  briefs_dir: "data/briefs"
+  alerts_dir: "data/alerts"
+  recon_dir: "data/recon"
+  keep_raw_days: 400
+
+external_dbs:
+  linkedin_db: "../Linkedin/data/linkedin.db"
+  repvue_db: "../repvue-scraper/data/repvue.db"
+  linkedin_cli_cwd: "../Linkedin"      # used by `signals deepen` to shell out
+
+logging:
+  level: INFO
+  file: "data/logs/signals.log"
+  rotation: "10 MB"
+
+pipeline:
+  default_lookback_days: 365
+  score_on_collect: true
+  alert_on_new_primary: true

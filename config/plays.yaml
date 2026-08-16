@@ -1,0 +1,177 @@
+plays:
+  growth_pitch:
+    name: "The Growth Pitch"
+    thesis: "No company raises to shrink. Capital must convert into growth."
+    required_vars: [round_stage, department]
+    opener: "Saw the {round_stage}. Investors usually expect a step-change in {department} output after a raise like that."
+    t24: "Hi {first_name}, noticed {company} closed the {round_stage}. Teams at this stage usually hit friction scaling {department}. Are you evaluating solutions for that, or is it being handled internally?"
+    cta: "Open to reviewing the framework?"
+    loss_aversion: "The cost of scaling {department} on manual process is a quarter of runway."
+  compliance_predictability:
+    name: "The Compliance / Predictability Pitch"
+    thesis: "Public-company and certification pressure rewards process that is auditable and repeatable."
+    required_vars: [regulation]
+    opener: "With {regulation} on the calendar, most teams I talk to want a process they can defend in the next review."
+    t24: "Hi {first_name}, {company} is heading into {regulation}. Curious whether {department} already has a predictable motion for that, or if it is still ad hoc."
+    cta: "Worth a 15-minute look at how others made this boring?"
+    loss_aversion: "A scramble in the last 30 days before {regulation} is how good quarters get rewritten."
+  integration_pitch:
+    name: "The Integration Pitch"
+    thesis: "Acquisitions and consolidation create a 90-day window where systems and teams have to become one."
+    required_vars: [acquired_company]
+    opener: "The {acquired_company} deal usually means two stacks, two processes, and one deadline nobody put on a slide."
+    t24: "Hi {first_name}, saw {company} and {acquired_company} coming together. Integration teams typically hit friction in {department} first. Is that already scoped, or still being mapped?"
+    cta: "Happy to share the integration checklist we use with similar pairings."
+    loss_aversion: "The cost of running two {department} motions for a quarter is usually larger than the integration itself."
+  alignment_pitch:
+    name: "The Alignment Pitch"
+    thesis: "Annual filings and strategy language are a free map of what leadership already committed to."
+    required_vars: [department]
+    opener: "Your latest filing is unusually explicit about {department} — that is rare and useful."
+    t24: "Hi {first_name}, I read {company}'s latest report and the {department} language stood out. Is the team already staffed against that commitment, or is it still being built?"
+    cta: "Open to a short read on how peers operationalized the same language?"
+    loss_aversion: "Commitments in a 10-K that stay unfunded show up as missed guidance next year."
+  fresh_eyes:
+    name: "The Fresh Eyes Pitch"
+    thesis: "New leaders have a 90-day mandate to change the stack. Help them look smart."
+    required_vars: [new_role]
+    opener: "Congrats on the {new_role} seat. First 90 days is usually when the inherited stack gets a hard look."
+    t24: "Hi {first_name}, noticed you stepped into {new_role} at {company}. New leaders I work with usually want a clean read on {department} before they inherit last year's vendor list. Is that on your plate?"
+    cta: "I can send a 1-page diagnostic you can use in the first staff meeting."
+    loss_aversion: "The window to change vendors without owning the last person's choices closes around day 90."
+  relationship_pitch:
+    name: "The Relationship Pitch"
+    thesis: "A known champion in a new seat is the highest-probability path in the catalog."
+    required_vars: [new_role, prior_company]
+    opener: "Saw you land at {company} as {new_role} — last time we worked together at {prior_company} the problem looked similar."
+    t24: "Hi {first_name}, congratulations on {new_role} at {company}. The motion we ran at {prior_company} mapped almost 1:1 to what I am seeing on your new team's posting. Want the short version?"
+    cta: "Coffee / 15 minutes whenever the dust settles."
+    loss_aversion: "The first vendor a new champion brings with them usually becomes the default for 18 months."
+  scaling_pitch:
+    name: "The Scaling Pitch"
+    thesis: "A hiring surge without process is just a more expensive version of the old bottleneck."
+    required_vars: [department]
+    opener: "The {department} hiring wave at {company} is the tell — headcount is arriving faster than the system underneath it."
+    t24: "Hi {first_name}, {company} is adding {department} seats quickly. Teams in that spot usually hit ramp and forecast friction before the second cohort lands. Is that already showing up?"
+    cta: "I have a scaling checklist used by teams doubling {department} this year."
+    loss_aversion: "Every un-ramped seat in a surge quarter is paid-for capacity that does not produce."
+  ecosystem_pitch:
+    name: "The Ecosystem Pitch"
+    thesis: "A new install is a wedge: sell the complementary motion, not a rip-and-replace."
+    required_vars: [competitor]
+    opener: "Saw {company} stand up {competitor}. The teams that get value fastest usually pair it with a tighter {department} motion."
+    t24: "Hi {first_name}, noticed {competitor} showed up in the {company} stack. Curious whether you are wiring it into {department} yet, or if it is still a standalone install."
+    cta: "Happy to share the integration pattern that usually takes this from parked to used."
+    loss_aversion: "An unused install becomes a renewal problem, not a capability."
+  displacement_pitch:
+    name: "The Displacement Pitch"
+    thesis: "A removal, a competitor, or a renewal date is a permission slip to replace, not a reason to wait."
+    required_vars: [competitor]
+    opener: "If {competitor} is on the clock at {company}, the next 60–90 days are when a swap is politically cheap."
+    t24: "Hi {first_name}, I have {competitor} in the {company} stack and a renewal-shaped window. Most teams I talk to either go heads-down on a bake-off or sleepwalk into another year. Which side of that are you on?"
+    cta: "I can send a side-by-side that your champion can walk into a vendor review with."
+    loss_aversion: "Missing this renewal cycle means living with {competitor} until the next one."
+  premium_pitch:
+    name: "The Premium Pitch"
+    thesis: "High-ticket tech in the stack is a proxy for budget and for a buyer who already pays for quality."
+    required_vars: [competitor]
+    opener: "A stack that already includes {competitor} usually has budget and a bar. That is the conversation I want."
+    t24: "Hi {first_name}, {company} is already paying enterprise prices for {competitor}. The question I hear from similar teams is whether {department} is getting enterprise outcomes to match."
+    cta: "Open to a short teardown of where the premium stack usually leaks?"
+    loss_aversion: "Premium tools with mid-market process is how expensive software becomes shelfware."
+  support_pitch:
+    name: "The Support Pitch"
+    thesis: "A product launch creates a support, enablement, and ops load that the launch deck never budgeted."
+    required_vars: [department]
+    opener: "The {company} launch is the public part. The {department} load behind it is what usually surprises people."
+    t24: "Hi {first_name}, saw the new {company} launch. Launch teams typically feel it first in {department} — tickets, ramp, or coverage. Is that already staffed, or still being invented?"
+    cta: "I can share how similar launches kept {department} from becoming the bottleneck."
+    loss_aversion: "A launch that outruns support becomes a churn story in the first two quarters."
+  infrastructure_pitch:
+    name: "The Infrastructure Pitch"
+    thesis: "New offices, geos, and relocations are physical proof that the operating system has to travel."
+    required_vars: [department]
+    opener: "A new site is the moment {department} process either ports cleanly or gets reinvented badly."
+    t24: "Hi {first_name}, noticed {company} is expanding footprint. Teams doing that usually discover their {department} motion is HQ-shaped. Is the new site inheriting a playbook, or starting from zero?"
+    cta: "Happy to walk through the portable-process version of this."
+    loss_aversion: "Each new site that invents its own {department} motion becomes a permanent reconciliation tax."
+  fear_of_loss:
+    name: "The Fear-of-Loss Pitch"
+    thesis: "A regulation that applies to them is a dated reason to act; waiting is a choice with a fine attached."
+    required_vars: [regulation]
+    opener: "{regulation} is not a thought piece for {company} — it has a date."
+    t24: "Hi {first_name}, {regulation} looks applicable to {company}. Most teams I talk to are either already documenting {department} against it or hoping it slips. Where are you?"
+    cta: "I can send the one-pager others used to get ahead of the date."
+    loss_aversion: "The expensive version of {regulation} is the version you do after the letter arrives."
+  automation_pitch:
+    name: "The Automation Pitch"
+    thesis: "A layoff is a mandate to do the same work with fewer people. Sell the machine, not the headcount."
+    required_vars: [department]
+    opener: "After a reduction, {department} is usually asked to keep the number and lose the seats. That is an automation problem, not a motivation problem."
+    t24: "Hi {first_name}, saw the {company} reduction. The teams that come out of this clean usually pick one {department} motion and automate it in 60 days. Is that already on a list?"
+    cta: "I can show the do-more-with-less version, not the rip-and-replace version."
+    loss_aversion: "The alternative is the remaining team burning out on the same process that just lost people."
+  turnaround_pitch:
+    name: "The Turnaround Pitch"
+    thesis: "A departure or a stall is a chance to be the person who brought a plan, not another vendor."
+    required_vars: [department]
+    opener: "When {department} leadership changes or stalls, the next useful conversation is a plan, not a pitch."
+    t24: "Hi {first_name}, {company} looks mid-reset on {department}. I have a short turnaround sequence that similar teams used in the first 60 days — useful even if you buy nothing."
+    cta: "Want the sequence?"
+    loss_aversion: "A vacuum in {department} gets filled by the first credible plan that shows up."
+  roi_pitch:
+    name: "The ROI Pitch"
+    thesis: "A warning or a drought changes the buying question from 'is it better?' to 'does it pay back this quarter?'"
+    required_vars: [department]
+    opener: "When the money conversation gets tight, {department} spend has to defend itself in weeks, not years."
+    t24: "Hi {first_name}, the recent {company} numbers make this a payback conversation. I can show where {department} usually finds a quarter of cost without a rip-and-replace. Is that even on the table?"
+    cta: "I will bring the math, not the brochure."
+    loss_aversion: "Waiting for the next raise to fix {department} is how droughts become a second warning."
+  flattery_opener:
+    name: "The Flattery Opener"
+    thesis: "A promotion or an award is permission to start a human conversation, not a product dump."
+    required_vars: [new_role]
+    opener: "The {new_role} news at {company} is deserved — and it is also the moment people start asking you for a point of view."
+    t24: "Hi {first_name}, congratulations on {new_role}. I will not bury you in a deck. One question: is there a {department} problem you inherited that you actually want to solve in the first 90 days?"
+    cta: "If yes, I will keep it to one page."
+    loss_aversion: "The first 90 days of a new title are when your name gets attached to a result — or to the status quo."
+  ego_bait:
+    name: "The Ego-Bait Pitch"
+    thesis: "A public appearance is a hook: talk about their idea, not your product."
+    required_vars: [department]
+    opener: "Caught your {company} appearance — the {department} point was the one I keep hearing from operators and almost never from vendors."
+    t24: "Hi {first_name}, your recent comments on {department} lined up with what I am seeing in the field. I have a short field note you might actually want to steal for the next one. Interested?"
+    cta: "No pitch, just the note."
+    loss_aversion: "Most vendor follow-ups ignore the idea you just put on stage. This one will not."
+  insider_pitch:
+    name: "The Insider Pitch"
+    thesis: "A mentioned migration or internal project is a scoop — sell as a peer who already knows, not a stranger who guessed."
+    required_vars: [department]
+    opener: "If {company} is really moving {department} the way it sounded, the risk is not the destination — it is the six months in between."
+    t24: "Hi {first_name}, I caught the {department} project mention. Teams in the middle of that usually want a second set of eyes on the cutover, not another platform. Is that a useful conversation?"
+    cta: "I can be specific because I already know the project exists."
+    loss_aversion: "Migrations fail quietly in the middle, then get blamed on the destination system."
+  t24_profiling:
+    name: "T24 Profiling"
+    thesis: "They already touched owned property. The only job is to qualify the window in 24 hours."
+    required_vars: [first_name, company]
+    opener: "You were just on {company}'s side of a real buying motion — that is a different conversation than a cold one."
+    t24: "Hi {first_name}, saw {company} on {page}. Teams that hit that page are usually either comparing options this month or collecting ammo for later. Which is it for you?"
+    cta: "If it is this month, I will keep this short and useful."
+    loss_aversion: "The 24-hour window after a high-intent hit is when a human reply still feels like service, not outbound."
+  marketplace_compare:
+    name: "The Marketplace Compare"
+    thesis: "A G2/Capterra/TrustRadius visit means they are building a shortlist. Be on it with a comparison, not a slogan."
+    required_vars: [competitor]
+    opener: "If {company} is on a comparison page against {competitor}, someone internally was asked to make a list."
+    t24: "Hi {first_name}, I have {company} looking at {competitor} in the marketplace. I can send the comparison the evaluator usually wishes they had — categories they actually score, not vendor adjectives. Useful?"
+    cta: "One page, their criteria, no demo required."
+    loss_aversion: "The shortlist gets locked. After that you are explaining why you were not on it."
+  contextual_cold:
+    name: "The Contextual Cold"
+    thesis: "Third-degree topic interest is not a buying window. Lead with their context, ask for permission, expect a no."
+    required_vars: [department]
+    opener: "Not pretending this is urgent — I just keep seeing {company} adjacent to the same {department} problem."
+    t24: "Hi {first_name}, this is a cold note with a reason. {company} has been showing up around {department} in public. If that is noise, delete. If it is a live thread, I have one useful observation and then I will stop."
+    cta: "Worth a sentence back?"
+    loss_aversion: "Most cold notes have no reason. This one does, and it will not follow you around."

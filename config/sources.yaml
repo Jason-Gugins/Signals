@@ -1,0 +1,35 @@
+defaults:
+  enabled: true
+  cadence_hours: 24
+  rate_per_host: 1.0
+  max_docs_per_account: 50
+
+sources:
+  sec_edgar:
+    enabled: true
+    cadence_hours: 24
+    rate_per_host: 8.0            # SEC allows 10 req/s; stay under
+    host: "data.sec.gov"
+    requires: ["cik"]
+  ats_greenhouse: { enabled: true, cadence_hours: 12, rate_per_host: 2.0, requires: ["ats_token"] }
+  ats_lever:      { enabled: true, cadence_hours: 12, rate_per_host: 2.0, requires: ["ats_token"] }
+  ats_ashby:      { enabled: true, cadence_hours: 12, rate_per_host: 2.0, requires: ["ats_token"] }
+  ats_smartrecruiters: { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["ats_token"] }
+  ats_workable:   { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["ats_token"] }
+  ats_recruitee:  { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["ats_token"] }
+  ats_workday:    { enabled: true, cadence_hours: 24, rate_per_host: 0.5, requires: ["ats_token"] }
+  news_rss:       { enabled: true, cadence_hours: 12, rate_per_host: 0.5 }
+  company_feed:   { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["blog_feed_url"] }
+  federal_register: { enabled: true, cadence_hours: 24, rate_per_host: 2.0 }
+  warn_notices:   { enabled: true, cadence_hours: 24, rate_per_host: 0.5 }
+  techstack:      { enabled: true, cadence_hours: 168, rate_per_host: 1.0 }
+  wayback:        { enabled: true, cadence_hours: 168, rate_per_host: 0.5 }
+  crtsh:          { enabled: true, cadence_hours: 336, rate_per_host: 0.2 }
+  community_hn:   { enabled: true, cadence_hours: 24, rate_per_host: 1.0 }
+  community_github: { enabled: true, cadence_hours: 48, rate_per_host: 1.0 }
+  community_reddit: { enabled: false, cadence_hours: 24, rate_per_host: 0.2 }   # aggressive limits
+  marketplace_g2: { enabled: false, cadence_hours: 168 }   # browser tier, opt-in
+  content_itunes: { enabled: true, cadence_hours: 168, rate_per_host: 1.0 }
+  owned_intent:   { enabled: true, cadence_hours: 1 }      # local file drop
+  linkedin_db:    { enabled: true, cadence_hours: 6 }
+  repvue_db:      { enabled: true, cadence_hours: 168 }

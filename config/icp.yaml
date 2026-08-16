@@ -1,0 +1,33 @@
+# Multipliers are multiplied together, then clamped to [min_multiplier, max_multiplier].
+rules:
+  - id: size_sweet_spot
+    when: { employee_count_between: [50, 2000] }
+    multiplier: 1.25
+    reason: "Headcount in ICP band"
+  - id: too_small
+    when: { employee_count_lt: 20 }
+    multiplier: 0.5
+    reason: "Below minimum viable size"
+  - id: target_industry
+    when: { industry_any: ["Software", "Computer Software", "Financial Services", "Information Technology & Services"] }
+    multiplier: 1.2
+    reason: "Target industry"
+  - id: geo
+    when: { hq_country_any: ["Canada", "United States"] }
+    multiplier: 1.1
+    reason: "Serviceable geography"
+  - id: has_sales_org
+    when: { has_signal_type: hiring_surge, department_any: ["Sales", "Revenue", "Go To Market"] }
+    multiplier: 1.15
+    reason: "Active sales org growth"
+
+disqualifiers:
+  - id: competitor
+    when: { domain_in_file: "config/lists/competitors.txt" }
+    reason: "Competitor"
+  - id: customer
+    when: { domain_in_file: "config/lists/customers.txt" }
+    reason: "Existing customer — route to CS"
+  - id: do_not_contact
+    when: { domain_in_file: "config/lists/dnc.txt" }
+    reason: "Do-not-contact list"

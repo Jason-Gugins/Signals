@@ -1,0 +1,27 @@
+{
+  "hits": {
+    "total": {"value": 2, "relation": "eq"},
+    "hits": [
+      {
+        "_id": "0001868778-25-000019:ex.htm",
+        "_source": {
+          "adsh": "0001868778-25-000019",
+          "ciks": ["0001868778"],
+          "display_names": ["Informatica Inc.  (INFA)  (CIK 0001868778)"],
+          "form": "8-K",
+          "file_date": "2025-08-06"
+        }
+      },
+      {
+        "_id": "0000320193-26-000100:ex.htm",
+        "_source": {
+          "adsh": "0000320193-26-000100",
+          "ciks": ["0000320193"],
+          "display_names": ["Apple Inc. (AAPL) (CIK 0000320193)", "Databricks, Inc."],
+          "form": "8-K",
+          "file_date": "2026-02-01"
+        }
+      }
+    ]
+  }
+}

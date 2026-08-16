@@ -1,0 +1,51 @@
+{
+  "jobs": [
+    {
+      "id": 101,
+      "title": "Account Executive",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/101",
+      "updated_at": "2026-08-01T12:00:00Z",
+      "location": {"name": "Toronto, ON, Canada"},
+      "departments": [{"name": "Sales"}],
+      "offices": [{"name": "Toronto"}],
+      "content": "&lt;p&gt;Sell our product in &amp;amp; around Toronto.&lt;/p&gt;"
+    },
+    {
+      "id": 102,
+      "title": "Staff Engineer",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/102",
+      "updated_at": "2026-07-15T00:00:00Z",
+      "location": {"name": "Remote - US"},
+      "departments": [],
+      "content": "<p>Build things</p>"
+    },
+    {
+      "id": 103,
+      "title": "VP Sales",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/103",
+      "updated_at": "2026-08-10T00:00:00Z",
+      "location": {"name": "San Francisco or Remote"},
+      "departments": [{"name": "Sales"}],
+      "content": "Lead the team"
+    },
+    {
+      "id": 104,
+      "title": "Recruiter",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/104",
+      "updated_at": "2026-06-01T00:00:00Z",
+      "location": {"name": "London, UK"},
+      "departments": [{"name": "People"}],
+      "content": "Hire people"
+    },
+    {
+      "id": 105,
+      "title": "Finance Manager",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/105",
+      "updated_at": "2026-05-01T00:00:00Z",
+      "location": {"name": "Austin"},
+      "departments": [{"name": "Finance"}],
+      "content": "Budgets",
+      "pay_input_ranges": [{"min_cents": 12000000, "max_cents": 16000000, "currency_type": "USD"}]
+    }
+  ]
+}

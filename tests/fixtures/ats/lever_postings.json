@@ -1,0 +1,45 @@
+[
+  {
+    "id": "lev-1",
+    "text": "Customer Success Manager",
+    "hostedUrl": "https://jobs.lever.co/acme/lev-1",
+    "createdAt": 1722470400000,
+    "categories": {"department": "CS", "location": "New York, NY, USA", "commitment": "Full-time"},
+    "descriptionPlain": "Help customers win.",
+    "workplaceType": "hybrid"
+  },
+  {
+    "id": "lev-2",
+    "text": "Backend Engineer",
+    "hostedUrl": "https://jobs.lever.co/acme/lev-2",
+    "createdAt": 1725148800000,
+    "categories": {"location": "Remote"},
+    "descriptionPlain": "APIs",
+    "workplaceType": "remote"
+  },
+  {
+    "id": "lev-3",
+    "text": "Director of Engineering",
+    "hostedUrl": "https://jobs.lever.co/acme/lev-3",
+    "createdAt": 1719792000000,
+    "categories": {"department": "Engineering", "location": "Seattle, WA", "commitment": "Full-time"},
+    "descriptionPlain": "Lead eng",
+    "salaryRange": {"min": 200000, "max": 260000, "currency": "USD"}
+  },
+  {
+    "id": "lev-4",
+    "text": "Office Manager",
+    "hostedUrl": "https://jobs.lever.co/acme/lev-4",
+    "createdAt": 1717200000000,
+    "categories": {"department": "Ops", "location": "Chicago, IL, United States"},
+    "descriptionPlain": "Keep the lights on"
+  },
+  {
+    "id": "lev-5",
+    "text": "Data Analyst",
+    "hostedUrl": "https://jobs.lever.co/acme/lev-5",
+    "createdAt": 1714521600000,
+    "categories": {"department": "Data", "location": "London, UK"},
+    "descriptionPlain": "Dashboards"
+  }
+]

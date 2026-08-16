@@ -26,10 +26,14 @@ def enabled_sources(config: Config) -> list[SourceAdapter]:
     entries = table.get("sources", table)
     defaults = table.get("defaults") or {}
     out: list[SourceAdapter] = []
-    for key, cls in sorted(SOURCES.items()):
-        entry = entries.get(key) or {}
+    for key, entry in sorted((entries or {}).items()):
+        if not isinstance(entry, dict):
+            continue
         enabled = entry.get("enabled", defaults.get("enabled", True))
         if not enabled:
+            continue
+        cls = SOURCES.get(key)
+        if cls is None:
             continue
         if cls.tier == "browser" and not config.browser.enabled:
             logger.warning("skipping browser-tier source {} (browser.enabled=false)", key)

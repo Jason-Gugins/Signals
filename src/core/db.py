@@ -216,6 +216,34 @@ CREATE TABLE IF NOT EXISTS watchlist (
     last_alert_at  TEXT,
     alert_on_types TEXT             -- JSON list; null = any primary trigger
 );
+
+CREATE TABLE IF NOT EXISTS jobs (
+    job_key       TEXT PRIMARY KEY,
+    domain        TEXT NOT NULL,
+    source        TEXT NOT NULL,
+    external_id   TEXT,
+    title         TEXT,
+    department    TEXT,
+    team          TEXT,
+    location_raw  TEXT,
+    city TEXT, region TEXT, country TEXT, remote INTEGER,
+    employment_type TEXT, seniority TEXT,
+    description   TEXT,
+    url           TEXT,
+    posted_at     TEXT,
+    first_seen_at TEXT, last_seen_at TEXT, closed_at TEXT,
+    comp_min REAL, comp_max REAL, comp_currency TEXT,
+    extra_data    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_domain ON jobs(domain);
+CREATE INDEX IF NOT EXISTS idx_jobs_posted ON jobs(posted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_dept   ON jobs(domain, department);
+
+CREATE TABLE IF NOT EXISTS job_snapshots (
+    domain TEXT NOT NULL, as_of TEXT NOT NULL,
+    open_count INTEGER, by_department TEXT, by_country TEXT,
+    PRIMARY KEY (domain, as_of)
+);
 """
 
 # table -> {column: type-with-default}  — populated by later tasks

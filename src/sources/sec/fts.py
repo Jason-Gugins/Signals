@@ -1,0 +1,56 @@
+"""SEC EDGAR full-text search parser. Endpoint verified 2026-08-16 (200 JSON)."""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+
+from src.core.models import Account
+from src.identity.names import normalize_name
+from src.sources.base import SignalCandidate
+
+
+def parse_fts_response(body: bytes) -> list[dict]:
+    raw = json.loads(body)
+    out = []
+    for hit in ((raw.get("hits") or {}).get("hits") or []):
+        src = hit.get("_source") or {}
+        ciks = src.get("ciks") or []
+        out.append(
+            {
+                "accession": src.get("adsh") or "",
+                "cik": ciks[0] if ciks else "",
+                "form": src.get("form") or (src.get("root_forms") or [""])[0],
+                "filed": src.get("file_date"),
+                "display_names": list(src.get("display_names") or []),
+            }
+        )
+    return out
+
+
+def fts_to_candidates(hits: list[dict], account: Account, *, today: date) -> list[SignalCandidate]:
+    want = normalize_name(account.name) if account.name else None
+    if not want:
+        return []
+    out = []
+    for hit in hits:
+        names = " ".join(hit.get("display_names") or [])
+        if want not in (normalize_name(names) or ""):
+            # also allow any individual display name
+            if not any(want == normalize_name(n) or (normalize_name(n) or "").find(want) >= 0 for n in hit.get("display_names") or []):
+                continue
+        out.append(
+            SignalCandidate(
+                signal_type="ma_target",
+                observed_at=hit.get("filed") or today.isoformat(),
+                natural_key=hit["accession"],
+                title=f"Mentioned in {hit.get('form')} {hit.get('accession')}",
+                confidence=0.5,
+                evidence_data={
+                    "filer_cik": hit.get("cik"),
+                    "display_names": hit.get("display_names"),
+                    "form": hit.get("form"),
+                },
+            )
+        )
+    return out

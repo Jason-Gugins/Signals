@@ -1,0 +1,1 @@
+{"totalFound":2,"offset":0,"limit":100,"content":[{"id":"s1","name":"Sales Manager","releasedDate":"2026-08-02","ref":"s1","location":{"city":"Austin","region":"TX","country":"United States"},"department":{"label":"Sales"},"compensation":{"min":90000,"max":120000,"currency":"USD"}},{"id":"s2","name":"SWE","releasedDate":"2026-07-02","ref":"s2","location":{"city":"Remote"}}]}

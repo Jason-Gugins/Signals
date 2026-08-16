@@ -1,0 +1,397 @@
+version: 1
+categories: [financial, hiring, technology, operational, negative, neutral, intent]
+origins: [internal, external]
+catalysts: [primary, secondary]
+polarities: [positive, negative, neutral]
+
+types:
+  funding_round:
+    category: financial
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 30
+    half_life_days: 180
+    play: growth_pitch
+    label: "New funding round"
+  funding_form_d:
+    category: financial
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 26
+    half_life_days: 180
+    play: growth_pitch
+    label: "Form D filing"
+  ipo_filing:
+    category: financial
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 28
+    half_life_days: 240
+    play: compliance_predictability
+    label: "IPO filing"
+  ipo_pricing:
+    category: financial
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 30
+    half_life_days: 180
+    play: compliance_predictability
+    label: "IPO priced"
+  ma_acquirer:
+    category: financial
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 32
+    half_life_days: 270
+    play: integration_pitch
+    label: "M&A — acquirer"
+  ma_target:
+    category: financial
+    origin: internal
+    catalyst: primary
+    polarity: neutral
+    degree: 0
+    weight: 18
+    half_life_days: 270
+    play: integration_pitch
+    label: "M&A — target"
+  annual_report_10k:
+    category: financial
+    origin: internal
+    catalyst: secondary
+    polarity: neutral
+    degree: 0
+    weight: 8
+    half_life_days: 365
+    play: alignment_pitch
+    label: "10-K / annual report"
+  earnings_warning:
+    category: financial
+    origin: internal
+    catalyst: secondary
+    polarity: negative
+    degree: 0
+    weight: 16
+    half_life_days: 120
+    play: roi_pitch
+    label: "Earnings warning"
+  funding_drought:
+    category: financial
+    origin: internal
+    catalyst: secondary
+    polarity: negative
+    degree: 0
+    weight: 12
+    half_life_days: 365
+    play: roi_pitch
+    label: "Funding drought"
+  champion_migration:
+    category: hiring
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 45
+    half_life_days: 120
+    play: relationship_pitch
+    label: "Champion changed jobs"
+  exec_hire:
+    category: hiring
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 34
+    half_life_days: 120
+    play: fresh_eyes
+    label: "Executive hire"
+  leadership_job_open:
+    category: hiring
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 22
+    half_life_days: 60
+    play: fresh_eyes
+    label: "Leadership role open"
+  promotion:
+    category: hiring
+    origin: internal
+    catalyst: secondary
+    polarity: positive
+    degree: 0
+    weight: 18
+    half_life_days: 120
+    play: flattery_opener
+    label: "Promotion"
+  backfill_open:
+    category: hiring
+    origin: internal
+    catalyst: secondary
+    polarity: positive
+    degree: 0
+    weight: 14
+    half_life_days: 60
+    play: fresh_eyes
+    label: "Backfill opening"
+  hiring_surge:
+    category: hiring
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 24
+    half_life_days: 90
+    play: scaling_pitch
+    label: "Hiring surge"
+  department_expansion:
+    category: hiring
+    origin: internal
+    catalyst: secondary
+    polarity: positive
+    degree: 0
+    weight: 16
+    half_life_days: 90
+    play: scaling_pitch
+    label: "Department expansion"
+  exec_departure:
+    category: hiring
+    origin: internal
+    catalyst: secondary
+    polarity: negative
+    degree: 0
+    weight: 14
+    half_life_days: 120
+    play: turnaround_pitch
+    label: "Executive departure"
+  tech_install_new:
+    category: technology
+    origin: internal
+    catalyst: secondary
+    polarity: positive
+    degree: 0
+    weight: 18
+    half_life_days: 120
+    play: ecosystem_pitch
+    label: "New tech install"
+  tech_removed:
+    category: technology
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 26
+    half_life_days: 120
+    play: displacement_pitch
+    label: "Tech removed"
+  competitor_detected:
+    category: technology
+    origin: internal
+    catalyst: secondary
+    polarity: neutral
+    degree: 0
+    weight: 14
+    half_life_days: 365
+    play: displacement_pitch
+    label: "Competitor in stack"
+  renewal_window:
+    category: technology
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 30
+    half_life_days: 45
+    play: displacement_pitch
+    label: "Renewal window"
+  high_ticket_tech:
+    category: technology
+    origin: internal
+    catalyst: secondary
+    polarity: neutral
+    degree: 0
+    weight: 10
+    half_life_days: 365
+    play: premium_pitch
+    label: "High-ticket tech"
+  tech_migration_mentioned:
+    category: technology
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 24
+    half_life_days: 90
+    play: insider_pitch
+    label: "Tech migration mentioned"
+  product_launch:
+    category: operational
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 22
+    half_life_days: 90
+    play: support_pitch
+    label: "Product launch"
+  office_open:
+    category: operational
+    origin: internal
+    catalyst: secondary
+    polarity: positive
+    degree: 0
+    weight: 18
+    half_life_days: 120
+    play: infrastructure_pitch
+    label: "New office"
+  new_geo:
+    category: operational
+    origin: internal
+    catalyst: secondary
+    polarity: positive
+    degree: 0
+    weight: 16
+    half_life_days: 90
+    play: infrastructure_pitch
+    label: "New geography"
+  relocation:
+    category: operational
+    origin: internal
+    catalyst: secondary
+    polarity: positive
+    degree: 0
+    weight: 12
+    half_life_days: 120
+    play: infrastructure_pitch
+    label: "Relocation"
+  certification:
+    category: operational
+    origin: internal
+    catalyst: secondary
+    polarity: neutral
+    degree: 0
+    weight: 8
+    half_life_days: 365
+    play: compliance_predictability
+    label: "Certification"
+  regulation_applicable:
+    category: operational
+    origin: external
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 20
+    half_life_days: 120
+    play: fear_of_loss
+    label: "Applicable regulation"
+  competitor_outage:
+    category: operational
+    origin: external
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 22
+    half_life_days: 21
+    play: displacement_pitch
+    label: "Competitor outage"
+  market_consolidation:
+    category: operational
+    origin: external
+    catalyst: secondary
+    polarity: neutral
+    degree: 0
+    weight: 10
+    half_life_days: 180
+    play: integration_pitch
+    label: "Market consolidation"
+  layoff:
+    category: negative
+    origin: internal
+    catalyst: primary
+    polarity: negative
+    degree: 0
+    weight: 28
+    half_life_days: 90
+    play: automation_pitch
+    label: "Layoff"
+  stagnation:
+    category: negative
+    origin: internal
+    catalyst: secondary
+    polarity: negative
+    degree: 0
+    weight: 12
+    half_life_days: 180
+    play: turnaround_pitch
+    label: "Stagnation"
+  award:
+    category: neutral
+    origin: internal
+    catalyst: secondary
+    polarity: neutral
+    degree: 0
+    weight: 6
+    half_life_days: 120
+    play: flattery_opener
+    label: "Award"
+  content_appearance:
+    category: neutral
+    origin: internal
+    catalyst: secondary
+    polarity: neutral
+    degree: 0
+    weight: 8
+    half_life_days: 60
+    play: ego_bait
+    label: "Content appearance"
+  internal_project_scoop:
+    category: neutral
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 20
+    half_life_days: 90
+    play: insider_pitch
+    label: "Internal project scoop"
+  intent_1st_owned:
+    category: intent
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 1
+    weight: 40
+    half_life_days: 21
+    play: t24_profiling
+    label: "1st-degree owned intent"
+  intent_2nd_marketplace:
+    category: intent
+    origin: external
+    catalyst: primary
+    polarity: positive
+    degree: 2
+    weight: 26
+    half_life_days: 30
+    play: marketplace_compare
+    label: "2nd-degree marketplace intent"
+  intent_3rd_topic:
+    category: intent
+    origin: external
+    catalyst: secondary
+    polarity: positive
+    degree: 3
+    weight: 10
+    half_life_days: 45
+    play: contextual_cold
+    label: "3rd-degree topic intent"

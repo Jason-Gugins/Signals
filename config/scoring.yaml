@@ -1,0 +1,74 @@
+decay:
+  model: exponential          # value = 0.5 ** (age_days / half_life_days)
+  floor: 0.02                 # never fully zero; keeps history visible
+
+caps:
+  per_type_max_signals: 3     # only the 3 newest signals of a type contribute
+  per_source_max_share: 0.5   # a single source may contribute at most 50% of raw
+
+saturation:
+  k: 40.0                     # score = 100 * (1 - exp(-raw / k))
+
+icp:
+  min_multiplier: 0.0
+  max_multiplier: 2.0
+
+combos:
+  - id: super_signal
+    bonus: 25
+    urgency: 10
+    action: "Call today. 10/10 urgency."
+    all_of:
+      - { any_type: [champion_migration, exec_hire], within_days: 30 }
+      - { any_type: [intent_1st_owned], within_days: 30 }
+  - id: champion_play
+    bonus: 15
+    urgency: 8
+    action: "Personal outreach within 30 days."
+    all_of:
+      - { any_type: [champion_migration], within_days: 30 }
+  - id: deep_pockets
+    bonus: 12
+    urgency: 7
+    action: "Growth/Scaling package."
+    all_of:
+      - { any_type: [funding_round, funding_form_d, ipo_pricing], within_days: 120 }
+      - { any_type: [hiring_surge, leadership_job_open], within_days: 60 }
+  - id: marketplace
+    bonus: 10
+    urgency: 6
+    action: "Send comparison chart."
+    all_of:
+      - { any_type: [intent_2nd_marketplace], within_days: 30 }
+  - id: efficiency_pivot
+    bonus: 10
+    urgency: 6
+    action: "Automation / do-more-with-less."
+    all_of:
+      - { any_type: [layoff], within_days: 60 }
+    none_of:
+      - { any_type: [funding_round, funding_form_d], within_days: 120 }
+  - id: displacement_clock
+    bonus: 14
+    urgency: 7
+    action: "Outreach 60–90 days before renewal."
+    all_of:
+      - { any_type: [renewal_window], within_days: 90 }
+      - { any_type: [competitor_detected], within_days: 365 }
+  - id: contextual_cold
+    bonus: 6
+    urgency: 4
+    action: "Lead with the integration."
+    all_of:
+      - { any_type: [tech_install_new], within_days: 90 }
+
+tiers:
+  tier1: { min_score: 70, or_urgency: 8 }
+  tier2: { min_score: 45 }
+  tier3: { min_score: 20 }
+  # else tier 4
+
+buying_window:
+  active_days: 30
+  opening_days: 90
+  developing_days: 180

@@ -113,6 +113,25 @@ def test_reparse_sec_submissions_does_not_need_empty_meta(tmp_path):
     assert orch.db.one("SELECT COUNT(*) AS n FROM signals")["n"] > 0
 
 
+def test_resolve_ats_writes_vendor(tmp_path):
+    html = Path("tests/fixtures/ats/careers_greenhouse.html").read_bytes()
+
+    class CareersFetch:
+        def get(self, task, **kw):
+            from src.core.http import FetchResult
+
+            doc = Document(doc_id="c", source="ats_discovery", url=task.url, body=html, status=200)
+            return FetchResult(True, 200, doc, False, None, 1)
+
+    orch = _orch(tmp_path, fetcher=CareersFetch())
+    orch.registry.upsert(Account(domain="acme.com", name="Acme", careers_url="https://acme.com/careers"))
+    out = orch.resolve()
+    assert out["ats"] == 1
+    acct = orch.registry.get("acme.com")
+    assert acct.ats_vendor == "greenhouse"
+    assert acct.ats_token == "acme"
+
+
 def test_score_writes_history(tmp_path):
     csv_path = tmp_path / "seed.csv"
     csv_path.write_text("domain,name\nacme.com,Acme\n", encoding="utf-8")

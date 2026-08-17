@@ -91,7 +91,7 @@ def seed(ctx, csv_path, linkedin, repvue, limit, cohort):
 def resolve(ctx, cik, ats, feeds, icp, limit):
     orch: Orchestrator = ctx.obj["get_orch"]()
     try:
-        out = orch.resolve(cohort=ctx.obj["cohort"], limit=limit)
+        out = orch.resolve(cohort=ctx.obj["cohort"], limit=limit, ats=ats, cik=cik, feeds=feeds, icp=icp)
         click.echo(f"resolved accounts={out.get('accounts', 0)}")
     except Exception as exc:
         click.echo(f"resolve degraded: {exc}")

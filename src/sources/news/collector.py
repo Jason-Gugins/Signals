@@ -1,6 +1,10 @@
+from datetime import date
+
 from src.core.models import Account, Document
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
-from src.sources.news.feeds import bing_news_url, google_news_url
+from src.sources.content.blog import blog_to_candidates
+from src.sources.news.classify import classify_news
+from src.sources.news.feeds import bing_news_url, google_news_url, parse_feed
 from src.sources.registry import register
 
 
@@ -18,4 +22,28 @@ class NewsRssSource(SourceAdapter):
         ]
 
     def parse(self, doc, account, task_meta):
-        return []
+        if not doc.body:
+            return []
+        today = date.fromisoformat(task_meta["today"])
+        out = []
+        for it in parse_feed(doc.body):
+            c = classify_news(it, account, today=today)
+            if c:
+                out.append(c)
+        return out
+
+
+@register
+class CompanyFeedSource(SourceAdapter):
+    key = "company_feed"
+    tier = "http"
+    cadence_hours = 24
+    requires = ("blog_feed_url",)
+
+    def plan(self, account, cursor):
+        return [FetchTask(source=self.key, url=account.blog_feed_url, domain=account.domain)]
+
+    def parse(self, doc, account, task_meta):
+        if not doc.body:
+            return []
+        return blog_to_candidates(parse_feed(doc.body), account, today=date.fromisoformat(task_meta["today"]))

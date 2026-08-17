@@ -144,9 +144,7 @@ class CollectorRunner:
                 all_cands.extend(cands)
                 follow.extend(adapter.follow_tasks(result.doc, account, meta) or [])
                 jobs = adapter.harvest_jobs(result.doc, account, meta) or []
-                if jobs:
-                    from src.sources.ats.common import upsert_jobs
-                    upsert_jobs(self.db, account.domain, jobs, adapter.key, now=_iso(now))
+                self._persist_jobs(adapter, account, jobs, now, more_pages=bool(follow))
             stats.candidates += len(all_cands)
             stats._src(adapter.key)["candidates"] += len(all_cands)
             new_n = self._persist(account, adapter.key, all_cands, last_doc)
@@ -206,9 +204,7 @@ class CollectorRunner:
                 new_n = self._persist(account, adapter.key, cands, result.doc)
                 stats.signals_new += new_n
                 jobs = adapter.harvest_jobs(result.doc, account, meta) or []
-                if jobs:
-                    from src.sources.ats.common import upsert_jobs
-                    upsert_jobs(self.db, account.domain, jobs, adapter.key, now=_iso(now))
+                self._persist_jobs(adapter, account, jobs, now, more_pages=False)
         if last_doc is not None:
             self._record_success(adapter, "global", adapter.next_cursor(last_doc, []), last_doc, now)
 
@@ -244,6 +240,24 @@ class CollectorRunner:
         new, _upd = self.signal_store.upsert_many(valid)
         self.ctx.bump(signals_new=new)
         return new
+
+    def _persist_jobs(self, adapter, account, jobs, now, *, more_pages: bool) -> None:
+        is_ats = str(getattr(adapter, "key", "")).startswith("ats_")
+        if not jobs and not is_ats:
+            return
+        from src.sources.ats.common import snapshot_jobs, upsert_jobs
+
+        upsert_jobs(
+            self.db,
+            account.domain,
+            jobs,
+            adapter.key,
+            now=_iso(now),
+            token=getattr(account, "ats_token", None) or "",
+            mark_closed=is_ats and not more_pages,
+        )
+        if is_ats and not more_pages:
+            snapshot_jobs(self.db, account.domain, as_of=now.date().isoformat())
 
     def _cursor(self, source: str, key: str) -> Optional[dict]:
         return self.db.one("SELECT * FROM source_cursors WHERE source=? AND key=?", (source, key))

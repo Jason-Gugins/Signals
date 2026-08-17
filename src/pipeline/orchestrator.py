@@ -72,7 +72,7 @@ class Orchestrator:
             ctx.bump(accounts=stats.created)
             return stats
 
-    def resolve(self, *, cohort=None, limit=None, ats: bool = True, cik: bool = False, feeds: bool = False, icp: bool = True) -> dict:
+    def resolve(self, *, cohort=None, limit=None, ats: bool = True, cik: bool = True, feeds: bool = True, icp: bool = True) -> dict:
         with RunContext(self.db, "resolve") as ctx:
             accounts = self._accounts(cohort=cohort, limit=limit)
             ctx.bump(accounts=len(accounts))
@@ -89,6 +89,17 @@ class Orchestrator:
                             out["ats"] += 1
                     except Exception as exc:
                         logger.warning("ats discover failed for {}: {}", acct.domain, exc)
+            if cik:
+                from src.identity.edgar_ids import EdgarIdentityResolver
+
+                need = [a for a in accounts if not a.cik]
+                if need:
+                    try:
+                        resolver = EdgarIdentityResolver(self.fetcher or self._http_fetcher(ctx), self.registry)
+                        found = resolver.resolve_all(need)
+                        out["cik"] = sum(1 for v in found.values() if v)
+                    except Exception as exc:
+                        logger.warning("cik resolve failed: {}", exc)
             if icp:
                 try:
                     rules = self.config.load_yaml("icp")

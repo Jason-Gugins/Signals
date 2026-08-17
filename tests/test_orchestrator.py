@@ -125,11 +125,41 @@ def test_resolve_ats_writes_vendor(tmp_path):
 
     orch = _orch(tmp_path, fetcher=CareersFetch())
     orch.registry.upsert(Account(domain="acme.com", name="Acme", careers_url="https://acme.com/careers"))
-    out = orch.resolve()
+    out = orch.resolve(ats=True, cik=False, feeds=False, icp=False)
     assert out["ats"] == 1
     acct = orch.registry.get("acme.com")
     assert acct.ats_vendor == "greenhouse"
     assert acct.ats_token == "acme"
+
+
+def test_resolve_cik_from_tickers_fixture(tmp_path):
+    body = Path("tests/fixtures/sec/company_tickers.json").read_bytes()
+    from src.identity.edgar_ids import TICKERS_URL
+
+    class TickersFetch:
+        def get(self, task, **kw):
+            from src.core.http import FetchResult
+
+            assert task.url == TICKERS_URL
+            doc = Document(doc_id="t", source="sec_edgar", url=task.url, body=body, status=200)
+            return FetchResult(True, 200, doc, False, None, 1)
+
+    orch = _orch(tmp_path, fetcher=TickersFetch())
+    orch.registry.upsert(Account(domain="apple.com", name="Apple Inc.", ticker="AAPL"))
+    out = orch.resolve(ats=False, cik=True, feeds=False, icp=False)
+    assert out["cik"] == 1
+    assert orch.registry.get("apple.com").cik == "0000320193"
+
+
+def test_resolve_cik_skips_when_already_set(tmp_path):
+    class Boom:
+        def get(self, task, **kw):
+            raise AssertionError("should not fetch")
+
+    orch = _orch(tmp_path, fetcher=Boom())
+    orch.registry.upsert(Account(domain="acme.com", name="Acme", cik="0001234567"))
+    out = orch.resolve(ats=False, cik=True, feeds=False, icp=False)
+    assert out["cik"] == 0
 
 
 def test_score_writes_history(tmp_path):

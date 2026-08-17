@@ -100,6 +100,16 @@ class Orchestrator:
                         out["cik"] = sum(1 for v in found.values() if v)
                     except Exception as exc:
                         logger.warning("cik resolve failed: {}", exc)
+            if feeds:
+                from src.identity.feed_discovery import FeedDiscovery
+
+                fdisc = FeedDiscovery(self.fetcher or self._http_fetcher(ctx), self.registry)
+                for acct in accounts:
+                    try:
+                        if fdisc.discover(acct):
+                            out["feeds"] += 1
+                    except Exception as exc:
+                        logger.warning("feed discover failed for {}: {}", acct.domain, exc)
             if icp:
                 try:
                     rules = self.config.load_yaml("icp")

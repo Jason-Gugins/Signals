@@ -162,6 +162,24 @@ def test_resolve_cik_skips_when_already_set(tmp_path):
     assert out["cik"] == 0
 
 
+def test_resolve_feeds_writes_blog_url(tmp_path):
+    html = Path("tests/fixtures/news/homepage_with_feed.html").read_bytes()
+
+    class HomeFetch:
+        def get(self, task, **kw):
+            from src.core.http import FetchResult
+
+            body = html if (task.url or "").rstrip("/") == "https://acme.com" else b""
+            doc = Document(doc_id="h", source="feed_discovery", url=task.url, body=body, status=200)
+            return FetchResult(True, 200, doc, False, None, 1)
+
+    orch = _orch(tmp_path, fetcher=HomeFetch())
+    orch.registry.upsert(Account(domain="acme.com", name="Acme"))
+    out = orch.resolve(ats=False, cik=False, feeds=True, icp=False)
+    assert out["feeds"] == 1
+    assert orch.registry.get("acme.com").blog_feed_url == "https://acme.com/blog/feed"
+
+
 def test_score_writes_history(tmp_path):
     csv_path = tmp_path / "seed.csv"
     csv_path.write_text("domain,name\nacme.com,Acme\n", encoding="utf-8")

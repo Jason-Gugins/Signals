@@ -85,6 +85,34 @@ def test_reparse_zero_network_same_ids(tmp_path):
     assert stats.signals_new == 0
 
 
+def test_reparse_sec_submissions_does_not_need_empty_meta(tmp_path):
+    from src.sources.sec.collector import SecEdgarSource
+
+    cfg = Config()
+    cfg.contact_email = "recon@example.com"
+    cfg.http.respect_robots = False
+    cfg.storage.db_path = str(tmp_path / "s.db")
+    cfg.storage.raw_dir = str(tmp_path / "raw")
+    cfg.storage.briefs_dir = str(tmp_path / "briefs")
+    cfg.storage.export_dir = str(tmp_path / "exports")
+    cfg.config_dir = "config"
+    orch = Orchestrator(cfg, fetcher=FakeFetch(), adapters=[SecEdgarSource()])
+    orch.registry.upsert(Account(domain="acme.com", name="Acme", cik="0001234567"))
+    body = Path("tests/fixtures/sec/submissions_sample.json").read_bytes()
+    RawStore(orch.db, orch.config.storage.raw_dir).put(
+        source="sec_edgar",
+        url="https://data.sec.gov/submissions/CIK0001234567.json",
+        body=body,
+        content_type="application/json",
+        status=200,
+        domain="acme.com",
+    )
+    stats = orch.reparse(sources=["sec_edgar"])
+    assert stats.failed == 0
+    assert stats.candidates > 0
+    assert orch.db.one("SELECT COUNT(*) AS n FROM signals")["n"] > 0
+
+
 def test_score_writes_history(tmp_path):
     csv_path = tmp_path / "seed.csv"
     csv_path.write_text("domain,name\nacme.com,Acme\n", encoding="utf-8")

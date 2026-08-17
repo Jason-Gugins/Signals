@@ -135,6 +135,11 @@ class CollectorRunner:
                 meta = dict(task.meta or {})
                 meta.setdefault("today", now.date().isoformat())
                 meta.setdefault("registry", self.registry)
+                if adapter.key == "federal_register" and "watches" not in meta:
+                    try:
+                        meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
+                    except Exception:
+                        meta["watches"] = []
                 cands = adapter.parse(result.doc, account, meta)
                 all_cands.extend(cands)
                 follow.extend(adapter.follow_tasks(result.doc, account, meta) or [])
@@ -191,6 +196,11 @@ class CollectorRunner:
                 meta = dict(task.meta or {})
                 meta.setdefault("today", now.date().isoformat())
                 meta.setdefault("registry", self.registry)
+                if adapter.key == "federal_register" and "watches" not in meta:
+                    try:
+                        meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
+                    except Exception:
+                        meta["watches"] = []
                 cands = adapter.parse(result.doc, account, meta)
                 stats.candidates += len(cands)
                 new_n = self._persist(account, adapter.key, cands, result.doc)

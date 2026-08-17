@@ -58,8 +58,11 @@ class Taxonomy:
 
     @classmethod
     def load(cls, path: str = "config/signals.yaml") -> "Taxonomy":
-        with open(path, encoding="utf-8") as fh:
-            return cls(yaml.safe_load(fh) or {})
+        p = Path(path)
+        if not p.is_file():
+            p = Path(__file__).resolve().parents[2] / path
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
+        return cls(data)
 
     def get(self, key: str) -> SignalType:
         try:

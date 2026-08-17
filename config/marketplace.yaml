@@ -1,0 +1,6 @@
+own_product: acme
+competitors: [competitorx]
+sites:
+  trustradius: { enabled: false }
+  capterra: { enabled: false }
+  g2: { enabled: false }

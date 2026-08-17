@@ -1,0 +1,1 @@
+from src.sources.marketplace.trustradius import parse_capterra_reviews

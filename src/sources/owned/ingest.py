@@ -12,6 +12,13 @@ from src.identity.domains import is_public_email_domain, root_domain
 from src.sources.base import SignalCandidate
 
 
+def load_owned_page_rules() -> dict:
+    import yaml
+
+    path = Path(__file__).resolve().parents[3] / "config" / "owned_pages.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
 EVENT_WEIGHTS = {
     "demo_request": 1.0,
     "pricing_view": 0.9,

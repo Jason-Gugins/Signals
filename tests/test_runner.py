@@ -249,3 +249,72 @@ def test_hooks_jobs_follow_and_today(tmp_path):
     assert db.one("SELECT COUNT(*) AS n FROM jobs")["n"] == 1
     types = {r["title"] for r in db.query("SELECT title FROM signals")}
     assert "F" in types and "I" in types
+
+
+def test_harvest_token_closed_snapshot(tmp_path):
+    from src.sources.ats.common import JobPost, job_key
+
+    class Board(OkAdapter):
+        key = "ats_greenhouse"
+        requires = ()
+
+        def harvest_jobs(self, doc, account, task_meta):
+            return [JobPost(external_id="1", title="AE", url="https://x/1", posted_at="2026-08-01")]
+
+        def parse(self, doc, account, task_meta):
+            return []
+
+    acct = Account(domain="acme.com", ats_vendor="greenhouse", ats_token="boardtok")
+    _, _, db = _harness(tmp_path, [acct], [Board()], {"https://ok.test/acme.com": b"x"}, max_passes=1)
+    row = db.one("SELECT job_key, closed_at FROM jobs WHERE external_id='1'")
+    assert row["job_key"] == job_key("ats_greenhouse", "boardtok", "1")
+    snap = db.one("SELECT open_count FROM job_snapshots WHERE domain='acme.com'")
+    assert snap["open_count"] == 1
+
+
+def test_full_board_marks_missing_job_closed(tmp_path):
+    from src.core.config import Config
+    from src.core.rawstore import RawStore
+    from src.core.runlog import RunContext
+    from src.identity.registry import AccountRegistry
+    from src.pipeline.runner import CollectorRunner
+    from src.signals.store import SignalStore
+    from src.signals.taxonomy import Taxonomy
+    from src.sources.ats.common import JobPost, upsert_jobs
+
+    class Board(OkAdapter):
+        key = "ats_greenhouse"
+        requires = ()
+
+        def harvest_jobs(self, doc, account, task_meta):
+            return [JobPost(external_id="keep", title="AE", url="https://x/1", posted_at="2026-08-01")]
+
+        def parse(self, doc, account, task_meta):
+            return []
+
+    acct = Account(domain="acme.com", ats_vendor="greenhouse", ats_token="t")
+    db = Database(tmp_path / "s.db")
+    upsert_jobs(
+        db,
+        "acme.com",
+        [JobPost(external_id="gone", title="Old", url="https://x/g", posted_at="2026-07-01")],
+        "ats_greenhouse",
+        now="2026-08-01T00:00:00",
+        token="t",
+    )
+    cfg = Config()
+    cfg.http.max_workers = 1
+    cfg.http.respect_robots = False
+    tax = Taxonomy.load()
+    ctx = RunContext(db, "collect")
+    ctx.__enter__()
+    runner = CollectorRunner(
+        cfg, db, AccountRegistry(db), RawStore(db, tmp_path / "raw"),
+        FakeFetch({"https://ok.test/acme.com": b"x"}), SignalStore(db, tax), tax, ctx,
+    )
+    runner.run([Board()], [acct], force=True, max_passes=1)
+    ctx.__exit__(None, None, None)
+    gone = db.one("SELECT closed_at FROM jobs WHERE external_id='gone'")
+    assert gone["closed_at"]
+    keep = db.one("SELECT closed_at FROM jobs WHERE external_id='keep'")
+    assert keep["closed_at"] is None

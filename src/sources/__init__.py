@@ -1,24 +1,17 @@
 """Import collectors so @register populates SOURCES."""
 
-from importlib import import_module
-
-_PACKAGES = (
-    "src.sources.sec.collector",
-    "src.sources.ats.collector",
-    "src.sources.news.collector",
-    "src.sources.regulatory.collector",
-    "src.sources.techstack.collector",
-    "src.sources.wayback.collector",
-    "src.sources.crtsh.collector",
-    "src.sources.community.collector",
-    "src.sources.marketplace.collector",
-    "src.sources.content.collector",
-    "src.sources.owned.collector",
-    "src.sources.linkedin_db.collector",
-)
-
-for _mod in _PACKAGES:
-    try:
-        import_module(_mod)
-    except Exception:
-        pass
+import src.sources.sec.collector  # noqa: F401
+import src.sources.ats.collector  # noqa: F401
+import src.sources.jobsignals.collector  # noqa: F401
+import src.sources.news.collector  # noqa: F401
+import src.sources.regulatory.collector  # noqa: F401
+import src.sources.warn.source  # noqa: F401
+import src.sources.techstack.collector  # noqa: F401
+import src.sources.wayback.collector  # noqa: F401
+import src.sources.crtsh.collector  # noqa: F401
+import src.sources.community.collector  # noqa: F401
+import src.sources.marketplace.collector  # noqa: F401
+import src.sources.content.collector  # noqa: F401
+import src.sources.owned.collector  # noqa: F401
+import src.sources.linkedin_db.collector  # noqa: F401
+import src.sources.repvue_db.collector  # noqa: F401

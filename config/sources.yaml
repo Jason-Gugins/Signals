@@ -33,5 +33,9 @@ sources:
   owned_intent:   { enabled: true, cadence_hours: 1 }      # local file drop
   linkedin_db:    { enabled: true, cadence_hours: 6 }
   repvue_db:      { enabled: true, cadence_hours: 168 }
-  jobsignals:     { enabled: true, cadence_hours: 12 }
+  jobsignals:
+    enabled: true
+    cadence_hours: 12
+    surge_min_roles: 5
+    surge_window_days: 60
 

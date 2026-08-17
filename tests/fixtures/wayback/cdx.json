@@ -1,0 +1,1 @@
+[["timestamp","original","digest","statuscode"],["20200101120000","http://acme.com/","aaa","200"],["20200601120000","http://acme.com/","bbb","200"],["20210101120000","http://acme.com/","ccc","200"],["20230101120000","http://acme.com/","ddd","200"]]

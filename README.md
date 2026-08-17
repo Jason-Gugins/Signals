@@ -6,11 +6,13 @@ single account identity graph, scores and tiers them per High Probability
 Prospecting (HPP), maps each signal to a sales play, and exports ranked
 account briefs.
 
-No paid APIs. No ZoomInfo, Apollo, Exa, BuiltWith, or Bombora. Every capability
-those tools provide is replaced by a local collector (SEC EDGAR, ATS JSON
-boards, RSS, Federal Register, WARN, DNS/HTTP fingerprints, Wayback CDX,
-HN/GitHub, owned-property ingest, plus read-only adapters over the existing
-LinkedIn and RepVue scrapers).
+No paid APIs. No ZoomInfo, Apollo, Exa, BuiltWith, or Bombora.
+
+## Zero-cost doctrine
+
+Public, business-relevant data only. Polite HTTP (`robots.txt` honored by
+default). A real contact address in the User-Agent. Rate limits are floors.
+Marketplace / LinkedIn collection is opt-in and off by default.
 
 ## Install
 
@@ -23,43 +25,55 @@ copy .env.example .env
 # set SIGNALS_CONTACT_EMAIL to a real address (required by SEC EDGAR)
 ```
 
-## The five commands a human actually runs
+## Init and file drops
 
 ```powershell
-# 1. Create the SQLite DB + data/ directories
 .\.venv\Scripts\python.exe -m src.cli init
-
-# 2. Load accounts from CSV and/or the LinkedIn + RepVue DBs
-.\.venv\Scripts\python.exe -m src.cli seed --csv seeds.csv --from-linkedin --from-repvue
-
-# 3. Collect, parse, score, and export a cohort
-.\.venv\Scripts\python.exe -m src.cli run --cohort canada-software
-
-# 4. Render a one-page brief for one account
-.\.venv\Scripts\python.exe -m src.cli brief acme.com
-
-# 5. Incremental watch loop (poll due sources, alert on new primary triggers)
-.\.venv\Scripts\python.exe -m src.cli watch
 ```
 
+A human must provide:
+
+- `config/lists/champions.csv` — prior buyers (unlocks `champion_migration`)
+- `config/lists/exclusions.txt` — domains to skip
+- `config/lists/email_patterns.csv` — only if a pattern is *known*
+- `data/inbox/owned/*.csv|*.jsonl` — first-party intent (web/ESP export)
+
+## The five commands
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli seed --csv seeds.csv --linkedin --repvue
+.\.venv\Scripts\python.exe -m src.cli run --cohort canada-software
+.\.venv\Scripts\python.exe -m src.cli brief --domain acme.com
+.\.venv\Scripts\python.exe -m src.cli export --format csv
+.\.venv\Scripts\python.exe -m src.cli watch --once
+```
+
+Also useful: `signals status`, `signals doctor --no-network`, `signals reparse`.
+
 Outputs land in `data/exports/`, `data/briefs/`, and `data/alerts/`.
+Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
 
-## Architecture
+## Add a source in 20 lines
 
-`seeds → identity resolution → per-source collectors (raw store) → pure
-parsers → normalized signals → decay-weighted scoring + stacking → HPP
-tiering → play mapping → briefs/CSV/alerts`.
+1. Write a pure `parse_*(body) -> list[SignalCandidate]` (no I/O, no clock).
+2. `@register` a `SourceAdapter` with `plan` + `parse`.
+3. Enable it in `config/sources.yaml`.
+4. Drop a fixture under `tests/fixtures/<source>/` and a test.
 
-Fetch and parse are separated. Every byte fetched is content-addressed under
-`data/raw/`. `signals reparse` re-derives signals with zero network calls.
+## Legal / ethics
 
-## Config
+- Respect `robots.txt` unless you deliberately turn it off for a run.
+- Identify yourself. SEC 403s a REPLACE_ME UA.
+- No auth bypass, no paywall circumvention, no personal non-work data.
+- G2 / Capterra / LinkedIn ToS restrict automation — those adapters stay disabled.
+- Never resell raw content. The raw store is a local reproducibility cache.
 
-Runtime knobs live in `config/`. Signal taxonomy, scoring combos, play
-templates, ICP rules, and tech fingerprints are all YAML — no code change
-required to retune a weight or disable a source.
+## Open questions
 
-## License / use
+1. What do you sell? (ICP, competitors, play `{your_product}`)
+2. Which analytics/ESP? (owned-intent column mapping)
+3. Geography focus? (WARN jurisdictions, regulators)
+4. Do you have a champions list?
+5. Alert destination? Slack webhook or file-only.
 
-Internal sales-research tooling. Polite HTTP, robots.txt honored on the HTTP
-tier, browser tier opt-in and off by default.
+Deferred: Google Trends, ASN IP→org, CRM write-back, multi-user server.

@@ -42,6 +42,27 @@ def enabled_sources(config: Config) -> list[SourceAdapter]:
     return out
 
 
+ATS_PREFIX = "ats_"
+COLLECTED_VENDORS = {
+    "greenhouse",
+    "lever",
+    "ashby",
+    "smartrecruiters",
+    "workable",
+    "recruitee",
+    "workday",
+}
+
+
+def _ats_vendor_ok(adapter: SourceAdapter, account: Account) -> bool:
+    if not adapter.key.startswith(ATS_PREFIX):
+        return True
+    vendor = (account.ats_vendor or "").casefold()
+    if vendor not in COLLECTED_VENDORS:
+        return False
+    return adapter.key == f"{ATS_PREFIX}{vendor}"
+
+
 def sources_for_account(account: Account, adapters: list[SourceAdapter]) -> list[SourceAdapter]:
     ready = []
     for adapter in adapters:
@@ -51,6 +72,6 @@ def sources_for_account(account: Account, adapters: list[SourceAdapter]) -> list
             if val is None or val == "":
                 missing = True
                 break
-        if not missing:
+        if not missing and _ats_vendor_ok(adapter, account):
             ready.append(adapter)
     return ready

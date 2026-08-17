@@ -132,7 +132,26 @@ class Orchestrator:
                 if account is None:
                     continue
                 try:
-                    cands = adapter.parse(doc, account, {})
+                    meta = {
+                        "today": _today().isoformat(),
+                        "registry": self.registry,
+                    }
+                    if adapter.key == "sec_edgar":
+                        url = (doc.url or "").lower()
+                        if "primary_doc.xml" in url or url.endswith(".xml"):
+                            meta["kind"] = "form_d"
+                        elif "8-k" in url or url.endswith(".htm") or url.endswith(".html"):
+                            meta["kind"] = "8k"
+                        else:
+                            meta["kind"] = "submissions"
+                    if adapter.key == "federal_register":
+                        try:
+                            meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
+                        except Exception:
+                            meta["watches"] = []
+                    if adapter.key == "company_feed":
+                        meta.setdefault("kind", "blog")
+                    cands = adapter.parse(doc, account, meta)
                 except Exception as exc:
                     logger.warning("reparse {} {}: {}", row["source"], row["doc_id"], exc)
                     stats.failed += 1

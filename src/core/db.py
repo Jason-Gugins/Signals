@@ -251,6 +251,12 @@ CREATE TABLE IF NOT EXISTS technologies (
     evidence TEXT, confidence REAL, source TEXT,
     PRIMARY KEY (domain, vendor)
 );
+
+CREATE TABLE IF NOT EXISTS account_snapshots (
+    domain TEXT NOT NULL, as_of TEXT NOT NULL, employee_count INTEGER,
+    repvue_score REAL, open_jobs INTEGER, followers INTEGER,
+    PRIMARY KEY (domain, as_of)
+);
 """
 
 # table -> {column: type-with-default}  — populated by later tasks

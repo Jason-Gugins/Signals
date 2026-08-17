@@ -181,8 +181,11 @@ class AtsDiscovery:
                 best = matches[0]
                 careers_url = url
         if best:
+            token = best.token
+            if best.vendor == "workday" and best.extra.get("tenant"):
+                token = f"{best.extra['tenant']}/{best.extra['wd']}/{best.extra['site']}"
             account.ats_vendor = best.vendor
-            account.ats_token = best.token
+            account.ats_token = token
             account.careers_url = careers_url
             self.registry.upsert(account, source="ats_discovery")
         return best

@@ -290,8 +290,29 @@ def _ckey(adapter, account) -> str:
     return "global" if getattr(adapter, "fanout", False) else account.domain
 
 
+ATS_PREFIX = "ats_"
+COLLECTED_VENDORS = {
+    "greenhouse",
+    "lever",
+    "ashby",
+    "smartrecruiters",
+    "workable",
+    "recruitee",
+    "workday",
+}
+
+
+def _ats_vendor_ok(adapter, account) -> bool:
+    if not str(getattr(adapter, "key", "")).startswith(ATS_PREFIX):
+        return True
+    vendor = (getattr(account, "ats_vendor", None) or "").casefold()
+    if vendor not in COLLECTED_VENDORS:
+        return False
+    return adapter.key == f"{ATS_PREFIX}{vendor}"
+
+
 def _requires_met(adapter, account) -> bool:
     for field_name in adapter.requires or ():
         if not getattr(account, field_name, None):
             return False
-    return True
+    return _ats_vendor_ok(adapter, account)

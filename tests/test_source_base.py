@@ -106,7 +106,7 @@ def test_enabled_sources_respects_yaml_and_browser_gate(monkeypatch, tmp_path):
 
 def test_sources_for_account_filters_requires():
     class NeedsToken(SourceAdapter):
-        key = "ats_x"
+        key = "needs_token"
         tier = "http"
         requires = ("ats_token",)
 
@@ -131,4 +131,4 @@ def test_sources_for_account_filters_requires():
     bare = Account(domain="a.com")
     ready = Account(domain="a.com", ats_token="acme")
     assert [a.key for a in sources_for_account(bare, adapters)] == ["news"]
-    assert [a.key for a in sources_for_account(ready, adapters)] == ["ats_x", "news"]
+    assert [a.key for a in sources_for_account(ready, adapters)] == ["needs_token", "news"]

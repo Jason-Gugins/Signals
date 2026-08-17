@@ -1,10 +1,10 @@
 from click.testing import CliRunner
 import pytest
 
-from scripts import pull_fixture, recon_ats, recon_browser, recon_http
+from scripts import pull_fixture, recon_ats, recon_ats_boards, recon_browser, recon_http
 
 
-@pytest.mark.parametrize("mod", [recon_http, recon_browser, recon_ats, pull_fixture])
+@pytest.mark.parametrize("mod", [recon_http, recon_browser, recon_ats, recon_ats_boards, pull_fixture])
 def test_help_exits_0(mod):
     with pytest.raises(SystemExit) as ei:
         mod.main(["--help"])

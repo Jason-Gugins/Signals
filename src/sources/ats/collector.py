@@ -10,9 +10,9 @@ from src.sources.ats.ashby import parse_ashby
 from src.sources.ats.greenhouse import parse_greenhouse
 from src.sources.ats.lever import parse_lever
 from src.sources.ats.recruitee import parse_recruitee
-from src.sources.ats.smartrecruiters import parse_smartrecruiters
+from src.sources.ats.smartrecruiters import parse_smartrecruiters, smartrecruiters_pages
 from src.sources.ats.workable import parse_workable
-from src.sources.ats.workday import parse_workday, workday_body, workday_endpoint
+from src.sources.ats.workday import parse_workday, workday_body, workday_endpoint, workday_offsets
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.registry import register
 
@@ -117,6 +117,29 @@ class SmartRecruitersSource(SourceAdapter):
     def harvest_jobs(self, doc, account, task_meta):
         return parse_smartrecruiters(doc.body) if doc.body else []
 
+    def follow_tasks(self, doc, account, task_meta):
+        if not doc.body or (task_meta or {}).get("offset"):
+            return []
+        try:
+            raw = __import__("json").loads(doc.body)
+            total = int(raw.get("totalFound") or 0)
+        except (TypeError, ValueError):
+            return []
+        token = account.ats_token
+        out = []
+        for off in smartrecruiters_pages(total, 100):
+            if off == 0:
+                continue
+            out.append(
+                FetchTask(
+                    source=self.key,
+                    url=f"https://api.smartrecruiters.com/v1/companies/{token}/postings?limit=100&offset={off}",
+                    domain=account.domain,
+                    meta={"token": token, "offset": off},
+                )
+            )
+        return out
+
     def parse(self, doc, account, task_meta):
         return []
 
@@ -204,6 +227,37 @@ class WorkdaySource(SourceAdapter):
             base=task_meta.get("base") or "",
             today=_today(task_meta),
         )
+
+    def follow_tasks(self, doc, account, task_meta):
+        if not doc.body or (task_meta or {}).get("offset"):
+            return []
+        try:
+            raw = __import__("json").loads(doc.body)
+            total = int(raw.get("total") or 0)
+        except (TypeError, ValueError):
+            return []
+        token = account.ats_token or ""
+        parts = token.split("/")
+        tenant = parts[0] if parts else token
+        wd = parts[1] if len(parts) > 1 else "wd5"
+        site = parts[2] if len(parts) > 2 else tenant
+        url = workday_endpoint(tenant, wd, site)
+        base = task_meta.get("base") or url.rsplit("/jobs", 1)[0]
+        out = []
+        for off in workday_offsets(total):
+            if off == 0:
+                continue
+            out.append(
+                FetchTask(
+                    source=self.key,
+                    url=url,
+                    domain=account.domain,
+                    method="POST",
+                    json_body=workday_body(off),
+                    meta={"token": token, "base": base, "offset": off},
+                )
+            )
+        return out
 
     def parse(self, doc, account, task_meta):
         return []

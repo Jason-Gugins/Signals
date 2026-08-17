@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
 from src.core.models import Account, Document
 from src.identity.edgar_ids import SUBMISSIONS_URL, pad_cik
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.registry import register
-from src.sources.sec.parse_submissions import filings_since, parse_submissions
+from src.sources.sec.parse_8k import classify_8k, classify_form, extract_text
+from src.sources.sec.parse_formd import form_d_to_candidates, parse_form_d
+from src.sources.sec.parse_submissions import Filing, filings_since, parse_submissions
 
 
 @register
@@ -60,23 +63,66 @@ class SecEdgarSource(SourceAdapter):
         if not doc.body:
             return []
         kind = (task_meta or {}).get("kind") or "submissions"
+        today = date.fromisoformat(task_meta["today"])
+        if kind == "submissions":
+            _, filings = parse_submissions(doc.body)
+            out: list[SignalCandidate] = []
+            for f in filings_since(filings, task_meta.get("cursor"), self.WATCH_FORMS):
+                out.extend(classify_form(f, today=today))
+            return out
+        if kind == "form_d":
+            filing = Filing(
+                accession=task_meta.get("accession") or "unk",
+                form="D",
+                filing_date=task_meta.get("filing_date") or today.isoformat(),
+                report_date=None,
+                items=[],
+                primary_document="primary_doc.xml",
+                description=None,
+                cik=task_meta.get("cik") or account.cik or "0",
+            )
+            return form_d_to_candidates(parse_form_d(doc.body), filing=filing, today=today)
+        if kind == "8k":
+            filing = Filing(
+                accession=task_meta.get("accession") or "unk",
+                form="8-K",
+                filing_date=task_meta.get("filing_date") or today.isoformat(),
+                report_date=None,
+                items=list(task_meta.get("items") or []),
+                primary_document="8k.htm",
+                description=None,
+                cik=task_meta.get("cik") or account.cik or "0",
+            )
+            return classify_8k(filing, extract_text(doc.body), today=today)
+        return []
+
+    def follow_tasks(self, doc: Document, account: Account, task_meta: dict) -> list[FetchTask]:
+        if not doc.body:
+            return []
+        kind = (task_meta or {}).get("kind") or "submissions"
         if kind != "submissions":
             return []
         _, filings = parse_submissions(doc.body)
-        cursor = (task_meta or {}).get("cursor")
-        watched = filings_since(filings, cursor, self.WATCH_FORMS)
-        follow = [
-            {
-                "url": f.archive_url,
-                "form": f.form,
-                "accession": f.accession,
-                "filing_date": f.filing_date,
-                "items": f.items,
-                "primary_document": f.primary_document,
-            }
-            for f in watched
-        ]
-        # stash follow-ups on the document extra via candidates' evidence
-        # runner (Task 50) re-plans; we also expose via a module-level hook
-        self.last_follow_urls = [x["url"] for x in follow]
-        return []
+        out = []
+        for f in filings_since(filings, task_meta.get("cursor"), self.WATCH_FORMS):
+            if f.form in {"D", "D/A"}:
+                k = "form_d"
+            elif f.form == "8-K":
+                k = "8k"
+            else:
+                continue
+            out.append(
+                FetchTask(
+                    source=self.key,
+                    url=f.archive_url,
+                    domain=account.domain,
+                    meta={
+                        "kind": k,
+                        "cik": f.cik,
+                        "accession": f.accession,
+                        "filing_date": f.filing_date,
+                        "items": f.items,
+                    },
+                )
+            )
+        return out

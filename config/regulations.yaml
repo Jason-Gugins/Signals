@@ -1,0 +1,15 @@
+watches:
+  - id: privacy
+    terms: ["consumer privacy", "personal information", "data broker"]
+    applies_to_industries: ["Software", "Marketing", "Financial Services", "Healthcare"]
+    applies_to_sic_prefix: ["73", "60", "80"]
+    play_frame: "privacy compliance"
+  - id: ai_governance
+    terms: ["artificial intelligence", "automated decision"]
+    applies_to_industries: ["Software", "Financial Services", "Insurance"]
+  - id: cyber_disclosure
+    terms: ["cybersecurity risk management", "incident disclosure"]
+    applies_to_industries: ["Software", "Financial Services"]
+  - id: healthcare
+    terms: ["HIPAA", "protected health information"]
+    applies_to_industries: ["Healthcare", "Hospital & Health Care", "Biotechnology"]

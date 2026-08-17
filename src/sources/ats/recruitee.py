@@ -1,6 +1,6 @@
 """Recruitee offers parser.
 
-Working endpoint (recon 2026-08-16, public offers API):
+Working endpoint (recon 2026-08-16, live 200 on tether.recruitee.com and trackman.recruitee.com):
 https://{token}.recruitee.com/api/offers/
 """
 

@@ -1,0 +1,4 @@
+timestamp,email,page_url,event_type,session_id,count
+2026-08-16T10:00:00Z,jane@acme.com,https://ours.com/pricing,pricing_view,s1,1
+2026-08-16T10:05:00Z,jane@acme.com,https://ours.com/pricing,pricing_view,s1,1
+2026-08-16T11:00:00Z,bob@gmail.com,https://ours.com/pricing,pricing_view,s2,1

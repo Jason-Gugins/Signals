@@ -150,3 +150,11 @@ def merge_matches(*groups: list[TechMatch]) -> list[TechMatch]:
             if prev is None or m.confidence > prev.confidence:
                 best[m.vendor] = m
     return [best[k] for k in sorted(best)]
+
+
+def load_fingerprint_rules() -> dict:
+    import yaml
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[3] / "config" / "fingerprints.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))

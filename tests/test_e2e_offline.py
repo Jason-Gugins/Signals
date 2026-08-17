@@ -58,7 +58,7 @@ def test_e2e_offline_twice(tmp_path, monkeypatch):
     adapters = [SecEdgarSource(), GreenhouseSource(), NewsRssSource(), OwnedIntentSource(), JobSignalsSource()]
     orch = Orchestrator(cfg, fetcher=FakeFetch(payloads), adapters=adapters)
     orch.registry.upsert(
-        Account(domain="acme.com", name="Acme", cik="0001234567", ats_token="acme", industry="Software", employee_count=200)
+        Account(domain="acme.com", name="Acme", cik="0001234567", ats_vendor="greenhouse", ats_token="acme", industry="Software", employee_count=200)
     )
     s1 = orch.collect(force=True)
     assert s1.signals_new >= 6

@@ -72,27 +72,39 @@ class Orchestrator:
             ctx.bump(accounts=stats.created)
             return stats
 
-    def resolve(self, *, cohort=None, limit=None) -> dict:
+    def resolve(self, *, cohort=None, limit=None, ats: bool = True, cik: bool = False, feeds: bool = False, icp: bool = True) -> dict:
         with RunContext(self.db, "resolve") as ctx:
             accounts = self._accounts(cohort=cohort, limit=limit)
             ctx.bump(accounts=len(accounts))
-            # Network-backed resolvers degrade to no-ops when they fail.
             out = {"accounts": len(accounts), "cik": 0, "ats": 0, "feeds": 0, "icp": 0}
-            try:
-                rules = self.config.load_yaml("icp")
-            except Exception:
-                rules = {}
-            for acct in accounts:
+            if ats:
+                from src.identity.ats_discovery import AtsDiscovery
+
+                disc = AtsDiscovery(self.fetcher or self._http_fetcher(ctx), self.registry)
+                for acct in accounts:
+                    if acct.ats_token and acct.ats_vendor:
+                        continue
+                    try:
+                        if disc.discover(acct):
+                            out["ats"] += 1
+                    except Exception as exc:
+                        logger.warning("ats discover failed for {}: {}", acct.domain, exc)
+            if icp:
                 try:
-                    result = evaluate_icp(acct, rules, signals=self.signal_store.for_account(acct.domain))
-                    acct.icp_fit = result.multiplier
-                    acct.icp_reasons = result.reasons
-                    acct.disqualified = result.disqualified
-                    acct.disqualify_reason = result.disqualify_reason
-                    self.registry.upsert(acct)
-                    out["icp"] += 1
-                except Exception as exc:
-                    logger.warning("icp failed for {}: {}", acct.domain, exc)
+                    rules = self.config.load_yaml("icp")
+                except Exception:
+                    rules = {}
+                for acct in accounts:
+                    try:
+                        result = evaluate_icp(acct, rules, signals=self.signal_store.for_account(acct.domain))
+                        acct.icp_fit = result.multiplier
+                        acct.icp_reasons = result.reasons
+                        acct.disqualified = result.disqualified
+                        acct.disqualify_reason = result.disqualify_reason
+                        self.registry.upsert(acct)
+                        out["icp"] += 1
+                    except Exception as exc:
+                        logger.warning("icp failed for {}: {}", acct.domain, exc)
             return out
 
     def collect(self, *, sources=None, cohort=None, domains=None, force=False, dry_run=False, limit=None) -> RunnerStats:

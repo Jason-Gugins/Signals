@@ -1,4 +1,8 @@
-"""PURE Ashby job-board parser."""
+"""PURE Ashby job-board parser.
+
+Live recon 2026-08-16: GET api.ashbyhq.com/posting-api/job-board/linear → 200 JSON
+(jobs[].id,title,department,location,publishedAt,jobUrl). Existing aliases parse it.
+"""
 
 from __future__ import annotations
 

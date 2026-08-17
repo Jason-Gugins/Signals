@@ -1,4 +1,8 @@
-"""Workday Candidate Experience Service job board parser."""
+"""Workday Candidate Experience Service job board parser.
+
+Live recon 2026-08-16: POST nvidia.wd5.myworkdayjobs.com/wday/cxs/nvidia/NVIDIAExternalCareerSite/jobs
+→ 200 JSON {total, jobPostings[title,externalPath,locationsText,postedOn]}.
+"""
 
 from __future__ import annotations
 

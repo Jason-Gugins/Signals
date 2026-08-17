@@ -1,7 +1,8 @@
 """Workable public board parser.
 
-Working endpoint (recon 2026-08-16, shape from public widget API):
+Working endpoint (recon 2026-08-16, live 200 on apply.workable.com/api/v1/widget/accounts/coldquanta?details=true):
 https://apply.workable.com/api/v1/widget/accounts/{token}?details=true
+SPI v3 /spi/v3/jobs returned 401 without auth — widget is the public path.
 """
 
 from __future__ import annotations

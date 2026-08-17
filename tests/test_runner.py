@@ -221,3 +221,31 @@ def test_thread_pool_respects_max_workers(tmp_path):
     by_url = {f"https://ok.test/c{i}.com": b"x" for i in range(8)}
     runner, _, _ = _harness(tmp_path, accts, [OkAdapter()], by_url, max_workers=2)
     assert runner.fetcher.max_seen <= 2
+
+
+class HarvestAdapter(OkAdapter):
+    key = "harvest"
+
+    def harvest_jobs(self, doc, account, task_meta):
+        from src.sources.ats.common import JobPost
+        return [JobPost(external_id="1", title="AE", url="https://x/1", posted_at="2026-08-01")]
+
+    def follow_tasks(self, doc, account, task_meta):
+        if doc.url.endswith("/follow"):
+            return []
+        return [FetchTask(source=self.key, url="https://ok.test/follow", domain=account.domain)]
+
+    def parse(self, doc, account, task_meta):
+        assert "today" in task_meta
+        if doc.url.endswith("/follow"):
+            return [SignalCandidate("award", "2026-08-01", "follow:1", title="F")]
+        return [SignalCandidate("award", "2026-08-01", "idx:1", title="I")]
+
+
+def test_hooks_jobs_follow_and_today(tmp_path):
+    acct = Account(domain="acme.com")
+    by_url = {"https://ok.test/acme.com": b"idx", "https://ok.test/follow": b"f"}
+    _, stats, db = _harness(tmp_path, [acct], [HarvestAdapter()], by_url, max_passes=2)
+    assert db.one("SELECT COUNT(*) AS n FROM jobs")["n"] == 1
+    types = {r["title"] for r in db.query("SELECT title FROM signals")}
+    assert "F" in types and "I" in types

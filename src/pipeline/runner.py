@@ -101,8 +101,13 @@ class CollectorRunner:
         key = _ckey(adapter, account)
         cursor_row = self._cursor(adapter.key, key) or {}
         cursor = cursor_row.get("cursor")
+        pending_follow: list[FetchTask] = []
         for pass_i in range(max_passes):
-            tasks = adapter.plan(account, cursor)
+            if pending_follow:
+                tasks = pending_follow
+                pending_follow = []
+            else:
+                tasks = adapter.plan(account, cursor)
             if limit_per_source:
                 tasks = tasks[:limit_per_source]
             if dry_run:
@@ -113,6 +118,7 @@ class CollectorRunner:
             results = self._execute_tasks(adapter, tasks, cursor_row, stats)
             last_doc = None
             all_cands = []
+            follow: list[FetchTask] = []
             for task, result in results:
                 if result is None:
                     continue
@@ -126,8 +132,16 @@ class CollectorRunner:
                 stats._src(adapter.key)["fetched"] += 1
                 self.ctx.bump(documents=1)
                 last_doc = result.doc
-                cands = adapter.parse(result.doc, account, dict(task.meta or {}))
+                meta = dict(task.meta or {})
+                meta.setdefault("today", now.date().isoformat())
+                meta.setdefault("registry", self.registry)
+                cands = adapter.parse(result.doc, account, meta)
                 all_cands.extend(cands)
+                follow.extend(adapter.follow_tasks(result.doc, account, meta) or [])
+                jobs = adapter.harvest_jobs(result.doc, account, meta) or []
+                if jobs:
+                    from src.sources.ats.common import upsert_jobs
+                    upsert_jobs(self.db, account.domain, jobs, adapter.key, now=_iso(now))
             stats.candidates += len(all_cands)
             stats._src(adapter.key)["candidates"] += len(all_cands)
             new_n = self._persist(account, adapter.key, all_cands, last_doc)
@@ -139,9 +153,21 @@ class CollectorRunner:
             elif not results:
                 self._record_success(adapter, key, cursor, None, now)
                 break
+            if follow and pass_i + 1 < max_passes:
+                pending_follow = follow
+                continue
             if pass_i + 1 < max_passes and cursor and last_doc is not None:
                 continue
             break
+        extra = adapter.local_harvest(
+            db=self.db, account=account, today=now.date(),
+            task_meta={"today": now.date().isoformat(), "registry": self.registry},
+        ) or []
+        if extra:
+            added = self._persist(account, adapter.key, extra, None)
+            stats.signals_new += added
+            stats._src(adapter.key)["signals_new"] += added
+            stats.candidates += len(extra)
 
     def _run_fanout(self, adapter, accounts, stats, *, force, dry_run, now):
         # one plan from the first account; parse per account
@@ -162,10 +188,17 @@ class CollectorRunner:
             stats.fetched += 1
             last_doc = result.doc
             for account in accounts:
-                cands = adapter.parse(result.doc, account, dict(task.meta or {}))
+                meta = dict(task.meta or {})
+                meta.setdefault("today", now.date().isoformat())
+                meta.setdefault("registry", self.registry)
+                cands = adapter.parse(result.doc, account, meta)
                 stats.candidates += len(cands)
                 new_n = self._persist(account, adapter.key, cands, result.doc)
                 stats.signals_new += new_n
+                jobs = adapter.harvest_jobs(result.doc, account, meta) or []
+                if jobs:
+                    from src.sources.ats.common import upsert_jobs
+                    upsert_jobs(self.db, account.domain, jobs, adapter.key, now=_iso(now))
         if last_doc is not None:
             self._record_success(adapter, "global", adapter.next_cursor(last_doc, []), last_doc, now)
 

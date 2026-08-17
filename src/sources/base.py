@@ -55,3 +55,12 @@ class SourceAdapter(ABC):
         if not dates:
             return None
         return max(dates)
+
+    def harvest_jobs(self, doc: Document, account: Account, task_meta: dict) -> list:
+        return []
+
+    def local_harvest(self, *, db, account, today, task_meta: dict) -> list:
+        return []
+
+    def follow_tasks(self, doc: Document, account: Account, task_meta: dict) -> list[FetchTask]:
+        return []

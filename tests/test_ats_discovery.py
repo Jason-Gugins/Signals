@@ -65,3 +65,28 @@ def test_careers_url_candidates_stable():
         "https://acme.com/join-us",
     ]
     assert careers_url_candidates("acme.com") == got
+
+
+def test_discover_writes_workday_compound_token(tmp_path):
+    from src.core.db import Database
+    from src.core.http import FetchResult
+    from src.core.models import Account, Document
+    from src.identity.ats_discovery import AtsDiscovery
+    from src.identity.registry import AccountRegistry
+
+    html = (FIXTURES / "careers_workday.html").read_text(encoding="utf-8")
+
+    class Fake:
+        def get(self, task, **kw):
+            doc = Document(doc_id="c", source="ats_discovery", url=task.url, body=html.encode(), status=200)
+            return FetchResult(True, 200, doc, False, None, 1)
+
+    db = Database(tmp_path / "s.db")
+    reg = AccountRegistry(db)
+    acct = Account(domain="acme.com", careers_url="https://acme.com/careers")
+    reg.upsert(acct)
+    match = AtsDiscovery(Fake(), reg).discover(acct)
+    stored = reg.get("acme.com")
+    assert match.extra["wd"]
+    assert stored.ats_vendor == "workday"
+    assert stored.ats_token == f"{match.extra['tenant']}/{match.extra['wd']}/{match.extra['site']}"

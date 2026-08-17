@@ -244,6 +244,13 @@ CREATE TABLE IF NOT EXISTS job_snapshots (
     open_count INTEGER, by_department TEXT, by_country TEXT,
     PRIMARY KEY (domain, as_of)
 );
+
+CREATE TABLE IF NOT EXISTS technologies (
+    domain TEXT NOT NULL, vendor TEXT NOT NULL, category TEXT, tier TEXT,
+    first_seen_at TEXT, last_seen_at TEXT, missing_runs INTEGER DEFAULT 0,
+    evidence TEXT, confidence REAL, source TEXT,
+    PRIMARY KEY (domain, vendor)
+);
 """
 
 # table -> {column: type-with-default}  — populated by later tasks

@@ -48,3 +48,31 @@ def repvue_to_candidates(row: dict, prior: dict | None, *, today: date) -> list[
                 )
             )
     return out
+
+
+from src.sources.base import SourceAdapter
+from src.sources.registry import register
+
+
+@register
+class RepvueDbSource(SourceAdapter):
+    key = "repvue_db"
+    tier = "local"
+    cadence_hours = 168
+
+    def plan(self, account, cursor):
+        return []
+
+    def parse(self, doc, account, task_meta):
+        return []
+
+    def local_harvest(self, *, db, account, today, task_meta):
+        prior = db.one(
+            "SELECT * FROM account_snapshots WHERE domain=? ORDER BY as_of DESC",
+            (account.domain,),
+        )
+        extra = (account.extra_data or {}).get("repvue") or {}
+        if not extra:
+            return []
+        row = {"domain": account.domain, **extra}
+        return repvue_to_candidates(row, dict(prior) if prior else None, today=today)

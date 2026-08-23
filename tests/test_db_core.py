@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
 import src.core.db as dbmod
-from src.core.db import Database, NEW_COLUMNS
+from src.core.db import Database, NEW_COLUMNS, CfCookieStore
 
 
 EXPECTED_TABLES = {
@@ -18,10 +20,11 @@ EXPECTED_TABLES = {
     "fetch_log",
     "runs",
     "watchlist",
+    "cloudflare_cookies",
 }
 
 
-def test_fresh_db_creates_all_11_tables(tmp_path):
+def test_fresh_db_creates_all_12_tables(tmp_path):
     db = Database(tmp_path / "signals.db")
     names = {
         row["name"]
@@ -29,7 +32,7 @@ def test_fresh_db_creates_all_11_tables(tmp_path):
         if not row["name"].startswith("sqlite_")
     }
     assert EXPECTED_TABLES.issubset(names)
-    assert len(EXPECTED_TABLES) == 11
+    assert len(EXPECTED_TABLES) == 12
     db.close()
 
 
@@ -103,3 +106,72 @@ def test_wal_enabled(tmp_path):
     mode = db.one("PRAGMA journal_mode")
     assert list(mode.values())[0].lower() == "wal"
     db.close()
+
+
+def test_cf_cookie_roundtrip(tmp_path):
+    db = Database(tmp_path / "s.db")
+    store = CfCookieStore(db)
+    assert store.get("acme.com", user_agent="Mozilla/1", proxy="direct") is None  # none yet
+
+    store.put("acme.com", user_agent="Mozilla/1", proxy="direct",
+              cookies=[{"name": "cf_clearance", "value": "tok123", "domain": "acme.com"},
+                       {"name": "__cf_bm", "value": "bm1", "domain": ".acme.com"}],
+              expires_at="2026-08-24T00:00:00+00:00")
+    row = store.get("acme.com", user_agent="Mozilla/1", proxy="direct")
+    assert row is not None
+    assert row["user_agent"] == "Mozilla/1"
+    cookies = json.loads(row["cookies"])
+    assert cookies[0]["name"] == "cf_clearance"
+    assert cookies[1]["name"] == "__cf_bm"
+
+
+def test_cf_cookie_ua_mismatch_rejected(tmp_path):
+    db = Database(tmp_path / "s.db")
+    store = CfCookieStore(db)
+    store.put("acme.com", user_agent="Mozilla/1", proxy="direct",
+              cookies=[{"name": "cf_clearance", "value": "x"}],
+              expires_at="2026-08-24T00:00:00+00:00")
+    assert store.get("acme.com", user_agent="Mozilla/2", proxy="direct") is None  # UA-bound
+
+
+def test_cf_cookie_proxy_mismatch_rejected(tmp_path):
+    db = Database(tmp_path / "s.db")
+    store = CfCookieStore(db)
+    store.put("acme.com", user_agent="UA", proxy="http://proxy:8080",
+              cookies=[{"name": "cf_clearance", "value": "x"}],
+              expires_at="2026-08-24T00:00:00+00:00")
+    assert store.get("acme.com", user_agent="UA", proxy="direct") is None  # proxy-bound
+
+
+def test_cf_cookie_expired_rejected(tmp_path):
+    db = Database(tmp_path / "s.db")
+    store = CfCookieStore(db)
+    store.put("acme.com", user_agent="UA", proxy="direct",
+              cookies=[{"name": "cf_clearance", "value": "x"}],
+              expires_at="2020-01-01T00:00:00+00:00")
+    assert store.get("acme.com", user_agent="UA", proxy="direct") is None  # past expiry
+
+
+def test_cf_cookie_fresh_solve_overwrites_stale(tmp_path):
+    db = Database(tmp_path / "s.db")
+    store = CfCookieStore(db)
+    store.put("acme.com", user_agent="UA", proxy="direct",
+              cookies=[{"name": "cf_clearance", "value": "old"}],
+              expires_at="2026-08-24T00:00:00+00:00")
+    # fresh solve must overwrite, not be silently dropped by COALESCE
+    store.put("acme.com", user_agent="UA", proxy="direct",
+              cookies=[{"name": "cf_clearance", "value": "new"}],
+              expires_at="2026-08-25T00:00:00+00:00")
+    row = store.get("acme.com", user_agent="UA", proxy="direct")
+    cookies = json.loads(row["cookies"])
+    assert cookies[0]["value"] == "new"
+
+
+def test_cf_cookie_clear(tmp_path):
+    db = Database(tmp_path / "s.db")
+    store = CfCookieStore(db)
+    store.put("acme.com", user_agent="UA", proxy="direct",
+              cookies=[{"name": "cf_clearance", "value": "x"}],
+              expires_at="2026-08-24T00:00:00+00:00")
+    store.clear("acme.com")
+    assert store.get("acme.com", user_agent="UA", proxy="direct") is None

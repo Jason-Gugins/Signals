@@ -17,6 +17,19 @@ def test_techstack_parse_homepage():
     assert any(c.signal_type == "tech_install_new" for c in cands)
 
 
+def test_techstack_parse_network_fixture():
+    body = Path("tests/fixtures/techstack/network_scanner.dev.json").read_bytes()
+    src = TechstackSource()
+    cands = src.parse(
+        Document(doc_id="n", source="techstack", url="https://scanner.dev/", body=body, content_type="application/json"),
+        Account(domain="scanner.dev"),
+        {"today": "2026-08-16", "kind": "network"},
+    )
+    titles = {c.title for c in cands}
+    assert "webflow" in titles
+    assert any(c.signal_type == "tech_install_new" for c in cands)
+
+
 def test_wayback_follow_and_crtsh():
     cdx = Path("tests/fixtures/wayback/cdx.json").read_bytes()
     wb = WaybackSource()

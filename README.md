@@ -50,6 +50,18 @@ A human must provide:
 
 Also useful: `signals status`, `signals doctor --no-network`, `signals reparse`.
 
+Form D funding tracker (SEC private-offering notices). Pooled investment funds
+are excluded by default. Unknown issuers land on stub domains like
+`cik0001234567.edgar`. `--dry-run` goes before the subcommand.
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli funding recent --days 30 --limit 100
+.\.venv\Scripts\python.exe -m src.cli funding search "robotics" --days 365
+.\.venv\Scripts\python.exe -m src.cli funding company --cik 0001234567
+.\.venv\Scripts\python.exe -m src.cli collect --source sec_formd --force
+.\.venv\Scripts\python.exe -m src.cli export --what funding
+```
+
 Outputs land in `data/exports/`, `data/briefs/`, and `data/alerts/`.
 Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
 

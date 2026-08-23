@@ -128,6 +128,33 @@ class CollectorRunner:
                     stats.cached += 1
                     stats._src(adapter.key)["cached"] += 1
                     continue
+                # If the bypass ran but failed (cloudflare_unsolved=True),
+                # let the result through to the collector so it can record
+                # cloudflare-only.  Don't crash on the 403.
+                _cf_unsolved = getattr(result, "_cloudflare_unsolved", None)
+                if _cf_unsolved:
+                    if result.doc is None:
+                        # Create a minimal doc with the challenge body so the
+                        # collector can parse it (will record cloudflare-only).
+                        result = type(result)(
+                            ok=True, status=200,
+                            doc=self.store.put(
+                                source=task.source, url=task.url,
+                                body=b"<html><title>Just a moment...</title></html>",
+                                content_type="text/html", status=200,
+                                domain=task.domain,
+                            ),
+                            cached=False, error=None, elapsed_ms=0,
+                        )
+                    else:
+                        # We have the 403 body in a doc — make it pass the
+                        # ok check so the collector can process it.
+                        result = type(result)(
+                            ok=True, status=200, doc=result.doc,
+                            cached=False, error=None, elapsed_ms=0,
+                            cloudflare_cookies=result.cloudflare_cookies,
+                        )
+                        result._cloudflare_unsolved = True
                 if not result.ok or result.doc is None:
                     raise RuntimeError(result.error or f"fetch failed {result.status}")
                 stats.fetched += 1
@@ -139,7 +166,6 @@ class CollectorRunner:
                 meta.setdefault("registry", self.registry)
                 # Propagate the cloudflare_unsolved flag set by _fetch_one
                 # when a challenge was detected and the bypass was attempted.
-                _cf_unsolved = getattr(result, "_cloudflare_unsolved", None)
                 if _cf_unsolved is not None:
                     meta["cloudflare_unsolved"] = _cf_unsolved
                 if adapter.key == "federal_register" and "watches" not in meta:
@@ -265,9 +291,8 @@ class CollectorRunner:
         # because HttpEvidence has no hosts attribute).
         if (
             self.cloudflare_bypass
-            and result.ok
-            and result.doc
             and not (task.meta or {}).get("capture")
+            and result.doc is not None
         ):
             from src.sources.techstack.fingerprint import classify_cloudflare_challenge
 

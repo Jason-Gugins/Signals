@@ -189,10 +189,20 @@ class Orchestrator:
                         pk=("source", "key"),
                     )
                 adapters = [a for a in adapters if a.key != "sec_formd"]
-            runner = CollectorRunner(
-                self.config, self.db, self.registry, self.raw, fetcher, self.signal_store, self.taxonomy, ctx
-            )
-            rest = runner.run(adapters, accounts, force=force, dry_run=dry_run)
+            browser = None
+            if self.config.browser.enabled:
+                from src.core.browser import BrowserFetcher
+
+                browser = BrowserFetcher(self.config, self.raw, ctx).start()
+            try:
+                runner = CollectorRunner(
+                    self.config, self.db, self.registry, self.raw, fetcher, self.signal_store, self.taxonomy, ctx,
+                    browser=browser,
+                )
+                rest = runner.run(adapters, accounts, force=force, dry_run=dry_run)
+            finally:
+                if browser is not None:
+                    browser.close()
             stats.fetched += rest.fetched
             stats.signals_new += rest.signals_new
             stats.failed += rest.failed

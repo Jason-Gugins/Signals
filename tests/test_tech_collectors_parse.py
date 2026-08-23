@@ -30,6 +30,15 @@ def test_techstack_parse_network_fixture():
     assert any(c.signal_type == "tech_install_new" for c in cands)
 
 
+def test_techstack_plan_emits_html_and_network():
+    src = TechstackSource()
+    tasks = src.plan(Account(domain="acme.com"), None)
+    kinds = [(t.meta or {}).get("kind") for t in tasks]
+    assert kinds == ["html", "network"]
+    assert all(t.url == "https://acme.com/" for t in tasks)
+    assert (tasks[1].meta or {}).get("capture") == "network"
+
+
 def test_wayback_follow_and_crtsh():
     cdx = Path("tests/fixtures/wayback/cdx.json").read_bytes()
     wb = WaybackSource()

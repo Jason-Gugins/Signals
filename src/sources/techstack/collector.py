@@ -76,7 +76,15 @@ class TechstackSource(SourceAdapter):
     cadence_hours = 168
 
     def plan(self, account, cursor):
-        return [FetchTask(source=self.key, url=f"https://{account.domain}/", domain=account.domain)]
+        return [
+            FetchTask(source=self.key, url=f"https://{account.domain}/", domain=account.domain, meta={"kind": "html"}),
+            FetchTask(
+                source=self.key,
+                url=f"https://{account.domain}/",
+                domain=account.domain,
+                meta={"kind": "network", "capture": "network"},
+            ),
+        ]
 
     def parse(self, doc, account, task_meta):
         import json

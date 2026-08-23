@@ -223,6 +223,38 @@ def test_thread_pool_respects_max_workers(tmp_path):
     assert runner.fetcher.max_seen <= 2
 
 
+def test_network_capture_skipped_without_browser(tmp_path):
+    from src.sources.techstack.collector import TechstackSource
+
+    html = Path("tests/fixtures/techstack/homepage.html").read_bytes()
+    acct = Account(domain="acme.com", name="Acme")
+    kinds: list[str | None] = []
+    fetch = FakeFetch({"https://acme.com/": html})
+    orig = fetch.get
+
+    def wrapped(task, *, etag=None, last_modified=None):
+        kinds.append((task.meta or {}).get("kind"))
+        return orig(task, etag=etag, last_modified=last_modified)
+
+    fetch.get = wrapped
+    db = Database(tmp_path / "s.db")
+    cfg = Config()
+    cfg.http.max_workers = 6
+    cfg.http.respect_robots = False
+    store = RawStore(db, tmp_path / "raw")
+    tax = Taxonomy.load()
+    ctx = RunContext(db, "collect")
+    ctx.__enter__()
+    runner = CollectorRunner(
+        cfg, db, AccountRegistry(db), store, fetch, SignalStore(db, tax), tax, ctx, browser=None
+    )
+    stats = runner.run([TechstackSource()], [acct], force=True, max_passes=1)
+    ctx.__exit__(None, None, None)
+    assert kinds == ["html"]
+    assert stats.fetched >= 1
+    assert stats.failed == 0
+
+
 class HarvestAdapter(OkAdapter):
     key = "harvest"
 

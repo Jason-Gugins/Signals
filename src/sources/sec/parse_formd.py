@@ -27,6 +27,16 @@ class FormD:
     year_of_inc: str | None
     state: str | None
     related_persons: list[dict]
+    entity_type: str | None = None
+    phone: str | None = None
+    city: str | None = None
+    street1: str | None = None
+    zip_code: str | None = None
+    issuer_size: str | None = None
+    min_investment: float | None = None
+    investors_already: int | None = None
+    investors_new: int | None = None
+    biz_state: str | None = None
 
 
 def _strip_ns(root: etree._Element) -> etree._Element:
@@ -58,6 +68,16 @@ def _money(el: etree._Element | None) -> float | None:
         return None
 
 
+def _int(el: etree._Element | None) -> int | None:
+    t = _text(el)
+    if t is None:
+        return None
+    try:
+        return int(float(t.replace(",", "")))
+    except ValueError:
+        return None
+
+
 def parse_form_d(xml_bytes: bytes) -> FormD:
     root = etree.fromstring(xml_bytes)
     _strip_ns(root)
@@ -72,13 +92,19 @@ def parse_form_d(xml_bytes: bytes) -> FormD:
     is_amendment = (_text(amend_el) or "").lower() in {"true", "1", "yes"}
     exemptions = [t for t in (_text(x) for x in root.xpath(".//federalExemptionsExclusions/item")) if t]
     year = _text(_first(root, ".//yearOfInc/value"))
-    state = _text(_first(root, ".//jurisdictionOrganization"))
+    state = _text(_first(root, ".//jurisdictionOrganization")) or _text(
+        _first(root, ".//jurisdictionOfInc")
+    )
+    biz_state = _text(_first(root, ".//issuerAddress/stateOrCountry"))
     people = []
     for person in root.xpath(".//relatedPersonInfo"):
         first = _text(_first(person, ".//firstName")) or ""
         last = _text(_first(person, ".//lastName")) or ""
         rels = [t for t in (_text(x) for x in person.xpath(".//relationship")) if t]
         people.append({"name": f"{first} {last}".strip(), "relationship": rels})
+    issuer_size = _text(_first(root, ".//issuerSize/revenueRange")) or _text(
+        _first(root, ".//revenueRange")
+    ) or _text(_first(root, ".//issuerSize"))
     return FormD(
         entity_name=name,
         cik=pad_cik(cik_raw),
@@ -92,6 +118,16 @@ def parse_form_d(xml_bytes: bytes) -> FormD:
         year_of_inc=year,
         state=state,
         related_persons=people,
+        entity_type=_text(_first(root, ".//entityType")),
+        phone=_text(_first(root, ".//issuerPhoneNumber")),
+        city=_text(_first(root, ".//issuerAddress/city")),
+        street1=_text(_first(root, ".//issuerAddress/street1")),
+        zip_code=_text(_first(root, ".//issuerAddress/zipCode")),
+        issuer_size=issuer_size,
+        min_investment=_money(_first(root, ".//minimumInvestmentAccepted")),
+        investors_already=_int(_first(root, ".//totalNumberAlreadyInvested")),
+        investors_new=_int(_first(root, ".//totalNumberOfNewInvestors")),
+        biz_state=biz_state,
     )
 
 
@@ -146,6 +182,22 @@ def form_d_to_candidates(fd: FormD, *, filing: Filing, today: date) -> list[Sign
                 "first_sale": fd.date_of_first_sale,
                 "exemption": ",".join(fd.exemptions),
                 "is_amendment": fd.is_amendment,
+                "entity_name": fd.entity_name,
+                "cik": fd.cik,
+                "accession": filing.accession,
+                "industry_group": fd.industry_group,
+                "entity_type": fd.entity_type,
+                "state": fd.state,
+                "biz_state": fd.biz_state,
+                "city": fd.city,
+                "street1": fd.street1,
+                "zip_code": fd.zip_code,
+                "phone": fd.phone,
+                "issuer_size": fd.issuer_size,
+                "min_investment": fd.min_investment,
+                "investors_already": fd.investors_already,
+                "investors_new": fd.investors_new,
+                "related_persons": fd.related_persons,
             },
         )
     ]

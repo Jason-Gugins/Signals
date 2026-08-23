@@ -10,6 +10,7 @@ from src.sources.sec.parse_submissions import Filing
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "form_d_primary_doc.xml"
+LIVE = Path(__file__).parent / "fixtures" / "sec" / "form_d_live_primary_doc.xml"
 FILING = Filing(
     accession="0001234567-26-000001",
     form="D",
@@ -92,3 +93,29 @@ def test_observed_at_falls_back_to_filing_date():
     assert cands[0].natural_key == FILING.accession
     assert cands[0].signal_type == "funding_form_d"
     assert cands[0].evidence_data["round_stage"] == "Series B"
+    assert cands[0].evidence_data["amount_usd"] == 20_000_000.0
+    assert cands[0].evidence_data["accession"] == FILING.accession
+
+
+def test_live_fixture_parses_lead_fields():
+    fd = parse_form_d(LIVE.read_bytes())
+    assert fd.entity_name == "ImpactMatrix, LLC"
+    assert fd.cik == "0002151517"
+    assert fd.entity_type == "Limited Liability Company"
+    assert fd.phone == "608-592-0033"
+    assert fd.street1 == "N2437 RAPP ROAD"
+    assert fd.city == "LODI"
+    assert fd.zip_code == "53555"
+    assert fd.state == "WISCONSIN"
+    assert fd.issuer_size == "Decline to Disclose"
+    assert fd.min_investment == 150_000.0
+    assert fd.investors_already == 2
+    assert fd.investors_new is None
+    cands = form_d_to_candidates(fd, filing=FILING, today=date(2026, 8, 16))
+    ev = cands[0].evidence_data
+    assert ev["round_stage"]
+    assert ev["amount_display"]
+    assert ev["biz_state"] == "WI"
+    assert ev["phone"] == fd.phone
+    assert ev["accession"] == FILING.accession
+    assert "related_persons" in ev

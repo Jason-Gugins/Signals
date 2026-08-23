@@ -136,3 +136,31 @@ def test_build_context_args_skips_storage_state(tmp_path):
     args_fresh = BrowserFetcher._build_context_args(cfg, skip_storage_state=True)
     assert "storage_state" in args_default  # loads session by default
     assert "storage_state" not in args_fresh  # skips session when asked
+
+
+def test_new_solve_context_skips_storage_state(tmp_path):
+    """_new_solve_context creates a context without storage_state."""
+    cfg = Config()
+    cfg.browser = BrowserConfig(enabled=True, session_dir=str(tmp_path))
+    (tmp_path / "session.json").write_text('{"cookies": [], "origins": []}')
+    fetcher = BrowserFetcher(cfg, RawStore(Database(tmp_path / "s.db"), raw_dir=tmp_path / "raw"))
+
+    # Mock browser: track what new_context receives
+    created_args = []
+    class _MockBrowser:
+        def new_context(self, **kwargs):
+            created_args.append(kwargs)
+            ctx = type("Ctx", (), {
+                "add_init_script": lambda self, s: None,
+                "new_page": lambda self: _DummyPage(fired=[]),
+                "cookies": lambda self: [],
+                "close": lambda self: None,
+            })()
+            return ctx
+    fetcher._browser = _MockBrowser()
+
+    ctx, page = fetcher._new_solve_context()
+    assert len(created_args) == 1
+    assert "storage_state" not in created_args[0]
+    assert page is not None
+    ctx.close()

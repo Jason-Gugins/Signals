@@ -179,6 +179,88 @@ def export_cmd(ctx, fmt, what):
         click.echo(p)
 
 
+@main.group()
+@click.pass_context
+def funding(ctx):
+    """Company Funding Tracker (SEC Form D)."""
+
+
+def _run_funding(ctx, mode, **kwargs):
+    orch = ctx.obj["get_orch"]()
+    stats = orch.funding(mode, dry_run=ctx.obj["dry_run"], **kwargs)
+    rows = getattr(stats, "rows", None) or []
+    if rows:
+        click.echo("observed_at\tsignal_type\ttitle\turl")
+        for cand in rows:
+            click.echo(f"{cand.observed_at}\t{cand.signal_type}\t{cand.title or ''}\t{cand.url or ''}")
+    click.echo(f"fetched={stats.fetched} kept={stats.kept} signals_new={stats.signals_new} csv={stats.csv_path or ''}")
+
+
+@funding.command("recent")
+@click.option("--days", type=int, default=30)
+@click.option("--include-funds", is_flag=True)
+@click.option("--include-amendments", is_flag=True)
+@click.option("--min-sold", type=float, default=0)
+@click.option("--state", default=None)
+@click.option("--limit", type=int, default=100)
+@click.pass_context
+def funding_recent(ctx, days, include_funds, include_amendments, min_sold, state, limit):
+    _run_funding(
+        ctx,
+        "recent",
+        days=days,
+        include_funds=include_funds,
+        include_amendments=include_amendments,
+        min_sold=min_sold,
+        state=state,
+        limit=limit,
+    )
+
+
+@funding.command("search")
+@click.argument("keyword")
+@click.option("--days", type=int, default=365)
+@click.option("--include-funds", is_flag=True)
+@click.option("--include-amendments", is_flag=True)
+@click.option("--min-sold", type=float, default=0)
+@click.option("--state", default=None)
+@click.option("--limit", type=int, default=100)
+@click.pass_context
+def funding_search(ctx, keyword, days, include_funds, include_amendments, min_sold, state, limit):
+    _run_funding(
+        ctx,
+        "search",
+        q=keyword,
+        days=days,
+        include_funds=include_funds,
+        include_amendments=include_amendments,
+        min_sold=min_sold,
+        state=state,
+        limit=limit,
+    )
+
+
+@funding.command("company")
+@click.option("--cik", default=None)
+@click.option("--domain", default=None)
+@click.option("--name", default=None)
+@click.option("--new-only", is_flag=True, help="Exclude D/A amendments (default includes them).")
+@click.option("--include-funds", is_flag=True)
+@click.pass_context
+def funding_company(ctx, cik, domain, name, new_only, include_funds):
+    if not cik and not domain and not name:
+        raise click.UsageError("need --cik, --domain, or --name")
+    _run_funding(
+        ctx,
+        "company",
+        cik=cik,
+        domain=domain,
+        q=name,
+        include_amendments=not new_only,
+        include_funds=include_funds,
+    )
+
+
 @main.command(name="signals")
 @click.option("--domain", required=True)
 @click.option("--since", default=None)

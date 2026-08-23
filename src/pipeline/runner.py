@@ -145,6 +145,10 @@ class CollectorRunner:
                 follow.extend(adapter.follow_tasks(result.doc, account, meta) or [])
                 jobs = adapter.harvest_jobs(result.doc, account, meta) or []
                 self._persist_jobs(adapter, account, jobs, now, more_pages=bool(follow))
+                from src.sources.techstack.collector import upsert_technologies
+
+                ms = getattr(adapter, "harvest_tech", lambda *a, **k: [])(result.doc, account, meta) or []
+                upsert_technologies(self.db, account.domain, ms, now=_iso(now))
             stats.candidates += len(all_cands)
             stats._src(adapter.key)["candidates"] += len(all_cands)
             new_n = self._persist(account, adapter.key, all_cands, last_doc)

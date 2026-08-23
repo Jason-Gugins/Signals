@@ -1,8 +1,9 @@
 from pathlib import Path
 
+from src.core.db import Database
 from src.core.models import Account, Document
 from src.sources.crtsh.collector import CrtshSource
-from src.sources.techstack.collector import TechstackSource
+from src.sources.techstack.collector import TechstackSource, upsert_technologies
 from src.sources.wayback.collector import WaybackSource
 
 
@@ -49,6 +50,19 @@ def test_techstack_plan_emits_html_and_network():
     assert kinds == ["html", "network"]
     assert all(t.url == "https://acme.com/" for t in tasks)
     assert (tasks[1].meta or {}).get("capture") == "network"
+
+
+def test_harvest_tech_upserts_observed(tmp_path):
+    db = Database(tmp_path / "s.db")
+    src = TechstackSource()
+    body = Path("tests/fixtures/techstack/network_scanner.dev.json").read_bytes()
+    doc = Document(doc_id="n", source="techstack", url="https://scanner.dev/", body=body)
+    ms = src.harvest_tech(doc, Account(domain="scanner.dev"), {"kind": "network", "today": "2026-08-16"})
+    upsert_technologies(db, "scanner.dev", ms, now="2026-08-16T00:00:00")
+    rows = db.query("SELECT vendor, tier FROM technologies WHERE domain=?", ("scanner.dev",))
+    vendors = {r["vendor"] for r in rows}
+    assert "hubspot" in vendors
+    assert any(v.startswith("host:") for v in vendors)
 
 
 def test_wayback_follow_and_crtsh():

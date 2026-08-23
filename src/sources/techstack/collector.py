@@ -65,6 +65,8 @@ def tech_to_candidates(domain, new_vendors, gone_vendors, all_rows, rules, compe
         if v in competitors:
             out.append(SignalCandidate("competitor_detected", today.isoformat(), f"competitor_detected:{v}:{iso_month}", title=v, confidence=0.7, evidence_data={"competitor": v}))
     for v in gone_vendors:
+        if str(v).startswith("host:"):
+            continue
         out.append(SignalCandidate("tech_removed", today.isoformat(), f"tech_removed:{v}:{iso_month}", title=v, confidence=0.8, evidence_data={"vendor": v}))
     return out
 
@@ -114,3 +116,26 @@ class TechstackSource(SourceAdapter):
         return tech_to_candidates(
             account.domain, [m.vendor for m in named], [], [], rules, [], today=today
         )
+
+    def harvest_tech(self, doc, account, task_meta):
+        import json
+
+        from src.sources.techstack.fingerprint import (
+            extract_http_evidence,
+            extract_network_evidence,
+            load_fingerprint_rules,
+            promote_or_observe,
+        )
+
+        rules = load_fingerprint_rules()
+        kind = (task_meta or {}).get("kind") or ""
+        body = doc.body or b""
+        use_net = kind == "network" or (not kind and body.lstrip().startswith(b"{"))
+        if use_net:
+            try:
+                ev = extract_network_evidence(body or b"{}")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return []
+        else:
+            ev = extract_http_evidence(body, {}, doc.url or "")
+        return promote_or_observe(ev, rules, domain=account.domain)

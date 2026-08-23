@@ -214,7 +214,7 @@ class CollectorRunner:
         etag = cursor_row.get("etag")
         last_mod = cursor_row.get("last_modified")
         out: list[tuple[FetchTask, object]] = []
-        if adapter.tier == "browser":
+        if adapter.tier == "browser" or any((t.meta or {}).get("capture") == "network" for t in tasks):
             for task in tasks:
                 out.append((task, self._fetch_one(task, etag, last_mod)))
             return out
@@ -229,6 +229,16 @@ class CollectorRunner:
         return out
 
     def _fetch_one(self, task, etag, last_mod):
+        if (task.meta or {}).get("capture") == "network":
+            if self.browser is None:
+                return None
+            return self.browser.fetch(
+                task.url,
+                source=task.source,
+                domain=task.domain,
+                capture_network=True,
+                wait_ms=2500,
+            )
         return self.fetcher.get(task, etag=etag, last_modified=last_mod)
 
     def _persist(self, account, source, cands, doc) -> int:

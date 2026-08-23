@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from html import unescape
 
 from src.identity.domains import root_domain
+from src.identity.names import normalize_name
 
 DENY = frozenset({"webflow", "fonticons", "hubspot", "wordpress"})
 _TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
@@ -209,7 +210,7 @@ def peel_legal_names(
     seen: set[str] = set()
     out: list[str] = []
     for name in ordered:
-        key = name.casefold()
+        key = normalize_name(name) or name.casefold()
         if key in seen:
             continue
         seen.add(key)

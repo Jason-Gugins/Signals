@@ -6,7 +6,13 @@ from datetime import date
 from pathlib import Path
 
 from src.core.models import Account
-from src.sources.sec.fts import fts_search_url, fts_to_candidates, parse_fts_response
+from src.sources.sec.fts import (
+    fts_search_url,
+    fts_to_candidates,
+    next_fts_offset,
+    parse_fts_response,
+    parse_fts_total,
+)
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "fts_response.json"
@@ -56,3 +62,29 @@ def test_fts_search_url_rejects_unknown_form_key():
     url = fts_search_url(q="Acme", forms=("D",))
     assert "entityName=" not in url
     assert "locationCodes=" not in url
+
+
+FORMD_FIX = Path(__file__).parent / "fixtures" / "sec" / "fts_formd_recent.json"
+
+
+def test_parse_fts_total_and_hits_are_form_d():
+    body = FORMD_FIX.read_bytes()
+    hits = parse_fts_response(body)
+    total = parse_fts_total(body)
+    assert total >= len(hits) >= 1
+    assert total == 5007
+    assert all(h["form"] in {"D", "D/A"} for h in hits)
+    assert {h["form"] for h in hits} <= {"D", "D/A"}
+    assert hits[0]["form"] == "D"
+
+
+def test_parse_fts_total_bare_int():
+    body = b'{"hits":{"total":12,"hits":[]}}'
+    assert parse_fts_total(body) == 12
+
+
+def test_next_fts_offset():
+    assert next_fts_offset(offset=0, size=10, batch_len=10, total=25) == 10
+    assert next_fts_offset(offset=20, size=10, batch_len=5, total=25) is None
+    assert next_fts_offset(offset=0, size=10, batch_len=0, total=25) is None
+    assert next_fts_offset(offset=0, size=100, batch_len=100, total=5007) == 100

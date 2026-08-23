@@ -61,6 +61,25 @@ def parse_fts_response(body: bytes) -> list[dict]:
     return out
 
 
+def parse_fts_total(body: bytes) -> int:
+    raw = json.loads(body)
+    total = (raw.get("hits") or {}).get("total")
+    if isinstance(total, dict):
+        return int(total.get("value") or 0)
+    if isinstance(total, int):
+        return total
+    return 0
+
+
+def next_fts_offset(*, offset: int, size: int, batch_len: int, total: int) -> int | None:
+    if batch_len <= 0:
+        return None
+    nxt = offset + batch_len
+    if nxt >= total or batch_len < size:
+        return None
+    return nxt
+
+
 def fts_to_candidates(hits: list[dict], account: Account, *, today: date) -> list[SignalCandidate]:
     want = normalize_name(account.name) if account.name else None
     if not want:

@@ -87,3 +87,40 @@ def test_har_prefers_late_third_party_host(tmp_path):
     hosts = [r["host"] for r in raw["requests"]]
     assert "cdn.cookielaw.org" in hosts
     assert len(raw["requests"]) <= 80
+
+
+class _ChallengePage(_DummyPage):
+    """Simulates a Cloudflare JS challenge that clears after a poll."""
+    def __init__(self, fired, cleared_body):
+        super().__init__(fired)
+        self._cleared = cleared_body
+        self._polls = 0
+    def title(self):
+        return "Just a moment..." if self._polls < 2 else "Acme Corp"
+    def content(self):
+        return self._cleared if self._polls >= 2 else "<html><title>Just a moment...</title></html>"
+    def wait_for_timeout(self, ms):
+        self._polls += 1
+    def cookies(self):
+        if self._polls < 2:
+            return []
+        return [{"name": "cf_clearance", "value": "tok", "domain": "acme.com"},
+                {"name": "__cf_bm", "value": "bm1", "domain": ".acme.com"}]
+
+
+def test_browser_fetch_solves_js_challenge_returns_html(tmp_path):
+    cfg = Config()
+    cfg.browser = BrowserConfig(enabled=True)
+    db = Database(tmp_path / "s.db")
+    store = RawStore(db, raw_dir=tmp_path / "raw")
+    fetcher = BrowserFetcher(cfg, store)
+    fetcher._page = _ChallengePage(fired=[], cleared_body="<html><script src='https://js.hs-scripts.com/123.js'></script></html>")
+    fetcher._context = type("C", (), {"cookies": lambda self: fetcher._page.cookies()})()
+    result = fetcher.fetch("https://acme.com/", source="techstack", domain="acme.com", capture_html=True)
+    assert result.ok
+    assert result.doc is not None
+    assert b"hs-scripts.com" in result.doc.body
+    assert result.cloudflare_cookies
+    names = {c["name"] for c in result.cloudflare_cookies}
+    assert "cf_clearance" in names
+    assert "__cf_bm" in names  # full jar, not just cf_clearance

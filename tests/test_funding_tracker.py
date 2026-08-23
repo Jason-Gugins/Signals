@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
@@ -12,11 +13,12 @@ from src.core.models import Account, Document
 from src.core.rawstore import RawStore
 from src.identity.edgar_ids import SUBMISSIONS_URL, pad_cik
 from src.identity.registry import AccountRegistry
-from src.pipeline.funding import FundingTracker, plan_funding
+from src.pipeline.funding import FundingTracker, homepage_url, plan_company_queries, plan_funding
 from src.signals.store import SignalStore
 from src.signals.taxonomy import Taxonomy
 from src.sources.sec.formd_filter import FormDFilter
 from src.sources.sec.fts import hit_to_filing, parse_fts_response
+from src.sources.sec.page_peel import peel_legal_names, peel_page
 
 
 FIX = Path(__file__).resolve().parent / "fixtures"
@@ -95,7 +97,7 @@ def test_tracker_unknown_domain_is_empty(tmp_path):
     stats = tr.run("company", today=TODAY, domain="missing.com")
     assert stats.kept == 0
     assert stats.signals_new == 0
-    assert tr.fetcher.urls == []
+    assert homepage_url("missing.com") in tr.fetcher.urls
 
 
 def test_tracker_company_cik_uses_submissions(tmp_path):
@@ -148,3 +150,69 @@ def test_orchestrator_funding_recent(tmp_path, monkeypatch):
     assert stats.kept >= 1
     assert stats.signals_new >= 1
     assert stats.csv_path
+
+
+def _one_hit_fts(*, cik: str, adsh: str) -> bytes:
+    return json.dumps(
+        {
+            "hits": {
+                "total": {"value": 1, "relation": "eq"},
+                "hits": [
+                    {
+                        "_source": {
+                            "ciks": [cik],
+                            "form": "D",
+                            "adsh": adsh,
+                            "file_date": "2026-04-01",
+                            "display_names": ["fixture"],
+                        }
+                    }
+                ],
+            }
+        }
+    ).encode("utf-8")
+
+
+def _peel_payloads(domain: str, html: bytes, xml: bytes, *, cik: str, adsh: str) -> dict[str, bytes]:
+    names = peel_legal_names(peel_page(html, domain=domain), domain=domain)
+    tasks = plan_company_queries(names, today=TODAY, limit=8)
+    fts = _one_hit_fts(cik=cik, adsh=adsh)
+    filing = hit_to_filing(parse_fts_response(fts)[0])
+    payloads = {homepage_url(domain): html, filing.archive_url: xml}
+    for t in tasks:
+        payloads[t.url] = fts
+    return payloads
+
+
+def test_tracker_domain_peel_keeps_acme(tmp_path):
+    html = b"<html><head><title>Acme</title></head><body></body></html>"
+    xml = (FIX / "sec" / "form_d_primary_doc.xml").read_bytes()
+    payloads = _peel_payloads("acme.com", html, xml, cik="0001234567", adsh="0001234567-26-000001")
+    tr = _tracker(tmp_path, payloads)
+    stats = tr.run("company", today=TODAY, domain="acme.com", persist=True)
+    assert stats.kept >= 1
+    rows = tr.db.query("SELECT domain FROM signals")
+    assert any(r["domain"] == "acme.com" for r in rows)
+    assert homepage_url("acme.com") in tr.fetcher.urls
+
+
+def test_tracker_domain_peel_drops_surgical_safety(tmp_path):
+    html = (FIX / "sec" / "pages" / "scanner.dev.html").read_bytes()
+    xml = (FIX / "sec" / "form_d_primary_doc.xml").read_bytes().replace(
+        b"<entityName>Acme Robotics Inc.</entityName>",
+        b"<entityName>Surgical Safety Scanner, Inc.</entityName>",
+    )
+    payloads = _peel_payloads("scanner.dev", html, xml, cik="0001234567", adsh="0001234567-26-000001")
+    tr = _tracker(tmp_path, payloads)
+    tr.registry.upsert(Account(domain="scanner.dev", name="Scanner"))
+    stats = tr.run("company", today=TODAY, domain="scanner.dev", persist=True)
+    assert stats.kept == 0
+    assert homepage_url("scanner.dev") in tr.fetcher.urls
+
+
+def test_tracker_domain_dry_run_skips_homepage(tmp_path):
+    tr = _tracker(tmp_path, {})
+    stats = tr.run("company", today=TODAY, domain="acme.com", dry_run=True)
+    assert stats.fetched == 0
+    assert tr.fetcher.urls == []
+    assert stats.hits >= 1

@@ -15,6 +15,8 @@ from src.sources.base import FetchTask, SignalCandidate
 from src.sources.sec.formd_filter import FormDFilter, keep_form_d
 from src.sources.sec.formd_identity import attach_form_d_account
 from src.sources.sec.fts import fts_search_url, hit_to_filing, next_fts_offset, parse_fts_response, parse_fts_total
+from src.sources.sec.page_match import issuer_matches_page
+from src.sources.sec.page_peel import PageHints, peel_legal_names, peel_page
 from src.sources.sec.parse_formd import FormD, form_d_to_candidates, parse_form_d
 from src.sources.sec.parse_submissions import Filing, parse_submissions
 
@@ -248,21 +250,88 @@ class FundingTracker:
         del force
         stats = FundingStats()
         filt = filt or FormDFilter()
+        peel_root: str | None = None
+        peel_names: list[str] = []
+        peel_hints: PageHints | None = None
         if domain and not cik:
-            acct = self.registry.get(domain)
-            if acct is None:
-                return stats
-            cik = acct.cik or None
-            if not cik:
-                q = q or acct.name
-            if not cik and not q:
-                return stats
+            peel_root = root_domain(domain) or domain
+            acct = self.registry.get(peel_root)
+            if acct and acct.cik:
+                cik = acct.cik
+            elif not dry_run:
+                peel_hints, peel_names = self._peel_homepage(peel_root, hint_name=q)
+                q = None
         if dry_run:
+            if peel_root and not cik:
+                label = (root_domain(peel_root) or peel_root).split(".")[0].title()
+                names = peel_names or [q or label]
+                stats.hits = len(plan_company_queries(names, today=today, limit=limit, size=size)) or 1
+                return stats
             tasks = plan_funding(mode, today=today, q=q, cik=cik, days=days, offset=0, size=size, limit=limit)
             stats.hits = len(tasks)
             return stats
-        seen = 0
+        queries: list[str | None]
+        if peel_root and not cik:
+            queries = peel_names or [q]
+            if not queries or queries == [None]:
+                queries = [(peel_root.split(".")[0]).title()]
+        else:
+            queries = [q]
+        for query in queries:
+            self._run_queries(
+                stats,
+                mode=mode,
+                today=today,
+                q=query,
+                cik=cik,
+                days=days,
+                filt=filt,
+                limit=limit,
+                persist=persist,
+                cohort=cohort,
+                size=size,
+                peel_root=peel_root if not cik else None,
+                peel_hints=peel_hints,
+                peel_names=peel_names,
+            )
+            if stats.kept >= limit:
+                break
+        if persist and stats.kept:
+            out = Path(self.config.storage.export_dir) / "funding.csv"
+            stats.csv_path = export_funding(self.db, str(out), cohort=cohort)
+        return stats
+
+    def _peel_homepage(self, root: str, *, hint_name: str | None) -> tuple[PageHints, list[str]]:
+        task = FetchTask(source=SOURCE, url=homepage_url(root), domain=root, meta={"kind": "homepage"})
+        result = self.fetcher.get(task)
+        if result.ok and result.doc is not None and result.doc.body:
+            hints = peel_page(result.doc.body, domain=root, hint_name=hint_name)
+        else:
+            hints = PageHints(titles=(), legal_names=(), site_names=(), cities=(), text_blob="")
+        names = peel_legal_names(hints, hint_name=hint_name, domain=root)
+        return hints, names
+
+    def _run_queries(
+        self,
+        stats: FundingStats,
+        *,
+        mode: str,
+        today: date,
+        q: str | None,
+        cik: str | None,
+        days: int,
+        filt: FormDFilter,
+        limit: int,
+        persist: bool,
+        cohort: str | None,
+        size: int,
+        peel_root: str | None,
+        peel_hints: PageHints | None,
+        peel_names: list[str],
+    ) -> None:
+        seen = stats.kept
         offset = 0
+        brand = peel_names[0] if peel_names else (peel_root.split(".")[0].title() if peel_root else "")
         while True:
             tasks = plan_funding(mode, today=today, q=q, cik=cik, days=days, offset=offset, size=size, limit=limit)
             page_hits = 0
@@ -299,14 +368,20 @@ class FundingTracker:
                 meta.setdefault("today", today.isoformat())
                 rows = parse_funding_doc(result.doc, meta, today=today, filt=filt)
                 for fd, _filing, cand in rows:
-                    account = attach_form_d_account(fd, self.registry, cohort=cohort)
-                    cand.domain_override = account.domain
-                    result.doc.domain = account.domain
+                    if peel_root and peel_hints is not None:
+                        if not issuer_matches_page(fd, peel_hints, brand=brand):
+                            continue
+                    account = attach_form_d_account(
+                        fd, self.registry, cohort=cohort, prefer_domain=peel_root
+                    )
+                    override = peel_root or account.domain
+                    cand.domain_override = override
+                    result.doc.domain = override
                     if persist and result.doc.doc_id:
                         try:
                             self.db.execute(
                                 "UPDATE documents SET domain=? WHERE doc_id=?",
-                                (account.domain, result.doc.doc_id),
+                                (override, result.doc.doc_id),
                             )
                         except Exception:
                             pass
@@ -341,7 +416,3 @@ class FundingTracker:
             if nxt is None:
                 break
             offset = nxt
-        if persist and stats.kept:
-            out = Path(self.config.storage.export_dir) / "funding.csv"
-            stats.csv_path = export_funding(self.db, str(out), cohort=cohort)
-        return stats

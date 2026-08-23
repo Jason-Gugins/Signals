@@ -113,3 +113,33 @@ def test_high_ticket_once_per_year():
     assert "tech_install_new" in types and "high_ticket_tech" in types
     # same natural_key year means store would dedupe
     assert [c.natural_key for c in c1 if c.signal_type == "high_ticket_tech"][0].endswith("2026")
+
+
+from src.sources.techstack.fingerprint import classify_cloudflare_challenge
+
+
+def test_classify_403_is_managed_challenge():
+    assert classify_cloudflare_challenge(status=403, body=b"") == "managed"
+
+
+def test_classify_just_a_moment_is_js_challenge():
+    body = b"<html><title>Just a moment...</title></html>"
+    assert classify_cloudflare_challenge(status=200, body=body) == "js"
+
+
+def test_classify_challenges_host_is_js_challenge():
+    # NetworkEvidence-style: hosts tuple includes the challenge host
+    assert classify_cloudflare_challenge(status=200, body=b"", challenge_host="challenges.cloudflare.com") == "js"
+
+
+def test_classify_turnstile_text_is_managed():
+    body = b"<html>Press & Hold to confirm you are human</html>"
+    assert classify_cloudflare_challenge(status=200, body=body) == "managed"
+
+
+def test_classify_no_challenge_returns_none():
+    assert classify_cloudflare_challenge(status=200, body=b"<html>real site</html>") is None
+
+
+def test_classify_disabled_when_status_200_and_no_markers():
+    assert classify_cloudflare_challenge(status=200, body=b"") is None

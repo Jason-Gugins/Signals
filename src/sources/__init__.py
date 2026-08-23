@@ -1,6 +1,7 @@
 """Import collectors so @register populates SOURCES."""
 
 import src.sources.sec.collector  # noqa: F401
+import src.sources.sec.formd_source  # noqa: F401
 import src.sources.ats.collector  # noqa: F401
 import src.sources.jobsignals.collector  # noqa: F401
 import src.sources.news.collector  # noqa: F401

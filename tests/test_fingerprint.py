@@ -1,11 +1,19 @@
 from datetime import date
 from src.core.db import Database
 from src.sources.techstack.collector import tech_to_candidates, upsert_technologies
-from src.sources.techstack.fingerprint import TechMatch
+from src.sources.techstack.fingerprint import TechMatch, extract_network_evidence
 import yaml
 from pathlib import Path
 
 RULES = yaml.safe_load(Path("config/fingerprints.yaml").read_text(encoding="utf-8"))
+NET_FIX = Path("tests/fixtures/techstack/network_scanner.dev.json")
+
+
+def test_extract_network_evidence_from_fixture():
+    ev = extract_network_evidence(NET_FIX.read_bytes())
+    assert "cdn.prod.website-files.com" in ev.hosts
+    assert ev.page_url
+    assert all("?" not in u for u in ev.urls)
 
 
 def test_upsert_and_disappear(tmp_path):

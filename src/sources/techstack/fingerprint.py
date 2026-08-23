@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 import re
+from urllib.parse import urlsplit, urlunsplit
 
 from src.core.textutil import clean_text
 
@@ -29,6 +31,37 @@ class TechMatch:
     tier: str
     evidence: str
     confidence: float
+
+
+@dataclass
+class NetworkEvidence:
+    page_url: str
+    hosts: tuple[str, ...]
+    urls: tuple[str, ...]
+
+
+def extract_network_evidence(body: bytes) -> NetworkEvidence:
+    raw = json.loads(body)
+    reqs = raw.get("requests") or []
+    hosts, urls = [], []
+    for r in reqs[:80]:
+        u = (r.get("url") or "").strip()
+        parts = urlsplit(u)
+        if parts.scheme in {"data", "blob"}:
+            continue
+        if u.startswith("data:") or u.startswith("blob:"):
+            continue
+        if u:
+            u = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+            urls.append(u)
+        h = (r.get("host") or parts.hostname or "").strip().casefold()
+        if h:
+            hosts.append(h)
+    return NetworkEvidence(
+        page_url=raw.get("page_url") or "",
+        hosts=tuple(dict.fromkeys(hosts)),
+        urls=tuple(urls),
+    )
 
 
 class _Page(HTMLParser):

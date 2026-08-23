@@ -255,6 +255,28 @@ def test_network_capture_skipped_without_browser(tmp_path):
     assert stats.failed == 0
 
 
+def test_runner_upserts_tech_from_html(tmp_path):
+    from src.sources.techstack.collector import TechstackSource
+
+    html = Path("tests/fixtures/techstack/homepage.html").read_bytes()
+    acct = Account(domain="acme.com", name="Acme")
+    db = Database(tmp_path / "s.db")
+    cfg = Config()
+    cfg.http.max_workers = 1
+    cfg.http.respect_robots = False
+    store = RawStore(db, tmp_path / "raw")
+    tax = Taxonomy.load()
+    ctx = RunContext(db, "collect")
+    ctx.__enter__()
+    runner = CollectorRunner(
+        cfg, db, AccountRegistry(db), store, FakeFetch({"https://acme.com/": html}), SignalStore(db, tax), tax, ctx, browser=None
+    )
+    runner.run([TechstackSource()], [acct], force=True, max_passes=1)
+    ctx.__exit__(None, None, None)
+    rows = db.query("SELECT vendor FROM technologies WHERE domain=?", ("acme.com",))
+    assert "hubspot" in {r["vendor"] for r in rows}
+
+
 class HarvestAdapter(OkAdapter):
     key = "harvest"
 

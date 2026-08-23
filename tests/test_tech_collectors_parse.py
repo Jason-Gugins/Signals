@@ -30,6 +30,18 @@ def test_techstack_parse_network_fixture():
     assert any(c.signal_type == "tech_install_new" for c in cands)
 
 
+def test_parse_network_does_not_signal_raw_hosts():
+    body = Path("tests/fixtures/techstack/network_scanner.dev.json").read_bytes()
+    cands = TechstackSource().parse(
+        Document(doc_id="n", source="techstack", url="https://scanner.dev/", body=body),
+        Account(domain="scanner.dev"),
+        {"today": "2026-08-16", "kind": "network"},
+    )
+    titles = {c.title for c in cands}
+    assert "webflow" in titles and "hubspot" in titles
+    assert not any(str(t).startswith("host:") for t in titles)
+
+
 def test_techstack_plan_emits_html_and_network():
     src = TechstackSource()
     tasks = src.plan(Account(domain="acme.com"), None)

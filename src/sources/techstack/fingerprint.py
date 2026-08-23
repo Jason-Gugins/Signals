@@ -178,6 +178,15 @@ def _host_hit(host: str, needle: str) -> bool:
     return h == n or h.endswith("." + n)
 
 
+def is_challenge_evidence(ev, *, status: int | None = None) -> bool:
+    if status == 403:
+        return True
+    for h in getattr(ev, "hosts", ()) or []:
+        if _host_hit(h, "challenges.cloudflare.com"):
+            return True
+    return False
+
+
 def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
     vendors = _rules_vendors(rules)
     hits: list[TechMatch] = []

@@ -98,3 +98,10 @@ vendors:
     match:
       network_host: ["player.vimeo.com", "vimeo.com"]
       script_src: ["player.vimeo.com"]
+  cloudflare:
+    display: Cloudflare
+    category: [cdn]
+    tier: mid
+    match:
+      network_host: ["challenges.cloudflare.com", "cloudflare.com"]
+      script_src: ["challenges.cloudflare.com"]

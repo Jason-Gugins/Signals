@@ -59,6 +59,16 @@ def test_probe_fixture_names_onetrust_bing_vimeo():
     assert {"onetrust", "bing_uet", "vimeo"} <= dark_named
 
 
+def test_challenge_host_names_cloudflare():
+    from src.sources.techstack.fingerprint import NetworkEvidence, is_challenge_evidence, load_fingerprint_rules
+
+    ev = NetworkEvidence(page_url="https://example.com/", hosts=("challenges.cloudflare.com",), urls=())
+    assert is_challenge_evidence(ev) is True
+    assert is_challenge_evidence(ev, status=403) is True
+    named = {m.vendor for m in match_fingerprints(ev, load_fingerprint_rules())}
+    assert "cloudflare" in named
+
+
 def test_promote_drops_duplicate_host_row():
     from src.sources.techstack.fingerprint import load_fingerprint_rules, promote_or_observe
 

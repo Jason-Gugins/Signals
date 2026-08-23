@@ -124,3 +124,15 @@ def test_browser_fetch_solves_js_challenge_returns_html(tmp_path):
     names = {c["name"] for c in result.cloudflare_cookies}
     assert "cf_clearance" in names
     assert "__cf_bm" in names  # full jar, not just cf_clearance
+
+
+def test_build_context_args_skips_storage_state(tmp_path):
+    """When skip_storage_state=True, session.json is NOT loaded even if it exists."""
+    cfg = Config()
+    cfg.browser = BrowserConfig(enabled=True, session_dir=str(tmp_path))
+    # Create a stale session.json
+    (tmp_path / "session.json").write_text('{"cookies": [], "origins": []}')
+    args_default = BrowserFetcher._build_context_args(cfg)
+    args_fresh = BrowserFetcher._build_context_args(cfg, skip_storage_state=True)
+    assert "storage_state" in args_default  # loads session by default
+    assert "storage_state" not in args_fresh  # skips session when asked

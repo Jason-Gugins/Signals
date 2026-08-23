@@ -90,7 +90,7 @@ class BrowserFetcher:
         self._page = None
 
     @staticmethod
-    def _build_context_args(config: Config) -> dict:
+    def _build_context_args(config: Config, *, skip_storage_state: bool = False) -> dict:
         args: dict = {
             "viewport": config.browser.viewport,
             "locale": config.browser.locale,
@@ -99,9 +99,10 @@ class BrowserFetcher:
         }
         if config.browser.proxy_server:
             args["proxy"] = {"server": config.browser.proxy_server}
-        session_path = Path(config.browser.session_dir) / "session.json"
-        if session_path.exists():
-            args["storage_state"] = str(session_path)
+        if not skip_storage_state:
+            session_path = Path(config.browser.session_dir) / "session.json"
+            if session_path.exists():
+                args["storage_state"] = str(session_path)
         return args
 
     def start(self) -> "BrowserFetcher":

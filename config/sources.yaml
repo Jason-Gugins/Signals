@@ -11,6 +11,13 @@ sources:
     rate_per_host: 8.0            # SEC allows 10 req/s; stay under
     host: "data.sec.gov"
     requires: ["cik"]
+  sec_formd:
+    enabled: true
+    cadence_hours: 24
+    rate_per_host: 8.0
+    recent_days: 30
+    exclude_pooled_funds: true
+    include_amendments: false
   ats_greenhouse: { enabled: true, cadence_hours: 12, rate_per_host: 2.0, requires: ["ats_token"] }
   ats_lever:      { enabled: true, cadence_hours: 12, rate_per_host: 2.0, requires: ["ats_token"] }
   ats_ashby:      { enabled: true, cadence_hours: 12, rate_per_host: 2.0, requires: ["ats_token"] }

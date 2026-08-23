@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 from src.core.db import Database
@@ -21,6 +22,12 @@ SIGNAL_COLUMNS = [
 PLAY_COLUMNS = [
     "domain", "rank", "play_id", "play_name", "urgency", "opener", "t24", "cta",
     "contact_name", "contact_title", "contact_linkedin", "signal_type", "evidence",
+]
+FUNDING_COLUMNS = [
+    "domain", "entity_name", "cik", "observed_at", "amount_usd", "amount_display",
+    "round_stage", "industry_group", "exemption", "is_amendment", "state", "city",
+    "phone", "entity_type", "issuer_size", "min_investment", "investors_already",
+    "investors_new", "related_persons", "url", "accession", "confidence", "signal_id",
 ]
 
 
@@ -108,6 +115,53 @@ def export_plays(db: Database, path: str, *, cohort=None) -> str:
         rec.setdefault("evidence", "")
         out.append(rec)
     return _write(path, PLAY_COLUMNS, out)
+
+
+def export_funding(db: Database, path: str, *, cohort=None, since=None) -> str:
+    sql = "SELECT s.* FROM signals s"
+    clauses = ["s.signal_type = 'funding_form_d'"]
+    params: list = []
+    if cohort:
+        sql += " JOIN accounts a ON a.domain = s.domain"
+        clauses.append("a.cohort = ?")
+        params.append(cohort)
+    if since:
+        clauses.append("s.observed_at >= ?")
+        params.append(since)
+    rows = db.query(sql + " WHERE " + " AND ".join(clauses) + " ORDER BY s.domain, s.observed_at", params)
+    out = []
+    for r in rows:
+        rec = dict(r)
+        ev = rec.get("evidence_data")
+        if isinstance(ev, str):
+            try:
+                ev = json.loads(ev)
+            except json.JSONDecodeError:
+                ev = {}
+        ev = ev or {}
+        people = ev.get("related_persons") or []
+        if isinstance(people, list):
+            people_s = "; ".join(
+                f"{p.get('name', '')} ({','.join(p.get('relationship') or [])})"
+                if isinstance(p, dict)
+                else str(p)
+                for p in people
+            )
+        else:
+            people_s = str(people)
+        out.append(
+            {
+                **ev,
+                "domain": rec.get("domain"),
+                "observed_at": rec.get("observed_at"),
+                "url": rec.get("url"),
+                "confidence": rec.get("confidence"),
+                "signal_id": rec.get("signal_id"),
+                "related_persons": people_s,
+                "accession": ev.get("accession") or rec.get("natural_key") or "",
+            }
+        )
+    return _write(path, FUNDING_COLUMNS, out)
 
 
 def export_all(db: Database, export_dir: str, *, cohort=None) -> list[str]:

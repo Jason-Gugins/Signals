@@ -50,3 +50,64 @@ def test_drops_parallel_loop_without_page_overlap():
 def test_empty_hints_still_drops_surgical_safety():
     empty = PageHints(titles=(), legal_names=(), site_names=(), cities=(), text_blob="")
     assert issuer_matches_page(_fd(entity_name="Surgical Safety Scanner, Inc."), empty, brand="Scanner") is False
+
+
+def test_drops_momentum_llc():
+    fd = _fd(entity_name="Momentum LLC", city="Sandy", industry_group="Retailing")
+    hints = PageHints(
+        titles=("Momentum: AI Revenue Orchestration Platform", "Momentum"),
+        legal_names=(),
+        site_names=("Momentum",),
+        cities=(),
+        text_blob="Momentum: AI Revenue Orchestration Platform AI Revenue Orchestration",
+    )
+    assert issuer_matches_page(fd, hints, brand="Momentum") is False
+
+
+def test_drops_polymarket_fund_series():
+    fd = _fd(
+        entity_name="OPX2025 Polymarket, a Series of Opulentia Ventures X LLC",
+        industry_group="Investing",
+    )
+    hints = PageHints(
+        titles=("Polymarket | The World's Largest Prediction Market", "Polymarket"),
+        legal_names=(),
+        site_names=("Polymarket",),
+        cities=(),
+        text_blob="Polymarket The World's Largest Prediction Market",
+    )
+    assert issuer_matches_page(fd, hints, brand="Polymarket") is False
+
+
+def test_drops_west_clay_and_red_clay():
+    hints = PageHints(
+        titles=("Clay | Build systems to grow revenue", "Clay"),
+        legal_names=(),
+        site_names=("Clay",),
+        cities=(),
+        text_blob="Clay Build systems to grow revenue",
+    )
+    assert issuer_matches_page(_fd(entity_name="OE VILLAGE OF WEST CLAY, LLC"), hints, brand="Clay") is False
+    assert issuer_matches_page(_fd(entity_name="Red Clay Provisions, LLC"), hints, brand="Clay") is False
+
+
+def test_keeps_agentio_inc():
+    hints = PageHints(
+        titles=("Agentio | The AI-Native Platform for Creator Advertising", "Agentio"),
+        legal_names=(),
+        site_names=("Agentio",),
+        cities=(),
+        text_blob="Agentio The AI-Native Platform for Creator Advertising",
+    )
+    assert issuer_matches_page(_fd(entity_name="Agentio Inc."), hints, brand="Agentio") is True
+
+
+def test_keeps_speakeasy_labs_for_speak():
+    hints = PageHints(
+        titles=("Speak - The language learning app", "Speak"),
+        legal_names=("Speakeasy Labs, Inc.",),
+        site_names=("Speak",),
+        cities=(),
+        text_blob="Speak The language learning app Speakeasy Labs, Inc.",
+    )
+    assert issuer_matches_page(_fd(entity_name="Speakeasy Labs, Inc."), hints, brand="Speak") is True

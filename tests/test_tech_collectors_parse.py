@@ -65,6 +65,42 @@ def test_harvest_tech_upserts_observed(tmp_path):
     assert any(v.startswith("host:") for v in vendors)
 
 
+def test_harvest_tech_after_bypass_keeps_all_vendors(tmp_path):
+    # body is real homepage HTML (post-bypass) with HubSpot + GTM scripts
+    html = b"<html><script src='https://js.hs-scripts.com/x.js'></script><script src='https://www.googletagmanager.com/gtm.js'></script></html>"
+    src = TechstackSource()
+    matches = src.harvest_tech(
+        Document(doc_id="h", source="techstack", url="https://acme.com/", body=html),
+        Account(domain="acme.com"),
+        {"today": "2026-08-23"},
+    )
+    vendors = {m.vendor for m in matches}
+    assert "hubspot" in vendors
+    assert "google_tag_manager" in vendors or "gtm" in vendors or any("googletagmanager" in str(m.evidence) for m in matches)
+
+
+def test_harvest_tech_challenge_unsolved_records_cloudflare_only(tmp_path):
+    body = b"<html><title>Just a moment...</title></html>"
+    src = TechstackSource()
+    matches = src.harvest_tech(
+        Document(doc_id="h", source="techstack", url="https://acme.com/", body=body),
+        Account(domain="acme.com"),
+        {"today": "2026-08-23", "cloudflare_unsolved": True},
+    )
+    vendors = {m.vendor for m in matches}
+    assert vendors == {"cloudflare"}  # honest hard stop
+
+
+def test_parse_challenge_unsolved_emits_no_tech_install_new():
+    body = b"<html><title>Just a moment...</title></html>"
+    cands = TechstackSource().parse(
+        Document(doc_id="h", source="techstack", url="https://acme.com/", body=body),
+        Account(domain="acme.com"),
+        {"today": "2026-08-23", "cloudflare_unsolved": True},
+    )
+    assert not any(c.signal_type == "tech_install_new" for c in cands)
+
+
 def test_wayback_follow_and_crtsh():
     cdx = Path("tests/fixtures/wayback/cdx.json").read_bytes()
     wb = WaybackSource()

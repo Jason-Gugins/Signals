@@ -194,10 +194,22 @@ class Orchestrator:
                 from src.core.browser import BrowserFetcher
 
                 browser = BrowserFetcher(self.config, self.raw, ctx).start()
+            cf_bypass = None
+            if (
+                getattr(self.config, "cloudflare", None)
+                and self.config.cloudflare.enabled
+                and browser is not None
+            ):
+                from src.core.db import CfCookieStore
+                from src.sources.techstack.cf_bypass import CloudflareBypass
+
+                cf_store = CfCookieStore(self.db)
+                cf_bypass = CloudflareBypass(self.config, cf_store, fetcher, browser)
             try:
                 runner = CollectorRunner(
                     self.config, self.db, self.registry, self.raw, fetcher, self.signal_store, self.taxonomy, ctx,
                     browser=browser,
+                    cloudflare_bypass=cf_bypass,
                 )
                 rest = runner.run(adapters, accounts, force=force, dry_run=dry_run)
             finally:

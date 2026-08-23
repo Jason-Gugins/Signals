@@ -35,6 +35,37 @@ def _select_har_requests(reqs: list[dict], *, domain: str | None, limit: int = 8
     return (third + first)[:limit]
 
 
+_CHALLENGE_TITLES = ("just a moment", "checking your browser")
+
+
+def _challenge_cleared(page, context, *, domain: str, timeout_ms: int, poll_ms: int = 500) -> bool:
+    """Poll for Cloudflare challenge clearance.
+
+    Primary signal: ``cf_clearance`` cookie presence in ``context.cookies()``
+    (authoritative — set exactly when the challenge clears).
+    Secondary signal: ``page.title()`` no longer a challenge title.
+    """
+    import time
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    while time.monotonic() < deadline:
+        # Primary: cf_clearance cookie presence (authoritative — set exactly when challenge clears)
+        try:
+            for c in context.cookies():
+                if c.get("name") == "cf_clearance" and domain in (c.get("domain", "") or ""):
+                    return True
+        except Exception:
+            pass
+        # Secondary: title no longer a challenge title
+        try:
+            title = (page.title() or "").lower()
+            if not any(t in title for t in _CHALLENGE_TITLES):
+                return True
+        except Exception:
+            pass
+        page.wait_for_timeout(poll_ms)
+    return False
+
+
 class BrowserFetcher:
     def __init__(self, config: Config, store: RawStore, ctx: RunContext | None = None):
         self.config = config
@@ -89,6 +120,7 @@ class BrowserFetcher:
         wait_ms: int | None = None,
         scroll: bool = False,
         capture_network: bool = False,
+        capture_html: bool = False,
     ) -> FetchResult:
         if not self.config.browser.enabled:
             raise BrowserDisabled("browser tier is disabled (config.browser.enabled=false)")
@@ -115,6 +147,7 @@ class BrowserFetcher:
             if wait_ms is None:
                 wait_ms = 2500
             self._page.on("request", on_req)
+        cf_cookies: list[dict] = []
         try:
             self._page.goto(url, wait_until="domcontentloaded")
             if wait_selector:
@@ -123,7 +156,26 @@ class BrowserFetcher:
                 self._page.wait_for_timeout(wait_ms)
             if scroll:
                 self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            if capture_network:
+            if capture_html:
+                # Challenge-aware: poll for cf_clearance cookie presence (primary)
+                # + challenge-title absence (secondary), then capture content + cookies.
+                timeout_ms = self.config.cloudflare.solve_timeout_ms
+                _challenge_cleared(
+                    self._page, self._context,
+                    domain=domain or "", timeout_ms=timeout_ms, poll_ms=500,
+                )
+                body = self._page.content().encode("utf-8")
+                ctype = "text/html"
+                # Extract the full cookie jar (cf_clearance + __cf_bm + cf_chl_*) for the domain.
+                root = (domain or "").casefold().lstrip(".")
+                try:
+                    for c in self._context.cookies():
+                        cd = (c.get("domain", "") or "").casefold().lstrip(".")
+                        if cd == root or cd.endswith("." + root) or root in (c.get("domain", "") or ""):
+                            cf_cookies.append(c)
+                except Exception:
+                    pass
+            elif capture_network:
                 payload = {"page_url": url, "requests": _select_har_requests(reqs[:200], domain=domain, limit=80)}
                 body = json.dumps(payload).encode("utf-8")
                 ctype = "application/json"
@@ -148,6 +200,7 @@ class BrowserFetcher:
             cached=False,
             error=None,
             elapsed_ms=int((time.monotonic() - started) * 1000),
+            cloudflare_cookies=cf_cookies,
         )
         if self.ctx:
             self.ctx.log_fetch(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -29,6 +29,7 @@ class FetchResult:
     cached: bool
     error: Optional[str]
     elapsed_ms: int
+    cloudflare_cookies: list = field(default_factory=list)
 
 
 class RobotsCache:

@@ -20,6 +20,17 @@ browser:
   max_delay: 15.0
   session_dir: "data/state"
 
+cloudflare:
+  enabled: true
+  bypass_strategy: browser_first   # browser_first | solver_first | browser_only | disabled
+  solve_timeout_ms: 20000
+  cookie_ttl_hours: 24              # ceiling only; real cookie expires is authoritative
+  headed_fallback: false
+  headed_solve_timeout_ms: 120000
+  solver_provider: null            # 2captcha | anticaptcha | null
+  solver_api_key: null
+  max_solves_per_domain_per_24h: 1  # anti-escalation cap
+
 storage:
   db_path: "data/signals.db"
   raw_dir: "data/raw"

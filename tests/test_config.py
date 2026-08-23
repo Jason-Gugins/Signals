@@ -137,3 +137,45 @@ def test_load_yaml_signals_has_39_types():
     assert len(data["types"]) == 39
     # cache: same object on second load
     assert cfg.load_yaml("signals") is data
+
+
+def test_cloudflare_config_defaults():
+    cfg = Config()
+    assert cfg.cloudflare.enabled is True
+    assert cfg.cloudflare.bypass_strategy == "browser_first"
+    assert cfg.cloudflare.solve_timeout_ms == 20000
+    assert cfg.cloudflare.cookie_ttl_hours == 24
+    assert cfg.cloudflare.solver_api_key is None
+    assert cfg.cloudflare.solver_provider is None
+    assert cfg.cloudflare.headed_fallback is False
+    assert cfg.cloudflare.headed_solve_timeout_ms == 120000
+
+
+def test_cloudflare_config_from_yaml(tmp_path):
+    yaml = tmp_path / "default.yaml"
+    yaml.write_text(
+        "cloudflare:\n"
+        "  enabled: true\n"
+        "  bypass_strategy: solver_first\n"
+        "  solve_timeout_ms: 30000\n"
+        "  solver_provider: 2captcha\n"
+        "  solver_api_key: secret\n",
+        encoding="utf-8",
+    )
+    # env_path prevents real .env from polluting the test (existing convention)
+    cfg = Config.load(yaml_path=yaml, env_path=tmp_path / "empty.env")
+    assert cfg.cloudflare.bypass_strategy == "solver_first"
+    assert cfg.cloudflare.solver_api_key == "secret"
+    assert cfg.cloudflare.solver_provider == "2captcha"
+
+
+def test_cloudflare_config_env_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_SOLVER_API_KEY", "envkey")
+    monkeypatch.setenv("CLOUDFLARE_SOLVER_PROVIDER", "anticaptcha")
+    monkeypatch.setenv("CLOUDFLARE_BYPASS_STRATEGY", "browser_only")
+    monkeypatch.setenv("CLOUDFLARE_HEADED_FALLBACK", "true")
+    cfg = Config.load(env_path=tmp_path / "empty.env")
+    assert cfg.cloudflare.solver_api_key == "envkey"
+    assert cfg.cloudflare.solver_provider == "anticaptcha"
+    assert cfg.cloudflare.bypass_strategy == "browser_only"
+    assert cfg.cloudflare.headed_fallback is True

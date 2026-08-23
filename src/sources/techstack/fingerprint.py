@@ -187,6 +187,37 @@ def is_challenge_evidence(ev, *, status: int | None = None) -> bool:
     return False
 
 
+_JS_MARKERS = (b"Just a moment", b"Checking your browser", b"cf-browser-verification")
+_MANAGED_MARKERS = (b"Press &amp; Hold", b"Press & Hold", b"cf-turnstile", b"challenge-platform")
+_CHALLENGE_HOST = "challenges.cloudflare.com"
+
+
+def classify_cloudflare_challenge(
+    *,
+    status: int | None = None,
+    body: bytes = b"",
+    challenge_host: str | None = None,
+) -> str | None:
+    """Return 'js', 'managed', or None for a techstack fetch result.
+
+    'js'     = standard JS challenge (real Chromium auto-solves)
+    'managed' = Turnstile / interactive challenge (needs solver or headed)
+    """
+    is_cf = False
+    if status == 403:
+        is_cf = True
+    if challenge_host and _host_hit(challenge_host, _CHALLENGE_HOST):
+        is_cf = True
+    low = body.lower()
+    if any(m.lower() in low for m in _JS_MARKERS):
+        return "js"
+    if any(m.lower() in low for m in _MANAGED_MARKERS):
+        return "managed"
+    if challenge_host and _host_hit(challenge_host, _CHALLENGE_HOST):
+        return "js"
+    return "managed" if is_cf else None
+
+
 def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
     vendors = _rules_vendors(rules)
     hits: list[TechMatch] = []

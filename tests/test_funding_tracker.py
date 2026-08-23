@@ -123,3 +123,28 @@ def test_tracker_dry_run_fetches_nothing(tmp_path):
     assert stats.fetched == 0
     assert tr.fetcher.urls == []
     assert stats.hits >= 1
+
+
+def test_orchestrator_funding_recent(tmp_path, monkeypatch):
+    from src.pipeline.orchestrator import Orchestrator
+    from src.sources.sec.formd_source import SecFormDSource
+
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return TODAY
+
+    monkeypatch.setattr("src.pipeline.orchestrator.date", FrozenDate)
+    cfg = Config()
+    cfg.contact_email = "recon@example.com"
+    cfg.http.respect_robots = False
+    cfg.storage.db_path = str(tmp_path / "s.db")
+    cfg.storage.raw_dir = str(tmp_path / "raw")
+    cfg.storage.briefs_dir = str(tmp_path / "br")
+    cfg.storage.export_dir = str(tmp_path / "ex")
+    cfg.config_dir = str(Path(__file__).resolve().parents[1] / "config")
+    orch = Orchestrator(cfg, fetcher=FakeFetch(_recent_payloads()), adapters=[SecFormDSource()])
+    stats = orch.funding("recent", days=30, limit=3)
+    assert stats.kept >= 1
+    assert stats.signals_new >= 1
+    assert stats.csv_path

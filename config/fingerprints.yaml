@@ -6,6 +6,7 @@ vendors:
     tier: mid
     match:
       script_src: ["js.hs-scripts.com", "js.hsforms.net", "hs-analytics.net"]
+      network_host: ["js.hsforms.net", "hubspotonwebflow.com", "forms-na2.hsforms.com"]
       dns_cname: ["hubspotusercontent", "hs-sites.com"]
       spf_include: ["hubspotemail.net"]
   salesforce:
@@ -34,3 +35,9 @@ vendors:
              match: { dns_cname: ["myworkdayjobs.com"], script_src: ["myworkday.com"] } }
   statuspage: { display: "Atlassian Statuspage", category: [status], tier: mid,
              match: { dns_cname: ["statuspage.io"] } }
+  webflow:
+    display: Webflow
+    category: [cms]
+    tier: mid
+    match:
+      network_host: ["website-files.com"]

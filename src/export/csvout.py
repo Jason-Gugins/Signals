@@ -170,4 +170,5 @@ def export_all(db: Database, export_dir: str, *, cohort=None) -> list[str]:
         export_accounts(db, str(root / "accounts.csv"), cohort=cohort),
         export_signals(db, str(root / "signals.csv"), cohort=cohort),
         export_plays(db, str(root / "plays.csv"), cohort=cohort),
+        export_funding(db, str(root / "funding.csv"), cohort=cohort),
     ]

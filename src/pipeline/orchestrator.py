@@ -379,11 +379,13 @@ class Orchestrator:
             dry_run=dry_run,
         )
 
-    def export(self, *, cohort=None, fmt="csv") -> list[str]:
+    def export(self, *, cohort=None, fmt="csv", what="all") -> list[str]:
         with RunContext(self.db, "export"):
             try:
-                from src.export.csvout import export_all
+                from src.export.csvout import export_all, export_funding
 
+                if what == "funding":
+                    return [export_funding(self.db, str(Path(self.config.storage.export_dir) / "funding.csv"), cohort=cohort)]
                 return export_all(self.db, self.config.storage.export_dir, cohort=cohort)
             except ImportError:
                 return []

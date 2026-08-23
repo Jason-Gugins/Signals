@@ -51,7 +51,8 @@ def test_commands_call_orchestrator(monkeypatch):
     assert seen["reparse"]["since"] == "2026-01-01"
     assert runner.invoke(main, ["score", "--domain", "acme.com"]).exit_code == 0
     assert runner.invoke(main, ["brief", "--tier-max", "1"]).exit_code == 0
-    assert runner.invoke(main, ["export", "--format", "csv"]).exit_code == 0
+    assert runner.invoke(main, ["export", "--format", "csv", "--what", "funding"]).exit_code == 0
+    assert seen["export"]["what"] == "funding"
     assert runner.invoke(main, ["run", "--skip-collect"]).exit_code == 0
     assert seen["run"]["skip_collect"] is True
 

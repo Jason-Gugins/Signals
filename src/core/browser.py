@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import random
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from src.core.config import Config
 from src.core.http import FetchResult
@@ -70,26 +72,56 @@ class BrowserFetcher:
         wait_selector: str | None = None,
         wait_ms: int | None = None,
         scroll: bool = False,
+        capture_network: bool = False,
     ) -> FetchResult:
         if not self.config.browser.enabled:
             raise BrowserDisabled("browser tier is disabled (config.browser.enabled=false)")
         if self._page is None:
             self.start()
         started = time.monotonic()
-        self._page.goto(url, wait_until="domcontentloaded")
-        if wait_selector:
-            self._page.wait_for_selector(wait_selector)
-        if wait_ms:
-            self._page.wait_for_timeout(wait_ms)
-        if scroll:
-            self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        html = self._page.content()
-        body = html.encode("utf-8")
+        reqs: list[dict] = []
+
+        def on_req(r):
+            raw_url = getattr(r, "url", "") or ""
+            parts = urlsplit(raw_url)
+            if parts.scheme in {"data", "blob"}:
+                return
+            clean = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+            reqs.append(
+                {
+                    "url": clean,
+                    "host": (parts.hostname or "").casefold(),
+                    "resource_type": getattr(r, "resource_type", "") or "",
+                }
+            )
+
+        if capture_network:
+            if wait_ms is None:
+                wait_ms = 2500
+            self._page.on("request", on_req)
+        try:
+            self._page.goto(url, wait_until="domcontentloaded")
+            if wait_selector:
+                self._page.wait_for_selector(wait_selector)
+            if wait_ms:
+                self._page.wait_for_timeout(wait_ms)
+            if scroll:
+                self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            if capture_network:
+                payload = {"page_url": url, "requests": reqs[:80]}
+                body = json.dumps(payload).encode("utf-8")
+                ctype = "application/json"
+            else:
+                body = self._page.content().encode("utf-8")
+                ctype = "text/html"
+        finally:
+            if capture_network:
+                self._page.remove_listener("request", on_req)
         doc = self.store.put(
             source=source,
             url=url,
             body=body,
-            content_type="text/html",
+            content_type=ctype,
             status=200,
             domain=domain,
         )

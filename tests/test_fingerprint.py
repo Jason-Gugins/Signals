@@ -1,7 +1,13 @@
 from datetime import date
 from src.core.db import Database
 from src.sources.techstack.collector import tech_to_candidates, upsert_technologies
-from src.sources.techstack.fingerprint import TechMatch, extract_network_evidence, match_fingerprints, observed_hosts
+from src.sources.techstack.fingerprint import (
+    TechMatch,
+    dynamic_matches,
+    extract_network_evidence,
+    match_fingerprints,
+    observed_hosts,
+)
 import yaml
 from pathlib import Path
 
@@ -22,6 +28,14 @@ def test_observed_hosts_drops_first_party():
     assert "scanner.dev" not in hosts
     assert "cdn.prod.website-files.com" in hosts
     assert "js.hsforms.net" in hosts
+
+
+def test_dynamic_matches_are_unknown_tier():
+    ev = extract_network_evidence(NET_FIX.read_bytes())
+    ms = dynamic_matches(ev, domain="scanner.dev")
+    assert any(m.vendor == "host:cdn-cookieyes.com" for m in ms)
+    assert all(m.tier == "unknown" for m in ms)
+    assert not any(m.vendor.startswith("host:scanner.dev") for m in ms)
 
 
 def test_match_network_hosts_webflow_from_fixture():

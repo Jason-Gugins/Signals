@@ -88,6 +88,22 @@ def observed_hosts(ev, *, domain: str) -> tuple[str, ...]:
     return tuple(out)
 
 
+def dynamic_matches(ev, *, domain: str) -> list[TechMatch]:
+    out = []
+    for h in observed_hosts(ev, domain=domain):
+        out.append(
+            TechMatch(
+                vendor=f"host:{h}",
+                display=h,
+                category=["observed"],
+                tier="unknown",
+                evidence="network_host",
+                confidence=0.4,
+            )
+        )
+    return out
+
+
 class _Page(HTMLParser):
     def __init__(self):
         super().__init__()

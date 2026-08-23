@@ -386,6 +386,113 @@ def test_harvest_token_closed_snapshot(tmp_path):
     assert snap["open_count"] == 1
 
 
+def test_runner_routes_challenge_through_bypass(tmp_path):
+    """When an http-tier html task returns a Cloudflare challenge body and a
+    cloudflare_bypass is wired, the runner calls bypass.attempt and uses its
+    result; meta['cloudflare_unsolved'] reflects the bypass outcome."""
+    from src.core.http import FetchResult
+    from src.sources.techstack.collector import TechstackSource
+
+    challenge_body = b"<html><title>Just a moment...</title></html>"
+    cleared_body = (
+        b"<html><script src='https://js.hs-scripts.com/x.js'></script>"
+        b"<script src='https://www.googletagmanager.com/gtm.js'></script></html>"
+    )
+
+    class _ChallengeFetch:
+        """Returns a challenge body (status 200, 'Just a moment...') on get()."""
+        def get(self, task, *, etag=None, last_modified=None):
+            doc = Document(
+                doc_id="c", source=task.source, url=task.url,
+                domain=task.domain, body=challenge_body, status=200,
+            )
+            return FetchResult(True, 200, doc, False, None, 1)
+
+    class _StubBypass:
+        """Stub CloudflareBypass that always succeeds with cleared content."""
+        def __init__(self):
+            self.attempts = 0
+            self.last_domain = None
+            self.last_url = None
+
+        def attempt(self, *, domain, url, user_agent, proxy="direct"):
+            self.attempts += 1
+            self.last_domain = domain
+            self.last_url = url
+            from src.sources.techstack.cf_bypass import BypassOutcome
+            doc = Document(
+                doc_id="b", source="techstack", url=url,
+                domain=domain, body=cleared_body, status=200,
+            )
+            result = FetchResult(True, 200, doc, False, None, 1, [])
+            return BypassOutcome(True, "browser", "js", result, [])
+
+    acct = Account(domain="acme.com", name="Acme")
+    db = Database(tmp_path / "s.db")
+    cfg = Config()
+    cfg.http.max_workers = 1
+    cfg.http.respect_robots = False
+    store = RawStore(db, tmp_path / "raw")
+    tax = Taxonomy.load()
+    ctx = RunContext(db, "collect")
+    ctx.__enter__()
+    bypass = _StubBypass()
+    runner = CollectorRunner(
+        cfg, db, AccountRegistry(db), store, _ChallengeFetch(),
+        SignalStore(db, tax), tax, ctx, browser=None, cloudflare_bypass=bypass,
+    )
+    runner.run([TechstackSource()], [acct], force=True, max_passes=1)
+    ctx.__exit__(None, None, None)
+    # bypass was invoked for the html task
+    assert bypass.attempts >= 1
+    assert bypass.last_domain == "acme.com"
+    # the cleared body (with real vendors) was upserted, not the challenge
+    rows = {r["vendor"] for r in db.query("SELECT vendor FROM technologies WHERE domain=?", ("acme.com",))}
+    assert "hubspot" in rows
+
+
+def test_runner_marks_cloudflare_unsolved_on_bypass_failure(tmp_path):
+    """When the bypass fails, meta['cloudflare_unsolved']=True flows to the
+    collector, which records only 'cloudflare' (honest hard stop)."""
+    from src.core.http import FetchResult
+    from src.sources.techstack.collector import TechstackSource
+
+    challenge_body = b"<html><title>Just a moment...</title></html>"
+
+    class _ChallengeFetch:
+        def get(self, task, *, etag=None, last_modified=None):
+            doc = Document(
+                doc_id="c", source=task.source, url=task.url,
+                domain=task.domain, body=challenge_body, status=200,
+            )
+            return FetchResult(True, 200, doc, False, None, 1)
+
+    class _FailingBypass:
+        def attempt(self, *, domain, url, user_agent, proxy="direct"):
+            from src.sources.techstack.cf_bypass import BypassOutcome
+            return BypassOutcome(False, None, "managed", None, [])
+
+    acct = Account(domain="acme.com", name="Acme")
+    db = Database(tmp_path / "s.db")
+    cfg = Config()
+    cfg.http.max_workers = 1
+    cfg.http.respect_robots = False
+    store = RawStore(db, tmp_path / "raw")
+    tax = Taxonomy.load()
+    ctx = RunContext(db, "collect")
+    ctx.__enter__()
+    bypass = _FailingBypass()
+    runner = CollectorRunner(
+        cfg, db, AccountRegistry(db), store, _ChallengeFetch(),
+        SignalStore(db, tax), tax, ctx, browser=None, cloudflare_bypass=bypass,
+    )
+    runner.run([TechstackSource()], [acct], force=True, max_passes=1)
+    ctx.__exit__(None, None, None)
+    # honest hard stop: only 'cloudflare' recorded, no fabricated vendors
+    rows = {r["vendor"] for r in db.query("SELECT vendor FROM technologies WHERE domain=?", ("acme.com",))}
+    assert rows == {"cloudflare"}
+
+
 def test_full_board_marks_missing_job_closed(tmp_path):
     from src.core.config import Config
     from src.core.rawstore import RawStore

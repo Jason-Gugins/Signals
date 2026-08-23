@@ -75,11 +75,22 @@ class HttpFetcher:
         self.limiter = limiter
         self.ctx = ctx
         self._owns_client = client is None
-        self.client = client or httpx.Client(
-            timeout=config.http.timeout_seconds,
-            verify=config.http.verify_tls,
-            follow_redirects=True,
-        )
+        if client is not None:
+            self.client = client
+        else:
+            client_kwargs: dict[str, Any] = dict(
+                timeout=config.http.timeout_seconds,
+                verify=config.http.verify_tls,
+                follow_redirects=True,
+            )
+            proxy_url = (
+                getattr(config.browser, "proxy_server", None)
+                if hasattr(config, "browser") and config.browser.proxy_server
+                else None
+            )
+            if proxy_url:
+                client_kwargs["proxy"] = proxy_url
+            self.client = httpx.Client(**client_kwargs)
         self.sleep = sleep
         self.rng = rng
         self._robots: RobotsCache | None = None
@@ -104,6 +115,23 @@ class HttpFetcher:
         last_modified: str | None = None,
     ) -> FetchResult:
         return self._request(task, etag=etag, last_modified=last_modified)
+
+    def replay(self, url: str, *, cookies: list[dict], user_agent: str) -> FetchResult:
+        """Replay an HTTP GET with a full stored cookie jar + matching UA.
+
+        Builds a FetchTask with Cookie+UA headers and delegates to ``get``.
+        Used by CloudflareBypass._replay_with_cookies for the cookie-reuse tier.
+        """
+        from src.sources.base import FetchTask
+
+        cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+        task = FetchTask(
+            source="techstack",
+            url=url,
+            headers={"Cookie": cookie_str, "User-Agent": user_agent},
+            meta={"kind": "html"},
+        )
+        return self.get(task)
 
     def get_json(self, task, **kw) -> tuple[FetchResult, Any]:
         result = self.get(task, **kw)

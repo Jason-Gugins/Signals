@@ -41,7 +41,7 @@ def _iso(dt: datetime) -> str:
 
 
 class CollectorRunner:
-    def __init__(self, config, db, registry, store, fetcher, signal_store, taxonomy, ctx: RunContext, browser=None):
+    def __init__(self, config, db, registry, store, fetcher, signal_store, taxonomy, ctx: RunContext, browser=None, cloudflare_bypass=None):
         self.config = config
         self.db = db
         self.registry = registry
@@ -51,6 +51,7 @@ class CollectorRunner:
         self.taxonomy = taxonomy
         self.ctx = ctx
         self.browser = browser
+        self.cloudflare_bypass = cloudflare_bypass
 
     def run(
         self,
@@ -136,6 +137,11 @@ class CollectorRunner:
                 meta = dict(task.meta or {})
                 meta.setdefault("today", now.date().isoformat())
                 meta.setdefault("registry", self.registry)
+                # Propagate the cloudflare_unsolved flag set by _fetch_one
+                # when a challenge was detected and the bypass was attempted.
+                _cf_unsolved = getattr(result, "_cloudflare_unsolved", None)
+                if _cf_unsolved is not None:
+                    meta["cloudflare_unsolved"] = _cf_unsolved
                 if adapter.key == "federal_register" and "watches" not in meta:
                     try:
                         meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
@@ -250,7 +256,40 @@ class CollectorRunner:
                 capture_network=True,
                 wait_ms=2500,
             )
-        return self.fetcher.get(task, etag=etag, last_modified=last_mod)
+        result = self.fetcher.get(task, etag=etag, last_modified=last_mod)
+        # Cloudflare challenge detection for http-tier html tasks.
+        # When a bypass is wired and the response body is a CF challenge,
+        # route through the bypass waterfall.  The collector gates stripping
+        # on the ``cloudflare_unsolved`` meta flag (set below), not on
+        # ``is_challenge_evidence`` (which can't see "Just a moment..." HTML
+        # because HttpEvidence has no hosts attribute).
+        if (
+            self.cloudflare_bypass
+            and result.ok
+            and result.doc
+            and not (task.meta or {}).get("capture")
+        ):
+            from src.sources.techstack.fingerprint import classify_cloudflare_challenge
+
+            body = result.doc.body or b""
+            if classify_cloudflare_challenge(status=result.status, body=body):
+                try:
+                    ua = self.config.resolved_user_agent()
+                except Exception:
+                    ua = self.config.http.user_agent
+                proxy = getattr(self.config.browser, "proxy_server", None) or "direct"
+                try:
+                    outcome = self.cloudflare_bypass.attempt(
+                        domain=task.domain, url=task.url, user_agent=ua, proxy=proxy
+                    )
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("cloudflare bypass failed for {}: {}", task.domain, exc)
+                    outcome = None
+                if outcome is not None:
+                    if outcome.success and outcome.result is not None:
+                        result = outcome.result
+                    result._cloudflare_unsolved = not (outcome.success and outcome.result is not None)
+        return result
 
     def _persist(self, account, source, cands, doc) -> int:
         if not cands:

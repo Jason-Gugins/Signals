@@ -95,7 +95,6 @@ class TechstackSource(SourceAdapter):
         from src.sources.techstack.fingerprint import (
             extract_http_evidence,
             extract_network_evidence,
-            is_challenge_evidence,
             load_fingerprint_rules,
             promote_or_observe,
         )
@@ -112,7 +111,7 @@ class TechstackSource(SourceAdapter):
         else:
             ev = extract_http_evidence(body, {}, doc.url or "")
         matches = promote_or_observe(ev, rules, domain=account.domain)
-        if is_challenge_evidence(ev, status=(task_meta or {}).get("status")):
+        if (task_meta or {}).get("cloudflare_unsolved"):
             matches = [m for m in matches if m.vendor == "cloudflare"]
         today = date.fromisoformat(task_meta["today"])
         named = [m for m in matches if m.tier != "unknown"]
@@ -126,7 +125,6 @@ class TechstackSource(SourceAdapter):
         from src.sources.techstack.fingerprint import (
             extract_http_evidence,
             extract_network_evidence,
-            is_challenge_evidence,
             load_fingerprint_rules,
             promote_or_observe,
         )
@@ -143,6 +141,19 @@ class TechstackSource(SourceAdapter):
         else:
             ev = extract_http_evidence(body, {}, doc.url or "")
         matches = promote_or_observe(ev, rules, domain=account.domain)
-        if is_challenge_evidence(ev, status=(task_meta or {}).get("status")):
-            return [m for m in matches if m.vendor == "cloudflare"]
+        if (task_meta or {}).get("cloudflare_unsolved"):
+            matches = [m for m in matches if m.vendor == "cloudflare"]
+            if not matches:
+                from src.sources.techstack.fingerprint import TechMatch
+
+                matches = [
+                    TechMatch(
+                        vendor="cloudflare",
+                        display="Cloudflare",
+                        category=["cdn"],
+                        tier="mid",
+                        evidence="challenge_unsolved",
+                        confidence=0.9,
+                    )
+                ]
         return matches

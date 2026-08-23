@@ -2,6 +2,8 @@
 
 BuiltWith-style vendor ID from a company **domain**. One Signals source (`techstack`). No paid BuiltWith / Wappalyzer API.
 
+The **index is what the wire shows**, not a global software catalog. Every distinctive third-party host becomes a `technologies` row (`host:cdn.example`). `config/fingerprints.yaml` only **names** a majority of common platforms when that host is already known.
+
 Weekly collect fingerprints `GET https://{domain}/` HTML. When `browser.enabled` is true, a second task captures Playwright **network hosts** (HAR-lite: host + path, query stripped, no response bodies). HTML stays the default; the network task is skipped (not failed) if the browser is off.
 
 ## Run
@@ -22,18 +24,27 @@ browser:
 
 Cadence is 168h. `--force` bypasses the cursor.
 
+## Observe first, name second
+
+1. Collect third-party hosts from HAR-lite and/or HTML `<script src>`.
+2. Drop first-party (`account.domain` / `www.`).
+3. Named YAML rules **promote** matching hosts (HubSpot, Webflow, GTM, GA, Meta Pixel, CookieYes, Vector, …).
+4. Leftovers stay `host:{hostname}` in `technologies` (inventory). They do **not** emit `tech_install_new`.
+
+`harvest_tech` upserts the full promote-or-observe list. `parse` is pure and signals **named** vendors only. `tech_removed` is named-only (`host:` rows still get `missing_runs`).
+
 ## How a vendor is detected
 
 Rules live in [`config/fingerprints.yaml`](../../../config/fingerprints.yaml).
 
 | Evidence | Where it comes from | Example |
 |---|---|---|
-| `script_src` | `<script src>` / link href in first HTML | `js.hs-scripts.com` → HubSpot |
+| `script_src` | `<script src>` in first HTML | `js.hs-scripts.com` → HubSpot |
 | `network_host` | HAR-lite host list (suffix match only) | `cdn.prod.website-files.com` → Webflow |
 | `dns_cname` / `mx` / `spf_include` | DNS probe (rules exist; merge is later) | `protection.outlook.com` → Microsoft 365 |
 | `job_text` | text blob | `snowflake` |
 
-`network_host` matching is suffix-only (`host == needle` or `host.endswith("." + needle)`). `force.com` does **not** match `workforce.com`. Needles are copied into YAML only from a frozen fixture — never guessed.
+`network_host` matching is suffix-only (`host == needle` or `host.endswith("." + needle)`). `force.com` does **not** match `workforce.com`. `cdn-cookieyes.com` is **not** a suffix of `cookieyes.com` — both needles are required. Needles are copied into YAML only from a frozen fixture — never guessed.
 
 HAR-lite shape (`meta.kind=network`):
 
@@ -50,37 +61,37 @@ Cap 80 requests. Drop `data:` / `blob:`. Query strings stripped.
 
 ## Vendors in YAML now
 
-HubSpot, Salesforce, Marketo, Google Workspace, Microsoft 365, Zendesk, Intercom, Segment, Snowflake, Workday, Statuspage, Webflow.
+HubSpot, Salesforce, Marketo, Google Workspace, Microsoft 365, Zendesk, Intercom, Segment, Snowflake, Workday, Statuspage, Webflow, GTM, Google Analytics, Meta Pixel, CookieYes, Vector.
 
-Webflow + HubSpot `network_host` needles were frozen from a live `scanner.dev` capture (2026-08-23). See [`tests/fixtures/techstack/NETWORK.md`](../../../tests/fixtures/techstack/NETWORK.md).
+Needles for Webflow / HubSpot / GTM / GA / Meta / CookieYes / Vector were frozen from a live `scanner.dev` capture (2026-08-23). See [`tests/fixtures/techstack/NETWORK.md`](../../../tests/fixtures/techstack/NETWORK.md).
 
 ## Signals
 
 `parse` is pure (no DB). Candidates:
 
-- `tech_install_new`
-- `tech_removed` (after two missing runs — via `upsert_technologies`)
+- `tech_install_new` (named vendors only)
+- `tech_removed` (named vendors after two missing runs)
 - `high_ticket_tech` (enterprise tier)
 - `competitor_detected`
 
-`parse` currently emits `tech_install_new` for every match on that run (`gone=[]`). Inventory upsert is a later hook (`local_harvest`).
+Unknown hosts persist via `harvest_tech` → `technologies` as `host:…`.
 
 ## Layout
 
 | File | Role |
 |---|---|
-| `collector.py` | `TechstackSource` — plan HTML + network, parse both |
-| `fingerprint.py` | `HttpEvidence` / `NetworkEvidence`, `match_fingerprints` |
+| `collector.py` | `TechstackSource` — plan, parse, `harvest_tech` |
+| `fingerprint.py` | evidence, `observed_hosts`, `dynamic_matches`, `promote_or_observe` |
 | `dns_probe.py` | MX / SPF / CNAME |
 | `http_probe.py` | re-export of HTTP extract |
 | `../../../src/core/browser.py` | `fetch(..., capture_network=True)` HAR-lite |
 
-Runner: network tasks run on the collector thread (Playwright is not thread-pool safe). `_fetch_one` returns `None` when `browser` is missing so weekly HTTP collect stays green.
+Runner: network tasks run on the collector thread. `_fetch_one` returns `None` when `browser` is missing. Duck-typed `harvest_tech` always upserts (including `[]`).
 
 ## Add a vendor
 
 1. Recon a real homepage. Freeze hosts under `tests/fixtures/techstack/`.
-2. Add `match.network_host` and/or `script_src` in `config/fingerprints.yaml`.
+2. Add `match.network_host` **and** `script_src` (HTML-only collect) in `config/fingerprints.yaml`.
 3. Test: `./.venv/Scripts/python.exe -m pytest tests/test_fingerprint.py tests/test_tech_collectors_parse.py -v`
 
 Do not invent hostnames. Do not store full HAR bodies. Do not enable `browser.enabled` by default.

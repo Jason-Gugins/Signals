@@ -216,3 +216,42 @@ def test_tracker_domain_dry_run_skips_homepage(tmp_path):
     assert stats.fetched == 0
     assert tr.fetcher.urls == []
     assert stats.hits >= 1
+
+
+def _n_hit_fts(*, n: int, cik: str) -> bytes:
+    hits = []
+    for i in range(1, n + 1):
+        hits.append(
+            {
+                "_source": {
+                    "ciks": [cik],
+                    "form": "D",
+                    "adsh": f"{cik}-26-{i:06d}",
+                    "file_date": "2026-04-01",
+                    "display_names": ["fixture"],
+                }
+            }
+        )
+    return json.dumps({"hits": {"total": {"value": n, "relation": "eq"}, "hits": hits}}).encode("utf-8")
+
+
+def test_tracker_common_token_query_caps_xml_follow(tmp_path):
+    html = b"<html><head><title>Clay</title></head><body></body></html>"
+    xml = (FIX / "sec" / "form_d_primary_doc.xml").read_bytes().replace(
+        b"<entityName>Acme Robotics Inc.</entityName>",
+        b"<entityName>OE VILLAGE OF WEST CLAY, LLC</entityName>",
+    )
+    fts = _n_hit_fts(n=8, cik="0001234567")
+    names = peel_legal_names(peel_page(html, domain="clay.com"), domain="clay.com")
+    tasks = plan_company_queries(names, today=TODAY, limit=100)
+    payloads = {homepage_url("clay.com"): html}
+    for t in tasks:
+        payloads[t.url] = fts
+    for hit in parse_fts_response(fts):
+        filing = hit_to_filing(hit)
+        if filing:
+            payloads[filing.archive_url] = xml
+    tr = _tracker(tmp_path, payloads)
+    tr.run("company", today=TODAY, domain="clay.com", persist=True, limit=100)
+    xml_gets = sum(1 for u in tr.fetcher.urls if u.endswith("primary_doc.xml"))
+    assert xml_gets <= 5

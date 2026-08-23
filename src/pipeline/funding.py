@@ -10,12 +10,13 @@ from src.core.models import Document
 from src.export.csvout import export_funding
 from src.identity.domains import root_domain
 from src.identity.edgar_ids import SUBMISSIONS_URL, pad_cik
+from src.identity.names import normalize_name
 from src.signals.normalize import normalize_batch
 from src.sources.base import FetchTask, SignalCandidate
 from src.sources.sec.formd_filter import FormDFilter, keep_form_d
 from src.sources.sec.formd_identity import attach_form_d_account
 from src.sources.sec.fts import fts_search_url, hit_to_filing, next_fts_offset, parse_fts_response, parse_fts_total
-from src.sources.sec.page_match import issuer_matches_page
+from src.sources.sec.page_match import COMMON, issuer_matches_page
 from src.sources.sec.page_peel import PageHints, peel_legal_names, peel_page
 from src.sources.sec.parse_formd import FormD, form_d_to_candidates, parse_form_d
 from src.sources.sec.parse_submissions import Filing, parse_submissions
@@ -35,6 +36,18 @@ def plan_company_queries(names: list[str], *, today: date, limit: int, size: int
             continue
         out.extend(plan_funding("company", today=today, q=name, size=size, limit=limit))
     return out
+
+
+COMMON_QUERY_FOLLOW = 5
+
+
+def common_query_follow_cap(q: str | None) -> int | None:
+    """If q is a single COMMON token, return the XML follow cap; else None."""
+    n = normalize_name(q) or ""
+    parts = n.split()
+    if len(parts) == 1 and parts[0] in COMMON:
+        return COMMON_QUERY_FOLLOW
+    return None
 
 
 def plan_funding(
@@ -358,6 +371,10 @@ class FundingTracker:
                     follow.extend(more)
                 elif kind == "form_d":
                     follow.append(task)
+            cap = common_query_follow_cap(q) if peel_root else None
+            if cap is not None:
+                follow = follow[:cap]
+                last_fts_body = None
             follow = follow[: max(0, limit - seen)]
             for task in follow:
                 result = self.fetcher.get(task)

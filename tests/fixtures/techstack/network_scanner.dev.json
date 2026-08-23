@@ -1,0 +1,400 @@
+{
+  "page_url": "https://scanner.dev/",
+  "requests": [
+    {
+      "url": "https://scanner.dev/",
+      "host": "scanner.dev",
+      "resource_type": "document"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/css/scanner-ea4cf2.webflow.shared.0cae05eff.css",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js",
+      "host": "ajax.googleapis.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn-cookieyes.com/client_data/766de72746baa0eb808bd13f/script.js",
+      "host": "cdn-cookieyes.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/691c564b0a6e8a0ad1b36fe1_leadbank_logo.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/69d6953d04eb73d775f7348c_liveOakBank-normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/69f4f350a7bcc9c17b0c91dc_132cbc13208c21241874e0f0e629980a_lambda_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68a6c6c289be4ce4881d22a5_ramp_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/6a282feb7e2b056b0e61b418_notion_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/6933674dd86a755675a9c2cb_lemonade-logo.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/6a050d206f79d5d7b58e7d95_confluent_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/697d27c9813468d94973ec03_62d8d80328250ec91fbd6ba141687c18_beyond_trust_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/69d695419a6c004e7bf97e6f_tide-normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68a6c6c2d5dc7e1279f26d0a_postman_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/692eed285893eb9d22fabc71_kast-logo.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68a6c6c2628e83578dd427c1_gloss_genius_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68a6c6c229388b4dab77287b_vivian_health_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/6930b92e3759a86aef1a3bfd_elise-ai.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68a6c6c2f297407fe95350cf_thirty_madison_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/6a71666a24f8059ec8b88107_weightwatchers_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68a6c6c2cac7fe78f35fdab4_simon_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/6a20cee51dd99759879491aa_d4485dfceba02ca6152fa7bef9af7104_earnin_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/6a3ec1fa17122f654055b9aa_goodleap_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/690d2b893997c41d4145f878_unit21.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68bf5deda5f8b13440e348b2_benchling.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68a6c6c2040ea6493de69f6d_swing_vision_normalized.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://js.hsforms.net/forms/embed/v2.js",
+      "host": "js.hsforms.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://d3e54v103j8qbb.cloudfront.net/js/jquery-3.5.1.min.dc5e7f18c8.js",
+      "host": "d3e54v103j8qbb.cloudfront.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/js/webflow.schunk.f2efb3c5440a81cf.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/js/webflow.schunk.90696fa1fb2c80c5.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/js/webflow.b2d4197e.14d75744cffda31c.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/gsap/3.15.0/gsap.min.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://hubspotonwebflow.com/assets/js/form-124.js",
+      "host": "hubspotonwebflow.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://fonts.googleapis.com/css",
+      "host": "fonts.googleapis.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://www.googletagmanager.com/gtm.js",
+      "host": "www.googletagmanager.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://scanner.dev/about",
+      "host": "scanner.dev",
+      "resource_type": "other"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68b1047a2d9ee41bc2a26ec3_ScannerIcons.woff2",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68a6ce26430c492d4dc39bb2_scanner.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/68a7773318d62c686a5d8ef4_SometypeMono-Regular.woff2",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/69afbd94cc4b8fe650f5bae8_3c6ffbe9a698e3b11aa590e54a11972e_scanner-series-a.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/692b04621f9fa3590412bff2_landing-hero.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/692af77929f7cafdf6655096_landing-collectEnrich.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/692af7792d7b98e2b61e67aa_landing-searchInvestigate.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/692af779fa6b545899f380ea_landing-detectionResponse.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/6836573d3a1395f663d3daac/692af77940c55b9d33c526ae_landing-mcpApi.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+      "host": "fonts.gstatic.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://forms-na2.hsforms.com/embed/v3/form/22461582/c4d5d4f6-ee30-4fb4-b408-9096bfe9a929/json",
+      "host": "forms-na2.hsforms.com",
+      "resource_type": "xhr"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/archivo/v25/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q82sLydOxI.woff2",
+      "host": "fonts.gstatic.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/azeretmono/v21/3XFuErsiyJsY9O_Gepph-HHhZfk.woff2",
+      "host": "fonts.gstatic.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://log.cookieyes.com/api/v1/log",
+      "host": "log.cookieyes.com",
+      "resource_type": "ping"
+    },
+    {
+      "url": "https://cdn-cookieyes.com/client_data/766de72746baa0eb808bd13f/banner.js",
+      "host": "cdn-cookieyes.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://www.googletagmanager.com/gtag/js",
+      "host": "www.googletagmanager.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://www.googletagmanager.com/gtag/js",
+      "host": "www.googletagmanager.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://connect.facebook.net/en_US/fbevents.js",
+      "host": "connect.facebook.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.vector.co/pixel.js",
+      "host": "cdn.vector.co",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://pagead2.googlesyndication.com/ccm/collect",
+      "host": "pagead2.googlesyndication.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://forms-na2.hsforms.com/embed/v3/counters.gif",
+      "host": "forms-na2.hsforms.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn-cookieyes.com/client_data/766de72746baa0eb808bd13f/dWzjtwk2.json",
+      "host": "cdn-cookieyes.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://forms-na2.hsforms.com/embed/v3/counters.gif",
+      "host": "forms-na2.hsforms.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://pagead2.googlesyndication.com/ccm/collect",
+      "host": "pagead2.googlesyndication.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://connect.facebook.net/signals/config/1721640382509208",
+      "host": "connect.facebook.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://api.vector.co/pixel/ip-info",
+      "host": "api.vector.co",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://www.google-analytics.com/g/collect",
+      "host": "www.google-analytics.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://directory.cookieyes.com/api/v1/ip",
+      "host": "directory.cookieyes.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://capi-automation.s3.us-east-2.amazonaws.com/public/client_js/capiParamBuilder/clientParamBuilder.bundle.js",
+      "host": "capi-automation.s3.us-east-2.amazonaws.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn-cookieyes.com/client_data/766de72746baa0eb808bd13f/config/F-Cp9Fef.json",
+      "host": "cdn-cookieyes.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://api.vector.co/pixel/a90e9857-f3a2-473c-8317-6a4252d40e89/settings",
+      "host": "api.vector.co",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn-cookieyes.com/client_data/766de72746baa0eb808bd13f/translations/P5KvyiRb.json",
+      "host": "cdn-cookieyes.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://api.vector.co/pixel/phoenix/sync-container",
+      "host": "api.vector.co",
+      "resource_type": "document"
+    },
+    {
+      "url": "https://cdn-cookieyes.com/client_data/766de72746baa0eb808bd13f/audit-table/eBcQa1bC.json",
+      "host": "cdn-cookieyes.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn-cookieyes.com/assets/images/revisit.svg",
+      "host": "cdn-cookieyes.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn-cookieyes.com/assets/images/close.svg",
+      "host": "cdn-cookieyes.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn-cookieyes.com/assets/images/poweredbtcky.svg",
+      "host": "cdn-cookieyes.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://api.vector.co/pixel/a90e9857-f3a2-473c-8317-6a4252d40e89/new-visitor",
+      "host": "api.vector.co",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://api.vector.co/pixel/phoenix/rp/j",
+      "host": "api.vector.co",
+      "resource_type": "xhr"
+    },
+    {
+      "url": "https://hubspotonwebflow.com/assets/js/blockedDomains.json",
+      "host": "hubspotonwebflow.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://api.vector.co/pixel/phoenix/rp/p",
+      "host": "api.vector.co",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://api.vector.co/pixel/phoenix/rp/j",
+      "host": "api.vector.co",
+      "resource_type": "xhr"
+    },
+    {
+      "url": "https://api.vector.co/pixel/phoenix/rp/p",
+      "host": "api.vector.co",
+      "resource_type": "image"
+    }
+  ]
+}

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -257,6 +259,17 @@ CREATE TABLE IF NOT EXISTS account_snapshots (
     repvue_score REAL, open_jobs INTEGER, followers INTEGER,
     PRIMARY KEY (domain, as_of)
 );
+
+CREATE TABLE IF NOT EXISTS cloudflare_cookies (
+    domain TEXT NOT NULL,
+    user_agent TEXT NOT NULL,
+    proxy TEXT NOT NULL,            -- "direct" or the proxy URL — IP binding
+    cookies TEXT NOT NULL,          -- JSON array of {name, value, domain, ...} full jar
+    expires_at TEXT NOT NULL,       -- tz-aware ISO datetime (real cookie expiry, not a guess)
+    solved_at TEXT NOT NULL,        -- when we solved the challenge
+    solve_method TEXT,              -- 'browser' | 'solver' | 'headed'
+    PRIMARY KEY (domain, user_agent, proxy)
+);
 """
 
 # table -> {column: type-with-default}  — populated by later tasks
@@ -366,3 +379,60 @@ class Database:
 
     def __exit__(self, *exc) -> None:
         self.close()
+
+
+class CfCookieStore:
+    """Persist and reuse the full Cloudflare cookie set (cf_clearance + __cf_bm + cf_chl_*)
+    per domain, bound to the UA and egress proxy that solved it.
+
+    Primary key is (domain, user_agent, proxy) so the same domain can have distinct
+    jars per browser fingerprint / proxy chain.
+    """
+
+    def __init__(self, db: "Database"):
+        self.db = db
+
+    def get(self, domain: str, *, user_agent: str, proxy: str = "direct") -> dict | None:
+        row = self.db.one(
+            "SELECT * FROM cloudflare_cookies WHERE domain=? AND user_agent=? AND proxy=?",
+            (domain, user_agent, proxy),
+        )
+        if row is None:
+            return None
+        # expiry check via datetime parsing (not ISO string compare — fragile across tz formats)
+        expires = datetime.fromisoformat(row["expires_at"])
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < datetime.now(timezone.utc):
+            return None
+        return dict(row)
+
+    def put(
+        self,
+        domain: str,
+        *,
+        user_agent: str,
+        proxy: str = "direct",
+        cookies: list[dict],
+        expires_at: str,
+        solve_method: str = "browser",
+    ) -> None:
+        # coalesce=False: a fresh solve MUST overwrite a stale row
+        # (db.upsert defaults coalesce=True which would keep the old cookie)
+        self.db.upsert(
+            "cloudflare_cookies",
+            {
+                "domain": domain,
+                "user_agent": user_agent,
+                "proxy": proxy,
+                "cookies": json.dumps(cookies),
+                "expires_at": expires_at,
+                "solved_at": datetime.now(timezone.utc).isoformat(),
+                "solve_method": solve_method,
+            },
+            pk=("domain", "user_agent", "proxy"),
+            coalesce=False,
+        )
+
+    def clear(self, domain: str) -> None:
+        self.db.execute("DELETE FROM cloudflare_cookies WHERE domain=?", (domain,))

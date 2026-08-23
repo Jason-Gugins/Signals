@@ -8,21 +8,33 @@ account briefs.
 
 No paid APIs. No ZoomInfo, Apollo, Exa, BuiltWith, or Bombora.
 
-## Zero-cost doctrine
-
 Public, business-relevant data only. Polite HTTP (`robots.txt` honored by
 default). A real contact address in the User-Agent. Rate limits are floors.
 Marketplace / LinkedIn collection is opt-in and off by default.
 
-## Install
+## Pipeline
+
+`seed` → `resolve` → `collect` → `score` → `brief` → `export`
+
+## Clone and install
+
+Windows 10. Python 3.12.
 
 ```powershell
-cd C:\Users\Jason\Documents\AI\Signals
+git clone https://github.com/Jason-Gugins/Signals.git
+cd Signals
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m playwright install chromium
 copy .env.example .env
-# set SIGNALS_CONTACT_EMAIL to a real address (required by SEC EDGAR)
+# set SIGNALS_CONTACT_EMAIL to a real address (SEC EDGAR 403s without it)
+```
+
+## Verify
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli doctor --no-network
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 ## Init and file drops
@@ -31,14 +43,16 @@ copy .env.example .env
 .\.venv\Scripts\python.exe -m src.cli init
 ```
 
-A human must provide:
+`config/lists/` is gitignored — create it locally. A human must provide:
 
 - `config/lists/champions.csv` — prior buyers (unlocks `champion_migration`)
 - `config/lists/exclusions.txt` — domains to skip
 - `config/lists/email_patterns.csv` — only if a pattern is *known*
 - `data/inbox/owned/*.csv|*.jsonl` — first-party intent (web/ESP export)
 
-## The five commands
+## Everyday commands
+
+`--dry-run` goes **before** the subcommand (`python -m src.cli --dry-run collect`).
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli seed --csv seeds.csv --linkedin --repvue
@@ -48,11 +62,16 @@ A human must provide:
 .\.venv\Scripts\python.exe -m src.cli watch --once
 ```
 
-Also useful: `signals status`, `signals doctor --no-network`, `signals reparse`.
+Also: `init`, `resolve`, `collect`, `reparse`, `score`, `status`, `doctor`,
+`accounts`, `champions`, `signals`, `deepen`.
 
-Form D funding tracker (SEC private-offering notices). Pooled investment funds
-are excluded by default. Unknown issuers land on stub domains like
-`cik0001234567.edgar`. `--dry-run` goes before the subcommand.
+Outputs land in `data/exports/`, `data/briefs/`, and `data/alerts/`.
+Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
+
+## Form D funding
+
+SEC private-offering notices. Pooled investment funds are excluded by default.
+Unknown issuers land on stub domains like `cik0001234567.edgar`.
 
 `funding company --domain radicl.com` fetches the homepage, peels a legal name,
 quoted Form D search, and drops name collisions (Scanner ≠ Surgical Safety Scanner).
@@ -66,8 +85,11 @@ quoted Form D search, and drops name collisions (Scanner ≠ Surgical Safety Sca
 .\.venv\Scripts\python.exe -m src.cli export --what funding
 ```
 
-Outputs land in `data/exports/`, `data/briefs/`, and `data/alerts/`.
-Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
+## Sources
+
+Enabled adapters live in `config/sources.yaml` (SEC, ATS, news/community,
+owned-intent, LinkedIn/RepVue DB mirrors). Disabled by default:
+`community_reddit`, `marketplace_g2`.
 
 ## Add a source in 20 lines
 
@@ -79,17 +101,17 @@ Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
 ## Legal / ethics
 
 - Respect `robots.txt` unless you deliberately turn it off for a run.
-- Identify yourself. SEC 403s a REPLACE_ME UA.
+- Identify yourself. Set `SIGNALS_CONTACT_EMAIL` — SEC 403s a missing contact.
 - No auth bypass, no paywall circumvention, no personal non-work data.
 - G2 / Capterra / LinkedIn ToS restrict automation — those adapters stay disabled.
 - Never resell raw content. The raw store is a local reproducibility cache.
 
-## Open questions
+## First-run checklist
 
-1. What do you sell? (ICP, competitors, play `{your_product}`)
-2. Which analytics/ESP? (owned-intent column mapping)
-3. Geography focus? (WARN jurisdictions, regulators)
-4. Do you have a champions list?
-5. Alert destination? Slack webhook or file-only.
+- [ ] What do you sell? (ICP, competitors, play `{your_product}`)
+- [ ] Which analytics/ESP? (owned-intent column mapping)
+- [ ] Geography focus? (WARN jurisdictions, regulators)
+- [ ] Champions list?
+- [ ] Alert destination? Slack webhook (`ALERT_WEBHOOK_URL`) or file-only.
 
 Deferred: Google Trends, ASN IP→org, CRM write-back, multi-user server.

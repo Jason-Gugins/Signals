@@ -4,6 +4,14 @@
     <primaryIssuer>
       <entityName>Acme Robotics Inc.</entityName>
       <cik>0001234567</cik>
+      <entityType>Corporation</entityType>
+      <issuerAddress>
+        <street1>1 Market St</street1>
+        <city>San Francisco</city>
+        <stateOrCountry>CA</stateOrCountry>
+        <zipCode>94105</zipCode>
+      </issuerAddress>
+      <issuerPhoneNumber>415-555-0100</issuerPhoneNumber>
       <yearOfInc><withinFiveYears>true</withinFiveYears><value>2021</value></yearOfInc>
       <jurisdictionOrganization>DE</jurisdictionOrganization>
     </primaryIssuer>
@@ -22,6 +30,11 @@
         <totalAmountSold>20000000</totalAmountSold>
         <totalRemaining>5000000</totalRemaining>
       </offeringSalesAmounts>
+      <minimumInvestmentAccepted>25000</minimumInvestmentAccepted>
+      <investors>
+        <totalNumberAlreadyInvested>8</totalNumberAlreadyInvested>
+      </investors>
+      <issuerSize><revenueRange>Decline to Disclose</revenueRange></issuerSize>
     </offeringData>
     <relatedPersonsList>
       <relatedPersonInfo>

@@ -98,6 +98,8 @@ Enabled adapters live in `config/sources.yaml`:
 
 Disabled by default: `community_reddit`, `marketplace_g2`.
 
+`techstack` fingerprints homepage HTML; when `browser.enabled` it also captures Playwright network hosts (HAR-lite). After seed: `.\.venv\Scripts\python.exe -m src.cli collect --source techstack --force`.
+
 ## Add a source in 20 lines
 
 1. Write a pure `parse_*(body) -> list[SignalCandidate]` (no I/O, no clock).

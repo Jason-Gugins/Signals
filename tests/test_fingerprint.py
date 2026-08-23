@@ -47,6 +47,18 @@ def test_named_majority_from_scanner_fixture():
     assert {"webflow", "hubspot", "gtm", "google_analytics", "meta_pixel", "cookieyes", "vector"} <= named
 
 
+def test_probe_fixture_names_onetrust_bing_vimeo():
+    from src.sources.techstack.fingerprint import load_fingerprint_rules
+
+    rules = load_fingerprint_rules()
+    lev = extract_network_evidence(Path("tests/fixtures/techstack/network_levitate.ai.json").read_bytes())
+    dark = extract_network_evidence(Path("tests/fixtures/techstack/network_darktrace.com.json").read_bytes())
+    lev_named = {m.vendor for m in match_fingerprints(lev, rules)}
+    dark_named = {m.vendor for m in match_fingerprints(dark, rules)}
+    assert "onetrust" in lev_named
+    assert {"onetrust", "bing_uet", "vimeo"} <= dark_named
+
+
 def test_promote_drops_duplicate_host_row():
     from src.sources.techstack.fingerprint import load_fingerprint_rules, promote_or_observe
 

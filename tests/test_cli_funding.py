@@ -51,3 +51,21 @@ def test_funding_commands_call_orchestrator(monkeypatch):
     assert new_only.exit_code == 0
     assert seen["kw"]["include_amendments"] is False
     assert seen["kw"]["q"] == "Acme"
+
+
+def test_funding_company_domain_without_name(monkeypatch):
+    seen = {}
+
+    def funding(self, mode, **kw):
+        seen["mode"] = mode
+        seen["kw"] = kw
+        return FundingStats()
+
+    monkeypatch.setattr(Orchestrator, "funding", funding)
+    runner = CliRunner()
+    rec = runner.invoke(main, ["funding", "company", "--domain", "radicl.com"])
+    assert rec.exit_code == 0, rec.output
+    assert seen["mode"] == "company"
+    assert seen["kw"]["domain"] == "radicl.com"
+    assert seen["kw"].get("q") is None
+    assert seen["kw"].get("cik") is None

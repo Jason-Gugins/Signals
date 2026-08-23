@@ -87,9 +87,16 @@ quoted Form D search, and drops name collisions (Scanner ≠ Surgical Safety Sca
 
 ## Sources
 
-Enabled adapters live in `config/sources.yaml` (SEC, ATS, news/community,
-owned-intent, LinkedIn/RepVue DB mirrors). Disabled by default:
-`community_reddit`, `marketplace_g2`.
+Enabled adapters live in `config/sources.yaml`:
+
+- SEC: `sec_edgar`, `sec_formd`
+- ATS: `ats_greenhouse`, `ats_lever`, `ats_ashby`, `ats_smartrecruiters`, `ats_workable`, `ats_recruitee`, `ats_workday`
+- News / regulators: `news_rss`, `company_feed`, `federal_register`, `warn_notices`
+- Footprint: `techstack`, `wayback`, `crtsh`, `jobsignals`
+- Community: `community_hn`, `community_github`
+- Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db`, `content_itunes`
+
+Disabled by default: `community_reddit`, `marketplace_g2`.
 
 ## Add a source in 20 lines
 

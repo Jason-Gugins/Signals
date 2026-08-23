@@ -12,10 +12,35 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from urllib.parse import urlencode
 
 from src.core.models import Account
 from src.identity.names import normalize_name
 from src.sources.base import SignalCandidate
+
+EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
+
+
+def fts_search_url(
+    *,
+    q: str | None = None,
+    forms: tuple[str, ...] = ("D",),
+    start: str | None = None,
+    end: str | None = None,
+    offset: int = 0,
+    size: int = 100,
+) -> str:
+    params: list[tuple[str, str]] = []
+    if q:
+        params.append(("q", q))
+    if forms:
+        params.append(("forms", ",".join(forms)))
+    if start and end:
+        params.extend(
+            [("dateRange", "custom"), ("startdt", start), ("enddt", end)]
+        )
+    params.extend([("from", str(int(offset))), ("size", str(int(size)))])
+    return f"{EFTS_URL}?{urlencode(params)}"
 
 
 def parse_fts_response(body: bytes) -> list[dict]:

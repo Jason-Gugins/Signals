@@ -100,6 +100,18 @@ Disabled by default: `community_reddit`, `marketplace_g2`.
 
 `techstack` indexes observed third-party hosts from HTML/HAR-lite; YAML only *names* common platforms (HubSpot, Webflow, GTM, …). Unknown SaaS still lands as `host:cdn.example` in `technologies`, not as `tech_install_new`. After seed: `.\.venv\Scripts\python.exe -m src.cli collect --source techstack --force`. Full notes: [`src/sources/techstack/README.md`](src/sources/techstack/README.md).
 
+### Cloudflare bypass
+
+When `techstack` hits a Cloudflare challenge (403 or managed interstitial), a 5-tier bypass waterfall attempts to solve it: cached `cf_clearance` cookie reuse → headless Chromium JS solve → external solver (2Captcha Turnstile token, re-injected via browser) → headed manual fallback → honest hard stop (names `cloudflare`, invents nothing). Bypass is scoped to `techstack` only; other sources retain the 403 hard-stop. Cookies persist in `cloudflare_cookies` (UA + proxy bound). Enable the solver in `.env`:
+
+```
+CLOUDFLARE_SOLVER_PROVIDER=2captcha
+CLOUDFLARE_SOLVER_API_KEY=your_key
+CLOUDFLARE_BYPASS_STRATEGY=browser_first
+```
+
+See [`src/sources/techstack/README.md`](src/sources/techstack/README.md) for the full waterfall and [`src/sources/techstack/cf_bypass.py`](src/sources/techstack/cf_bypass.py) for the implementation.
+
 ## Add a source in 20 lines
 
 1. Write a pure `parse_*(body) -> list[SignalCandidate]` (no I/O, no clock).
@@ -112,6 +124,7 @@ Disabled by default: `community_reddit`, `marketplace_g2`.
 - Respect `robots.txt` unless you deliberately turn it off for a run.
 - Identify yourself. Set `SIGNALS_CONTACT_EMAIL` — SEC 403s a missing contact.
 - No auth bypass, no paywall circumvention, no personal non-work data.
+- Cloudflare bot-challenge bypass is scoped to `techstack` only (public business homepages). It solves JS/managed challenges to read the tech stack — it does not bypass authentication, paywalls, or login-gated content.
 - G2 / Capterra / LinkedIn ToS restrict automation — those adapters stay disabled.
 - Never resell raw content. The raw store is a local reproducibility cache.
 

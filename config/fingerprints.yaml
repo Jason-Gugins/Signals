@@ -77,3 +77,24 @@ vendors:
     match:
       network_host: ["cdn.vector.co", "vector.co"]
       script_src: ["cdn.vector.co", "vector.co"]
+  onetrust:
+    display: OneTrust
+    category: [consent]
+    tier: mid
+    match:
+      network_host: ["cdn.cookielaw.org", "onetrust.com"]
+      script_src: ["cdn.cookielaw.org", "onetrust.com"]
+  bing_uet:
+    display: Bing UET
+    category: [ads]
+    tier: mid
+    match:
+      network_host: ["bat.bing.com"]
+      script_src: ["bat.bing.com"]
+  vimeo:
+    display: Vimeo
+    category: [media]
+    tier: mid
+    match:
+      network_host: ["player.vimeo.com", "vimeo.com"]
+      script_src: ["player.vimeo.com"]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.sources.sec.page_peel import peel_legal_names, peel_page
+from src.sources.sec.page_peel import PageHints, peel_legal_names, peel_page
 
 PAGES = Path(__file__).parent / "fixtures" / "sec" / "pages"
 
@@ -46,3 +46,16 @@ def test_parallel_broken_jsonld_still_peels_name():
     )
     assert any("parallel" in n.casefold() for n in names)
     assert names
+
+
+def test_peel_dedupes_inc_punctuation():
+    hints = PageHints(
+        titles=(),
+        legal_names=("Speakeasy Labs, Inc.", "Speakeasy Labs, Inc"),
+        site_names=(),
+        cities=(),
+        text_blob="",
+    )
+    names = peel_legal_names(hints, domain="speak.com")
+    labs = [n for n in names if "speakeasy" in n.casefold()]
+    assert len(labs) == 1

@@ -1,0 +1,100 @@
+{
+  "hits": {
+    "total": {
+      "value": 7,
+      "relation": "eq"
+    },
+    "hits": [
+      {
+        "_index": "edgar_file",
+        "_id": "0002140567-26-000001:primary_doc.xml",
+        "_score": 10.898132,
+        "_source": {
+          "ciks": [
+            "0002140567"
+          ],
+          "period_ending": null,
+          "file_num": [
+            "021-592167"
+          ],
+          "display_names": [
+            "Gaingels Steel Robotics LLC  (CIK 0002140567)"
+          ],
+          "xsl": "xslFormDX01",
+          "schema_version": "X0708",
+          "sequence": 1,
+          "root_forms": [
+            "D"
+          ],
+          "file_date": "2026-07-27",
+          "biz_states": [
+            "VT"
+          ],
+          "sics": [],
+          "form": "D",
+          "adsh": "0002140567-26-000001",
+          "film_num": [
+            "261202853"
+          ],
+          "biz_locations": [
+            "Burlington, VT"
+          ],
+          "file_type": "D",
+          "file_description": null,
+          "inc_states": [
+            "VT"
+          ],
+          "items": [
+            "06B",
+            "3C",
+            "3C.1"
+          ]
+        }
+      },
+      {
+        "_index": "edgar_file",
+        "_id": "0002151004-26-000001:primary_doc.xml",
+        "_score": 10.894579,
+        "_source": {
+          "ciks": [
+            "0002151004"
+          ],
+          "period_ending": null,
+          "file_num": [
+            "021-595048"
+          ],
+          "display_names": [
+            "Ultra Robotics Corp.  (CIK 0002151004)"
+          ],
+          "xsl": "xslFormDX01",
+          "schema_version": "X0708",
+          "sequence": 1,
+          "root_forms": [
+            "D"
+          ],
+          "file_date": "2026-08-21",
+          "biz_states": [
+            "NY"
+          ],
+          "sics": [],
+          "form": "D",
+          "adsh": "0002151004-26-000001",
+          "film_num": [
+            "261304287"
+          ],
+          "biz_locations": [
+            "New York, NY"
+          ],
+          "file_type": "D",
+          "file_description": null,
+          "inc_states": [
+            "DE"
+          ],
+          "items": [
+            "06B"
+          ]
+        }
+      }
+    ]
+  }
+}

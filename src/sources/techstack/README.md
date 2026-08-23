@@ -59,7 +59,24 @@ HAR-lite shape (`meta.kind=network`):
 
 Cap **80 unique hosts**, third-party first (first-party CSS/fonts no longer fill the cap). Drop `data:` / `blob:`. Query strings stripped.
 
-A 403 or `challenges.cloudflare.com` is **named Cloudflare**, not an empty stack. We do **not** solve Turnstile, farm challenge cookies, or impersonate TLS to beat a bot wall.
+## Cloudflare bypass
+
+When the HTTP fetch hits a Cloudflare challenge (403 or `challenges.cloudflare.com`), the techstack source attempts to bypass it in tiers:
+
+1. **Cookie reuse** — a previously-solved full Cloudflare cookie set (`cf_clearance` + `__cf_bm`), bound to the User-Agent and egress IP, is replayed. Cheapest repeat path.
+2. **Browser solve** — `BrowserFetcher` (Chromium + stealth init script) navigates and waits for the standard JS challenge to auto-solve (polls for `cf_clearance` cookie presence), then captures the full cookie jar and the real HTML.
+3. **External solver** — for managed/Turnstile challenges, an optional 2Captcha/anti-captcha adapter returns a Turnstile token. This token is injected back into a browser context (via the Turnstile callback) so Cloudflare's edge sets the real `cf_clearance` — there is no stateless token→cookie exchange.
+4. **Headed fallback** — if `cloudflare.headed_fallback` is true, a visible browser waits (bounded by `headed_solve_timeout_ms`) for a manual solve.
+5. **Hard stop** — if all tiers fail, `cloudflare` is recorded as a named observation and a `cloudflare_block_unsolved` note is logged. No techstack is invented.
+
+On a successful solve, the **full** `promote_or_observe` pipeline runs — all named + observed vendors are recorded, not just Cloudflare. Cookies persist in the `cloudflare_cookies` SQLite table (UA + proxy bound, real expiry), reused on the next weekly collect.
+
+Enable the solver in `.env`:
+```
+CLOUDFLARE_SOLVER_PROVIDER=2captcha
+CLOUDFLARE_SOLVER_API_KEY=your_key
+CLOUDFLARE_BYPASS_STRATEGY=browser_first
+```
 
 `harvest_tech` lists from the HTML task and the network task are **unioned** (`merge_matches`) and upserted **once** per account/pass so HTML HubSpot is not aged by a later HAR-only page.
 

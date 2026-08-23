@@ -43,3 +43,9 @@ def test_readme_names_enabled_sources():
     ]
     missing = [k for k in enabled if k not in README]
     assert not missing, missing
+
+
+def test_readme_documents_cloudflare_bypass():
+    text = Path("src/sources/techstack/README.md").read_text(encoding="utf-8")
+    assert "Cloudflare bypass" in text or "cf_clearance" in text
+    assert "solver" in text.lower()

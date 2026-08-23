@@ -41,3 +41,39 @@ vendors:
     tier: mid
     match:
       network_host: ["website-files.com"]
+      script_src: ["website-files.com"]
+  gtm:
+    display: Google Tag Manager
+    category: [tag_manager]
+    tier: mid
+    match:
+      network_host: ["googletagmanager.com"]
+      script_src: ["googletagmanager.com"]
+  google_analytics:
+    display: Google Analytics
+    category: [analytics]
+    tier: mid
+    match:
+      network_host: ["google-analytics.com"]
+      script_src: ["google-analytics.com"]
+  meta_pixel:
+    display: Meta Pixel
+    category: [ads]
+    tier: mid
+    match:
+      network_host: ["connect.facebook.net"]
+      script_src: ["connect.facebook.net"]
+  cookieyes:
+    display: CookieYes
+    category: [consent]
+    tier: mid
+    match:
+      network_host: ["cdn-cookieyes.com", "cookieyes.com"]
+      script_src: ["cdn-cookieyes.com", "cookieyes.com"]
+  vector:
+    display: Vector
+    category: [intent]
+    tier: mid
+    match:
+      network_host: ["cdn.vector.co", "vector.co"]
+      script_src: ["cdn.vector.co", "vector.co"]

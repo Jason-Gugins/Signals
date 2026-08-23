@@ -38,6 +38,15 @@ def test_dynamic_matches_are_unknown_tier():
     assert not any(m.vendor.startswith("host:scanner.dev") for m in ms)
 
 
+def test_named_majority_from_scanner_fixture():
+    from src.sources.techstack.fingerprint import load_fingerprint_rules
+
+    rules = load_fingerprint_rules()
+    ev = extract_network_evidence(NET_FIX.read_bytes())
+    named = {m.vendor for m in match_fingerprints(ev, rules)}
+    assert {"webflow", "hubspot", "gtm", "google_analytics", "meta_pixel", "cookieyes", "vector"} <= named
+
+
 def test_match_network_hosts_webflow_from_fixture():
     ev = extract_network_evidence(NET_FIX.read_bytes())
     hits = match_fingerprints(ev, RULES)

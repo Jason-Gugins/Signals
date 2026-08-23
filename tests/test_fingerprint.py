@@ -1,7 +1,7 @@
 from datetime import date
 from src.core.db import Database
 from src.sources.techstack.collector import tech_to_candidates, upsert_technologies
-from src.sources.techstack.fingerprint import TechMatch, extract_network_evidence, match_fingerprints
+from src.sources.techstack.fingerprint import TechMatch, extract_network_evidence, match_fingerprints, observed_hosts
 import yaml
 from pathlib import Path
 
@@ -14,6 +14,14 @@ def test_extract_network_evidence_from_fixture():
     assert "cdn.prod.website-files.com" in ev.hosts
     assert ev.page_url
     assert all("?" not in u for u in ev.urls)
+
+
+def test_observed_hosts_drops_first_party():
+    ev = extract_network_evidence(NET_FIX.read_bytes())
+    hosts = observed_hosts(ev, domain="scanner.dev")
+    assert "scanner.dev" not in hosts
+    assert "cdn.prod.website-files.com" in hosts
+    assert "js.hsforms.net" in hosts
 
 
 def test_match_network_hosts_webflow_from_fixture():

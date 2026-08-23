@@ -64,6 +64,30 @@ def extract_network_evidence(body: bytes) -> NetworkEvidence:
     )
 
 
+def first_party_suffix(domain: str) -> str:
+    return (domain or "").casefold().lstrip(".")
+
+
+def is_first_party(host: str, domain: str) -> bool:
+    h, d = host.casefold(), first_party_suffix(domain)
+    return bool(d) and (h == d or h.endswith("." + d))
+
+
+def observed_hosts(ev, *, domain: str) -> tuple[str, ...]:
+    hosts = list(getattr(ev, "hosts", ()) or [])
+    for src in getattr(ev, "script_srcs", []) or []:
+        h = (urlsplit(src).hostname or "").casefold()
+        if h:
+            hosts.append(h)
+    out = []
+    for h in hosts:
+        if not h or is_first_party(h, domain):
+            continue
+        if h not in out:
+            out.append(h)
+    return tuple(out)
+
+
 class _Page(HTMLParser):
     def __init__(self):
         super().__init__()

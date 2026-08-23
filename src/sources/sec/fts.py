@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 from src.core.models import Account
 from src.identity.names import normalize_name
 from src.sources.base import SignalCandidate
+from src.sources.sec.parse_submissions import Filing
 
 EFTS_URL = "https://efts.sec.gov/LATEST/search-index"
 
@@ -78,6 +79,23 @@ def next_fts_offset(*, offset: int, size: int, batch_len: int, total: int) -> in
     if nxt >= total or batch_len < size:
         return None
     return nxt
+
+
+def hit_to_filing(hit: dict) -> Filing | None:
+    cik = (hit.get("cik") or "").strip()
+    adsh = (hit.get("accession") or "").strip()
+    if not cik or not adsh:
+        return None
+    return Filing(
+        accession=adsh,
+        form=hit.get("form") or "D",
+        filing_date=hit.get("filed") or "",
+        report_date=None,
+        items=[],
+        primary_document="primary_doc.xml",
+        description=None,
+        cik=cik,
+    )
 
 
 def fts_to_candidates(hits: list[dict], account: Account, *, today: date) -> list[SignalCandidate]:

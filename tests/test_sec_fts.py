@@ -9,10 +9,12 @@ from src.core.models import Account
 from src.sources.sec.fts import (
     fts_search_url,
     fts_to_candidates,
+    hit_to_filing,
     next_fts_offset,
     parse_fts_response,
     parse_fts_total,
 )
+from src.sources.sec.parse_submissions import archive_url
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "fts_response.json"
@@ -88,3 +90,23 @@ def test_next_fts_offset():
     assert next_fts_offset(offset=20, size=10, batch_len=5, total=25) is None
     assert next_fts_offset(offset=0, size=10, batch_len=0, total=25) is None
     assert next_fts_offset(offset=0, size=100, batch_len=100, total=5007) == 100
+
+
+def test_hit_to_filing_archive_url():
+    hit = parse_fts_response(FORMD_FIX.read_bytes())[0]
+    filing = hit_to_filing(hit)
+    assert filing is not None
+    assert filing.accession == hit["accession"]
+    assert filing.cik == hit["cik"]
+    assert filing.primary_document == "primary_doc.xml"
+    assert filing.archive_url == archive_url(hit["cik"], hit["accession"], "primary_doc.xml")
+    assert filing.archive_url == (
+        f"https://www.sec.gov/Archives/edgar/data/{int(hit['cik'])}/"
+        f"{hit['accession'].replace('-', '')}/primary_doc.xml"
+    )
+
+
+def test_hit_to_filing_missing_ids():
+    assert hit_to_filing({"accession": "x", "cik": ""}) is None
+    assert hit_to_filing({"accession": "", "cik": "0002151517"}) is None
+    assert hit_to_filing({}) is None

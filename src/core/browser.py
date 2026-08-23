@@ -124,6 +124,19 @@ class BrowserFetcher:
         self._page = self._context.new_page()
         return self
 
+    def _new_solve_context(self):
+        """Create a fresh browser context WITHOUT storage_state for challenge solves.
+
+        Returns (context, page). The caller is responsible for closing the context
+        when done. The stealth init script is applied automatically.
+        """
+        ctx = self._browser.new_context(
+            **self._build_context_args(self.config, skip_storage_state=True)
+        )
+        ctx.add_init_script(STEALTH_INIT_SCRIPT)
+        page = ctx.new_page()
+        return ctx, page
+
     def fetch(
         self,
         url: str,

@@ -338,6 +338,47 @@ class Orchestrator:
             ctx.bump(accounts=len(paths))
             return paths
 
+    def funding(
+        self,
+        mode,
+        *,
+        dry_run=False,
+        q=None,
+        cik=None,
+        domain=None,
+        days=30,
+        include_funds=False,
+        include_amendments=False,
+        min_sold=0,
+        state=None,
+        limit=100,
+    ):
+        from src.pipeline.funding import FundingTracker
+        from src.sources.sec.formd_filter import FormDFilter
+
+        fetcher = self.fetcher or self._http_fetcher(None)
+        tracker = FundingTracker(
+            self.config, self.db, self.registry, self.raw, fetcher, self.signal_store, self.taxonomy
+        )
+        filt = FormDFilter(
+            include_funds=include_funds,
+            include_amendments=include_amendments,
+            min_sold=min_sold or 0,
+            state=state,
+        )
+        return tracker.run(
+            mode,
+            today=date.today(),
+            q=q,
+            cik=cik,
+            domain=domain,
+            days=days,
+            filt=filt,
+            limit=limit,
+            persist=not dry_run,
+            dry_run=dry_run,
+        )
+
     def export(self, *, cohort=None, fmt="csv") -> list[str]:
         with RunContext(self.db, "export"):
             try:

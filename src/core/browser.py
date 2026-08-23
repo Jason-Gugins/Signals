@@ -184,37 +184,53 @@ class BrowserFetcher:
             if scroll:
                 self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             if capture_html:
-                # Challenge-aware: poll for cf_clearance cookie presence (primary)
-                # + challenge-title absence (secondary), then capture content + cookies.
-                timeout_ms = self.config.cloudflare.solve_timeout_ms
-                cleared = _challenge_cleared(
-                    self._page, self._context,
-                    domain=domain or "", timeout_ms=timeout_ms, poll_ms=500,
-                )
-                if cleared:
-                    # Cookie is set, but Cloudflare's challenge page may not
-                    # auto-reload in headless. Wait briefly for a title change,
-                    # then re-navigate with the cookie in place to get real content.
-                    _wait_for_real_content(self._page, timeout_ms=5000, poll_ms=500)
+                # Use a fresh context (no stale storage_state) when a real
+                # browser is running. Fall back to stubs in test mode.
+                solve_ctx = None
+                solve_page = self._page
+                solve_context = self._context
+                if self._browser is not None:
+                    solve_ctx, solve_page = self._new_solve_context()
+                    solve_context = solve_ctx
+                    solve_page.goto(url, wait_until="domcontentloaded")
+                try:
+                    # Challenge-aware: poll for title change (page reloads
+                    # after challenge JS completes), then capture content + cookies.
+                    timeout_ms = self.config.cloudflare.solve_timeout_ms
+                    cleared = _challenge_cleared(
+                        solve_page, solve_context,
+                        domain=domain or "", timeout_ms=timeout_ms, poll_ms=500,
+                    )
+                    if cleared:
+                        _wait_for_real_content(solve_page, timeout_ms=5000, poll_ms=500)
+                        try:
+                            title = (solve_page.title() or "").lower()
+                            if any(t in title for t in _CHALLENGE_TITLES):
+                                solve_page.goto(url, wait_until="domcontentloaded")
+                                _wait_for_real_content(solve_page, timeout_ms=10000, poll_ms=500)
+                        except Exception:
+                            pass
+                    body = solve_page.content().encode("utf-8")
+                    ctype = "text/html"
+                    # Extract the full cookie jar from the solve context.
+                    root = (domain or "").casefold().lstrip(".")
                     try:
-                        title = (self._page.title() or "").lower()
-                        if any(t in title for t in _CHALLENGE_TITLES):
-                            # Still on challenge page — re-navigate (cookie is set now).
-                            self._page.goto(url, wait_until="domcontentloaded")
-                            _wait_for_real_content(self._page, timeout_ms=10000, poll_ms=500)
+                        for c in solve_context.cookies():
+                            cd = (c.get("domain", "") or "").casefold().lstrip(".")
+                            if cd == root or cd.endswith("." + root) or root in (c.get("domain", "") or ""):
+                                cf_cookies.append(c)
                     except Exception:
                         pass
-                body = self._page.content().encode("utf-8")
-                ctype = "text/html"
-                # Extract the full cookie jar (cf_clearance + __cf_bm + cf_chl_*) for the domain.
-                root = (domain or "").casefold().lstrip(".")
-                try:
-                    for c in self._context.cookies():
-                        cd = (c.get("domain", "") or "").casefold().lstrip(".")
-                        if cd == root or cd.endswith("." + root) or root in (c.get("domain", "") or ""):
-                            cf_cookies.append(c)
-                except Exception:
-                    pass
+                finally:
+                    if solve_ctx is not None:
+                        try:
+                            solve_page.close()
+                        except Exception:
+                            pass
+                        try:
+                            solve_ctx.close()
+                        except Exception:
+                            pass
             elif capture_network:
                 payload = {"page_url": url, "requests": _select_har_requests(reqs[:200], domain=domain, limit=80)}
                 body = json.dumps(payload).encode("utf-8")

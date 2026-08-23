@@ -164,3 +164,56 @@ def test_new_solve_context_skips_storage_state(tmp_path):
     assert "storage_state" not in created_args[0]
     assert page is not None
     ctx.close()
+
+
+def test_capture_html_uses_fresh_context_when_browser_running(tmp_path):
+    """When self._browser is set, capture_html creates a fresh solve context
+    instead of reusing the main one (which may have stale storage_state)."""
+    cfg = Config()
+    cfg.browser = BrowserConfig(enabled=True, session_dir=str(tmp_path))
+    fetcher = BrowserFetcher(cfg, RawStore(Database(tmp_path / "s.db"), raw_dir=tmp_path / "raw"))
+
+    solve_called = []
+    challenge_page = _ChallengePage(
+        fired=[], cleared_body="<html><script src='https://js.hs-scripts.com/1.js'></script></html>"
+    )
+    solve_ctx = type("Ctx", (), {
+        "add_init_script": lambda self, s: None,
+        "new_page": lambda self: challenge_page,
+        "cookies": lambda self: challenge_page.cookies(),
+        "close": lambda self: None,
+    })()
+
+    def mock_new_solve_context():
+        solve_called.append(True)
+        return solve_ctx, challenge_page
+
+    fetcher._new_solve_context = mock_new_solve_context
+    fetcher._browser = object()  # truthy — simulates real browser running
+
+    result = fetcher.fetch(
+        "https://acme.com/", source="techstack", domain="acme.com",
+        capture_html=True,
+    )
+    assert solve_called  # fresh context was used
+    assert result.ok
+    assert result.cloudflare_cookies  # cookies extracted from solve context
+
+
+def test_capture_html_falls_back_to_stubs_when_no_browser(tmp_path):
+    """When self._browser is None (test mode), capture_html uses the existing
+    self._page / self._context stubs — backward compat with existing tests."""
+    cfg = Config()
+    cfg.browser = BrowserConfig(enabled=True)
+    fetcher = BrowserFetcher(cfg, RawStore(Database(tmp_path / "s.db"), raw_dir=tmp_path / "raw"))
+    fetcher._page = _ChallengePage(
+        fired=[], cleared_body="<html><script src='https://js.hs-scripts.com/1.js'></script></html>"
+    )
+    fetcher._context = type("C", (), {"cookies": lambda self: fetcher._page.cookies()})()
+    # self._browser is None — should use stubs, not _new_solve_context
+    result = fetcher.fetch(
+        "https://acme.com/", source="techstack", domain="acme.com",
+        capture_html=True,
+    )
+    assert result.ok
+    assert b"hs-scripts.com" in result.doc.body

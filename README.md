@@ -54,10 +54,14 @@ Form D funding tracker (SEC private-offering notices). Pooled investment funds
 are excluded by default. Unknown issuers land on stub domains like
 `cik0001234567.edgar`. `--dry-run` goes before the subcommand.
 
+`funding company --domain radicl.com` fetches the homepage, peels a legal name,
+quoted Form D search, and drops name collisions (Scanner ≠ Surgical Safety Scanner).
+
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli funding recent --days 30 --limit 100
 .\.venv\Scripts\python.exe -m src.cli funding search "robotics" --days 365
 .\.venv\Scripts\python.exe -m src.cli funding company --cik 0001234567
+.\.venv\Scripts\python.exe -m src.cli funding company --domain radicl.com
 .\.venv\Scripts\python.exe -m src.cli collect --source sec_formd --force
 .\.venv\Scripts\python.exe -m src.cli export --what funding
 ```

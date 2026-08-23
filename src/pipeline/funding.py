@@ -8,6 +8,7 @@ from pathlib import Path
 
 from src.core.models import Document
 from src.export.csvout import export_funding
+from src.identity.domains import root_domain
 from src.identity.edgar_ids import SUBMISSIONS_URL, pad_cik
 from src.signals.normalize import normalize_batch
 from src.sources.base import FetchTask, SignalCandidate
@@ -18,6 +19,20 @@ from src.sources.sec.parse_formd import FormD, form_d_to_candidates, parse_form_
 from src.sources.sec.parse_submissions import Filing, parse_submissions
 
 SOURCE = "sec_formd"
+
+
+def homepage_url(domain: str) -> str:
+    root = root_domain(domain) or domain
+    return f"https://{root}/"
+
+
+def plan_company_queries(names: list[str], *, today: date, limit: int, size: int = 100) -> list[FetchTask]:
+    out: list[FetchTask] = []
+    for name in names[:3]:
+        if not name:
+            continue
+        out.extend(plan_funding("company", today=today, q=name, size=size, limit=limit))
+    return out
 
 
 def plan_funding(

@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 
 from src.identity.edgar_ids import SUBMISSIONS_URL, pad_cik
-from src.pipeline.funding import SOURCE, plan_funding
+from src.pipeline.funding import SOURCE, homepage_url, plan_company_queries, plan_funding
 from src.sources.sec.fts import fts_search_url
 
 
@@ -66,3 +66,25 @@ def test_plan_company_needs_cik_or_q():
 def test_plan_unknown_mode():
     with pytest.raises(ValueError):
         plan_funding("nope", today=TODAY)
+
+
+def test_homepage_url_uses_root_domain():
+    assert homepage_url("https://radicl.com/") == "https://radicl.com/"
+    assert homepage_url("radicl.com") == "https://radicl.com/"
+    assert homepage_url("https://www.scanner.dev/foo") == "https://scanner.dev/"
+
+
+def test_plan_company_queries_quoted_no_dates():
+    tasks = plan_company_queries(["Scanner, Inc", "Scanner"], today=TODAY, limit=8)
+    assert len(tasks) == 2
+    for t in tasks:
+        assert t.meta["kind"] == "fts"
+        assert "startdt=" not in t.url
+        assert "enddt=" not in t.url
+        assert "q=%22" in t.url
+        assert "forms=D" in t.url
+
+
+def test_plan_company_queries_caps_at_three():
+    tasks = plan_company_queries(["A", "B", "C", "D"], today=TODAY, limit=5)
+    assert len(tasks) == 3

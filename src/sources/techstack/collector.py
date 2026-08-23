@@ -95,6 +95,7 @@ class TechstackSource(SourceAdapter):
         from src.sources.techstack.fingerprint import (
             extract_http_evidence,
             extract_network_evidence,
+            is_challenge_evidence,
             load_fingerprint_rules,
             promote_or_observe,
         )
@@ -111,6 +112,8 @@ class TechstackSource(SourceAdapter):
         else:
             ev = extract_http_evidence(body, {}, doc.url or "")
         matches = promote_or_observe(ev, rules, domain=account.domain)
+        if is_challenge_evidence(ev, status=(task_meta or {}).get("status")):
+            matches = [m for m in matches if m.vendor == "cloudflare"]
         today = date.fromisoformat(task_meta["today"])
         named = [m for m in matches if m.tier != "unknown"]
         return tech_to_candidates(
@@ -123,6 +126,7 @@ class TechstackSource(SourceAdapter):
         from src.sources.techstack.fingerprint import (
             extract_http_evidence,
             extract_network_evidence,
+            is_challenge_evidence,
             load_fingerprint_rules,
             promote_or_observe,
         )
@@ -138,4 +142,7 @@ class TechstackSource(SourceAdapter):
                 return []
         else:
             ev = extract_http_evidence(body, {}, doc.url or "")
-        return promote_or_observe(ev, rules, domain=account.domain)
+        matches = promote_or_observe(ev, rules, domain=account.domain)
+        if is_challenge_evidence(ev, status=(task_meta or {}).get("status")):
+            return [m for m in matches if m.vendor == "cloudflare"]
+        return matches

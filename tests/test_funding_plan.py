@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 
 from src.identity.edgar_ids import SUBMISSIONS_URL, pad_cik
-from src.pipeline.funding import SOURCE, homepage_url, plan_company_queries, plan_funding
+from src.pipeline.funding import SOURCE, common_query_follow_cap, homepage_url, plan_company_queries, plan_funding
 from src.sources.sec.fts import fts_search_url
 
 
@@ -88,3 +88,11 @@ def test_plan_company_queries_quoted_no_dates():
 def test_plan_company_queries_caps_at_three():
     tasks = plan_company_queries(["A", "B", "C", "D"], today=TODAY, limit=5)
     assert len(tasks) == 3
+
+
+def test_common_query_follow_cap():
+    assert common_query_follow_cap("Clay") == 5
+    assert common_query_follow_cap("CLAY") == 5
+    assert common_query_follow_cap("Speakeasy Labs, Inc.") is None
+    assert common_query_follow_cap("Agentio") is None
+    assert common_query_follow_cap(None) is None

@@ -41,29 +41,42 @@ _CHALLENGE_TITLES = ("just a moment", "checking your browser")
 def _challenge_cleared(page, context, *, domain: str, timeout_ms: int, poll_ms: int = 500) -> bool:
     """Poll for Cloudflare challenge clearance.
 
-    Primary signal: ``cf_clearance`` cookie presence in ``context.cookies()``
-    (authoritative — set exactly when the challenge clears).
-    Secondary signal: ``page.title()`` no longer a challenge title.
+    Primary signal: ``page.title()`` no longer a challenge title — this fires
+    when Cloudflare's challenge JS completes and reloads the page.
+    Secondary signal: ``cf_clearance`` cookie presence (set during JS execution,
+    but the page may not have reloaded yet — don't return True on cookie alone).
     """
     import time
     deadline = time.monotonic() + timeout_ms / 1000.0
     while time.monotonic() < deadline:
-        # Primary: cf_clearance cookie presence (authoritative — set exactly when challenge clears)
-        try:
-            for c in context.cookies():
-                if c.get("name") == "cf_clearance" and domain in (c.get("domain", "") or ""):
-                    return True
-        except Exception:
-            pass
-        # Secondary: title no longer a challenge title
+        # Primary: title no longer a challenge title (page has reloaded with real content)
         try:
             title = (page.title() or "").lower()
             if not any(t in title for t in _CHALLENGE_TITLES):
                 return True
         except Exception:
             pass
+        # Secondary: cf_clearance cookie present (but page may not have reloaded yet)
+        # — used only to confirm progress, not to declare success.
         page.wait_for_timeout(poll_ms)
     return False
+
+
+def _wait_for_real_content(page, *, timeout_ms: int = 10000, poll_ms: int = 500) -> None:
+    """After cf_clearance is set, Cloudflare reloads the page. Wait for the
+    title to stop being a challenge title and the body to gain real content."""
+    import time
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    while time.monotonic() < deadline:
+        try:
+            title = (page.title() or "").lower()
+            if not any(t in title for t in _CHALLENGE_TITLES):
+                # Title cleared — give the body a moment to render, then done.
+                page.wait_for_timeout(500)
+                return
+        except Exception:
+            pass
+        page.wait_for_timeout(poll_ms)
 
 
 class BrowserFetcher:
@@ -160,10 +173,23 @@ class BrowserFetcher:
                 # Challenge-aware: poll for cf_clearance cookie presence (primary)
                 # + challenge-title absence (secondary), then capture content + cookies.
                 timeout_ms = self.config.cloudflare.solve_timeout_ms
-                _challenge_cleared(
+                cleared = _challenge_cleared(
                     self._page, self._context,
                     domain=domain or "", timeout_ms=timeout_ms, poll_ms=500,
                 )
+                if cleared:
+                    # Cookie is set, but Cloudflare's challenge page may not
+                    # auto-reload in headless. Wait briefly for a title change,
+                    # then re-navigate with the cookie in place to get real content.
+                    _wait_for_real_content(self._page, timeout_ms=5000, poll_ms=500)
+                    try:
+                        title = (self._page.title() or "").lower()
+                        if any(t in title for t in _CHALLENGE_TITLES):
+                            # Still on challenge page — re-navigate (cookie is set now).
+                            self._page.goto(url, wait_until="domcontentloaded")
+                            _wait_for_real_content(self._page, timeout_ms=10000, poll_ms=500)
+                    except Exception:
+                        pass
                 body = self._page.content().encode("utf-8")
                 ctype = "text/html"
                 # Extract the full cookie jar (cf_clearance + __cf_bm + cf_chl_*) for the domain.

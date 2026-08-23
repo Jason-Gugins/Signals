@@ -188,7 +188,7 @@ def is_challenge_evidence(ev, *, status: int | None = None) -> bool:
 
 
 _JS_MARKERS = (b"Just a moment", b"Checking your browser", b"cf-browser-verification")
-_MANAGED_MARKERS = (b"Press &amp; Hold", b"Press & Hold", b"cf-turnstile", b"challenge-platform")
+_MANAGED_MARKERS = (b"Press &amp; Hold", b"Press & Hold", b"cf-turnstile")
 _CHALLENGE_HOST = "challenges.cloudflare.com"
 
 

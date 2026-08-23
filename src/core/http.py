@@ -217,8 +217,20 @@ class HttpFetcher:
                     self._backoff(attempt + 1, response)
                     last_error = f"HTTP {status}"
                     continue
+                # Store 403 bodies so the Cloudflare bypass can classify them.
+                # (Cloudflare challenges return HTML even on 403.)
+                doc = None
+                if status == 403 and response.content:
+                    doc = self.store.put(
+                        source=getattr(task, "source", "http"),
+                        url=url,
+                        body=response.content,
+                        content_type=response.headers.get("content-type"),
+                        status=status,
+                        domain=getattr(task, "domain", None),
+                    )
                 result = FetchResult(
-                    ok=False, status=status, doc=None, cached=False,
+                    ok=False, status=status, doc=doc, cached=False,
                     error=f"HTTP {status}", elapsed_ms=_elapsed(started),
                 )
                 self._log(task, result, attempts=attempts)

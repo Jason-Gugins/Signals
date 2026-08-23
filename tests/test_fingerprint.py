@@ -1,7 +1,7 @@
 from datetime import date
 from src.core.db import Database
 from src.sources.techstack.collector import tech_to_candidates, upsert_technologies
-from src.sources.techstack.fingerprint import TechMatch, extract_network_evidence
+from src.sources.techstack.fingerprint import TechMatch, extract_network_evidence, match_fingerprints
 import yaml
 from pathlib import Path
 
@@ -14,6 +14,20 @@ def test_extract_network_evidence_from_fixture():
     assert "cdn.prod.website-files.com" in ev.hosts
     assert ev.page_url
     assert all("?" not in u for u in ev.urls)
+
+
+def test_match_network_hosts_webflow_from_fixture():
+    ev = extract_network_evidence(NET_FIX.read_bytes())
+    hits = match_fingerprints(ev, RULES)
+    assert any(m.vendor == "webflow" and m.evidence == "network_host" for m in hits)
+
+
+def test_network_host_suffix_does_not_hit_workforce():
+    from src.sources.techstack.fingerprint import NetworkEvidence
+
+    ev = NetworkEvidence(page_url="https://x.com/", hosts=("workforce.com",), urls=())
+    rules = {"vendors": {"salesforce": {"display": "Salesforce", "match": {"network_host": ["force.com"]}}}}
+    assert match_fingerprints(ev, rules) == []
 
 
 def test_upsert_and_disappear(tmp_path):

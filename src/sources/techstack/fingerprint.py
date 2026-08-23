@@ -133,6 +133,11 @@ def _rules_vendors(rules: dict) -> dict:
     return rules.get("vendors") or rules
 
 
+def _host_hit(host: str, needle: str) -> bool:
+    h, n = host.casefold(), needle.casefold()
+    return h == n or h.endswith("." + n)
+
+
 def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
     vendors = _rules_vendors(rules)
     hits: list[TechMatch] = []
@@ -154,6 +159,9 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
             evidence = evidence or "mx"
         if any(s.casefold() in job_text.casefold() for s in match.get("job_text") or []):
             evidence = evidence or "job_text"
+        needles = match.get("network_host") or []
+        if any(_host_hit(h, s) for h in (getattr(ev, "hosts", ()) or ()) for s in needles):
+            evidence = evidence or "network_host"
         if evidence:
             cat = spec.get("category") or []
             if isinstance(cat, str):
@@ -165,7 +173,7 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
                     category=list(cat),
                     tier=spec.get("tier") or "mid",
                     evidence=evidence,
-                    confidence=0.8 if evidence in {"script_src", "mx"} else 0.7,
+                    confidence=0.8 if evidence in {"script_src", "mx", "network_host"} else 0.7,
                 )
             )
     return hits

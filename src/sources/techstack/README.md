@@ -57,13 +57,17 @@ HAR-lite shape (`meta.kind=network`):
 }
 ```
 
-Cap 80 requests. Drop `data:` / `blob:`. Query strings stripped.
+Cap **80 unique hosts**, third-party first (first-party CSS/fonts no longer fill the cap). Drop `data:` / `blob:`. Query strings stripped.
+
+A 403 or `challenges.cloudflare.com` is **named Cloudflare**, not an empty stack. We do **not** solve Turnstile, farm challenge cookies, or impersonate TLS to beat a bot wall.
+
+`harvest_tech` lists from the HTML task and the network task are **unioned** (`merge_matches`) and upserted **once** per account/pass so HTML HubSpot is not aged by a later HAR-only page.
 
 ## Vendors in YAML now
 
-HubSpot, Salesforce, Marketo, Google Workspace, Microsoft 365, Zendesk, Intercom, Segment, Snowflake, Workday, Statuspage, Webflow, GTM, Google Analytics, Meta Pixel, CookieYes, Vector.
+HubSpot, Salesforce, Marketo, Google Workspace, Microsoft 365, Zendesk, Intercom, Segment, Snowflake, Workday, Statuspage, Webflow, GTM, Google Analytics, Meta Pixel, CookieYes, Vector, OneTrust, Bing UET, Vimeo, Cloudflare.
 
-Needles for Webflow / HubSpot / GTM / GA / Meta / CookieYes / Vector were frozen from a live `scanner.dev` capture (2026-08-23). See [`tests/fixtures/techstack/NETWORK.md`](../../../tests/fixtures/techstack/NETWORK.md).
+Needles for Webflow / HubSpot / GTM / GA / Meta / CookieYes / Vector were frozen from `scanner.dev`. OneTrust / Bing / Vimeo from the 2026-08-23 levitate.ai and darktrace.com HARs. See [`tests/fixtures/techstack/NETWORK.md`](../../../tests/fixtures/techstack/NETWORK.md) and [`PROBE_2026-08-23.md`](../../../tests/fixtures/techstack/PROBE_2026-08-23.md).
 
 ## Signals
 
@@ -86,7 +90,7 @@ Unknown hosts persist via `harvest_tech` → `technologies` as `host:…`.
 | `http_probe.py` | re-export of HTTP extract |
 | `../../../src/core/browser.py` | `fetch(..., capture_network=True)` HAR-lite |
 
-Runner: network tasks run on the collector thread. `_fetch_one` returns `None` when `browser` is missing. Duck-typed `harvest_tech` always upserts (including `[]`).
+Runner: network tasks run on the collector thread. `_fetch_one` returns `None` when `browser` is missing. Duck-typed `harvest_tech` results are merged then upserted once.
 
 ## Add a vendor
 

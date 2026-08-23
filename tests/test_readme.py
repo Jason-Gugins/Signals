@@ -28,3 +28,18 @@ def test_readme_lists_every_cli_command():
     names = sorted(cli_mod.main.commands)
     missing = [n for n in names if f"`{n}`" not in README and n not in README]
     assert not missing, missing
+
+
+def test_readme_names_enabled_sources():
+    from src.core.config import Config
+
+    cfg = Config()
+    cfg.config_dir = str(ROOT / "config")
+    table = cfg.load_yaml("sources")
+    enabled = [
+        k
+        for k, v in (table.get("sources") or {}).items()
+        if isinstance(v, dict) and v.get("enabled", True)
+    ]
+    missing = [k for k in enabled if k not in README]
+    assert not missing, missing

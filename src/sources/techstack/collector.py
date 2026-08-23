@@ -79,12 +79,27 @@ class TechstackSource(SourceAdapter):
         return [FetchTask(source=self.key, url=f"https://{account.domain}/", domain=account.domain)]
 
     def parse(self, doc, account, task_meta):
+        import json
         from datetime import date
 
-        from src.sources.techstack.fingerprint import extract_http_evidence, load_fingerprint_rules, match_fingerprints
+        from src.sources.techstack.fingerprint import (
+            extract_http_evidence,
+            extract_network_evidence,
+            load_fingerprint_rules,
+            match_fingerprints,
+        )
 
-        ev = extract_http_evidence(doc.body or b"", {}, doc.url or "")
         rules = load_fingerprint_rules()
+        kind = (task_meta or {}).get("kind") or ""
+        body = doc.body or b""
+        use_net = kind == "network" or (not kind and body.lstrip().startswith(b"{"))
+        if use_net:
+            try:
+                ev = extract_network_evidence(body or b"{}")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return []
+        else:
+            ev = extract_http_evidence(body, {}, doc.url or "")
         matches = match_fingerprints(ev, rules)
         today = date.fromisoformat(task_meta["today"])
         return tech_to_candidates(

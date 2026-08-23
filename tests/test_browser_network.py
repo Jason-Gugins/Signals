@@ -217,3 +217,41 @@ def test_capture_html_falls_back_to_stubs_when_no_browser(tmp_path):
     )
     assert result.ok
     assert b"hs-scripts.com" in result.doc.body
+
+
+def test_capture_html_does_not_pollute_session_json(tmp_path):
+    """After a capture_html solve with a real browser, the main context
+    (and thus session.json via save_state()) must NOT contain cf_clearance —
+    the solve used a fresh context that was closed."""
+    cfg = Config()
+    cfg.browser = BrowserConfig(enabled=True, session_dir=str(tmp_path))
+    session_file = tmp_path / "session.json"
+    session_file.write_text('{"cookies": [{"name": "cf_clearance", "value": "STALE"}], "origins": []}')
+
+    fetcher = BrowserFetcher(cfg, RawStore(Database(tmp_path / "s.db"), raw_dir=tmp_path / "raw"))
+
+    challenge_page = _ChallengePage(
+        fired=[], cleared_body="<html><script src='https://js.hs-scripts.com/1.js'></script></html>"
+    )
+    solve_ctx = type("Ctx", (), {
+        "add_init_script": lambda self, s: None,
+        "new_page": lambda self: challenge_page,
+        "cookies": lambda self: challenge_page.cookies(),
+        "close": lambda self: None,
+    })()
+    fetcher._new_solve_context = lambda: (solve_ctx, challenge_page)
+    fetcher._browser = object()  # real browser running
+    fetcher._page = _DummyPage(fired=[])  # prevent start() from launching real Playwright
+
+    # Main context (the one save_state reads) — should stay clean
+    main_cookies = []
+    fetcher._context = type("C", (), {"cookies": lambda self: main_cookies})
+
+    result = fetcher.fetch(
+        "https://acme.com/", source="techstack", domain="acme.com",
+        capture_html=True,
+    )
+    assert result.ok
+    assert result.cloudflare_cookies  # solve context had cookies
+    # Main context never got CF cookies — save_state would write main_cookies
+    assert not any(c.get("name") == "cf_clearance" for c in main_cookies)

@@ -5,7 +5,7 @@
 - [x] Run `collect --source techstack --force` against clutch.co with `browser.enabled: true`
 - [x] Confirm bypass solves the challenge and records real vendors (GTM, cookiebot)
 - [x] Confirm `cf_clearance` persisted to `cloudflare_cookies` table (method=browser)
-- [ ] Re-run → confirm cookie-reuse tier succeeds without re-solving (blocked: stale session.json causes Cloudflare to serve a harder challenge on the second run — needs BrowserFetcher to skip storage_state on capture_html solve)
+- [ ] Re-run → confirm cookie-reuse tier succeeds without re-solving (stale-session fix applied)
 
 ## Live validation fixes applied (commit pending)
 
@@ -16,7 +16,7 @@
 
 ## Known issues
 
-- Stale `data/state/session.json` with old cf_clearance causes Cloudflare to serve a harder challenge on subsequent runs. Workaround: `rm data/state/session.json` before each run. Fix: BrowserFetcher should skip storage_state when doing a capture_html challenge solve (fresh context for each solve).
+- ~~Stale `data/state/session.json` with old cf_clearance~~ FIXED: `capture_html` solves now use a fresh browser context (no `storage_state`), so stale cookies never poison the main context or `session.json`.
 
 ## 2Captcha / Cloudflare provider setup (for managed/Turnstile challenges)
 

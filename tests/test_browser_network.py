@@ -68,3 +68,22 @@ def test_capture_network_stores_har_lite(tmp_path):
     assert "acme.com" in hosts
     assert all("?" not in r["url"] for r in raw["requests"])
     assert raw["page_url"] == "https://acme.com/"
+
+
+def test_har_prefers_late_third_party_host(tmp_path):
+    cfg = Config()
+    cfg.browser = BrowserConfig(enabled=True)
+    db = Database(tmp_path / "s.db")
+    store = RawStore(db, raw_dir=tmp_path / "raw")
+    fetcher = BrowserFetcher(cfg, store)
+    fired = [
+        SimpleNamespace(url=f"https://acme.com/asset/{i}.css", resource_type="stylesheet")
+        for i in range(90)
+    ]
+    fired.append(SimpleNamespace(url="https://cdn.cookielaw.org/scripttemplates/otSDKStub.js", resource_type="script"))
+    fetcher._page = _DummyPage(fired)
+    result = fetcher.fetch("https://acme.com/", source="techstack", domain="acme.com", capture_network=True)
+    raw = json.loads(result.doc.body)
+    hosts = [r["host"] for r in raw["requests"]]
+    assert "cdn.cookielaw.org" in hosts
+    assert len(raw["requests"]) <= 80

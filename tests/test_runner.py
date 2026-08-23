@@ -277,6 +277,66 @@ def test_runner_upserts_tech_from_html(tmp_path):
     assert "hubspot" in {r["vendor"] for r in rows}
 
 
+def test_runner_unions_html_and_network_tech(tmp_path):
+    import json
+
+    from src.core.http import FetchResult
+    from src.sources.techstack.collector import TechstackSource
+
+    html = Path("tests/fixtures/techstack/homepage.html").read_bytes()
+    net = json.dumps(
+        {
+            "page_url": "https://acme.com/",
+            "requests": [
+                {
+                    "url": "https://www.googletagmanager.com/gtm.js",
+                    "host": "www.googletagmanager.com",
+                    "resource_type": "script",
+                }
+            ],
+        }
+    ).encode()
+
+    class DummyBrowser:
+        def fetch(self, url, *, source, domain=None, capture_network=False, wait_ms=None):
+            doc = Document(
+                doc_id="net",
+                source=source,
+                url=url,
+                domain=domain,
+                body=net,
+                content_type="application/json",
+                status=200,
+            )
+            return FetchResult(True, 200, doc, False, None, 1)
+
+    acct = Account(domain="acme.com", name="Acme")
+    db = Database(tmp_path / "s.db")
+    cfg = Config()
+    cfg.http.max_workers = 1
+    cfg.http.respect_robots = False
+    store = RawStore(db, tmp_path / "raw")
+    tax = Taxonomy.load()
+    ctx = RunContext(db, "collect")
+    ctx.__enter__()
+    runner = CollectorRunner(
+        cfg,
+        db,
+        AccountRegistry(db),
+        store,
+        FakeFetch({"https://acme.com/": html}),
+        SignalStore(db, tax),
+        tax,
+        ctx,
+        browser=DummyBrowser(),
+    )
+    runner.run([TechstackSource()], [acct], force=True, max_passes=1)
+    ctx.__exit__(None, None, None)
+    rows = {r["vendor"]: int(r["missing_runs"] or 0) for r in db.query("SELECT vendor, missing_runs FROM technologies WHERE domain=?", ("acme.com",))}
+    assert rows.get("hubspot") == 0
+    assert rows.get("gtm") == 0
+
+
 class HarvestAdapter(OkAdapter):
     key = "harvest"
 

@@ -119,6 +119,7 @@ class CollectorRunner:
             last_doc = None
             all_cands = []
             follow: list[FetchTask] = []
+            tech_harvests: list = []
             for task, result in results:
                 if result is None:
                     continue
@@ -145,10 +146,16 @@ class CollectorRunner:
                 follow.extend(adapter.follow_tasks(result.doc, account, meta) or [])
                 jobs = adapter.harvest_jobs(result.doc, account, meta) or []
                 self._persist_jobs(adapter, account, jobs, now, more_pages=bool(follow))
+                harvest = getattr(adapter, "harvest_tech", None)
+                if callable(harvest):
+                    tech_harvests.append(harvest(result.doc, account, meta) or [])
+            if tech_harvests:
                 from src.sources.techstack.collector import upsert_technologies
+                from src.sources.techstack.fingerprint import merge_matches
 
-                ms = getattr(adapter, "harvest_tech", lambda *a, **k: [])(result.doc, account, meta) or []
-                upsert_technologies(self.db, account.domain, ms, now=_iso(now))
+                upsert_technologies(
+                    self.db, account.domain, merge_matches(*tech_harvests), now=_iso(now)
+                )
             stats.candidates += len(all_cands)
             stats._src(adapter.key)["candidates"] += len(all_cands)
             new_n = self._persist(account, adapter.key, all_cands, last_doc)

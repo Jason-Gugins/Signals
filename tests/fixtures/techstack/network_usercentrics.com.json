@@ -1,0 +1,405 @@
+{
+  "page_url": "https://usercentrics.com/",
+  "requests": [
+    {
+      "url": "https://usercentrics.com/",
+      "host": "usercentrics.com",
+      "resource_type": "document"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/assets/roboto-500-6BIylKNo.woff2",
+      "host": "usercentrics.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/assets/roboto-700-Dme6qf3d.woff2",
+      "host": "usercentrics.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/assets/roboto-B9sa-tgs.woff2",
+      "host": "usercentrics.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/assets/roboto-condensed-700-D8tRNWC5.woff2",
+      "host": "usercentrics.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/assets/roboto-italic-Cq7rfnA4.woff2",
+      "host": "usercentrics.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/chunks/fluent-forms-utils-BVKNP3T_.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/chunks/fluent-forms-utils-ChtR6QBw.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/chunks/lz-string-Rcu2KBsk.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/css/home-page-sticky-cta.css",
+      "host": "usercentrics.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/js/track-events.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/js/track-utm.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/js/account-links.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/js/embed.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/js/main.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/js/animate-cards-bottom.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/js/webmcp.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/js/wp-plugin-link.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/js/home-page-sticky-cta.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/js/web-vitals-simple.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/audit-form/css/audit-form.css",
+      "host": "usercentrics.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/blocks/solutions-cards/css/solutions-cards.css",
+      "host": "usercentrics.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/blocks/rating-cards-slider/css/rating-cards-slider.css",
+      "host": "usercentrics.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/oembed/css/oembed.css",
+      "host": "usercentrics.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/footer/css/footer.css",
+      "host": "usercentrics.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/newsletter-form/css/newsletter-form.css",
+      "host": "usercentrics.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/dropdown-currencies/css/dropdown-currencies.css",
+      "host": "usercentrics.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2026/06/Arrows.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/img/icons/general/Search.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2025/08/Celebration.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2025/09/CreditCardOutlined.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2025/09/CursorClick.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/09/LaptopUsercentrics.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/09/WordpressOutlined.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/09/ShopifyOutlined.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/09/WixOutlined.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2026/06/Privacy_Policy_Generator_icon_white.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://privacy-proxy-server.usercentrics.eu/video/youtube/Qt-QzYbqsd8-poster-image",
+      "host": "privacy-proxy-server.usercentrics.eu",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/search-page-form/js/search-page-form.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/field/js/field.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/blocks/hero-product/js/hero-product.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/blocks/solutions-cards/js/solutions-cards.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/blocks/testimonial-slider/js/testimonial-slider.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/blocks/rating-cards-slider/js/rating-cards-slider.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/oembed/js/oembed.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/footer/js/footer.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/newsletter-form/js/newsletter-form.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/components/templates/dropdown-currencies/js/dropdown-currencies.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://sst.usercentrics.com/u2/1or33sco35phjakn",
+      "host": "sst.usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/assets/ChevronDown-DuwCx3ce.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/assets/noise-2wUCByEb.png",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/assets/VerifiedSafetyFilled-ClsB61Ak.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2025/01/PadlockOutlined.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2026/01/MCP_Manager.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/09/MobileOutlined.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/09/TVScreen.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2025/05/ServerOutlined.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/09/Toggle.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/09/Web-CMP_for-white-background.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/01/ubisoft.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2022/06/Sixt-logo.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/12/GetYourGuide_ls.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/03/logo-supercell.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/01/hellofresh.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/08/ArrowRightOutlined.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/08/Scout24-logo-white.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/08/Gilson-logo-white.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/08/sag-logo-white.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/11/fond-of-gmbh-vector-logo-1.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/11/Logo-white-1.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2025/09/hbu_logo.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/assets/quote-icon-D_XucJ9X.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/chunks/swipe-detector-BUCpkPhG.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/08/Scout24-min.jpg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/08/Gilson-min.jpg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2025/09/HBU-Holtzbrinck-Buchverlage-GmbH-min.jpg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/dist/chunks/swipe-detector-BG_95pvl.js",
+      "host": "usercentrics.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/uploads/2024/08/SAG-digital-min.jpg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/components/blocks/rating-cards-slider/img/g2-logo.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://usercentrics.com/wp-content/themes/usercentrics/components/blocks/rating-cards-slider/img/star-filled.svg",
+      "host": "usercentrics.com",
+      "resource_type": "image"
+    }
+  ]
+}

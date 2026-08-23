@@ -1,0 +1,154 @@
+{
+  "hits": {
+    "total": {
+      "value": 5007,
+      "relation": "eq"
+    },
+    "hits": [
+      {
+        "_index": "edgar_file",
+        "_id": "0002151517-26-000001:primary_doc.xml",
+        "_score": null,
+        "_source": {
+          "ciks": [
+            "0002151517"
+          ],
+          "period_ending": null,
+          "file_num": [
+            "021-595074"
+          ],
+          "display_names": [
+            "ImpactMatrix, LLC  (CIK 0002151517)"
+          ],
+          "xsl": "xslFormDX01",
+          "schema_version": "X0708",
+          "sequence": 1,
+          "root_forms": [
+            "D"
+          ],
+          "file_date": "2026-08-21",
+          "biz_states": [
+            "WI"
+          ],
+          "sics": [],
+          "form": "D",
+          "adsh": "0002151517-26-000001",
+          "film_num": [
+            "261305812"
+          ],
+          "biz_locations": [
+            "Lodi, WI"
+          ],
+          "file_type": "D",
+          "file_description": null,
+          "inc_states": [
+            "WI"
+          ],
+          "items": [
+            "06B"
+          ]
+        },
+        "sort": [
+          1787270400000,
+          "0002151517-26-000001:primary_doc.xml"
+        ]
+      },
+      {
+        "_index": "edgar_file",
+        "_id": "0002151485-26-000001:primary_doc.xml",
+        "_score": null,
+        "_source": {
+          "ciks": [
+            "0002151485"
+          ],
+          "period_ending": null,
+          "file_num": [
+            "021-595068"
+          ],
+          "display_names": [
+            "Cascade Alpine LLC  (CIK 0002151485)"
+          ],
+          "xsl": "xslFormDX01",
+          "schema_version": "X0708",
+          "sequence": 1,
+          "root_forms": [
+            "D"
+          ],
+          "file_date": "2026-08-21",
+          "biz_states": [
+            "OR"
+          ],
+          "sics": [],
+          "form": "D",
+          "adsh": "0002151485-26-000001",
+          "film_num": [
+            "261305506"
+          ],
+          "biz_locations": [
+            "Beaverton, Or, OR"
+          ],
+          "file_type": "D",
+          "file_description": null,
+          "inc_states": [
+            "OR"
+          ],
+          "items": [
+            "06B"
+          ]
+        },
+        "sort": [
+          1787270400000,
+          "0002151485-26-000001:primary_doc.xml"
+        ]
+      },
+      {
+        "_index": "edgar_file",
+        "_id": "0002151414-26-000001:primary_doc.xml",
+        "_score": null,
+        "_source": {
+          "ciks": [
+            "0002151414"
+          ],
+          "period_ending": null,
+          "file_num": [
+            "021-594968"
+          ],
+          "display_names": [
+            "Yeild, Inc.  (CIK 0002151414)"
+          ],
+          "xsl": "xslFormDX01",
+          "schema_version": "X0708",
+          "sequence": 1,
+          "root_forms": [
+            "D"
+          ],
+          "file_date": "2026-08-21",
+          "biz_states": [
+            "TX"
+          ],
+          "sics": [],
+          "form": "D",
+          "adsh": "0002151414-26-000001",
+          "film_num": [
+            "261301479"
+          ],
+          "biz_locations": [
+            "Katy, TX"
+          ],
+          "file_type": "D",
+          "file_description": null,
+          "inc_states": [
+            "DE"
+          ],
+          "items": [
+            "06B"
+          ]
+        },
+        "sort": [
+          1787270400000,
+          "0002151414-26-000001:primary_doc.xml"
+        ]
+      }
+    ]
+  }
+}

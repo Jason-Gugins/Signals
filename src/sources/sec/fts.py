@@ -1,4 +1,12 @@
-"""SEC EDGAR full-text search parser. Endpoint verified 2026-08-16 (200 JSON)."""
+"""SEC EDGAR full-text search parser.
+
+EFTS Form D (recon 2026-08-22, 200 JSON):
+  GET https://efts.sec.gov/LATEST/search-index
+  verified keys: forms, dateRange, startdt, enddt, q, from, size
+  size=10 returned a 100-hit page; hits.total is {value, relation}
+  forms=D filters to D and D/A
+  hit._source keys used: adsh, ciks, form|root_forms, file_date, display_names
+"""
 
 from __future__ import annotations
 

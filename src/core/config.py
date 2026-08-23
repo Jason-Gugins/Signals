@@ -49,6 +49,24 @@ class BrowserConfig:
 
 
 @dataclass
+class CloudflareConfig:
+    enabled: bool = True
+    # tier order: "browser_first" (solve via Chromium, then solver, then headed),
+    #             "solver_first" (external API, then browser), "browser_only", "disabled"
+    bypass_strategy: str = "browser_first"
+    solve_timeout_ms: int = 20000
+    # ceiling only — real cookie `expires` is the source of truth; use min(real, now+ttl)
+    cookie_ttl_hours: int = 24
+    headed_fallback: bool = False
+    headed_solve_timeout_ms: int = 120000  # hard cap for ad-hoc headed runs
+    solver_provider: Optional[str] = None  # "2captcha" | "anticaptcha" | None
+    solver_api_key: Optional[str] = None
+    min_retry_delay_s: float = 2.0
+    max_retry_delay_s: float = 8.0
+    max_solves_per_domain_per_24h: int = 1  # anti-escalation cap
+
+
+@dataclass
 class StorageConfig:
     db_path: str = "data/signals.db"
     raw_dir: str = "data/raw"
@@ -84,6 +102,7 @@ class PipelineConfig:
 class Config:
     http: HttpConfig = field(default_factory=HttpConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
+    cloudflare: CloudflareConfig = field(default_factory=CloudflareConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     external_dbs: ExternalDbConfig = field(default_factory=ExternalDbConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -178,3 +197,15 @@ def _apply_env_overrides(config: Config) -> None:
     db_path = os.environ.get("SIGNALS_DB_PATH")
     if db_path:
         config.storage.db_path = db_path
+    cf_api_key = os.environ.get("CLOUDFLARE_SOLVER_API_KEY")
+    if cf_api_key:
+        config.cloudflare.solver_api_key = cf_api_key
+    cf_provider = os.environ.get("CLOUDFLARE_SOLVER_PROVIDER")
+    if cf_provider:
+        config.cloudflare.solver_provider = cf_provider
+    cf_strategy = os.environ.get("CLOUDFLARE_BYPASS_STRATEGY")
+    if cf_strategy:
+        config.cloudflare.bypass_strategy = cf_strategy
+    cf_headed = os.environ.get("CLOUDFLARE_HEADED_FALLBACK")
+    if cf_headed is not None and cf_headed != "":
+        config.cloudflare.headed_fallback = cf_headed.strip().lower() in ("1", "true", "yes", "on")

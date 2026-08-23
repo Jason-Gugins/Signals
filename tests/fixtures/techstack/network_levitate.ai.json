@@ -1,0 +1,360 @@
+{
+  "page_url": "https://www.levitate.ai/",
+  "requests": [
+    {
+      "url": "https://www.levitate.ai/",
+      "host": "www.levitate.ai",
+      "resource_type": "document"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/css/levitate-happiness.shared.340eda877.css",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js",
+      "host": "ajax.googleapis.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/consent/43bdf250-b891-4b28-a2fe-807add4bef2b/OtAutoBlock.js",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/otSDKStub.js",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d%2F6544eda5f000985a163a8687%2F6865a890ee8eb79ff22dabd9%2Ffinsweetcomponentsconfig-1.0.0.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://d3e54v103j8qbb.cloudfront.net/js/jquery-3.5.1.min.dc5e7f18c8.js",
+      "host": "d3e54v103j8qbb.cloudfront.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/js/levitate-happiness.schunk.c44ef22bb39764ce.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/js/levitate-happiness.schunk.b8781a51651f09ef.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/js/levitate-happiness.c5faef63.4afa6b7a55aed108.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/gh/brotame/advanced-webflow-forms@1/dist/awf.js",
+      "host": "cdn.jsdelivr.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://hubspotonwebflow.com/assets/js/form-124.js",
+      "host": "hubspotonwebflow.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://fonts.googleapis.com/css",
+      "host": "fonts.googleapis.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/consent/43bdf250-b891-4b28-a2fe-807add4bef2b/43bdf250-b891-4b28-a2fe-807add4bef2b.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "xhr"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/6490eeb92f088d3de814bfba_nav-logo.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64a8150fb8691fe80e47e5eb_bg-home.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64a04f303a0a0152e8f65d1c_hero-underline.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64aac5334b3663ac5de25f3d_underline-blue-1.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64aac5d52c164cc22cd64262_underline-green-1.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64ac0d7b5fda4cd764ecc01e_content-counts.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/649fa3b983b90392dad53de9_love-hearts.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64aac533f813ccbee587372c_underline-yellow-3.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64a82aa9c20ef89b7bf8c75b_bg-cta.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/649c5947cff3e2c5e191c568_footer-logo.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/6491bf0e121acb6a8583e276_home-hero-reviews.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64bdc1267b08937b06afc7b7_home-hero-ai.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/649f4f671cd02c75eca64604_star.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/6491e544bbfd70b396af8b78_icon-email-home.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/6491e544a90c40c14879b360_icon-social-home.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/6491e544669f80aa7c935379_icon-texting-home.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/683e01b9d14d41f9c2924b23_hand-drawn-light-blue-3.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/6491e54489beb8a8470802f0_icon-cards-home.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/6491e544c39b69830687e94d_icon-reviews-home.svg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64a85543a85f6f795c557804_specialist-1.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64a855432b5a64cfdfda78d5_specialist-2.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64a85543f3cdf38ec7b75ba4_specialist-3.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/6759bb27604e2f0288a1122f_sofia3.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/lexend/v26/wlpwgwvFAVdoq2_v-6QU.woff2",
+      "host": "fonts.gstatic.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/sora/v17/xMQbuFFYT72XzQUpDg.woff2",
+      "host": "fonts.gstatic.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/sriracha/v16/0nkrC9D4IuYBgWcI9NbfTwE.woff2",
+      "host": "fonts.gstatic.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/@finsweet/fs-components@2/fs-components.js",
+      "host": "cdn.jsdelivr.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202603.1.0/otBannerSdk.js",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://marketing.levitate.ai/scripts/marketing.js",
+      "host": "marketing.levitate.ai",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/645165b193e7c8c1fe211dbe_icons8-close-384.png",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+      "host": "fonts.gstatic.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/@finsweet/fs-components@2/dist/chunk-J7NTLVPZ.js",
+      "host": "cdn.jsdelivr.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/@finsweet/fs-components@2/dist/chunk-M65MOCFB.js",
+      "host": "cdn.jsdelivr.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/@finsweet/fs-components@2/dist/chunk-JYJWMUBN.js",
+      "host": "cdn.jsdelivr.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/@finsweet/fs-components@2/dist/chunk-5WLRVGM2.js",
+      "host": "cdn.jsdelivr.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64ab674b317b2e14c93269c6_home-hero-bg.lottie",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64ad5f2c51d2eb2a1aaef7b4_animated%20screenshot-loop.lottie",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64a81b2ebdf3454cb7c50c64_divider.lottie",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64a8782aad7192f961c5e6b6_reply%20rate.lottie",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64a82aa97c83bd324d1e35cc_cta-divider.lottie",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/645165b093e7c8d734211d5d/64ad5f2c51d2eb2a1aaef7b4_animated%20screenshot-loop.lottie",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/consent/43bdf250-b891-4b28-a2fe-807add4bef2b/019d50ce-1e17-713d-9106-276e442d4a1b/en.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/consent/43bdf250-b891-4b28-a2fe-807add4bef2b/43bdf250-b891-4b28-a2fe-807add4bef2b.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "xhr"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/consent/43bdf250-b891-4b28-a2fe-807add4bef2b/019d50ce-1e17-713d-9106-276e442d4a1b/en.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202603.1.0/assets/otFlat.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202603.1.0/assets/v2/otPcCenter.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202603.1.0/assets/otCommonStyles.css",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/@finsweet/fs-components@2/dist/src-ZQIBCNUQ.js",
+      "host": "cdn.jsdelivr.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://hubspotonwebflow.com/assets/js/blockedDomains.json",
+      "host": "hubspotonwebflow.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202603.1.0/assets/otFlat.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202603.1.0/assets/v2/otPcCenter.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202603.1.0/assets/otCommonStyles.css",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/logos/static/ot_close.svg",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/logos/static/ot_guard_logo.svg",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/logos/7ef9c774-89ae-4fc7-b5e8-314c385d86ea/43bdf250-b891-4b28-a2fe-807add4bef2b/7222a220-5503-4e90-b497-5b9df09070d9/nav-logo.png",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/logos/static/powered_by_logo.svg",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/logos/static/ot_guard_logo.svg",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    }
+  ]
+}

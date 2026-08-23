@@ -1,0 +1,405 @@
+{
+  "page_url": "https://www.darktrace.com/",
+  "requests": [
+    {
+      "url": "https://www.darktrace.com/",
+      "host": "www.darktrace.com",
+      "resource_type": "document"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/css/web-phoenix.shared.5b9e74e6d.min.css",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "stylesheet"
+    },
+    {
+      "url": "https://cdn.intellimize.co/snippet/117275374.js",
+      "host": "cdn.intellimize.co",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://ob.seaskypro.com/i/044763869593bff2ef88ab9c7aef4088.js",
+      "host": "ob.seaskypro.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/69ca530c7623fa3ce5726c81_a6847f51c45682f961e1d247cc86d78c_AHD-Hero.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/6a4ccf639cea945ab7789cc4_1920%20x%201083%402x-p-1600.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/69832f92210983aea9249ddd_Landing%20page_Full-p-1600.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/6981e2cbdf6ee42bc7948dae_db2c91cca3e593d2da132b75b1c46f35_state-of-ai-tile-p-1600.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/697b899fd5ec48404bcd2e52_f15b1f4ef7dd51e977acce2e15405598_SECURE%20AI%20Product%20Hero%20Working%20File%202-p-1600.jpg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/6a3116aff4480caf41ceb848_cocacola.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/6750396ff7fe4caa1ccaaadf_playmobil.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/6a3116279c776c60737c85bd_mcalren.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/65e7107eeeacaf75641554c6_dpd%20%3A%20white.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/65e60dff4bd89334069c8094_Louvre%20%3A%20white.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/65e7322df5d306f63da56eaf_jagermeister%202%20%3Awhite.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/65e5d1c1f1b5ac055ffa75eb_Steve%20Madden%20%3A%20White.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/6a311673da379499cc01fd59_asoton%20martin.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/65e08d9b0400e7004e708805_Las%20Vegas%20.%20Black.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/gsap@3.15/dist/gsap.min.js",
+      "host": "cdn.jsdelivr.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/@finsweet/attributes-cmscombine@1/cmscombine.js",
+      "host": "cdn.jsdelivr.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://www.darktrace.com/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js",
+      "host": "www.darktrace.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://d3e54v103j8qbb.cloudfront.net/js/jquery-3.5.1.min.dc5e7f18c8.js",
+      "host": "d3e54v103j8qbb.cloudfront.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/js/web-phoenix.schunk.36b8fb49256177c8.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/js/web-phoenix.schunk.a9c3a68cb432f93b.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/js/web-phoenix.6f87adb8.2181d7244b987ca2.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/gsap/3.15.0/gsap.min.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/gsap/3.15.0/ScrollTrigger.min.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/gsap/3.15.0/Observer.min.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/gsap/3.15.0/SplitText.min.js",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://player.vimeo.com/api/player.js",
+      "host": "player.vimeo.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://hubspotonwebflow.com/assets/js/form-124.js",
+      "host": "hubspotonwebflow.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://www.googletagmanager.com/gtm.js",
+      "host": "www.googletagmanager.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/66a8cd6a7c866a2d20fb35c8_FKGrotesk-Regular.woff",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://www.darktrace.com/inside-the-soc",
+      "host": "www.darktrace.com",
+      "resource_type": "other"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d%2F694a68f519114f74f0233c3a_251219_securing_ai_launch_-_hero_v2%20%281440p%29_poster.0000000.jpg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/696f44efe1e424f7b0a6ca20_4bd9e504fe2bcca4dfad60ad181cb1f0_FKGrotesk-Black.otf",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/66a8cd6ac869d8b94b68fd54_FKGrotesk-Medium.woff",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d%2F694a68f519114f74f0233c3a_251219_securing_ai_launch_-_hero_v2%20%281440p%29_mp4.mp4",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "media"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/66a8cd0875298754e105a51d_FKGrotesk-Bold.otf",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "font"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/6a68accff8b94793542be0eb_6ce3ed354bf322f237789594a3fce765_Marketecture-p-1600.jpeg",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/6a478769612e761530d16273_Securing%20AI%20Enterprise%20-%201200x1500%206.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/6a157ee0bca66eb5d4415ee1_fd33903f3222b38b3ac0ca5f190f2b58_Securing%20AI%20Enterprise%20-%201200x1500%2020.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/6a478ef3333d0bec49728196_Securing%20AI%20Enterprise%20-%201200x1500%205.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/6a478f0e0b5fe6868c934414_Securing%20AI%20Enterprise%20-%201200x1500%207.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/6a340db8e72a2fa08149efae_cola-sml.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/6926cdbdeacff633fab66dae_aer.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/68f90c78f6493bab706e1349_GettyImages-1938542779.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/6a33fa53cd8fbf4f3e8b07b5_6a33f9fac545d674baa450d6_68dbf87d5828899823e48ca8_BillBoard%201.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/6a3410022d1f938ab867adb0_harman-sml.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff4d25aca2edf4325ff97/67b79b4806fa349a89babe17_GettyImages-1180593765.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d/6a5e24adceadd3e0f2088316_image(8)compressed.avif",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://obs.seaskypro.com/ct",
+      "host": "obs.seaskypro.com",
+      "resource_type": "xhr"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/consent/20244352-54bc-40a3-80e3-0daa9d221c87/OtAutoBlock.js",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/otSDKStub.js",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://uk01.z.antigena.com/l/yPcn8XEQ8zz1BzKTkE7W26y1EEIAxxCzXWam6VkleR2~_CwiGuN2k_iifKhkJf2jeLy6iIhmJjd~ecLH2Ue~LAZzP82vbDC3k4E464P9AdiTxBA2OglHzvu8xvQ3DVt78ykoxBltPlKQ3lh_YTlmAXKffSfO9bXbZ5QIvjfLEo8UPMD_hS8uDO1MlBrc~bbNRO7RoI6",
+      "host": "uk01.z.antigena.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://bat.bing.com/bat.js",
+      "host": "bat.bing.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://www.googletagmanager.com/gtag/js",
+      "host": "www.googletagmanager.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://www.googleadservices.com/pagead/conversion/401176436/",
+      "host": "www.googleadservices.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://obs.seaskypro.com/tracker/tc_imp.gif",
+      "host": "obs.seaskypro.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/626ff19cdd07d1258d49238d%2F694a68f519114f74f0233c3a_251219_securing_ai_launch_-_hero_v2%20%281440p%29_webm.webm",
+      "host": "cdn.prod.website-files.com",
+      "resource_type": "media"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/consent/20244352-54bc-40a3-80e3-0daa9d221c87/20244352-54bc-40a3-80e3-0daa9d221c87.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "xhr"
+    },
+    {
+      "url": "https://googleads.g.doubleclick.net/pagead/viewthroughconversion/401176436/",
+      "host": "googleads.g.doubleclick.net",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/@finsweet/attributes-cmscore@1/cmscore.js",
+      "host": "cdn.jsdelivr.net",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://geolocation.onetrust.com/cookieconsentpub/v1/geo/location",
+      "host": "geolocation.onetrust.com",
+      "resource_type": "xhr"
+    },
+    {
+      "url": "https://bat.bing.com/p/action/211076455.js",
+      "host": "bat.bing.com",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://www.google.com/pagead/1p-conversion/401176436/",
+      "host": "www.google.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://bat.bing.com/action/0",
+      "host": "bat.bing.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://bat.bing.com/action/0",
+      "host": "bat.bing.com",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202607.1.0/otBannerSdk.js",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "script"
+    },
+    {
+      "url": "https://www.google.ca/pagead/1p-conversion/401176436/",
+      "host": "www.google.ca",
+      "resource_type": "image"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/consent/20244352-54bc-40a3-80e3-0daa9d221c87/019f89a3-fb21-75bc-a6f7-da0a564f73f7/en.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://pagead2.googlesyndication.com/pagead/conversion/401176436/",
+      "host": "pagead2.googlesyndication.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202607.1.0/assets/otFlat.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202607.1.0/assets/v2/otPcCenter.json",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://cdn.cookielaw.org/scripttemplates/202607.1.0/assets/otCommonStyles.css",
+      "host": "cdn.cookielaw.org",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://pagead2.googlesyndication.com/ccm/collect",
+      "host": "pagead2.googlesyndication.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://pagead2.googlesyndication.com/ccm/collect",
+      "host": "pagead2.googlesyndication.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://obs.seaskypro.com/mon",
+      "host": "obs.seaskypro.com",
+      "resource_type": "xhr"
+    },
+    {
+      "url": "https://hubspotonwebflow.com/assets/js/blockedDomains.json",
+      "host": "hubspotonwebflow.com",
+      "resource_type": "fetch"
+    },
+    {
+      "url": "https://obs.seaskypro.com/mon",
+      "host": "obs.seaskypro.com",
+      "resource_type": "xhr"
+    }
+  ]
+}

@@ -47,5 +47,6 @@ def test_headers_bom_roundtrip_empty_and_filters(tmp_path):
     assert header == SIGNAL_COLUMNS
     assert recs[0]["evidence"] == "hello, world"
     paths = export_all(db, str(tmp_path / "all"))
-    assert len(paths) == 3
+    assert len(paths) == 4
+    assert paths[-1].endswith("funding.csv")
     assert Path(paths[2]).read_text(encoding="utf-8-sig").splitlines()[0].split(",")[0] == PLAY_COLUMNS[0]

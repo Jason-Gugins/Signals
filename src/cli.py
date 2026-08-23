@@ -174,7 +174,7 @@ def brief(ctx, domains, tier_max, open_files):
 @click.option("--what", default="all")
 @click.pass_context
 def export_cmd(ctx, fmt, what):
-    paths = ctx.obj["get_orch"]().export(cohort=ctx.obj["cohort"], fmt=fmt)
+    paths = ctx.obj["get_orch"]().export(cohort=ctx.obj["cohort"], fmt=fmt, what=what)
     for p in paths:
         click.echo(p)
 

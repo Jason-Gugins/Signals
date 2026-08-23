@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -133,10 +133,72 @@ class Orchestrator:
             accounts = self._accounts(cohort=cohort, domains=domains, limit=limit)
             adapters = self._pick_adapters(sources)
             fetcher = self.fetcher or self._http_fetcher(ctx)
+            stats = RunnerStats()
+            formd = [a for a in adapters if a.key == "sec_formd"]
+            if formd:
+                now = datetime.now(timezone.utc).replace(microsecond=0)
+                due_row = self.db.one(
+                    "SELECT * FROM source_cursors WHERE source=? AND key=?",
+                    ("sec_formd", "global"),
+                )
+                skip = (
+                    not force
+                    and due_row
+                    and due_row.get("next_due_at")
+                    and due_row["next_due_at"] > now.isoformat()
+                )
+                if skip:
+                    stats.skipped += 1
+                else:
+                    from src.pipeline.funding import FundingTracker
+                    from src.sources.sec.formd_filter import FormDFilter
+
+                    table = self.config.load_yaml("sources")
+                    entry = (table.get("sources") or {}).get("sec_formd") or {}
+                    filt = FormDFilter(
+                        include_funds=not entry.get("exclude_pooled_funds", True),
+                        include_amendments=bool(entry.get("include_amendments", False)),
+                    )
+                    days = int(entry.get("recent_days") or 30)
+                    tracker = FundingTracker(
+                        self.config, self.db, self.registry, self.raw, fetcher, self.signal_store, self.taxonomy
+                    )
+                    tstats = tracker.run(
+                        "recent",
+                        today=date.today(),
+                        days=days,
+                        filt=filt,
+                        persist=not dry_run,
+                        dry_run=dry_run,
+                        force=force,
+                    )
+                    stats.fetched += tstats.fetched
+                    stats.signals_new += tstats.signals_new
+                    hours = int(getattr(formd[0], "cadence_hours", None) or entry.get("cadence_hours") or 24)
+                    self.db.upsert(
+                        "source_cursors",
+                        {
+                            "source": "sec_formd",
+                            "key": "global",
+                            "cursor": None,
+                            "last_run_at": now.isoformat(),
+                            "next_due_at": (now + timedelta(hours=hours)).isoformat(),
+                            "fail_count": 0,
+                            "last_error": None,
+                        },
+                        pk=("source", "key"),
+                    )
+                adapters = [a for a in adapters if a.key != "sec_formd"]
             runner = CollectorRunner(
                 self.config, self.db, self.registry, self.raw, fetcher, self.signal_store, self.taxonomy, ctx
             )
-            stats = runner.run(adapters, accounts, force=force, dry_run=dry_run)
+            rest = runner.run(adapters, accounts, force=force, dry_run=dry_run)
+            stats.fetched += rest.fetched
+            stats.signals_new += rest.signals_new
+            stats.failed += rest.failed
+            stats.skipped += rest.skipped
+            stats.cached += rest.cached
+            stats.candidates += rest.candidates
             ctx.bump(accounts=len(accounts), signals_new=stats.signals_new)
             return stats
 
@@ -175,6 +237,14 @@ class Orchestrator:
                             meta["kind"] = "form_d"
                         elif "8-k" in url or url.endswith(".htm") or url.endswith(".html"):
                             meta["kind"] = "8k"
+                        else:
+                            meta["kind"] = "submissions"
+                    if adapter.key == "sec_formd":
+                        url = (doc.url or "").lower()
+                        if url.endswith(".xml") or "primary_doc.xml" in url:
+                            meta["kind"] = "form_d"
+                        elif "search-index" in url:
+                            meta["kind"] = "fts"
                         else:
                             meta["kind"] = "submissions"
                     if adapter.key == "federal_register":

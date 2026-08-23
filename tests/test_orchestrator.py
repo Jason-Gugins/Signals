@@ -211,3 +211,91 @@ def test_run_all_continues_unless_strict(tmp_path):
     except RuntimeError:
         raised = True
     assert raised
+
+
+def test_collect_sec_formd_empty_registry_runs_tracker(tmp_path, monkeypatch):
+    from datetime import date as real_date
+
+    from src.pipeline.funding import plan_funding
+    from src.sources.sec.formd_source import SecFormDSource
+    from src.sources.sec.fts import hit_to_filing, parse_fts_response
+
+    today = real_date(2026, 8, 22)
+
+    class FrozenDate(real_date):
+        @classmethod
+        def today(cls):
+            return today
+
+    monkeypatch.setattr("src.pipeline.orchestrator.date", FrozenDate)
+    fts = Path("tests/fixtures/sec/fts_formd_recent.json").read_bytes()
+    xml = Path("tests/fixtures/sec/form_d_primary_doc.xml").read_bytes()
+    efts_url = plan_funding("recent", today=today, days=30, size=100, limit=100)[0].url
+    payloads = {efts_url: fts}
+    for hit in parse_fts_response(fts):
+        filing = hit_to_filing(hit)
+        if filing:
+            payloads[filing.archive_url] = xml
+
+    class MapFetch:
+        def __init__(self):
+            self.n = 0
+
+        def get(self, task, **kw):
+            from src.core.http import FetchResult
+
+            self.n += 1
+            body = payloads.get(task.url)
+            if body is None:
+                return FetchResult(False, 404, None, False, "miss", 1)
+            doc = Document(doc_id=task.url[-12:], source=task.source, url=task.url, body=body, status=200)
+            return FetchResult(True, 200, doc, False, None, 1)
+
+    cfg = Config()
+    cfg.contact_email = "recon@example.com"
+    cfg.http.respect_robots = False
+    cfg.storage.db_path = str(tmp_path / "s.db")
+    cfg.storage.raw_dir = str(tmp_path / "raw")
+    cfg.storage.briefs_dir = str(tmp_path / "briefs")
+    cfg.storage.export_dir = str(tmp_path / "ex")
+    cfg.config_dir = "config"
+    fetch = MapFetch()
+    orch = Orchestrator(cfg, fetcher=fetch, adapters=[SecFormDSource()])
+    assert orch.registry.list_accounts() == []
+    stats = orch.collect(sources=["sec_formd"], force=True)
+    assert stats.signals_new >= 1
+    first_n = fetch.n
+    stats2 = orch.collect(sources=["sec_formd"], force=False)
+    assert stats2.signals_new == 0
+    assert fetch.n == first_n
+    stats3 = orch.collect(sources=["sec_formd"], force=True)
+    assert stats3.signals_new >= 0
+    assert fetch.n > first_n
+
+
+def test_reparse_sec_formd_xml_does_not_need_empty_meta(tmp_path):
+    from src.sources.sec.formd_source import SecFormDSource
+
+    cfg = Config()
+    cfg.contact_email = "recon@example.com"
+    cfg.http.respect_robots = False
+    cfg.storage.db_path = str(tmp_path / "s.db")
+    cfg.storage.raw_dir = str(tmp_path / "raw")
+    cfg.storage.briefs_dir = str(tmp_path / "briefs")
+    cfg.storage.export_dir = str(tmp_path / "ex")
+    cfg.config_dir = "config"
+    orch = Orchestrator(cfg, fetcher=FakeFetch(), adapters=[SecFormDSource()])
+    orch.registry.upsert(Account(domain="acme.com", name="Acme Robotics Inc.", cik="0001234567"))
+    body = Path("tests/fixtures/sec/form_d_primary_doc.xml").read_bytes()
+    RawStore(orch.db, orch.config.storage.raw_dir).put(
+        source="sec_formd",
+        url="https://www.sec.gov/Archives/edgar/data/1234567/x/primary_doc.xml",
+        body=body,
+        content_type="application/xml",
+        status=200,
+        domain="acme.com",
+    )
+    stats = orch.reparse(sources=["sec_formd"])
+    assert stats.failed == 0
+    assert stats.candidates >= 1
+    assert orch.db.one("SELECT COUNT(*) AS n FROM signals WHERE signal_type='funding_form_d'")["n"] >= 1

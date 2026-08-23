@@ -47,6 +47,18 @@ def test_named_majority_from_scanner_fixture():
     assert {"webflow", "hubspot", "gtm", "google_analytics", "meta_pixel", "cookieyes", "vector"} <= named
 
 
+def test_promote_drops_duplicate_host_row():
+    from src.sources.techstack.fingerprint import load_fingerprint_rules, promote_or_observe
+
+    ev = extract_network_evidence(NET_FIX.read_bytes())
+    ms = promote_or_observe(ev, load_fingerprint_rules(), domain="scanner.dev")
+    vendors = [m.vendor for m in ms]
+    assert "hubspot" in vendors
+    assert "host:js.hsforms.net" not in vendors
+    assert "host:cdn-cookieyes.com" not in vendors
+    assert any(v.startswith("host:") for v in vendors)
+
+
 def test_match_network_hosts_webflow_from_fixture():
     ev = extract_network_evidence(NET_FIX.read_bytes())
     hits = match_fingerprints(ev, RULES)

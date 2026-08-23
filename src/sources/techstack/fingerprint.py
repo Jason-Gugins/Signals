@@ -233,6 +233,20 @@ def merge_matches(*groups: list[TechMatch]) -> list[TechMatch]:
     return [best[k] for k in sorted(best)]
 
 
+def promote_or_observe(ev, rules: dict, *, domain: str) -> list[TechMatch]:
+    named = match_fingerprints(ev, rules)
+    named_keys = {m.vendor for m in named}
+    needles: list[str] = []
+    for key, spec in _rules_vendors(rules).items():
+        if key not in named_keys:
+            continue
+        match = (spec or {}).get("match") or {}
+        needles.extend(match.get("network_host") or [])
+    claimed = {h for h in observed_hosts(ev, domain=domain) if any(_host_hit(h, n) for n in needles)}
+    dyn = [m for m in dynamic_matches(ev, domain=domain) if m.display not in claimed]
+    return merge_matches(named, dyn)
+
+
 def load_fingerprint_rules() -> dict:
     import yaml
     from pathlib import Path

@@ -291,6 +291,7 @@ class CollectorRunner:
         # because HttpEvidence has no hosts attribute).
         if (
             self.cloudflare_bypass
+            and task.source == "techstack"
             and not (task.meta or {}).get("capture")
             and result.doc is not None
         ):

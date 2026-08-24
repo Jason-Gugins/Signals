@@ -232,3 +232,70 @@ def test_third_party_research_about_company_kept():
     c = classify_news(item, acme, today=TODAY)
     assert c is not None
     assert c.signal_type == "layoff"
+
+
+# --- Regression cases from live multi-account test (2026-08-23) ---
+
+def test_regression_gartner_layoff_false_positive():
+    """Live test: 'AI Isn't Reducing Workforce Costs - Gartner' was classified
+    as layoff. Gartner is the publisher/researcher, not the subject."""
+    gartner = Account(domain="gartner.com", name="Gartner")
+    item = NewsItem(
+        title="AI Isn't Reducing Workforce Costs - Gartner",
+        link="https://news.google.com/a1", published="2026-08-20",
+        summary="", source_name="Gartner",
+    )
+    assert classify_news(item, gartner, today=TODAY) is None
+
+
+def test_regression_levitate_artwork_ma_false_positive():
+    """Live test: 'Foundation Acquires Jamele Wright Sr.'s Levitate #9' was
+    classified as ma_target. 'Levitate' is an artwork title, not the company."""
+    levitate = Account(domain="levitate.ai", name="Levitate")
+    item = NewsItem(
+        title="Petrucci Family Foundation Acquires Jamele Wright Sr.'s Levitate #9 - Black Art In America",
+        link="https://news.google.com/a2", published="2026-08-18",
+        summary="", source_name="Black Art In America",
+    )
+    assert classify_news(item, levitate, today=TODAY) is None
+
+
+def test_regression_levitate_festival_false_positive():
+    """Live test: 'Levitate Music Festival highlights emerging musicians' should
+    not produce any signal for levitate.ai.
+    NOTE: this title alone matches no NEWS_RULES pattern, so it already returns
+    None today — it is a DEFENSIVE regression test guarding against future rule
+    additions (e.g. a broad 'launch' rule) that would otherwise catch it."""
+    levitate = Account(domain="levitate.ai", name="Levitate")
+    item = NewsItem(
+        title="Levitate Music Festival highlights emerging musicians - The Business Journals",
+        link="https://news.google.com/a3", published="2026-08-19",
+        summary="", source_name="The Business Journals",
+    )
+    assert classify_news(item, levitate, today=TODAY) is None
+
+
+def test_regression_levitate_funding_kept():
+    """Live test: 'Levitate Raises $16M' must still produce a funding_round signal."""
+    levitate = Account(domain="levitate.ai", name="Levitate")
+    item = NewsItem(
+        title="Levitate Raises $16M To Bring AI To Relationship-Based Businesses - PR Newswire",
+        link="https://news.google.com/a4", published="2026-08-15",
+        summary="", source_name="PR Newswire",
+    )
+    c = classify_news(item, levitate, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "funding_round"
+
+
+def test_regression_gartner_acquisition_kept():
+    """If Gartner genuinely acquires a company, that signal must still fire."""
+    gartner = Account(domain="gartner.com", name="Gartner")
+    item = NewsItem(
+        title="Gartner acquires research firm - TechCrunch",
+        link="https://news.google.com/a5", published="2026-08-20",
+        summary="", source_name="TechCrunch",
+    )
+    c = classify_news(item, gartner, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "ma_acquirer"

@@ -5,6 +5,7 @@ from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.content.blog import blog_to_candidates
 from src.sources.news.classify import classify_news
 from src.sources.news.feeds import bing_news_url, google_news_search_url, google_news_topic_url, google_news_url, parse_feed
+from src.sources.news.serp_config import load_google_news_cfg
 from src.sources.registry import register
 
 
@@ -62,6 +63,9 @@ class GoogleNewsSource(SourceAdapter):
     # Default topic sections to fetch alongside the keyword search.
     DEFAULT_TOPICS = ("TECHNOLOGY", "BUSINESS")
 
+    def __init__(self):
+        self._serp_keywords = (load_google_news_cfg() or {}).get("serp_keywords") or []
+
     def plan(self, account, cursor):
         name = account.name or account.domain
         tasks = [
@@ -72,6 +76,17 @@ class GoogleNewsSource(SourceAdapter):
                 meta={"kind": "search", "query": name},
             ),
         ]
+        # SERP manipulation: keyword-augmented searches (higher recall).
+        # e.g. '"Acme Corp" fundraising', '"Acme Corp" acquisition'
+        for kw in self._serp_keywords:
+            tasks.append(
+                FetchTask(
+                    source=self.key,
+                    url=google_news_search_url(f'"{name}" {kw}'),
+                    domain=account.domain,
+                    meta={"kind": "serp", "query": name, "keyword": kw},
+                )
+            )
         for topic in self.DEFAULT_TOPICS:
             tasks.append(
                 FetchTask(

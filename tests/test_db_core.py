@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 import src.core.db as dbmod
 from src.core.db import Database, NEW_COLUMNS, CfCookieStore
+
+# A date far enough in the future that expiry checks never fail.
+_FUTURE = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+_FUTURE_PLUS1 = (datetime.now(timezone.utc) + timedelta(days=31)).isoformat()
 
 
 EXPECTED_TABLES = {
@@ -116,7 +121,7 @@ def test_cf_cookie_roundtrip(tmp_path):
     store.put("acme.com", user_agent="Mozilla/1", proxy="direct",
               cookies=[{"name": "cf_clearance", "value": "tok123", "domain": "acme.com"},
                        {"name": "__cf_bm", "value": "bm1", "domain": ".acme.com"}],
-              expires_at="2026-08-24T00:00:00+00:00")
+              expires_at=_FUTURE)
     row = store.get("acme.com", user_agent="Mozilla/1", proxy="direct")
     assert row is not None
     assert row["user_agent"] == "Mozilla/1"
@@ -130,7 +135,7 @@ def test_cf_cookie_ua_mismatch_rejected(tmp_path):
     store = CfCookieStore(db)
     store.put("acme.com", user_agent="Mozilla/1", proxy="direct",
               cookies=[{"name": "cf_clearance", "value": "x"}],
-              expires_at="2026-08-24T00:00:00+00:00")
+              expires_at=_FUTURE)
     assert store.get("acme.com", user_agent="Mozilla/2", proxy="direct") is None  # UA-bound
 
 
@@ -139,7 +144,7 @@ def test_cf_cookie_proxy_mismatch_rejected(tmp_path):
     store = CfCookieStore(db)
     store.put("acme.com", user_agent="UA", proxy="http://proxy:8080",
               cookies=[{"name": "cf_clearance", "value": "x"}],
-              expires_at="2026-08-24T00:00:00+00:00")
+              expires_at=_FUTURE)
     assert store.get("acme.com", user_agent="UA", proxy="direct") is None  # proxy-bound
 
 
@@ -157,11 +162,11 @@ def test_cf_cookie_fresh_solve_overwrites_stale(tmp_path):
     store = CfCookieStore(db)
     store.put("acme.com", user_agent="UA", proxy="direct",
               cookies=[{"name": "cf_clearance", "value": "old"}],
-              expires_at="2026-08-24T00:00:00+00:00")
+              expires_at=_FUTURE)
     # fresh solve must overwrite, not be silently dropped by COALESCE
     store.put("acme.com", user_agent="UA", proxy="direct",
               cookies=[{"name": "cf_clearance", "value": "new"}],
-              expires_at="2026-08-25T00:00:00+00:00")
+              expires_at=_FUTURE_PLUS1)
     row = store.get("acme.com", user_agent="UA", proxy="direct")
     cookies = json.loads(row["cookies"])
     assert cookies[0]["value"] == "new"
@@ -172,6 +177,6 @@ def test_cf_cookie_clear(tmp_path):
     store = CfCookieStore(db)
     store.put("acme.com", user_agent="UA", proxy="direct",
               cookies=[{"name": "cf_clearance", "value": "x"}],
-              expires_at="2026-08-24T00:00:00+00:00")
+              expires_at=_FUTURE)
     store.clear("acme.com")
     assert store.get("acme.com", user_agent="UA", proxy="direct") is None

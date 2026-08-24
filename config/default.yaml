@@ -4,6 +4,9 @@ http:
   max_retries: 3
   backoff_base: 1.5          # seconds; delay = backoff_base ** attempt + jitter
   respect_robots: true
+  # Scoped robots exceptions. news.google.com disallows / but RSS is the public feed.
+  robots_allow:
+    - { host: news.google.com, path_prefix: /rss/ }
   max_workers: 6             # global thread pool for HTTP fan-out
   default_rate_per_host: 1.0 # requests/sec
   verify_tls: true

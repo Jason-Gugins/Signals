@@ -180,3 +180,43 @@ def test_get_json_non_json_returns_none(tmp_path, monkeypatch):
     assert result.ok is True
     assert payload is None
     ctx.__exit__(None, None, None)
+
+
+# Observed 2026-08-24: news.google.com/robots.txt is Disallow: / for User-agent: *
+# with Allow only for /, /home, /topics/, etc. — not /rss/.
+_GNEWS_ROBOTS = """User-agent: *
+Disallow: /
+Allow: /$
+Allow: /?
+Allow: /home$
+Allow: /topics/
+"""
+
+
+@respx.mock
+def test_google_news_rss_allowed_despite_robots_disallow_all(tmp_path, monkeypatch):
+    rss = "https://news.google.com/rss/search?q=Acme"
+    blocked = "https://news.google.com/swg/extra"
+    respx.get("https://news.google.com/robots.txt").mock(
+        return_value=httpx.Response(200, text=_GNEWS_ROBOTS)
+    )
+    respx.get(rss).mock(return_value=httpx.Response(200, content=b"<rss/>"))
+    respx.get(blocked).mock(return_value=httpx.Response(200, content=b"nope"))
+    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    ok = fetcher.get(Task(source="google_news", url=rss, domain="acme.com"))
+    assert ok.ok is True
+    assert ok.status == 200
+    denied = fetcher.get(Task(source="google_news", url=blocked, domain="acme.com"))
+    assert denied.ok is False
+    assert denied.error and "robots" in denied.error.lower()
+    ctx.__exit__(None, None, None)
+
+
+def test_robots_path_allowed_only_prefixed_host():
+    from src.core.http import robots_path_allowed
+
+    allow = [{"host": "news.google.com", "path_prefix": "/rss/"}]
+    assert robots_path_allowed("https://news.google.com/rss/search?q=x", allow)
+    assert robots_path_allowed("https://news.google.com/rss/headlines/section/topic/TECHNOLOGY", allow)
+    assert not robots_path_allowed("https://news.google.com/home", allow)
+    assert not robots_path_allowed("https://www.bing.com/news/search?q=x", allow)

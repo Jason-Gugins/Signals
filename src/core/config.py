@@ -26,6 +26,10 @@ class HttpConfig:
     max_retries: int = 3
     backoff_base: float = 1.5
     respect_robots: bool = True
+    # host + path_prefix pairs that skip robots.txt (scoped; not a global off switch)
+    robots_allow: list = field(
+        default_factory=lambda: [{"host": "news.google.com", "path_prefix": "/rss/"}]
+    )
     max_workers: int = 6
     default_rate_per_host: float = 1.0
     verify_tls: bool = True

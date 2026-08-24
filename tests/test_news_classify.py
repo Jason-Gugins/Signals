@@ -1,6 +1,6 @@
 from datetime import date
 from src.core.models import Account
-from src.sources.news.classify import NEWS_RULES, classify_news, extract_vars, _strip_source_attribution
+from src.sources.news.classify import NEWS_RULES, classify_news, extract_vars, _strip_source_attribution, _is_common_word, _has_proper_mention
 from src.sources.news.feeds import NewsItem
 
 TODAY = date(2026, 8, 16)
@@ -142,3 +142,53 @@ def test_source_name_matches_account_still_drops_if_only_in_byline():
         link="https://ex.com/a", published="2026-08-01", summary="", source_name="Levitate",
     )
     assert classify_news(item, levitate, today=TODAY) is None
+
+
+def test_common_word_detection():
+    assert _is_common_word("Levitate")
+    assert _is_common_word("levitate")
+    assert not _is_common_word("Gartner")
+    assert not _is_common_word("Acme")
+    assert not _is_common_word("Darktrace")
+
+
+def test_proper_mention_capitalized():
+    # "Levitate" capitalized in headline = company mention
+    assert _has_proper_mention("Levitate raises $10M", "Levitate")
+    # "levitate" lowercase in headline = verb, not company
+    assert not _has_proper_mention("Watch Alex Warren levitate on stage", "Levitate")
+    # "levitate.ai" in text = always a company mention regardless of case
+    assert _has_proper_mention("New feature from levitate.ai", "Levitate")
+
+
+def test_common_word_levitate_festival_dropped():
+    """Levitate Music Festival items should not produce signals for levitate.ai."""
+    levitate = Account(domain="levitate.ai", name="Levitate")
+    item = NewsItem(
+        title="Levitate Music Festival highlights emerging musicians",
+        link="https://ex.com/a", published="2026-08-01", summary="", source_name="Business Journals",
+    )
+    # "Levitate" is capitalized but followed by "Music Festival" — not the company
+    assert classify_news(item, levitate, today=TODAY) is None
+
+
+def test_common_word_levitate_artwork_dropped():
+    """Artwork titled 'Levitate #9' should not produce ma_target for levitate.ai."""
+    levitate = Account(domain="levitate.ai", name="Levitate")
+    item = NewsItem(
+        title="Foundation Acquires Jamele Wright Sr.'s Levitate #9",
+        link="https://ex.com/a", published="2026-08-01", summary="", source_name="Art Gallery",
+    )
+    assert classify_news(item, levitate, today=TODAY) is None
+
+
+def test_common_word_levitate_funding_kept():
+    """Genuine Levitate company news should still fire."""
+    levitate = Account(domain="levitate.ai", name="Levitate")
+    item = NewsItem(
+        title="Levitate raises $16M to bring AI to relationship-based businesses - PR Newswire",
+        link="https://ex.com/a", published="2026-08-01", summary="", source_name="PR Newswire",
+    )
+    c = classify_news(item, levitate, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "funding_round"

@@ -79,6 +79,55 @@ def _strip_source_attribution(title: str) -> str:
     return title
 
 
+# Company names that are also common English words. These require
+# proper-noun casing (or domain mention) to confirm company attribution.
+_COMMON_WORD_NAMES = frozenset({
+    "levitate",
+    "boost",
+    "ramp",
+    "signal",
+    "pivot",
+    "spark",
+    "forge",
+    "canvas",
+    "slack",
+    "stripe",
+    "square",
+    "block",
+    "dash",
+    "flow",
+    "loom",
+    "notion",
+    "roku",
+})
+
+
+def _is_common_word(name: str) -> bool:
+    """True if the normalized company name is also a common English word."""
+    return (normalize_name(name) or "").casefold() in _COMMON_WORD_NAMES
+
+
+def _has_proper_mention(headline: str, name: str) -> bool:
+    """For common-word names, require the name to appear in its original
+    casing (proper noun) OR as a domain mention (name.tld).
+
+    For non-common-word names, always returns True (the substring check
+    in classify_news is sufficient).
+    """
+    if not _is_common_word(name):
+        return True
+    # Domain mention (levitate.ai) is always authoritative
+    domain_mention = name.casefold() + "." in headline.casefold()
+    if domain_mention:
+        return True
+    # Check for the name as originally cased (proper noun) as a whole word
+    # e.g. "Levitate" in "Levitate raises $10M" → True
+    #      "levitate" in "Watch Alex levitate" → False
+    # (re is already imported at module top)
+    pattern = r"\b" + re.escape(name) + r"\b"
+    return bool(re.search(pattern, headline))
+
+
 def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[SignalCandidate]:
     title = item.title or ""
     summary = item.summary or ""
@@ -103,6 +152,30 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
                 in_title = False
     if not in_text:
         return None
+    # For common-word company names (e.g. "Levitate"), require proper-noun
+    # casing or domain mention. This prevents verb/adjective matches:
+    #   "Watch Alex levitate" ≠ Levitate the company
+    #   "Levitate Music Festival" ≠ Levitate the company (context check below)
+    if in_text and _is_common_word(account.name):
+        if not (_has_proper_mention(headline, account.name) or
+                _has_proper_mention(summary, account.name)):
+            return None
+        # Even with proper casing, reject if the name is immediately followed
+        # by "music", "festival", "art", "#", or other non-company contexts.
+        # These are title-case uses of the common word, not company mentions.
+        # Check BOTH headline and summary (context can appear in either).
+        _NON_COMPANY_CONTEXTS = (
+            "music festival", "music & arts", "art festival",
+            "#", "live session", "backyard",
+        )
+        name_lower = (account.name or "").casefold()
+        for ctx in _NON_COMPANY_CONTEXTS:
+            needle = name_lower + " " + ctx
+            if needle in headline.casefold() or needle in summary.casefold():
+                return None
+            needle2 = name_lower + ctx  # e.g. "levitate#9"
+            if needle2 in headline.casefold() or needle2 in summary.casefold():
+                return None
     published = to_iso_date(item.published)
     if published:
         age = (today - date.fromisoformat(published)).days

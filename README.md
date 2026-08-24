@@ -91,7 +91,10 @@ Enabled adapters live in `config/sources.yaml`:
 
 - SEC: `sec_edgar`, `sec_formd`
 - ATS: `ats_greenhouse`, `ats_lever`, `ats_ashby`, `ats_smartrecruiters`, `ats_workable`, `ats_recruitee`, `ats_workday`
-- News / regulators: `news_rss`, `company_feed`, `federal_register`, `warn_notices`
+- News / regulators: `news_rss`, `google_news`, `company_feed`, `federal_register`, `warn_notices`
+
+`google_news` fetches keyword search RSS (per-account name) plus named section feeds (TECHNOLOGY, BUSINESS). Same `classify_news` pipeline — funding, exec hires, M&A, product launches. Configurable topics in `config/sources.yaml`.
+
 - Footprint: `techstack`, `wayback`, `crtsh`, `jobsignals`
 - Community: `community_hn`, `community_github`
 - Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db`, `content_itunes`

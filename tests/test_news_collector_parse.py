@@ -66,3 +66,16 @@ def test_google_news_plans_serp_keyword_searches():
     # Each default SERP keyword yields a search URL containing the keyword
     for kw in ["fundraising", "acquisition", "product launch", "CEO"]:
         assert any(kw.replace(" ", "+") in u for u in urls), kw
+
+
+def test_google_news_serp_task_parses():
+    """A SERP-kind task (keyword augmented) parses identically via classify_news."""
+    src = GoogleNewsSource()
+    feed = Path("tests/fixtures/news/google_news_technology.xml").read_bytes()
+    cands = src.parse(
+        Document(doc_id="s", source="google_news", body=feed),
+        Account(domain="acme.com", name="Acme Corp"),
+        {"kind": "serp", "query": "Acme Corp", "keyword": "fundraising", "today": "2026-08-23"},
+    )
+    # Same classification path — picks up the Acme funding item
+    assert any(c.signal_type == "funding_round" for c in cands)

@@ -61,15 +61,17 @@ Cap **80 unique hosts**, third-party first (first-party CSS/fonts no longer fill
 
 ## Cloudflare bypass
 
-When the HTTP fetch hits a Cloudflare challenge (403 or `challenges.cloudflare.com`), the techstack source attempts to bypass it in tiers:
+When the HTTP fetch hits a Cloudflare challenge (403 or `challenges.cloudflare.com`), the techstack source attempts to bypass it in tiers. Detection uses `classify_cloudflare_challenge` (fingerprint.py), which inspects the response status + body and returns `"js"` (standard JS challenge), `"managed"` (Turnstile / interactive), or `None`. The bypass is scoped to `techstack` only — the runner gates on `task.source == "techstack"` so other sources retain the 403 hard-stop.
 
-1. **Cookie reuse** — a previously-solved full Cloudflare cookie set (`cf_clearance` + `__cf_bm`), bound to the User-Agent and egress IP, is replayed. Cheapest repeat path.
-2. **Browser solve** — `BrowserFetcher` (Chromium + stealth init script) navigates and waits for the standard JS challenge to auto-solve (polls for `cf_clearance` cookie presence), then captures the full cookie jar and the real HTML.
-3. **External solver** — for managed/Turnstile challenges, an optional 2Captcha/anti-captcha adapter returns a Turnstile token. This token is injected back into a browser context (via the Turnstile callback) so Cloudflare's edge sets the real `cf_clearance` — there is no stateless token→cookie exchange.
-4. **Headed fallback** — if `cloudflare.headed_fallback` is true, a visible browser waits (bounded by `headed_solve_timeout_ms`) for a manual solve.
+The runner stores 403 response bodies in a doc (http.py) so `classify_cloudflare_challenge` can inspect them. On a challenge, it invokes `CloudflareBypass.attempt()` and sets a `cloudflare_unsolved` meta flag. The collector gates stripping on this flag — if unsolved, only `cloudflare` is recorded (no techstack invented).
+
+1. **Cookie reuse** — a previously-solved full Cloudflare cookie set (`cf_clearance` + `__cf_bm`), bound to the User-Agent and egress IP, is replayed via httpx. Cheapest repeat path.
+2. **Browser solve** — `BrowserFetcher` creates a **fresh browser context** (no `storage_state`, so stale `session.json` cookies can't poison the solve) with the stealth init script, navigates to the URL, and polls for the page title to change from the challenge title to real content. When the title clears, it captures the full cookie jar and the real HTML.
+3. **External solver** — for managed/Turnstile challenges, an optional 2Captcha/anti-captcha adapter returns a Turnstile token. The token must be re-injected into a browser context so Cloudflare's edge sets the real `cf_clearance`. **Note:** the browser-injection path is a stub (`_solver_via_browser` catches `TypeError` — `BrowserFetcher.fetch` does not yet accept `inject_turnstile_token`). The 2Captcha API call works, but the token-to-cookie conversion is not yet wired.
+4. **Headed fallback** — if `cloudflare.headed_fallback` is true, a visible browser launches and runs the same auto-solve path (no manual interaction required). Bounded by `headed_solve_timeout_ms`.
 5. **Hard stop** — if all tiers fail, `cloudflare` is recorded as a named observation and a `cloudflare_block_unsolved` note is logged. No techstack is invented.
 
-On a successful solve, the **full** `promote_or_observe` pipeline runs — all named + observed vendors are recorded, not just Cloudflare. Cookies persist in the `cloudflare_cookies` SQLite table (UA + proxy bound, real expiry), reused on the next weekly collect.
+On a successful solve, the **full** `promote_or_observe` pipeline runs — all named + observed vendors are recorded, not just Cloudflare. Cookies persist in the `cloudflare_cookies` SQLite table (UA + proxy bound, real expiry from Playwright cookie `expires`), reused on the next weekly collect.
 
 Enable the solver in `.env`:
 ```
@@ -77,6 +79,24 @@ CLOUDFLARE_SOLVER_PROVIDER=2captcha
 CLOUDFLARE_SOLVER_API_KEY=your_key
 CLOUDFLARE_BYPASS_STRATEGY=browser_first
 ```
+
+### CloudflareConfig reference
+
+All fields live in `config/default.yaml` under `cloudflare:`. Env overrides: `CLOUDFLARE_SOLVER_API_KEY`, `CLOUDFLARE_SOLVER_PROVIDER`, `CLOUDFLARE_BYPASS_STRATEGY`, `CLOUDFLARE_HEADED_FALLBACK`.
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Master switch for the bypass |
+| `bypass_strategy` | `browser_first` | `browser_first` \| `solver_first` \| `browser_only` \| `disabled` |
+| `solve_timeout_ms` | `20000` | Max wait for a JS challenge to auto-solve |
+| `cookie_ttl_hours` | `24` | Ceiling for stored cookie expiry (real `expires` is authoritative) |
+| `headed_fallback` | `false` | Launch a visible browser if headless solve fails |
+| `headed_solve_timeout_ms` | `120000` | Max wait for headed fallback |
+| `solver_provider` | `null` | `2captcha` \| `anticaptcha` \| `null` |
+| `solver_api_key` | `null` | API key for the solver provider |
+| `min_retry_delay_s` | `2.0` | Min backoff between bypass retries |
+| `max_retry_delay_s` | `8.0` | Max backoff between bypass retries |
+| `max_solves_per_domain_per_24h` | `1` | Anti-escalation cap — don't hammer a domain |
 
 `harvest_tech` lists from the HTML task and the network task are **unioned** (`merge_matches`) and upserted **once** per account/pass so HTML HubSpot is not aged by a later HAR-only page.
 
@@ -101,11 +121,13 @@ Unknown hosts persist via `harvest_tech` → `technologies` as `host:…`.
 
 | File | Role |
 |---|---|
-| `collector.py` | `TechstackSource` — plan, parse, `harvest_tech` |
-| `fingerprint.py` | evidence, `observed_hosts`, `dynamic_matches`, `promote_or_observe` |
+| `collector.py` | `TechstackSource` — plan, parse, `harvest_tech`; gates stripping on `cloudflare_unsolved` meta flag |
+| `fingerprint.py` | evidence, `observed_hosts`, `dynamic_matches`, `promote_or_observe`, `classify_cloudflare_challenge` |
+| `cf_bypass.py` | `CloudflareBypass` — 5-tier bypass waterfall (`attempt()`) |
+| `cf_solver.py` | 2Captcha/anti-captcha adapter — returns Turnstile token (not a cookie) |
 | `dns_probe.py` | MX / SPF / CNAME |
 | `http_probe.py` | re-export of HTTP extract |
-| `../../../src/core/browser.py` | `fetch(..., capture_network=True)` HAR-lite |
+| `../../../src/core/browser.py` | `fetch(..., capture_network=True)` HAR-lite; `fetch(..., capture_html=True)` challenge-aware solve with fresh context |
 
 Runner: network tasks run on the collector thread. `_fetch_one` returns `None` when `browser` is missing. Duck-typed `harvest_tech` results are merged then upserted once.
 

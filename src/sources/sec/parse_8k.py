@@ -94,7 +94,16 @@ def classify_8k(filing: Filing, body_text: str | None, *, today: date) -> list[S
             if text:
                 m = _ACQUIRED.search(text)
                 if m:
-                    data["acquired_company"] = m.group(1).strip()
+                    acquired = m.group(1).strip()
+                    data["acquired_company"] = acquired
+                    # The filer is the acquirer; the acquired company is the target.
+                    out.append(SignalCandidate(
+                        signal_type="ma_target", observed_at=filing.filing_date,
+                        natural_key=f"{filing.accession}:{item}:ma_target",
+                        title=f"Acquired by {filing.cik}",
+                        url=filing.archive_url, confidence=conf,
+                        evidence_data={"item": item, "acquired_company": acquired, "acquirer_cik": filing.cik},
+                    ))
             out.append(SignalCandidate(
                 signal_type="ma_acquirer", observed_at=filing.filing_date,
                 natural_key=f"{filing.accession}:{item}",

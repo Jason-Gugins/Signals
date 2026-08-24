@@ -94,3 +94,18 @@ def test_acquisition_still_ma_acquirer():
     text = "On March 1, 2026, the Company completed the acquisition of Widget Labs, Inc."
     cands = classify_8k(_filing(items=["2.01"]), text, today=TODAY)
     assert any(c.signal_type == "ma_acquirer" for c in cands)
+
+
+def test_ma_target_emitted_for_acquired_company_on_acquisition():
+    text = "On March 1, 2026, the Company completed the acquisition of Widget Labs, Inc."
+    cands = classify_8k(_filing(items=["2.01"]), text, today=TODAY)
+    assert any(c.signal_type == "ma_acquirer" for c in cands)
+    target = next((c for c in cands if c.signal_type == "ma_target"), None)
+    assert target is not None
+    assert "Widget" in (target.evidence_data.get("acquired_company") or "")
+
+
+def test_ma_target_not_emitted_on_disposition():
+    text = "The Company completed the sale of its Widget division to Buyer Co."
+    cands = classify_8k(_filing(items=["2.01"]), text, today=TODAY)
+    assert not any(c.signal_type == "ma_target" for c in cands)

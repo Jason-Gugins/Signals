@@ -109,3 +109,13 @@ def test_ma_target_not_emitted_on_disposition():
     text = "The Company completed the sale of its Widget division to Buyer Co."
     cands = classify_8k(_filing(items=["2.01"]), text, today=TODAY)
     assert not any(c.signal_type == "ma_target" for c in cands)
+
+
+def test_delisting_and_nonreliance_emit_earnings_warning():
+    # 3.01 delisting notice, 4.02 non-reliance on prior financials — both
+    # real material negative events; both map to earnings_warning at low conf.
+    for item in ["3.01", "4.02"]:
+        cands = classify_8k(_filing(items=[item]), None, today=TODAY)
+        assert any(c.signal_type == "earnings_warning" for c in cands), (item, cands)
+        c = next(c for c in cands if c.signal_type == "earnings_warning")
+        assert c.confidence <= 0.7, (item, c.confidence)

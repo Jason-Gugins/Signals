@@ -73,3 +73,33 @@ def test_google_news_topic_url_with_locale():
     assert "hl=en-GB" in url
     assert "gl=GB" in url
     assert "ceid=GB:en" in url
+
+
+from src.sources.news.serp_config import load_google_news_cfg
+
+
+def test_serp_config_defaults_when_absent(tmp_path, monkeypatch):
+    """When no google_news.serp_keywords in sources.yaml, return defaults."""
+    import yaml
+    from pathlib import Path
+    fake = tmp_path / "sources.yaml"
+    fake.write_text("sources:\n  google_news:\n    enabled: true\n  other:\n    enabled: true\n")
+    import src.sources.news.serp_config as sc
+    monkeypatch.setattr(sc, "SOURCES_YAML_PATH", str(fake))
+    cfg = load_google_news_cfg()
+    assert "serp_keywords" in cfg
+    assert len(cfg["serp_keywords"]) >= 4  # fundraising, leadership, product, acquisition
+    assert all(isinstance(k, str) for k in cfg["serp_keywords"])
+
+
+def test_serp_config_reads_custom(tmp_path, monkeypatch):
+    """serp_keywords from sources.yaml override defaults."""
+    from pathlib import Path
+    fake = tmp_path / "sources.yaml"
+    fake.write_text(
+        "sources:\n  google_news:\n    serp_keywords: [fundraising, acquisition]\n"
+    )
+    import src.sources.news.serp_config as sc
+    monkeypatch.setattr(sc, "SOURCES_YAML_PATH", str(fake))
+    cfg = load_google_news_cfg()
+    assert cfg["serp_keywords"] == ["fundraising", "acquisition"]

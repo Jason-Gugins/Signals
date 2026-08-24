@@ -180,3 +180,26 @@ def test_cf_cookie_clear(tmp_path):
               expires_at=_FUTURE)
     store.clear("acme.com")
     assert store.get("acme.com", user_agent="UA", proxy="direct") is None
+
+
+def test_execute_from_worker_thread(tmp_path):
+    """fetch_log writes from the HTTP thread pool; sqlite default check_same_thread crashes."""
+    import threading
+
+    db = Database(tmp_path / "s.db")
+    db.execute("CREATE TABLE IF NOT EXISTS _t (id INTEGER PRIMARY KEY, v TEXT)")
+    err: list[BaseException] = []
+
+    def _write() -> None:
+        try:
+            db.execute("INSERT INTO _t (v) VALUES (?)", ("from-worker",))
+        except BaseException as exc:  # noqa: BLE001 — we assert none
+            err.append(exc)
+
+    t = threading.Thread(target=_write)
+    t.start()
+    t.join(timeout=5)
+    assert err == [], err
+    row = db.one("SELECT v FROM _t")
+    assert row is not None and row["v"] == "from-worker"
+    db.close()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -285,11 +286,14 @@ class Database:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
+        self._lock = threading.RLock()
         self._connect()
         self._migrate()
 
     def _connect(self) -> None:
-        self._conn = sqlite3.connect(str(self.db_path))
+        # check_same_thread=False: HttpFetcher logs from the worker pool.
+        # All public methods serialize on self._lock.
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
@@ -310,22 +314,26 @@ class Database:
         self.conn.commit()
 
     def query(self, sql: str, params: tuple | list = ()) -> list[dict]:
-        cur = self.conn.execute(sql, params)
-        return [dict(row) for row in cur.fetchall()]
+        with self._lock:
+            cur = self.conn.execute(sql, params)
+            return [dict(row) for row in cur.fetchall()]
 
     def one(self, sql: str, params: tuple | list = ()) -> dict | None:
-        cur = self.conn.execute(sql, params)
-        row = cur.fetchone()
-        return dict(row) if row is not None else None
+        with self._lock:
+            cur = self.conn.execute(sql, params)
+            row = cur.fetchone()
+            return dict(row) if row is not None else None
 
     def execute(self, sql: str, params: tuple | list = ()) -> sqlite3.Cursor:
-        cur = self.conn.execute(sql, params)
-        self.conn.commit()
-        return cur
+        with self._lock:
+            cur = self.conn.execute(sql, params)
+            self.conn.commit()
+            return cur
 
     def executemany(self, sql: str, rows: list[tuple]) -> None:
-        self.conn.executemany(sql, rows)
-        self.conn.commit()
+        with self._lock:
+            self.conn.executemany(sql, rows)
+            self.conn.commit()
 
     def upsert(
         self,
@@ -366,13 +374,15 @@ class Database:
         self.execute(sql, [row[c] for c in cols])
 
     def table_columns(self, table: str) -> set[str]:
-        rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
-        return {row[1] for row in rows}
+        with self._lock:
+            rows = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+            return {row[1] for row in rows}
 
     def close(self) -> None:
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
     def __enter__(self) -> "Database":
         return self

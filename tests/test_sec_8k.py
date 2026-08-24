@@ -119,3 +119,12 @@ def test_delisting_and_nonreliance_emit_earnings_warning():
         assert any(c.signal_type == "earnings_warning" for c in cands), (item, cands)
         c = next(c for c in cands if c.signal_type == "earnings_warning")
         assert c.confidence <= 0.7, (item, c.confidence)
+
+
+MA_DISP_FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "8k_ma_disposition.htm"
+
+
+def test_disposition_fixture_no_ma_signal():
+    text = extract_text(MA_DISP_FIXTURE.read_bytes())
+    cands = classify_8k(_filing(items=["2.01"]), text, today=TODAY)
+    assert not any(c.signal_type in {"ma_acquirer", "ma_target"} for c in cands)

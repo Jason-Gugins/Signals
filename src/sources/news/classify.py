@@ -128,6 +128,23 @@ def _has_proper_mention(headline: str, name: str) -> bool:
     return bool(re.search(pattern, headline))
 
 
+# When the publisher IS the account name, only certain signal types are
+# legitimate self-announcements (funding, product launches, certifications).
+# Research/predictions about industry trends are NOT signals about the company.
+_SELF_PUBLISHED_OK = frozenset({
+    "funding_round", "product_launch", "certification",
+    "office_open", "award", "ipo_filing", "ipo_pricing",
+})
+
+# Patterns that indicate the headline is research/commentary, not an event.
+# Intentionally narrow: "will" and "says" are excluded because they also
+# appear in legitimate self-announcements ("Levitate Will Launch..." / "CEO Says").
+_RESEARCH_PATTERNS = [
+    r"\b(?:predicts?|forecasts?|survey|report|finds?)\b",
+    r"\b(?:by \d{4}|through \d{4})\b",  # forecast timeframes
+]
+
+
 def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[SignalCandidate]:
     title = item.title or ""
     summary = item.summary or ""
@@ -176,6 +193,17 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
             needle2 = name_lower + ctx  # e.g. "levitate#9"
             if needle2 in headline.casefold() or needle2 in summary.casefold():
                 return None
+    # If the publisher (source_name) matches the account name, this is
+    # likely self-published content. Only keep signal types that are
+    # legitimate self-announcements (funding, product launches, etc.).
+    # Research/predictions about industry trends are dropped.
+    source = item.source_name or ""
+    if want and normalize_name(source) == want:
+        # Check if the headline reads like research/prediction
+        # (re is already imported at module top)
+        is_research = any(re.search(p, headline, re.I) for p in _RESEARCH_PATTERNS)
+        if is_research:
+            return None
     published = to_iso_date(item.published)
     if published:
         age = (today - date.fromisoformat(published)).days

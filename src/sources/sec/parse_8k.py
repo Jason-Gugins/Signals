@@ -16,6 +16,8 @@ ITEM_MAP: dict[str, tuple[str | None, float]] = {
     "2.01": ("ma_acquirer", 0.9),
     "2.05": ("layoff", 0.85),
     "2.06": ("earnings_warning", 0.7),
+    "3.01": ("earnings_warning", 0.6),  # delisting notice
+    "4.02": ("earnings_warning", 0.7),  # non-reliance / restatement
     "5.02": ("exec_hire", 0.8),
     "7.01": (None, 0.0),
     "8.01": (None, 0.0),

@@ -106,3 +106,39 @@ def test_strip_source_attribution_multiple_dashes():
 def test_strip_source_attribution_preserves_em_dash():
     # Em dash (—) is different from " - "
     assert _strip_source_attribution("Acme — Best Company") == "Acme — Best Company"
+
+
+def test_source_attribution_not_treated_as_mention():
+    """If the account name appears ONLY in the publisher suffix (after ' - '),
+    it's source attribution, not a company mention — drop the item."""
+    gartner = Account(domain="gartner.com", name="Gartner")
+    # "Reducing workforce" would match layoff rule, but "Gartner" is the publisher
+    item = NewsItem(
+        title="AI Isn't Reducing Workforce Costs - Gartner",
+        link="https://ex.com/a", published="2026-08-01", summary="", source_name="Gartner",
+    )
+    assert classify_news(item, gartner, today=TODAY) is None
+
+
+def test_source_attribution_keeps_when_name_in_headline():
+    """If the account name appears in the headline content (before ' - '),
+    it's a real mention even if the publisher is also the same company."""
+    gartner = Account(domain="gartner.com", name="Gartner")
+    item = NewsItem(
+        title="Gartner acquires research firm - TechCrunch",
+        link="https://ex.com/a", published="2026-08-01", summary="", source_name="TechCrunch",
+    )
+    c = classify_news(item, gartner, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "ma_acquirer"
+
+
+def test_source_name_matches_account_still_drops_if_only_in_byline():
+    """Even when source_name == account name, if the name ONLY appears
+    in the byline suffix, it's not a signal about the company."""
+    levitate = Account(domain="levitate.ai", name="Levitate")
+    item = NewsItem(
+        title="Music Festival Highlights - Levitate",
+        link="https://ex.com/a", published="2026-08-01", summary="", source_name="Levitate",
+    )
+    assert classify_news(item, levitate, today=TODAY) is None

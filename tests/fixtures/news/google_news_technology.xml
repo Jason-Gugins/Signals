@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+<title>TECHNOLOGY - Google News</title>
+<link>https://news.google.com/headlines/section/topic/TECHNOLOGY</link>
+<item>
+<title>Acme Corp raises $50M Series B - TechCrunch</title>
+<link>https://news.google.com/rss/articles/abc123?url=https%3A%2F%2Ftechcrunch.com%2Facme-series-b</link>
+<pubDate>Mon, 18 Aug 2026 14:30:00 GMT</pubDate>
+<description>Acme Corp raises cash. &lt;a href="https://news.google.com/rss/articles/abc123?url=https://techcrunch.com/acme-series-b"&gt;Acme Corp raises $50M Series B&lt;/a&gt;</description>
+<source url="https://techcrunch.com">TechCrunch</source>
+</item>
+<item>
+<title>Acme Corp appoints new CTO - VentureBeat</title>
+<link>https://news.google.com/rss/articles/def456?url=https%3A%2F%2Fventurebeat.com%2Facme-cto</link>
+<pubDate>Sun, 17 Aug 2026 09:00:00 GMT</pubDate>
+<description>Acme names new CTO. &lt;a href="https://news.google.com/rss/articles/def456?url=https://venturebeat.com/acme-cto"&gt;Acme Corp appoints new CTO&lt;/a&gt;</description>
+<source url="https://venturebeat.com">VentureBeat</source>
+</item>
+<item>
+<title>Rival Inc launches new AI platform - The Verge</title>
+<link>https://news.google.com/rss/articles/ghi789?url=https%3A%2F%2Ftheverge.com%2Frival-ai</link>
+<pubDate>Sat, 16 Aug 2026 12:00:00 GMT</pubDate>
+<description>Rival Inc unveils platform. &lt;a href="https://news.google.com/rss/articles/ghi789?url=https://theverge.com/rival-ai"&gt;Rival Inc launches new AI platform&lt;/a&gt;</description>
+<source url="https://theverge.com">The Verge</source>
+</item>
+</channel></rss>

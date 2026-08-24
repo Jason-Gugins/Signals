@@ -80,17 +80,20 @@ def _strip_source_attribution(title: str) -> str:
 
 
 def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[SignalCandidate]:
-    text = f"{item.title} {item.summary or ''}"
     title = item.title or ""
     summary = item.summary or ""
+    text = f"{title} {summary}"
     want = normalize_name(account.name) if account.name else None
     domain = account.domain
+    # Strip publisher attribution ("Headline - Publisher") so the account
+    # name is checked against the headline content, not the byline.
+    headline = _strip_source_attribution(title)
+    headline_n = normalize_name(headline) or ""
     blob_n = normalize_name(text) or ""
-    title_n = normalize_name(title) or ""
     summary_n = normalize_name(summary) or ""
-    in_title = bool(want and want in title_n) or (domain.split(".")[0] in title.casefold())
+    in_title = bool(want and want in headline_n) or (domain.split(".")[0] in headline.casefold())
     in_summary = bool(want and want in summary_n)
-    in_text = in_title or in_summary or (want and want in blob_n)
+    in_text = in_title or in_summary or (want and want in blob_n and want in headline_n)
     # Gong Cha vs Gong: require token-ish presence of normalized name as whole-ish
     if want:
         # reject if name only as prefix of a longer different token (gong vs gong cha)

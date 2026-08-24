@@ -1,6 +1,6 @@
 from datetime import date
 from src.core.models import Account
-from src.sources.news.classify import NEWS_RULES, classify_news, extract_vars
+from src.sources.news.classify import NEWS_RULES, classify_news, extract_vars, _strip_source_attribution
 from src.sources.news.feeds import NewsItem
 
 TODAY = date(2026, 8, 16)
@@ -88,3 +88,21 @@ def test_amount_extraction_shapes():
         if amt.startswith("€"):
             continue
         assert "amount" in vars_ or "4.5" in str(vars_)
+
+
+def test_strip_source_attribution_basic():
+    assert _strip_source_attribution("AI Isn't Reducing Workforce Costs - Gartner") == "AI Isn't Reducing Workforce Costs"
+
+
+def test_strip_source_attribution_no_dash():
+    assert _strip_source_attribution("Acme raises $10M") == "Acme raises $10M"
+
+
+def test_strip_source_attribution_multiple_dashes():
+    # Only the LAST " - " is the publisher separator
+    assert _strip_source_attribution("Acme - Q3 Update - TechCrunch") == "Acme - Q3 Update"
+
+
+def test_strip_source_attribution_preserves_em_dash():
+    # Em dash (—) is different from " - "
+    assert _strip_source_attribution("Acme — Best Company") == "Acme — Best Company"

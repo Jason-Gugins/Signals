@@ -65,6 +65,20 @@ def _canon_link(link: str) -> str:
     return urlunparse((p.scheme, p.netloc, p.path, "", "", ""))
 
 
+def _strip_source_attribution(title: str) -> str:
+    """Strip the publisher attribution suffix from a Google News title.
+
+    Google News titles follow the pattern: "Headline - Publisher".
+    Only the LAST " - " (space-dash-space) is the separator.
+    Em dashes (—) are NOT publisher separators.
+    """
+    # Split on " - " (space-hyphen-space) and take all but the last segment
+    parts = title.split(" - ")
+    if len(parts) >= 2:
+        return " - ".join(parts[:-1])
+    return title
+
+
 def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[SignalCandidate]:
     text = f"{item.title} {item.summary or ''}"
     title = item.title or ""

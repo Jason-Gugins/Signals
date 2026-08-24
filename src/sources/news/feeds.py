@@ -70,6 +70,39 @@ def google_news_url(name: str, *, days: int = 30, lang: str = "en-US", country: 
     return f"https://news.google.com/rss/search?q={q}&hl={lang}&gl={country}&ceid={country}:{lang.split('-')[0]}"
 
 
+GOOGLE_NEWS_TOPICS = (
+    "WORLD", "NATION", "BUSINESS", "TECHNOLOGY",
+    "ENTERTAINMENT", "SCIENCE", "SPORTS", "HEALTH",
+)
+
+
+def google_news_search_url(query: str, *, days: int = 30, lang: str = "en-US", country: str = "US") -> str:
+    """Build a Google News RSS search-by-keyword URL.
+
+    Includes a ``when:{days}d`` date window for parity with
+    ``google_news_url`` — without it, Google returns articles of any age
+    and ``classify_news`` has no effective date filter (``to_iso_date``
+    does not parse RFC 822 pubDate strings, so ``published`` is always None).
+    """
+    q = quote_plus(query) + f"+when:{days}d"
+    return f"https://news.google.com/rss/search?q={q}&hl={lang}&gl={country}&ceid={country}:{lang.split('-')[0]}"
+
+
+def google_news_topic_url(topic: str, *, lang: str = "en-US", country: str = "US") -> str:
+    """Build a Google News RSS section/topic URL (TECHNOLOGY, BUSINESS, etc.).
+
+    For a specific topic ID copied from news.google.com, pass the ID string
+    directly — this function handles named sections only.
+    """
+    t = topic.upper().strip()
+    if t in GOOGLE_NEWS_TOPICS:
+        base = f"https://news.google.com/rss/headlines/section/topic/{t}"
+    else:
+        # Treat as a raw topic ID (e.g. "CAAqJggKIiBDQkFTRWdvSUwyMHZNRGRqTVhZ")
+        base = f"https://news.google.com/rss/topics/{topic}"
+    return f"{base}?hl={lang}&gl={country}&ceid={country}:{lang.split('-')[0]}"
+
+
 def bing_news_url(name: str) -> str:
     return f"https://www.bing.com/news/search?q={quote_plus(name)}&format=rss"
 

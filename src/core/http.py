@@ -21,6 +21,23 @@ from src.core.runlog import RunContext
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 
 
+def robots_path_allowed(url: str, allow: list | None) -> bool:
+    """True if url matches a configured host + path_prefix override."""
+    if not allow:
+        return False
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or "/"
+    for rule in allow:
+        if not isinstance(rule, dict):
+            continue
+        rh = str(rule.get("host") or "").lower()
+        prefix = str(rule.get("path_prefix") or "")
+        if rh and host == rh and prefix and path.startswith(prefix):
+            return True
+    return False
+
+
 @dataclass
 class FetchResult:
     ok: bool
@@ -150,7 +167,8 @@ class HttpFetcher:
         method = getattr(task, "method", "GET") or "GET"
         started = time.monotonic()
         if self.config.http.respect_robots and method.upper() == "GET":
-            if not self._robots_cache().allowed(url):
+            override = robots_path_allowed(url, getattr(self.config.http, "robots_allow", None))
+            if not override and not self._robots_cache().allowed(url):
                 result = FetchResult(
                     ok=False, status=0, doc=None, cached=False,
                     error="robots disallowed", elapsed_ms=0,

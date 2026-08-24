@@ -192,3 +192,43 @@ def test_common_word_levitate_funding_kept():
     c = classify_news(item, levitate, today=TODAY)
     assert c is not None
     assert c.signal_type == "funding_round"
+
+
+def test_self_published_research_dropped():
+    """When source_name == account name and the account doesn't appear
+    in the headline content (only in the byline), it's self-published — drop."""
+    gartner = Account(domain="gartner.com", name="Gartner")
+    item = NewsItem(
+        title="Gartner Predicts 60% of Organizations Will Reduce Workforce - Gartner",
+        link="https://ex.com/a", published="2026-08-01", summary="", source_name="Gartner",
+    )
+    # "Gartner" appears in headline AND byline — but the headline subject is
+    # "Gartner Predicts..." which is research, not an event happening TO Gartner.
+    # The layoff rule would fire on "reduce workforce." This should be dropped
+    # because Gartner is the publisher AND the researcher, not the subject.
+    assert classify_news(item, gartner, today=TODAY) is None
+
+
+def test_self_published_funding_announcement_kept():
+    """When a company publishes its own funding announcement via PR Newswire,
+    the funding signal is legitimate — the company IS the subject."""
+    levitate = Account(domain="levitate.ai", name="Levitate")
+    item = NewsItem(
+        title="Levitate Raises $16M To Bring AI to SMBs - PR Newswire",
+        link="https://ex.com/a", published="2026-08-01", summary="", source_name="PR Newswire",
+    )
+    c = classify_news(item, levitate, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "funding_round"
+
+
+def test_third_party_research_about_company_kept():
+    """When a third party publishes about the company, it's a real signal."""
+    acme = Account(domain="acme.com", name="Acme")
+    item = NewsItem(
+        title="Acme lays off 200 employees - TechCrunch",
+        link="https://ex.com/a", published="2026-08-01", summary="", source_name="TechCrunch",
+    )
+    c = classify_news(item, acme, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "layoff"

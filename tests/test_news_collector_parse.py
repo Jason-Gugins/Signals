@@ -53,3 +53,16 @@ def test_google_news_source_parses_topic_feed():
     assert "exec_hire" in types  # "appoints new CTO"
     # Rival Inc item should NOT match (no "Acme" in text)
     assert all("acme" in (c.title or "").lower() or "acme" in (c.url or "").lower() for c in cands)
+
+
+def test_google_news_plans_serp_keyword_searches():
+    """For each SERP keyword, plan() emits an extra search task containing it."""
+    src = GoogleNewsSource()
+    account = Account(domain="acme.com", name="Acme Corp")
+    tasks = src.plan(account, cursor=None)
+    urls = [t.url for t in tasks]
+    # Default plain search + topics still present
+    assert any("section/topic" in u for u in urls)
+    # Each default SERP keyword yields a search URL containing the keyword
+    for kw in ["fundraising", "acquisition", "product launch", "CEO"]:
+        assert any(kw.replace(" ", "+") in u for u in urls), kw

@@ -26,7 +26,11 @@ sources:
   ats_recruitee:  { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["ats_token"] }
   ats_workday:    { enabled: true, cadence_hours: 24, rate_per_host: 0.5, requires: ["ats_token"] }
   news_rss:       { enabled: true, cadence_hours: 12, rate_per_host: 0.5 }
-  google_news:    { enabled: true, cadence_hours: 12, rate_per_host: 0.5 }
+  google_news:
+    enabled: true
+    cadence_hours: 12
+    rate_per_host: 0.5
+    serp_keywords: [fundraising, series, new leadership, CEO, product launch, launches, GTM, acquisition, acquires]
   company_feed:   { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["blog_feed_url"] }
   federal_register: { enabled: true, cadence_hours: 24, rate_per_host: 2.0 }
   warn_notices:   { enabled: true, cadence_hours: 24, rate_per_host: 0.5 }

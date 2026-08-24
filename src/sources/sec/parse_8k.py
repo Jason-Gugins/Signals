@@ -30,6 +30,12 @@ _ACQUIRED = re.compile(
     r"acquisition of\s+([A-Z][\w .,&-]{2,60}?)(?:\s*,?\s*Inc\.?|\s+LLC|\.)",
     re.I,
 )
+# Prospective seller/depositor language for Item 2.01 (and 1.01) — if present,
+# the filer is the SELLER, not the acquirer.
+_DISPOSE = re.compile(
+    r"\b(?:sold|sale of|disposed? of|divest(?:ed|ing)?|complete[ds]?\s+(?:the\s+)?sale|completed\s+the\s+disposition|exchanged)\b",
+    re.I,
+)
 _AFFECTED = re.compile(r"(\d[\d,]*)\s+(?:employees|roles|positions|workers)", re.I)
 _CHARGE = re.compile(r"\$[\d,.]+\s*(?:million|billion|m|b)?", re.I)
 
@@ -78,10 +84,24 @@ def classify_8k(filing: Filing, body_text: str | None, *, today: date) -> list[S
             out.extend(_classify_502(filing, text, conf))
             continue
         data: dict = {"item": item}
-        if item == "2.01" and text:
-            m = _ACQUIRED.search(text)
-            if m:
-                data["acquired_company"] = m.group(1).strip()
+        if item in {"2.01", "1.01"}:
+            # Item 2.01 covers acquisition OR disposition. If disposition
+            # language is present, the filer is the seller — do NOT label it
+            # ma_acquirer (pre-existing bug).
+            if text and _DISPOSE.search(text):
+                continue
+            data = {"item": item}
+            if text:
+                m = _ACQUIRED.search(text)
+                if m:
+                    data["acquired_company"] = m.group(1).strip()
+            out.append(SignalCandidate(
+                signal_type="ma_acquirer", observed_at=filing.filing_date,
+                natural_key=f"{filing.accession}:{item}",
+                title=f"8-K item {item}", url=filing.archive_url,
+                confidence=conf, evidence_data=data,
+            ))
+            continue
         if item == "2.05" and text:
             am = _AFFECTED.search(text)
             if am:

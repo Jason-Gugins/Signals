@@ -80,3 +80,17 @@ def test_extract_text_strips_and_caps():
     assert "Widget Labs" in text
     huge = extract_text(b"<html>" + (b"word " * 80_000) + b"</html>")
     assert len(huge) <= 200_000
+
+
+def test_disposition_is_not_ma_acquirer():
+    # Item 2.01 covers BOTH acquisition AND disposition.
+    # A seller completing a divestiture must NOT be labeled ma_acquirer.
+    text = "On March 10, 2026, the Company completed the sale of its Widget division to Buyer Co."
+    cands = classify_8k(_filing(items=["2.01"]), text, today=TODAY)
+    assert not any(c.signal_type == "ma_acquirer" for c in cands), cands
+
+
+def test_acquisition_still_ma_acquirer():
+    text = "On March 1, 2026, the Company completed the acquisition of Widget Labs, Inc."
+    cands = classify_8k(_filing(items=["2.01"]), text, today=TODAY)
+    assert any(c.signal_type == "ma_acquirer" for c in cands)

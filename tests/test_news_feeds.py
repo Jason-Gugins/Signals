@@ -1,5 +1,12 @@
 from pathlib import Path
-from src.sources.news.feeds import FEED_GUESSES, discover_feeds, google_news_url, parse_feed
+from src.sources.news.feeds import (
+    FEED_GUESSES,
+    discover_feeds,
+    google_news_search_url,
+    google_news_topic_url,
+    google_news_url,
+    parse_feed,
+)
 
 FIX = Path(__file__).parent / "fixtures" / "news"
 
@@ -34,3 +41,35 @@ def test_parse_rss_and_atom_and_unwrap():
 def test_malformed_xml_empty():
     assert parse_feed(b"<not xml") == [] or isinstance(parse_feed(b"<not xml"), list)
     assert parse_feed(b"") == []
+
+
+def test_google_news_search_url_keyword():
+    url = google_news_search_url("artificial intelligence")
+    assert "q=artificial+intelligence" in url
+    assert "when:30d" in url
+    assert "news.google.com/rss/search" in url
+    assert "hl=en-US" in url
+    assert "gl=US" in url
+    assert "ceid=US:en" in url
+
+
+def test_google_news_search_url_custom_days():
+    url = google_news_search_url("AI", days=7)
+    assert "when:7d" in url
+
+
+def test_google_news_search_url_with_quotes():
+    url = google_news_search_url('"Acme Corp" funding')
+    assert "%22Acme+Corp%22" in url
+
+
+def test_google_news_topic_url_named_section():
+    url = google_news_topic_url("TECHNOLOGY")
+    assert "news.google.com/rss/headlines/section/topic/TECHNOLOGY" in url
+
+
+def test_google_news_topic_url_with_locale():
+    url = google_news_topic_url("BUSINESS", lang="en-GB", country="GB")
+    assert "hl=en-GB" in url
+    assert "gl=GB" in url
+    assert "ceid=GB:en" in url

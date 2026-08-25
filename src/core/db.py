@@ -272,6 +272,28 @@ CREATE TABLE IF NOT EXISTS cloudflare_cookies (
     solve_method TEXT,              -- 'browser' | 'solver' | 'headed'
     PRIMARY KEY (domain, user_agent, proxy)
 );
+
+CREATE TABLE IF NOT EXISTS g2_reviews (
+    review_id            TEXT PRIMARY KEY,
+    product_slug         TEXT NOT NULL,
+    reviewer_name        TEXT,
+    reviewer_title       TEXT,
+    reviewer_company_size TEXT,
+    rating               REAL,
+    review_title         TEXT,
+    review_body          TEXT,
+    pros                 TEXT,
+    cons                 TEXT,
+    posted_at            TEXT,
+    review_url           TEXT,
+    verified_reviewer    INTEGER DEFAULT 0,
+    review_source        TEXT,
+    first_seen_at        TEXT NOT NULL,
+    last_seen_at         TEXT NOT NULL,
+    raw_ref              TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_g2_reviews_slug ON g2_reviews(product_slug);
+CREATE INDEX IF NOT EXISTS idx_g2_reviews_posted ON g2_reviews(posted_at DESC);
 """
 
 # table -> {column: type-with-default}  — populated by later tasks

@@ -179,6 +179,30 @@ def export_cmd(ctx, fmt, what):
         click.echo(p)
 
 
+@main.command(name="g2-export")
+@click.option("--slug", "slugs", multiple=True, help="Product slug(s) to export")
+@click.option("--dir", "export_dir", default=None, help="Export directory")
+@click.option("--format", "fmt", type=click.Choice(["json", "csv", "both"]), default="both")
+@click.pass_context
+def g2_export(ctx, slugs, export_dir, fmt):
+    """Export G2 reviews to JSON and/or CSV."""
+    from src.export.g2_export import export_g2_json, export_g2_csv, export_g2_all
+    cfg = ctx.obj["config"]
+    db = Database(cfg.storage.db_path)
+    out_dir = export_dir or cfg.storage.export_dir
+    paths = []
+    if slugs:
+        for slug in slugs:
+            if fmt in ("json", "both"):
+                paths.append(export_g2_json(db, slug, out_dir))
+            if fmt in ("csv", "both"):
+                paths.append(export_g2_csv(db, slug, out_dir))
+    else:
+        paths = export_g2_all(db, out_dir)
+    for p in paths:
+        click.echo(p)
+
+
 @main.group()
 @click.pass_context
 def funding(ctx):

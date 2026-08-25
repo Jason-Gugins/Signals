@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     linkedin_slug       TEXT,
     linkedin_company_id TEXT,
     repvue_slug         TEXT,
+    g2_slug             TEXT,
     cik                 TEXT,                      -- 10-digit zero-padded
     ticker              TEXT,
     ats_vendor          TEXT,                      -- greenhouse|lever|ashby|...
@@ -275,7 +276,7 @@ CREATE TABLE IF NOT EXISTS cloudflare_cookies (
 
 # table -> {column: type-with-default}  — populated by later tasks
 NEW_COLUMNS: dict[str, dict[str, str]] = {
-    "accounts": {},
+    "accounts": {"g2_slug": "TEXT"},
     "signals": {},
     "documents": {},
 }

@@ -63,7 +63,7 @@ copy .env.example .env
 ```
 
 Also: `init`, `resolve`, `collect`, `reparse`, `score`, `status`, `doctor`,
-`accounts`, `champions`, `signals`, `deepen`.
+`accounts`, `champions`, `signals`, `deepen`, `g2-export`.
 
 Outputs land in `data/exports/`, `data/briefs/`, and `data/alerts/`.
 Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).

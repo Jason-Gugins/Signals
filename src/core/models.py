@@ -47,6 +47,7 @@ class Account:
     linkedin_slug: Optional[str] = None
     linkedin_company_id: Optional[str] = None
     repvue_slug: Optional[str] = None
+    g2_slug: Optional[str] = None
     cik: Optional[str] = None
     ticker: Optional[str] = None
     ats_vendor: Optional[str] = None
@@ -82,6 +83,7 @@ class Account:
             "linkedin_slug": self.linkedin_slug,
             "linkedin_company_id": self.linkedin_company_id,
             "repvue_slug": self.repvue_slug,
+            "g2_slug": self.g2_slug,
             "cik": self.cik,
             "ticker": self.ticker,
             "ats_vendor": self.ats_vendor,

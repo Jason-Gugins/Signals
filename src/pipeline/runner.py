@@ -291,7 +291,7 @@ class CollectorRunner:
         # because HttpEvidence has no hosts attribute).
         if (
             self.cloudflare_bypass
-            and task.source == "techstack"
+            and task.source in _CF_BYPASS_SOURCES
             and not (task.meta or {}).get("capture")
             and result.doc is not None
         ):
@@ -391,6 +391,7 @@ def _ckey(adapter, account) -> str:
 
 
 ATS_PREFIX = "ats_"
+_CF_BYPASS_SOURCES = {"techstack", "marketplace_g2"}
 COLLECTED_VENDORS = {
     "greenhouse",
     "lever",

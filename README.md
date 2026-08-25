@@ -99,7 +99,7 @@ Enabled adapters live in `config/sources.yaml`:
 - Community: `community_hn`, `community_github`
 - Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db`, `content_itunes`
 
-Disabled by default: `community_reddit`, `marketplace_g2`.
+Disabled by default: `community_reddit`. `marketplace_g2` is opt-in (browser tier, Cloudflare bypass, ToS restricts automation — see `src/sources/marketplace/README.md`).
 
 `techstack` indexes observed third-party hosts from HTML/HAR-lite; YAML only *names* common platforms (HubSpot, Webflow, GTM, …). Unknown SaaS still lands as `host:cdn.example` in `technologies`, not as `tech_install_new`. After seed: `.\.venv\Scripts\python.exe -m src.cli collect --source techstack --force`. Full notes: [`src/sources/techstack/README.md`](src/sources/techstack/README.md).
 

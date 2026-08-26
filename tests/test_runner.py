@@ -415,7 +415,7 @@ def test_runner_routes_challenge_through_bypass(tmp_path):
             self.last_domain = None
             self.last_url = None
 
-        def attempt(self, *, domain, url, user_agent, proxy="direct"):
+        def attempt(self, *, domain, url, user_agent, proxy="direct", source="techstack", click_show_more=False, **_):
             self.attempts += 1
             self.last_domain = domain
             self.last_url = url
@@ -468,7 +468,7 @@ def test_runner_marks_cloudflare_unsolved_on_bypass_failure(tmp_path):
             return FetchResult(True, 200, doc, False, None, 1)
 
     class _FailingBypass:
-        def attempt(self, *, domain, url, user_agent, proxy="direct"):
+        def attempt(self, *, domain, url, user_agent, proxy="direct", source="techstack", click_show_more=False, **_):
             from src.sources.techstack.cf_bypass import BypassOutcome
             return BypassOutcome(False, None, "managed", None, [])
 

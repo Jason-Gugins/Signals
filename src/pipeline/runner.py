@@ -66,6 +66,15 @@ class CollectorRunner:
         stats = RunnerStats()
         now = _now()
         for adapter in adapters:
+            if adapter.key == "marketplace_g2":
+                try:
+                    g2_cfg = self.config.load_yaml("marketplace").get("sites", {}).get("g2", {})
+                    cookie_file = g2_cfg.get("session_cookie_file")
+                    if cookie_file and hasattr(adapter, "_session_cookie_file"):
+                        adapter._session_cookie_file = cookie_file
+                except Exception:
+                    pass
+        for adapter in adapters:
             eligible = []
             for account in accounts:
                 if not _requires_met(adapter, account):
@@ -184,6 +193,7 @@ class CollectorRunner:
                         g2_cfg = self.config.load_yaml("marketplace").get("sites", {}).get("g2", {})
                         meta.setdefault("review_lookback_days", g2_cfg.get("review_lookback_days", 90))
                         meta.setdefault("max_review_pages", g2_cfg.get("max_review_pages", 5))
+                        meta.setdefault("click_show_more", g2_cfg.get("deep_reviews", False))
                     except Exception:
                         meta.setdefault("review_lookback_days", 90)
                 cands = adapter.parse(result.doc, account, meta)
@@ -325,7 +335,9 @@ class CollectorRunner:
                 proxy = getattr(self.config.browser, "proxy_server", None) or "direct"
                 try:
                     outcome = self.cloudflare_bypass.attempt(
-                        domain=task.domain, url=task.url, user_agent=ua, proxy=proxy
+                        domain=task.domain, url=task.url, user_agent=ua, proxy=proxy,
+                        source=task.source,
+                        click_show_more=bool((task.meta or {}).get("click_show_more")),
                     )
                 except Exception as exc:  # pragma: no cover - defensive
                     logger.warning("cloudflare bypass failed for {}: {}", task.domain, exc)

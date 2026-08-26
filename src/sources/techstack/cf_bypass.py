@@ -28,7 +28,7 @@ class CloudflareBypass:
         self.http = http_fetcher
         self.browser = browser_fetcher
 
-    def attempt(self, *, domain: str, url: str, user_agent: str, proxy: str = "direct") -> BypassOutcome:
+    def attempt(self, *, domain: str, url: str, user_agent: str, proxy: str = "direct", source: str = "techstack", click_show_more: bool = False) -> BypassOutcome:
         cf = self.config.cloudflare
         if not cf.enabled or cf.bypass_strategy == "disabled":
             return BypassOutcome(False, None, "managed", None, [])
@@ -45,7 +45,7 @@ class CloudflareBypass:
         # Tier 2: browser solve (standard JS challenge)
         result: FetchResult | None = None
         if cf.bypass_strategy in ("browser_first", "browser_only", "solver_first"):
-            result = self.browser.fetch(url, source="techstack", domain=domain, capture_html=True)
+            result = self.browser.fetch(url, source=source, domain=domain, capture_html=True, click_show_more=click_show_more)
             if result.ok and result.cloudflare_cookies:
                 expires_at = self._cookie_expiry(result.cloudflare_cookies)
                 self._persist(domain, result.cloudflare_cookies, user_agent, proxy,

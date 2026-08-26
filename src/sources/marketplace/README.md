@@ -21,6 +21,7 @@ Disabled by default. Opt-in only. G2's Terms of Service restrict automated scrap
 - [Storage](#storage)
 - [Export](#export)
 - [Cloudflare Bypass](#cloudflare-bypass)
+- [DataDome Protection](#datadome-protection)
 - [Configuration](#configuration)
 - [Quick Start](#quick-start)
 - [CLI Reference](#cli-reference)
@@ -406,6 +407,70 @@ See [`src/sources/techstack/README.md`](../techstack/README.md) for the full byp
 
 ---
 
+## DataDome Protection
+
+G2 is behind **DataDome** in addition to Cloudflare. DataDome uses TLS fingerprinting
+(JA3/JA4), HTTP/2 fingerprinting, browser fingerprinting, IP reputation, and behavioral
+analysis to detect bots — stricter than Cloudflare's checks. Unlike Cloudflare, DataDome
+detects Playwright automation, so the browser solve tier that works for CF cannot clear DD.
+
+The `DataDomeBypass` waterfall (`src/sources/techstack/datadome_bypass.py`) runs after the
+Cloudflare bypass — if the response is still a DataDome challenge (403 or 200 with
+`captcha-delivery.com` in the body), the DD bypass takes over. Detection is content-based
+(`is_datadome_challenge` in `src/sources/techstack/datadome.py`), not gated by source.
+
+### 5-tier waterfall
+
+| Tier | Method | Description |
+|---|---|---|
+| 1 | Cookie reuse | Replay a previously-solved `datadome` cookie (domain + UA + proxy bound) from the `datadome_cookies` SQLite table via httpx |
+| 2 | curl_cffi TLS impersonation | HTTP GET with `curl_cffi` using `impersonate="chrome"` — matches a real browser's JA3/JA4 fingerprint. Many DD challenges clear here with no CAPTCHA solve |
+| 3 | External solver | 2Captcha/CapSolver `DataDomeSliderTask` — returns a `datadome` cookie directly (set in the HTTP client's cookie jar, no browser re-entry needed) |
+| 4 | Headed fallback | Visible browser, manual or auto-solve (bounded by `headed_solve_timeout_ms`) |
+| 5 | Hard stop | Records `datadome` as a named observation, invents nothing |
+
+**Key difference from Cloudflare**: The DataDome solver returns a **cookie**, not a token.
+The cookie is set directly in the HTTP client's cookie jar — no browser re-entry needed
+(unlike CF Turnstile, which needs a browser to convert token → `cf_clearance` cookie).
+
+Cookies persist in the `datadome_cookies` SQLite table (`DataDomeCookieStore` in
+`src/core/db.py`), bound to domain + User-Agent + proxy, reused on the next weekly collect.
+
+### Residential proxy requirement
+
+A **residential proxy is required for the solver tier** (Tier 3). DataDome bans datacenter
+IPs immediately with `t=bv` (IP banned) — no captcha solve will work from a banned IP.
+The `t=fe` parameter means the captcha is solvable.
+
+- Set `DATADOME_RESIDENTIAL_PROXY` in `.env` (e.g. `http://user:pass@gate.provider.com:8000`)
+- Use a **sticky session** proxy — the `datadome` cookie is IP-bound, so IP rotation between
+  the solve and the re-fetch invalidates it
+- **Optional for local use**: Tiers 1–2 (cookie reuse, curl_cffi) may work without a proxy.
+  The proxy is only needed when the solver tier is invoked
+
+### Cost
+
+~$1.45 per 1000 DataDome solves (2Captcha). At weekly cadence for 30 companies (1 page each),
+that's ~30 solves/week ≈ $0.04/week. CapSolver is also supported but typically more expensive.
+
+The solver is invoked only when Tiers 1–2 fail, so most weeks incur zero solver cost if cached
+cookies and TLS impersonation suffice.
+
+### DataDome vs Cloudflare
+
+| Aspect | Cloudflare | DataDome |
+|---|---|---|
+| Detection | JS challenge page ("Just a moment") | Slider CAPTCHA / interstitial |
+| Cookie | `cf_clearance` | `datadome` |
+| Cookie binding | UA + proxy | UA + proxy + IP (strict) |
+| TLS fingerprint check | Yes (JA3/JA4) | Yes (JA3/JA4) — stricter |
+| Browser solves it? | Yes (Playwright can solve JS) | No (detects Playwright automation) |
+| Solver returns | Token (needs browser to set cookie) | Cookie directly (set in HTTP jar) |
+| Proxy requirement | Optional | **Required** (residential) |
+| Cost per 1000 | ~$2.99 (Turnstile) | ~$1.45 (DataDome slider) |
+
+---
+
 ## Configuration
 
 ### config/sources.yaml
@@ -440,6 +505,37 @@ CLOUDFLARE_SOLVER_API_KEY=your_key
 CLOUDFLARE_BYPASS_STRATEGY=browser_first # browser_first | solver_first | browser_only | disabled
 CLOUDFLARE_HEADED_FALLBACK=false         # true to launch visible browser on hard challenges
 ```
+
+The DataDome bypass reads from `.env`:
+
+```
+DATADOME_SOLVER_PROVIDER=2captcha        # 2captcha | capsolver
+DATADOME_SOLVER_API_KEY=your_key          # your 2captcha/capsolver API key
+DATADOME_RESIDENTIAL_PROXY=http://user:pass@gate.provider.com:8000  # required for solver tier
+```
+
+### config/default.yaml — DataDome block
+
+```yaml
+datadome:
+  enabled: false                # opt-in — DataDome bypass for marketplace_g2
+  bypass_strategy: solver       # solver | curl_cffi_first | disabled
+  solver_provider: null         # 2captcha | capsolver | null
+  solver_api_key: null          # set via DATADOME_SOLVER_API_KEY env var
+  headed_fallback: false        # launch visible browser on hard challenges
+  cookie_ttl_hours: 24          # datadome cookies are short-lived
+  residential_proxy: null       # required for solver — set via DATADOME_RESIDENTIAL_PROXY env var
+```
+
+| Config key | Env var | Default | Description |
+|---|---|---|---|
+| `datadome.enabled` | — | `false` | Opt-in master switch for the DataDome bypass |
+| `datadome.bypass_strategy` | — | `solver` | `solver` \| `curl_cffi_first` \| `disabled` |
+| `datadome.solver_provider` | `DATADOME_SOLVER_PROVIDER` | `null` | `2captcha` \| `capsolver` \| `null` |
+| `datadome.solver_api_key` | `DATADOME_SOLVER_API_KEY` | `null` | Solver API key (prefer env var) |
+| `datadome.headed_fallback` | — | `false` | Launch visible browser on hard challenges (Tier 4) |
+| `datadome.cookie_ttl_hours` | — | `24` | Cookie TTL ceiling for cached `datadome` cookies |
+| `datadome.residential_proxy` | `DATADOME_RESIDENTIAL_PROXY` | `null` | Residential proxy URL — **required for solver tier** |
 
 ---
 

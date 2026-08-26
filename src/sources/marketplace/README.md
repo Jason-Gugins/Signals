@@ -425,6 +425,7 @@ Cloudflare bypass — if the response is still a DataDome challenge (403 or 200 
 |---|---|---|
 | 1 | Cookie reuse | Replay a previously-solved `datadome` cookie (domain + UA + proxy bound) from the `datadome_cookies` SQLite table via httpx |
 | 2 | curl_cffi TLS impersonation | HTTP GET with `curl_cffi` using `impersonate="chrome"` — matches a real browser's JA3/JA4 fingerprint. Many DD challenges clear here with no CAPTCHA solve |
+| 2.5 | Patchright stealth browser | Undetected Chromium with behavioral warm-up — navigates to the G2 homepage first (scroll, dwell), then to the target page. Clears DataDome's `rt='i'` interstitial device check that curl_cffi can't (requires JS execution). Patchright patches Chromium at the C++ level (not JS injection) to remove `navigator.webdriver`, the `Runtime.enable` CDP leak, and `--enable-automation` flags |
 | 3 | External solver | 2Captcha/CapSolver `DataDomeSliderTask` — returns a `datadome` cookie directly (set in the HTTP client's cookie jar, no browser re-entry needed) |
 | 4 | Headed fallback | Visible browser, manual or auto-solve (bounded by `headed_solve_timeout_ms`) |
 | 5 | Hard stop | Records `datadome` as a named observation, invents nothing |

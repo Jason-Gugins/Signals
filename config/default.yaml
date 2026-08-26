@@ -35,7 +35,7 @@ cloudflare:
   max_solves_per_domain_per_24h: 1  # anti-escalation cap
 
 datadome:
-  enabled: false                # opt-in — DataDome bypass for marketplace_g2
+  enabled: true                 # opt-in — DataDome bypass for marketplace_g2
   bypass_strategy: solver       # solver | curl_cffi_first | disabled
   solver_provider: null         # 2captcha | capsolver | null
   solver_api_key: null          # set via DATADOME_SOLVER_API_KEY env var

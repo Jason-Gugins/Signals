@@ -71,6 +71,17 @@ class CloudflareConfig:
 
 
 @dataclass
+class DataDomeConfig:
+    enabled: bool = False
+    bypass_strategy: str = "solver"
+    solver_provider: str | None = None
+    solver_api_key: str | None = None
+    headed_fallback: bool = False
+    cookie_ttl_hours: int = 24
+    residential_proxy: str | None = None
+
+
+@dataclass
 class StorageConfig:
     db_path: str = "data/signals.db"
     raw_dir: str = "data/raw"
@@ -107,6 +118,7 @@ class Config:
     http: HttpConfig = field(default_factory=HttpConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
     cloudflare: CloudflareConfig = field(default_factory=CloudflareConfig)
+    datadome: DataDomeConfig = field(default_factory=DataDomeConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     external_dbs: ExternalDbConfig = field(default_factory=ExternalDbConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -213,3 +225,12 @@ def _apply_env_overrides(config: Config) -> None:
     cf_headed = os.environ.get("CLOUDFLARE_HEADED_FALLBACK")
     if cf_headed is not None and cf_headed != "":
         config.cloudflare.headed_fallback = cf_headed.strip().lower() in ("1", "true", "yes", "on")
+    dd_provider = os.environ.get("DATADOME_SOLVER_PROVIDER")
+    if dd_provider:
+        config.datadome.solver_provider = dd_provider
+    dd_api_key = os.environ.get("DATADOME_SOLVER_API_KEY")
+    if dd_api_key:
+        config.datadome.solver_api_key = dd_api_key
+    dd_proxy = os.environ.get("DATADOME_RESIDENTIAL_PROXY")
+    if dd_proxy:
+        config.datadome.residential_proxy = dd_proxy

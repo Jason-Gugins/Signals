@@ -88,3 +88,29 @@ def test_g2_follow_tasks_stops_on_empty_page():
     meta = {"today": "2026-03-15", "product_slug": "slack", "page": 3, "max_review_pages": 5}
     follows = adapter.follow_tasks(doc, acct, meta)
     assert follows == []
+
+def test_g2_plan_with_session_cookies(tmp_path):
+    """plan() includes session cookies in task headers when cookie file is configured."""
+    import json
+    cookie_file = tmp_path / "g2_cookies.json"
+    cookie_file.write_text(json.dumps([
+        {"name": "session", "value": "abc123", "domain": ".g2.com"},
+        {"name": "cf_clearance", "value": "tok", "domain": ".g2.com"},
+    ]))
+    adapter = MarketplaceG2Source()
+    adapter._session_cookie_file = str(cookie_file)
+    acct = Account(domain="acme.com", g2_slug="slack")
+    tasks = adapter.plan(acct, None)
+    assert len(tasks) == 1
+    assert "Cookie" in tasks[0].headers
+    assert "session=abc123" in tasks[0].headers["Cookie"]
+    assert "cf_clearance=tok" in tasks[0].headers["Cookie"]
+
+def test_g2_plan_without_session_cookies():
+    """plan() works normally when no cookie file is set."""
+    adapter = MarketplaceG2Source()
+    adapter._session_cookie_file = None
+    acct = Account(domain="acme.com", g2_slug="slack")
+    tasks = adapter.plan(acct, None)
+    assert len(tasks) == 1
+    assert "Cookie" not in tasks[0].headers

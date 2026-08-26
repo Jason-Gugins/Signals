@@ -54,15 +54,38 @@ class MarketplaceG2Source(SourceAdapter):
     cadence_hours = 168
     requires = ("g2_slug",)
 
+    def __init__(self):
+        self._session_cookie_file: str | None = None
+
+    def _load_cookies(self) -> list[dict]:
+        """Load session cookies from a JSON file if configured."""
+        import json
+        from pathlib import Path
+        if not self._session_cookie_file:
+            return []
+        try:
+            p = Path(self._session_cookie_file)
+            if p.exists():
+                return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        return []
+
     def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
         if not account.g2_slug:
             return []
         url = f"https://www.g2.com/products/{account.g2_slug}/reviews"
+        headers = {}
+        cookies = self._load_cookies()
+        if cookies:
+            cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+            headers["Cookie"] = cookie_str
         return [
             FetchTask(
                 source=self.key,
                 url=url,
                 domain=account.domain,
+                headers=headers,
                 meta={"kind": "reviews", "product_slug": account.g2_slug, "page": 1},
             )
         ]

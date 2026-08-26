@@ -41,3 +41,19 @@ def test_g2_parse_skips_old_reviews():
     meta = {"today": "2026-08-25"}
     cands = adapter.parse(doc, acct, meta)
     assert cands == []
+
+def test_g2_parse_respects_custom_lookback_days():
+    """parse() should use review_lookback_days from task_meta."""
+    adapter = MarketplaceG2Source()
+    acct = Account(domain="acme.com", g2_slug="slack")
+    doc = Document(doc_id="d", source="marketplace_g2", url="https://www.g2.com/products/slack/reviews",
+                   body=FIXTURE.encode("utf-8"))
+    # With lookback=365, all 3 fixture reviews (Jan, Dec, Nov) are within range from 2026-03-15
+    meta = {"today": "2026-03-15", "review_lookback_days": 365}
+    cands = adapter.parse(doc, acct, meta)
+    assert len(cands) == 3
+
+    # With lookback=30, all reviews > 30 days from 2026-03-15
+    meta = {"today": "2026-03-15", "review_lookback_days": 30}
+    cands = adapter.parse(doc, acct, meta)
+    assert cands == []

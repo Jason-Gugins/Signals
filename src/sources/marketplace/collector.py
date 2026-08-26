@@ -78,12 +78,13 @@ class MarketplaceG2Source(SourceAdapter):
         if not today_str:
             return []
         today = date.fromisoformat(today_str)
+        lookback = int((task_meta or {}).get("review_lookback_days", 90))
         out: list[SignalCandidate] = []
         for r in reviews:
             posted = r.posted_at
             if posted:
                 try:
-                    if (today - date.fromisoformat(posted)).days > 90:
+                    if (today - date.fromisoformat(posted)).days > lookback:
                         continue
                 except (ValueError, TypeError):
                     pass

@@ -27,6 +27,7 @@ Disabled by default. Opt-in only. G2's Terms of Service restrict automated scrap
 - [Testing](#testing)
 - [How It Fits in Signals](#how-it-fits-in-signals)
 - [Legal & Ethics](#legal--ethics)
+- [Features](#features)
 - [Limitations & Roadmap](#limitations--roadmap)
 
 ---
@@ -162,7 +163,9 @@ tests/
 URL. Passes the project's [AST purity guard](../techstack/README.md) — no imports of `httpx`,
 `requests`, `sqlite3`, or `playwright`; no calls to `datetime.now()` or `date.today()`.
 
-Uses Python's stdlib `html.parser.HTMLParser` (no external dependencies like BeautifulSoup).
+Uses BeautifulSoup4 (`bs4`) with the `lxml` parser for robust DOM handling. The `bs4` import is
+deferred to call time (inside `parse_g2_reviews`) so the module remains import-pure for the
+[AST purity guard](../techstack/README.md) — the guard scans module-level imports only.
 
 ### G2Review dataclass
 
@@ -420,10 +423,11 @@ marketplace_g2:
 sites:
   g2:
     enabled: false
-    deep_reviews: false        # click "Show More" on each review (slow, browser tier) [planned]
-    sign_in_required: false    # full review text requires G2 sign-in (manual cookie) [planned]
-    max_review_pages: 5        # cap pagination [planned]
-    review_lookback_days: 90   # drop reviews older than this
+    deep_reviews: false        # click "Show More" on each review (slow, browser tier)
+    sign_in_required: false    # full review text requires G2 sign-in (manual cookie)
+    max_review_pages: 5        # cap pagination via follow_tasks
+    review_lookback_days: 90   # drop reviews older than this (config-driven)
+    session_cookie_file: null  # path to a JSON cookie file for G2 sign-in (no automated login)
 ```
 
 ### Environment variables
@@ -453,6 +457,16 @@ domain,name,g2_slug
 acme.com,Acme,acme-crm
 example.com,Example,slack
 ```
+
+If you don't know a product's G2 slug, auto-resolve it from the company name:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli resolve --g2
+```
+
+This runs the G2 search resolver (`src/identity/g2_resolve.py`) for every account that lacks a
+`g2_slug`, looks up the product page, and writes the slug back to the account record. Accounts
+without a slug are skipped by the collector, so resolving first avoids empty runs.
 
 ### 2. Enable the source
 
@@ -609,28 +623,59 @@ The adapter is disabled by default (`enabled: false` in `config/sources.yaml`). 
 
 ---
 
+## Features
+
+The adapter implements the capabilities below. Each maps to a feature that was previously a
+roadmap item; see the commit references in the project history.
+
+- **Multi-page pagination** — `follow_tasks()` plans the next review page (`?page=N`) up to
+  `max_review_pages` (default 5). The runner fetches each page in turn so a single collect run
+  sweeps multiple pages per account, not just the first.
+
+- **Show More expansion** — when `deep_reviews: true` is set in `config/marketplace.yaml`, the
+  runner requests "Show More" clicks on each review card to expand truncated bodies before
+  parsing (browser tier).
+
+- **Session cookie support** — set `session_cookie_file` to a JSON cookie file (Playwright/
+  browser export format) to attach a G2 sign-in session. This unlocks full review text that G2
+  gates behind login without any automated login form submission.
+
+- **BeautifulSoup4 parser** — `parse_g2_reviews()` uses `bs4.BeautifulSoup` with the `lxml`
+  parser instead of a hand-rolled `HTMLParser`. More resilient to G2's obfuscated, shifting
+  class names and nested structure.
+
+- **2Captcha solver wiring** — the Cloudflare bypass waterfall's tier 3 (`_solver_via_browser`)
+  calls the 2Captcha/anti-captcha Turnstile API and attempts to inject the token via
+  `inject_turnstile_token`. The API call is wired; the token-to-cookie browser injection path
+  remains a stub (see Cloudflare Bypass / Limitations).
+
+- **Auto-resolve g2_slug** — `python -m src.cli resolve --g2` resolves a product slug from the
+  company name via G2 search (`src/identity/g2_resolve.py`) and writes it back to the account,
+  so accounts can be seeded without manually looking up slugs.
+
+- **Config-driven lookback** — `review_lookback_days` (default 90) in
+  `config/marketplace.yaml` controls how old a review can be and still emit a signal. No longer
+  hardcoded.
+
+---
+
 ## Limitations & Roadmap
 
 ### Current limitations
 
-- **Single page**: The adapter fetches one reviews page per account per collect run. Multi-page
-  pagination (`?page=2`, `?page=3`, ...) is not yet implemented (config option `max_review_pages`
-  exists but is not wired).
-- **Truncated reviews**: G2 truncates long review bodies with a "Show More" link. The current
-  parser captures the truncated text. Full text requires clicking "Show More" (planned) or
-  sign-in (planned).
-- **Sign-in required for full text**: Some review sections ("What do you dislike?",
-  "Recommendations to others") may require G2 sign-in to view. No automated login.
-- **DOM fragility**: G2 obfuscates class names and changes structure over time. The parser is
-  tested against a frozen fixture; real-world G2 may differ. Selectors may need maintenance.
-- **Cloudflare escalation**: G2 may use managed/Turnstile challenges. The browser-only JS solve
-  may fail. The 2Captcha solver tier is a stub (token-to-cookie injection not fully wired). Headed
-  fallback is available but requires manual intervention.
+- **G2 DOM drift**: G2 obfuscates class names and restructures pages over time. The parser is
+  tested against a frozen fixture; live G2 markup may diverge and require selector maintenance.
+  BeautifulSoup4 softens this (CSS selectors, tolerant tree walking) but cannot eliminate it.
 
-### Planned (optional tasks from the implementation plan)
+- **Cloudflare Turnstile escalation**: G2 may escalate to managed/Turnstile challenges that the
+  browser-only JS solve (tier 2) cannot clear. The 2Captcha solver tier (tier 3) makes the API
+  call but the token-to-`cf_clearance` browser injection path is still a stub — see the Cloudflare
+  Bypass section. Headed fallback (tier 4) is available but needs manual intervention.
 
-- **Task 9**: Switch parser to BeautifulSoup4 for more robust DOM handling
-- **Task 11**: "Show More" deep-review mode — click to expand truncated reviews via browser tier
-- **Task 12**: G2 sign-in cookie support — manual cookie file for full review text (no automated login)
-- **Multi-page pagination**: Follow `?page=N` links up to `max_review_pages`
-- **Auto-resolve g2_slug**: Resolve product slug from company name via G2 search (currently manual)
+- **G2 ToS**: G2's Terms of Service restrict automated scraping. The adapter stays disabled by
+  default and opt-in. Enable at your own risk (see Legal & Ethics).
+
+### Roadmap
+
+- Wire the 2Captcha token-to-cookie browser injection so the solver tier can produce a real
+  `cf_clearance` cookie end-to-end (currently the API call succeeds but the injection is stubbed).

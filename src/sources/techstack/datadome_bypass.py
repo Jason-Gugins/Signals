@@ -26,16 +26,17 @@ from src.sources.techstack.datadome_solver import solve_datadome
 @dataclass
 class DataDomeOutcome:
     success: bool
-    method: str | None          # "cookie_reuse" | "curl_cffi" | "solver" | "headed" | None
+    method: str | None          # "cookie_reuse" | "curl_cffi" | "stealth_browser" | "solver" | "headed" | None
     result_body: bytes | None
     cookies: list[dict]
 
 
 class DataDomeBypass:
-    def __init__(self, config, cookie_store, curl_fetcher):
+    def __init__(self, config, cookie_store, curl_fetcher, stealth_browser=None):
         self.config = config
         self.cookies = cookie_store
         self.curl = curl_fetcher
+        self.stealth = stealth_browser
 
     def attempt(self, *, domain: str, url: str, user_agent: str, proxy: str = "direct") -> DataDomeOutcome:
         dd = getattr(self.config, "datadome", None)
@@ -73,6 +74,30 @@ class DataDomeBypass:
         if is_datadome_ip_banned(params):
             logger.warning("DataDome: IP banned (t=bv) for {} — change proxy", domain)
             return DataDomeOutcome(False, None, result.body, [])
+
+        # Tier 2.5: stealth browser (Patchright) with behavioral warm-up
+        if self.stealth and dd.bypass_strategy != "solver_first":
+            try:
+                warmup = f"https://www.{domain}/" if domain else None
+                stealth_result = self.stealth.fetch(
+                    url, source="marketplace_g2", domain=domain,
+                    warmup_url=warmup, warmup_ms=4000,
+                    cookies=cached_cookies if cached else None,
+                    wait_ms=5000, scroll=True,
+                )
+                if stealth_result and stealth_result.ok and stealth_result.doc:
+                    body = stealth_result.doc.body or b""
+                    if not is_datadome_challenge(status=stealth_result.status, body=body):
+                        # Extract datadome cookie from stealth browser cookies
+                        dd_cookies = []
+                        for c in (stealth_result.cloudflare_cookies or []):
+                            if c.get("name") == "datadome":
+                                dd_cookies.append(c)
+                        if dd_cookies:
+                            self._persist(domain, dd_cookies, user_agent, proxy, method="stealth_browser")
+                        return DataDomeOutcome(True, "stealth_browser", body, dd_cookies)
+            except Exception as e:
+                logger.warning("Stealth browser tier failed: {}", e)
 
         # Tier 3: external solver (2Captcha/CapSolver)
         if dd.solver_provider and dd.solver_api_key and dd.bypass_strategy != "browser_only":

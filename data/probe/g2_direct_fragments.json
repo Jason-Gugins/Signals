@@ -1,0 +1,44 @@
+{
+  "mach": {
+    "len": 1513,
+    "blocked": true,
+    "elv_stars": 0,
+    "has_review_term": true
+  },
+  "convex": {
+    "len": 1497,
+    "blocked": true,
+    "elv_stars": 0,
+    "has_review_term": true
+  },
+  "helpjuice": {
+    "len": 1500,
+    "blocked": true,
+    "elv_stars": 0,
+    "has_review_term": true
+  },
+  "monday": {
+    "len": 1497,
+    "blocked": true,
+    "elv_stars": 0,
+    "has_review_term": true
+  },
+  "asana": {
+    "len": 1496,
+    "blocked": true,
+    "elv_stars": 0,
+    "has_review_term": true
+  },
+  "notion": {
+    "len": 1497,
+    "blocked": true,
+    "elv_stars": 0,
+    "has_review_term": true
+  },
+  "clickup": {
+    "len": 1498,
+    "blocked": true,
+    "elv_stars": 0,
+    "has_review_term": true
+  }
+}

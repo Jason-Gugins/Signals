@@ -58,3 +58,19 @@ Because every run was DataDome-intermittent and the one clean 200 fragment respo
 was not body-saved, a single real review HTML/JSON object was not persisted. A future run when
 DataDome fully clears should capture the `reviews_and_filters` 200 body to lock the exact DOM
 matchers.
+
+## Update 23:14 — DataDome escalation
+Follow-up capture attempts used a direct `goto` of the `reviews_and_filters` fragment across 8
+fresh companies (mach, wispr, convex, helpjuice, monday, asana, notion, clickup) plus earlier
+multi-slug runs (suno, groq, elevenlabs, cyera, decagon, candid-health, ramp). ALL returned a
+~1.5–2.6 KB DataDome interstitial (title "g2.com", no review content). The repeated automated
+probing escalated DataDome to block every page in headed mode regardless of company — the earlier
+200s + `datadome` cookie + fragment observation is no longer reproducible on this IP/fingerprint.
+
+**Recommended path forward:** obtain ONE real review-DOM sample by manually saving a G2 reviews
+page from a real logged-in browser (Ctrl+S → "Webpage, HTML only") — this bypasses DataDome
+entirely and provides the exact `elv-*` markup to build the bs4 parser against. Do not keep
+launching automated headless/headed browsers against G2, as it worsens the block.
+
+Capture scripts retained for reference: `scripts/probe_g2_reviews.py`, `scripts/capture_g2_fragment.py`,
+`scripts/capture_g2_direct.py`.

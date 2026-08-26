@@ -103,6 +103,12 @@ class CollectorRunner:
         cursor_row = self._cursor(adapter.key, key) or {}
         cursor = cursor_row.get("cursor")
         pending_follow: list[FetchTask] = []
+        if adapter.key == "marketplace_g2":
+            try:
+                g2_cfg = self.config.load_yaml("marketplace").get("sites", {}).get("g2", {})
+                max_passes = int(g2_cfg.get("max_review_pages", 5)) + 1
+            except Exception:
+                max_passes = 6
         for pass_i in range(max_passes):
             if pending_follow:
                 tasks = pending_follow
@@ -177,6 +183,7 @@ class CollectorRunner:
                     try:
                         g2_cfg = self.config.load_yaml("marketplace").get("sites", {}).get("g2", {})
                         meta.setdefault("review_lookback_days", g2_cfg.get("review_lookback_days", 90))
+                        meta.setdefault("max_review_pages", g2_cfg.get("max_review_pages", 5))
                     except Exception:
                         meta.setdefault("review_lookback_days", 90)
                 cands = adapter.parse(result.doc, account, meta)

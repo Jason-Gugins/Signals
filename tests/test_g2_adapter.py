@@ -57,3 +57,34 @@ def test_g2_parse_respects_custom_lookback_days():
     meta = {"today": "2026-03-15", "review_lookback_days": 30}
     cands = adapter.parse(doc, acct, meta)
     assert cands == []
+
+def test_g2_follow_tasks_returns_next_page():
+    """follow_tasks returns a FetchTask for page 2 when current page has reviews."""
+    adapter = MarketplaceG2Source()
+    acct = Account(domain="acme.com", g2_slug="slack")
+    doc = Document(doc_id="d", source="marketplace_g2", url="https://www.g2.com/products/slack/reviews",
+                   body=FIXTURE.encode("utf-8"))
+    meta = {"today": "2026-03-15", "product_slug": "slack", "page": 1, "max_review_pages": 5}
+    follows = adapter.follow_tasks(doc, acct, meta)
+    assert len(follows) == 1
+    assert "page=2" in follows[0].url
+
+def test_g2_follow_tasks_stops_at_max_pages():
+    """follow_tasks returns [] when current page >= max_review_pages."""
+    adapter = MarketplaceG2Source()
+    acct = Account(domain="acme.com", g2_slug="slack")
+    doc = Document(doc_id="d", source="marketplace_g2", url="https://www.g2.com/products/slack/reviews?page=5",
+                   body=FIXTURE.encode("utf-8"))
+    meta = {"today": "2026-03-15", "product_slug": "slack", "page": 5, "max_review_pages": 5}
+    follows = adapter.follow_tasks(doc, acct, meta)
+    assert follows == []
+
+def test_g2_follow_tasks_stops_on_empty_page():
+    """follow_tasks returns [] when no reviews were found on the current page."""
+    adapter = MarketplaceG2Source()
+    acct = Account(domain="acme.com", g2_slug="slack")
+    doc = Document(doc_id="d", source="marketplace_g2", url="https://www.g2.com/products/slack/reviews?page=3",
+                   body=b"<html><body></body></html>")
+    meta = {"today": "2026-03-15", "product_slug": "slack", "page": 3, "max_review_pages": 5}
+    follows = adapter.follow_tasks(doc, acct, meta)
+    assert follows == []

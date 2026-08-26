@@ -63,7 +63,7 @@ class MarketplaceG2Source(SourceAdapter):
                 source=self.key,
                 url=url,
                 domain=account.domain,
-                meta={"kind": "reviews", "product_slug": account.g2_slug},
+                meta={"kind": "reviews", "product_slug": account.g2_slug, "page": 1},
             )
         ]
 
@@ -115,3 +115,30 @@ class MarketplaceG2Source(SourceAdapter):
 
         body = (doc.body or b"").decode("utf-8", "replace")
         return parse_g2_reviews(body, doc.url or "")
+
+    def follow_tasks(self, doc: Document, account: Account, task_meta: dict) -> list[FetchTask]:
+        """Plan the next review page if current page had reviews and we haven't hit max_review_pages."""
+        from src.sources.marketplace.g2 import parse_g2_reviews
+
+        body = (doc.body or b"").decode("utf-8", "replace")
+        reviews = parse_g2_reviews(body, doc.url or "")
+        if not reviews:
+            return []
+        meta = task_meta or {}
+        current_page = int(meta.get("page", 1))
+        max_pages = int(meta.get("max_review_pages", 5))
+        if current_page >= max_pages:
+            return []
+        next_page = current_page + 1
+        slug = meta.get("product_slug") or account.g2_slug
+        if not slug:
+            return []
+        url = f"https://www.g2.com/products/{slug}/reviews?page={next_page}"
+        return [
+            FetchTask(
+                source=self.key,
+                url=url,
+                domain=account.domain,
+                meta={"kind": "reviews", "product_slug": slug, "page": next_page},
+            )
+        ]

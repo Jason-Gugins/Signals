@@ -40,7 +40,10 @@ sources:
   community_hn:   { enabled: true, cadence_hours: 24, rate_per_host: 1.0 }
   community_github: { enabled: true, cadence_hours: 48, rate_per_host: 1.0 }
   community_reddit: { enabled: false, cadence_hours: 24, rate_per_host: 0.2 }   # aggressive limits
-  marketplace_g2: { enabled: false, cadence_hours: 168 }   # browser tier, opt-in
+  marketplace_g2:
+    enabled: false              # browser tier, opt-in. See config/marketplace.yaml for G2-specific options
+    cadence_hours: 168
+    rate_per_host: 0.5
   content_itunes: { enabled: true, cadence_hours: 168, rate_per_host: 1.0 }
   owned_intent:   { enabled: true, cadence_hours: 1 }      # local file drop
   linkedin_db:    { enabled: true, cadence_hours: 6 }

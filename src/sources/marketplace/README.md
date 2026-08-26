@@ -760,6 +760,20 @@ roadmap item; see the commit references in the project history.
 
 ### Current limitations
 
+- **G2 has migrated to a client-side React SPA**: As of Aug 2026, G2's reviews page renders reviews
+  via a JavaScript API on `https://www.g2.com/products/{slug}/reviews`; review cards are NOT in the
+  initial server HTML. The page also replaced the historical `itemprop` schema.org microdata (which
+  `parse_g2_reviews` targets) with a new `elv-*` component library. Two consequences:
+      1. The pure bs4 parser extracts 0 reviews from the current live DOM — it needs a rewrite against
+         the new `elv-*` structure and/or a call to G2's internal reviews API.
+      2. Extracted pages must be rendered post-JS, which requires the browser tier.
+
+- **DataDome blocks headless mode**: The DataDome bypass (tier 2.5 Patchright) only succeeds in
+  HEADED (visible) mode. In headless, DataDome's Proof-of-Browser fingerprint detects the software
+  SwiftShader WebGL renderer and serves the `rt='i'` interstitial even with Patchright's CDP/flag
+  patches. Additionally, DataDome scores sessions and can challenge a clean headed browser
+  intermittently — success is not deterministic. Set `browser.headless: false` for G2 collection.
+
 - **G2 DOM drift**: G2 obfuscates class names and restructures pages over time. The parser is
   tested against a frozen fixture; live G2 markup may diverge and require selector maintenance.
   BeautifulSoup4 softens this (CSS selectors, tolerant tree walking) but cannot eliminate it.

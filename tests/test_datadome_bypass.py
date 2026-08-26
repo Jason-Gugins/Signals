@@ -126,3 +126,58 @@ def test_datadome_bypass_disabled():
     outcome = bypass.attempt(domain="g2.com", url="https://www.g2.com/products/slack/reviews",
                              user_agent="UA", proxy="direct")
     assert outcome.success is False
+
+
+def test_datadome_bypass_stealth_browser_clears():
+    """Tier 2.5: Patchright stealth browser clears the DataDome interstitial."""
+    from types import SimpleNamespace
+    cookie_store = MagicMock()
+    cookie_store.get.return_value = None
+
+    curl_fetcher = MagicMock()
+    curl_resp = MagicMock()
+    curl_resp.status = 403
+    curl_resp.body = CHALLENGE_BODY  # rt='i' interstitial
+    curl_resp.cookies = {}
+    curl_fetcher.get.return_value = curl_resp
+
+    stealth_browser = MagicMock()
+    from src.core.http import FetchResult
+    from src.core.models import Document
+    stealth_doc = Document(doc_id="d", source="marketplace_g2",
+                          url="https://www.g2.com/products/slack/reviews",
+                          body=REAL_BODY)
+    stealth_result = FetchResult(ok=True, status=200, doc=stealth_doc,
+                                cached=False, error=None, elapsed_ms=5000)
+    stealth_browser.fetch.return_value = stealth_result
+
+    bypass = DataDomeBypass(_make_cfg(), cookie_store, curl_fetcher, stealth_browser=stealth_browser)
+    outcome = bypass.attempt(domain="g2.com", url="https://www.g2.com/products/slack/reviews",
+                             user_agent="Mozilla/5.0 Chrome/147", proxy="direct")
+    assert outcome.success is True
+    assert outcome.method == "stealth_browser"
+    # Should have called stealth_browser.fetch with warmup_url
+    call_kwargs = stealth_browser.fetch.call_args
+    assert "warmup_url" in call_kwargs.kwargs or "warmup_url" in str(call_kwargs)
+
+
+def test_datadome_bypass_stealth_browser_not_used_when_curl_cffi_clears():
+    """Stealth browser is NOT called when curl_cffi already cleared the challenge."""
+    cookie_store = MagicMock()
+    cookie_store.get.return_value = None
+
+    curl_fetcher = MagicMock()
+    curl_resp = MagicMock()
+    curl_resp.status = 200
+    curl_resp.body = REAL_BODY
+    curl_resp.cookies = {"datadome": "cookie"}
+    curl_fetcher.get.return_value = curl_resp
+
+    stealth_browser = MagicMock()
+
+    bypass = DataDomeBypass(_make_cfg(), cookie_store, curl_fetcher, stealth_browser=stealth_browser)
+    outcome = bypass.attempt(domain="g2.com", url="https://www.g2.com/products/slack/reviews",
+                             user_agent="UA", proxy="direct")
+    assert outcome.success is True
+    assert outcome.method == "curl_cffi"
+    stealth_browser.fetch.assert_not_called()

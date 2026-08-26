@@ -273,6 +273,16 @@ CREATE TABLE IF NOT EXISTS cloudflare_cookies (
     PRIMARY KEY (domain, user_agent, proxy)
 );
 
+CREATE TABLE IF NOT EXISTS datadome_cookies (
+    domain          TEXT NOT NULL,
+    user_agent      TEXT NOT NULL,
+    proxy           TEXT NOT NULL DEFAULT 'direct',
+    cookies         TEXT NOT NULL,           -- JSON array of {name, value, domain, ...} full jar
+    expires_at      TEXT NOT NULL,           -- tz-aware ISO datetime (real cookie expiry)
+    solve_method    TEXT,                    -- 'browser' | 'solver' | '2captcha' | 'capsolver' | 'headed'
+    PRIMARY KEY (domain, user_agent, proxy)
+);
+
 CREATE TABLE IF NOT EXISTS g2_reviews (
     review_id            TEXT PRIMARY KEY,
     product_slug         TEXT NOT NULL,
@@ -469,3 +479,60 @@ class CfCookieStore:
 
     def clear(self, domain: str) -> None:
         self.db.execute("DELETE FROM cloudflare_cookies WHERE domain=?", (domain,))
+
+
+class DataDomeCookieStore:
+    """Persist and reuse the solved `datadome` cookie per domain, bound to the
+    User-Agent and egress proxy that solved it.
+
+    Primary key is (domain, user_agent, proxy) so the same domain can have
+    distinct jars per browser fingerprint / proxy chain. Mirrors CfCookieStore
+    but for DataDome's `datadome` cookie (IP + UA bound, stricter than CF).
+    """
+
+    def __init__(self, db: "Database"):
+        self.db = db
+
+    def get(self, domain: str, *, user_agent: str, proxy: str = "direct") -> dict | None:
+        row = self.db.one(
+            "SELECT * FROM datadome_cookies WHERE domain=? AND user_agent=? AND proxy=?",
+            (domain, user_agent, proxy),
+        )
+        if row is None:
+            return None
+        # expiry check via datetime parsing (not ISO string compare — fragile across tz formats)
+        expires = datetime.fromisoformat(row["expires_at"])
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < datetime.now(timezone.utc):
+            return None
+        return dict(row)
+
+    def put(
+        self,
+        domain: str,
+        *,
+        user_agent: str,
+        proxy: str = "direct",
+        cookies: list[dict],
+        expires_at: str,
+        solve_method: str = "browser",
+    ) -> None:
+        # coalesce=False: a fresh solve MUST overwrite a stale row
+        # (db.upsert defaults coalesce=True which would keep the old cookie)
+        self.db.upsert(
+            "datadome_cookies",
+            {
+                "domain": domain,
+                "user_agent": user_agent,
+                "proxy": proxy,
+                "cookies": json.dumps(cookies),
+                "expires_at": expires_at,
+                "solve_method": solve_method,
+            },
+            pk=("domain", "user_agent", "proxy"),
+            coalesce=False,
+        )
+
+    def clear(self, domain: str) -> None:
+        self.db.execute("DELETE FROM datadome_cookies WHERE domain=?", (domain,))

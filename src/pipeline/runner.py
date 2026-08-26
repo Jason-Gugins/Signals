@@ -173,6 +173,12 @@ class CollectorRunner:
                         meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
                     except Exception:
                         meta["watches"] = []
+                if adapter.key == "marketplace_g2":
+                    try:
+                        g2_cfg = self.config.load_yaml("marketplace").get("sites", {}).get("g2", {})
+                        meta.setdefault("review_lookback_days", g2_cfg.get("review_lookback_days", 90))
+                    except Exception:
+                        meta.setdefault("review_lookback_days", 90)
                 cands = adapter.parse(result.doc, account, meta)
                 all_cands.extend(cands)
                 follow.extend(adapter.follow_tasks(result.doc, account, meta) or [])

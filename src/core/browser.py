@@ -149,6 +149,7 @@ class BrowserFetcher:
         capture_network: bool = False,
         capture_html: bool = False,
         click_show_more: bool = False,
+        inject_turnstile_token: str | None = None,
     ) -> FetchResult:
         if not self.config.browser.enabled:
             raise BrowserDisabled("browser tier is disabled (config.browser.enabled=false)")
@@ -203,6 +204,21 @@ class BrowserFetcher:
                                     pass
                         except Exception:
                             pass
+                except Exception:
+                    pass
+            if inject_turnstile_token:
+                try:
+                    self._page.evaluate(f"""
+                        () => {{
+                            const input = document.querySelector('[name="cf-turnstile-response"]');
+                            if (input) input.value = "{inject_turnstile_token}";
+                            if (window.turnstile) {{
+                                const widget = document.querySelector('[data-sitekey]');
+                                if (widget) window.turnstile.execute(widget.getAttribute('data-turnstile-id'), {{token: "{inject_turnstile_token}"}});
+                            }}
+                        }}
+                    """)
+                    self._page.wait_for_timeout(3000)
                 except Exception:
                     pass
             if capture_html:

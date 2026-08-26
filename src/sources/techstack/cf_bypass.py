@@ -63,7 +63,7 @@ class CloudflareBypass:
                                      user_agent=user_agent)
             if token:
                 # Re-enter browser: inject token into Turnstile callback, let CF set cookies
-                result = self._solver_via_browser(url, domain, token, user_agent)
+                result = self._solver_via_browser(url, domain, token, user_agent, source)
                 if result and result.ok and result.cloudflare_cookies:
                     expires_at = self._cookie_expiry(result.cloudflare_cookies)
                     self._persist(domain, result.cloudflare_cookies, user_agent, proxy,
@@ -123,17 +123,14 @@ class CloudflareBypass:
             return m.group(1).decode("utf-8", "replace")
         return None
 
-    def _solver_via_browser(self, url, domain, token, user_agent) -> FetchResult | None:
+    def _solver_via_browser(self, url, domain, token, user_agent, source="techstack") -> FetchResult | None:
         """Re-enter the browser to inject the Turnstile token into the callback,
         let Cloudflare set the real cf_clearance cookie, then extract the jar.
         Implementation: navigate to the challenge page, set the token via
         page.evaluate("document.querySelector('[name=cf-turnstile-response]').value = token"
         + dispatch the turnstile callback), wait for cf_clearance cookie, extract."""
-        # Delegated to BrowserFetcher with a new inject_token mode (see Task 7 notes).
-        # For the initial implementation, this calls browser.fetch with an
-        # inject_turnstile_token kwarg (added to BrowserFetcher in Task 7).
         try:
-            return self.browser.fetch(url, source="techstack", domain=domain,
+            return self.browser.fetch(url, source=source, domain=domain,
                                       capture_html=True, inject_turnstile_token=token)
         except TypeError:
             # BrowserFetcher doesn't yet support inject_turnstile_token — skip

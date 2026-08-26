@@ -3,4 +3,9 @@ competitors: [competitorx]
 sites:
   trustradius: { enabled: false }
   capterra: { enabled: false }
-  g2: { enabled: false }
+  g2:
+    enabled: false
+    deep_reviews: false
+    sign_in_required: false
+    max_review_pages: 5
+    review_lookback_days: 90

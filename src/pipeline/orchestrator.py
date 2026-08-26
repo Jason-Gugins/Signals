@@ -228,11 +228,27 @@ class Orchestrator:
 
                 cf_store = CfCookieStore(self.db)
                 cf_bypass = CloudflareBypass(self.config, cf_store, fetcher, browser)
+            dd_bypass = None
+            if (
+                getattr(self.config, "datadome", None)
+                and self.config.datadome.enabled
+            ):
+                from src.core.curl_fetcher import CurlCffiFetcher
+                from src.core.db import DataDomeCookieStore
+                from src.sources.techstack.datadome_bypass import DataDomeBypass
+
+                dd_store = DataDomeCookieStore(self.db)
+                curl_fetcher = CurlCffiFetcher(
+                    user_agent=self.config.browser.user_agent,
+                    proxy=getattr(self.config.datadome, "residential_proxy", None),
+                )
+                dd_bypass = DataDomeBypass(self.config, dd_store, curl_fetcher)
             try:
                 runner = CollectorRunner(
                     self.config, self.db, self.registry, self.raw, fetcher, self.signal_store, self.taxonomy, ctx,
                     browser=browser,
                     cloudflare_bypass=cf_bypass,
+                    datadome_bypass=dd_bypass,
                 )
                 rest = runner.run(adapters, accounts, force=force, dry_run=dry_run)
             finally:

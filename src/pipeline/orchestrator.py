@@ -72,11 +72,11 @@ class Orchestrator:
             ctx.bump(accounts=stats.created)
             return stats
 
-    def resolve(self, *, cohort=None, limit=None, ats: bool = True, cik: bool = True, feeds: bool = True, icp: bool = True) -> dict:
+    def resolve(self, *, cohort=None, limit=None, ats: bool = True, cik: bool = True, feeds: bool = True, icp: bool = True, g2: bool = False) -> dict:
         with RunContext(self.db, "resolve") as ctx:
             accounts = self._accounts(cohort=cohort, limit=limit)
             ctx.bump(accounts=len(accounts))
-            out = {"accounts": len(accounts), "cik": 0, "ats": 0, "feeds": 0, "icp": 0}
+            out = {"accounts": len(accounts), "cik": 0, "ats": 0, "feeds": 0, "icp": 0, "g2": 0}
             if ats:
                 from src.identity.ats_discovery import AtsDiscovery
 
@@ -126,6 +126,29 @@ class Orchestrator:
                         out["icp"] += 1
                     except Exception as exc:
                         logger.warning("icp failed for {}: {}", acct.domain, exc)
+            if g2:
+                from src.identity.g2_resolve import fetch_g2_search_url, parse_g2_search_results, resolve_g2_slug
+
+                fetcher = self.fetcher or self._http_fetcher(ctx)
+                for acct in accounts:
+                    if acct.g2_slug or not acct.name:
+                        continue
+                    try:
+                        from src.identity.edgar_ids import _Task
+
+                        url = fetch_g2_search_url(acct.name)
+                        res = fetcher.get(_Task(source="g2_resolve", url=url, domain=acct.domain))
+                        if not res or not res.ok or not res.doc or not res.doc.body:
+                            continue
+                        html = res.doc.body.decode("utf-8", "replace")
+                        results = parse_g2_search_results(html)
+                        slug = resolve_g2_slug(acct.name, results)
+                        if slug:
+                            acct.g2_slug = slug
+                            self.registry.upsert(acct, source="g2_resolve")
+                            out["g2"] += 1
+                    except Exception as exc:
+                        logger.warning("g2 resolve failed for {}: {}", acct.domain, exc)
             return out
 
     def collect(self, *, sources=None, cohort=None, domains=None, force=False, dry_run=False, limit=None) -> RunnerStats:

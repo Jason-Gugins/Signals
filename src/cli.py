@@ -86,12 +86,13 @@ def seed(ctx, csv_path, linkedin, repvue, limit, cohort):
 @click.option("--ats/--no-ats", default=True)
 @click.option("--feeds/--no-feeds", default=True)
 @click.option("--icp/--no-icp", default=True)
+@click.option("--g2/--no-g2", default=False)
 @click.option("--limit", type=int, default=None)
 @click.pass_context
-def resolve(ctx, cik, ats, feeds, icp, limit):
+def resolve(ctx, cik, ats, feeds, icp, g2, limit):
     orch: Orchestrator = ctx.obj["get_orch"]()
     try:
-        out = orch.resolve(cohort=ctx.obj["cohort"], limit=limit, ats=ats, cik=cik, feeds=feeds, icp=icp)
+        out = orch.resolve(cohort=ctx.obj["cohort"], limit=limit, ats=ats, cik=cik, feeds=feeds, icp=icp, g2=g2)
         click.echo(f"resolved accounts={out.get('accounts', 0)}")
     except Exception as exc:
         click.echo(f"resolve degraded: {exc}")

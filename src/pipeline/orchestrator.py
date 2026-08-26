@@ -242,7 +242,18 @@ class Orchestrator:
                     user_agent=self.config.browser.user_agent,
                     proxy=getattr(self.config.datadome, "residential_proxy", None),
                 )
-                dd_bypass = DataDomeBypass(self.config, dd_store, curl_fetcher)
+                # Only create the stealth browser if DataDome is enabled
+                stealth_browser = None
+                try:
+                    from src.core.patchright_browser import PatchrightBrowserFetcher
+
+                    stealth_browser = PatchrightBrowserFetcher(self.config, self.raw)
+                except Exception:
+                    pass  # patchright not installed — stealth tier disabled
+                dd_bypass = DataDomeBypass(
+                    self.config, dd_store, curl_fetcher,
+                    stealth_browser=stealth_browser,
+                )
             try:
                 runner = CollectorRunner(
                     self.config, self.db, self.registry, self.raw, fetcher, self.signal_store, self.taxonomy, ctx,

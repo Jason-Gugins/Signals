@@ -1,0 +1,25 @@
+{
+  "url": "https://www.g2.com/products/databricks/reviews",
+  "findings": {
+    "egress_ip": "99.226.66.20",
+    "url_after_goto": "https://www.g2.com/products/databricks/reviews",
+    "title": "g2.com",
+    "review_rendered_marker": null,
+    "final_elv_stars": 0,
+    "final_bytes": 2642,
+    "buildId": null,
+    "dom_markers": {
+      "__NEXT_DATA__": false,
+      "self.__next_f": false,
+      "<script type=\"application/json\"": false,
+      "reviewText": false,
+      "reviewLikes": false,
+      "starRating": false,
+      "reviewRate": false
+    },
+    "has_datadome_cookie": true,
+    "attempt": 3
+  },
+  "fragments_saved": {},
+  "network": []
+}

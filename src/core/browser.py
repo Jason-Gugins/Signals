@@ -148,6 +148,7 @@ class BrowserFetcher:
         scroll: bool = False,
         capture_network: bool = False,
         capture_html: bool = False,
+        click_show_more: bool = False,
     ) -> FetchResult:
         if not self.config.browser.enabled:
             raise BrowserDisabled("browser tier is disabled (config.browser.enabled=false)")
@@ -183,6 +184,27 @@ class BrowserFetcher:
                 self._page.wait_for_timeout(wait_ms)
             if scroll:
                 self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            if click_show_more:
+                try:
+                    selectors = [
+                        "a:has-text('Show More')",
+                        "a:has-text('Read More')",
+                        "button:has-text('Show More')",
+                        "[data-testid='show-more']",
+                    ]
+                    for sel in selectors:
+                        try:
+                            elements = self._page.query_selector_all(sel)
+                            for el in elements:
+                                try:
+                                    el.click(timeout=2000)
+                                    self._page.wait_for_timeout(300)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             if capture_html:
                 # Use a fresh context (no stale storage_state) when a real
                 # browser is running. Fall back to stubs in test mode.

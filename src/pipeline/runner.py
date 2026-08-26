@@ -41,7 +41,7 @@ def _iso(dt: datetime) -> str:
 
 
 class CollectorRunner:
-    def __init__(self, config, db, registry, store, fetcher, signal_store, taxonomy, ctx: RunContext, browser=None, cloudflare_bypass=None):
+    def __init__(self, config, db, registry, store, fetcher, signal_store, taxonomy, ctx: RunContext, browser=None, cloudflare_bypass=None, datadome_bypass=None):
         self.config = config
         self.db = db
         self.registry = registry
@@ -52,6 +52,7 @@ class CollectorRunner:
         self.ctx = ctx
         self.browser = browser
         self.cloudflare_bypass = cloudflare_bypass
+        self.datadome_bypass = datadome_bypass
 
     def run(
         self,
@@ -346,6 +347,40 @@ class CollectorRunner:
                     if outcome.success and outcome.result is not None:
                         result = outcome.result
                     result._cloudflare_unsolved = not (outcome.success and outcome.result is not None)
+        # DataDome detection — after CF bypass, check if the body is a DataDome challenge
+        from src.sources.techstack.datadome import is_datadome_challenge
+
+        if (
+            hasattr(self, "datadome_bypass")
+            and self.datadome_bypass
+            and result.doc is not None
+            and is_datadome_challenge(status=result.status, body=result.doc.body or b"")
+        ):
+            try:
+                ua = self.config.resolved_user_agent()
+            except Exception:
+                ua = self.config.http.user_agent
+            proxy = getattr(self.config.browser, "proxy_server", None) or "direct"
+            try:
+                dd_outcome = self.datadome_bypass.attempt(
+                    domain=task.domain, url=task.url,
+                    user_agent=ua, proxy=proxy,
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("datadome bypass failed for {}: {}", task.domain, exc)
+                dd_outcome = None
+            if dd_outcome is not None and dd_outcome.success and dd_outcome.result_body:
+                # Replace the doc body with the bypass result
+                result = type(result)(
+                    ok=True, status=200,
+                    doc=self.store.put(
+                        source=task.source, url=task.url,
+                        body=dd_outcome.result_body,
+                        content_type="text/html", status=200,
+                        domain=task.domain,
+                    ),
+                    cached=False, error=None, elapsed_ms=0,
+                )
         return result
 
     def _persist(self, account, source, cands, doc) -> int:

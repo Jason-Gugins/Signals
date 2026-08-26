@@ -9,3 +9,4 @@ sites:
     sign_in_required: false
     max_review_pages: 5
     review_lookback_days: 90
+    session_cookie_file: null

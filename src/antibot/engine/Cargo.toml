@@ -1,0 +1,16 @@
+[package]
+name = "signals_antibot"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "signals_antibot"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+boring = "4"
+boring-sys = "4"
+
+[profile.release]
+lto = true

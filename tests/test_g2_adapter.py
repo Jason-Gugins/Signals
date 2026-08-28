@@ -58,6 +58,36 @@ def test_g2_parse_respects_custom_lookback_days():
     cands = adapter.parse(doc, acct, meta)
     assert cands == []
 
+def test_g2_parse_elv_path():
+    """parse() routes current elv-* rendered DOM through extract_g2_reviews -> SignalCandidates."""
+    elv = (Path("tests/fixtures/marketplace/g2_reviews_live_sierra.html")).read_text(encoding="utf-8")
+    adapter = MarketplaceG2Source()
+    acct = Account(domain="sierra.ai", g2_slug="sierra")
+    doc = Document(doc_id="d", source="marketplace_g2",
+                   url="https://www.g2.com/products/sierra/reviews_and_filters",
+                   body=elv.encode("utf-8"))
+    meta = {"today": "2026-08-28", "product_slug": "sierra", "review_lookback_days": 365}
+    cands = adapter.parse(doc, acct, meta)
+    assert len(cands) >= 1
+    assert all(c.signal_type == "intent_2nd_marketplace" for c in cands)
+    sierra_cands = [c for c in cands if c.evidence_data.get("product_slug") == "sierra"]
+    assert sierra_cands, "new elv path should produce candidates for the 'sierra' slug"
+
+
+def test_g2_parse_html_fallback_unchanged():
+    """parse() still routes legacy itemprop HTML through parse_g2_reviews (e2e parity)."""
+    adapter = MarketplaceG2Source()
+    acct = Account(domain="acme.com", g2_slug="slack")
+    doc = Document(doc_id="d", source="marketplace_g2", url="https://www.g2.com/products/slack/reviews",
+                   body=FIXTURE.encode("utf-8"))
+    meta = {"today": "2026-02-01", "review_lookback_days": 90}
+    cands = adapter.parse(doc, acct, meta)
+    assert len(cands) >= 1
+    assert all(c.signal_type == "intent_2nd_marketplace" for c in cands)
+    slack_cands = [c for c in cands if c.evidence_data.get("product_slug") == "slack"]
+    assert slack_cands, "legacy HTML fallback should still produce candidates for 'slack'"
+
+
 def test_g2_follow_tasks_returns_next_page():
     """follow_tasks returns a FetchTask for page 2 when current page has reviews."""
     adapter = MarketplaceG2Source()

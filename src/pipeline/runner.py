@@ -312,6 +312,14 @@ class CollectorRunner:
                 capture_network=True,
                 wait_ms=2500,
             )
+        # marketplace_g2: G2 serves reviews as client-rendered elv-* DOM in the
+        # /products/{slug}/reviews_and_filters fragment (the /reviews page is
+        # only the app shell). Prefer the rendered fragment via the DataDome
+        # stealth browser so the Document body contains the real reviews.
+        if task.source == "marketplace_g2":
+            g2_result = self._fetch_g2_fragment(task)
+            if g2_result is not None:
+                return g2_result
         result = self.fetcher.get(task, etag=etag, last_modified=last_mod)
         # Cloudflare challenge detection for http-tier html tasks.
         # When a bypass is wired and the response body is a CF challenge,
@@ -382,6 +390,50 @@ class CollectorRunner:
                     cached=False, error=None, elapsed_ms=0,
                 )
         return result
+
+    def _fetch_g2_fragment(self, task) -> Optional[object]:
+        """Fetch the rendered reviews_and_filters fragment for a marketplace_g2 task.
+
+        G2's current live reviews are served as client-rendered elv-* DOM from
+        ``/products/{slug}/reviews_and_filters``; the plain ``/reviews`` page is
+        only the app shell with no review cards. When a DataDome stealth
+        (Patchright) browser is available, fetch the fragment so the returned
+        FetchResult's Document body carries the rendered reviews that
+        ``MarketplaceG2Source.parse()``/``harvest_reviews()`` expect.
+
+        Returns the FetchResult on success, or None when no rendered path is
+        available (no stealth browser, no product_slug) so the caller falls back
+        to the normal challenge->bypass->curl flow. Scoped strictly to
+        ``marketplace_g2`` by the caller.
+        """
+        stealth = None
+        datadome_bypass = getattr(self, "datadome_bypass", None)
+        if datadome_bypass is not None:
+            try:
+                stealth = getattr(datadome_bypass, "stealth", None)
+            except Exception:  # pragma: no cover - defensive
+                stealth = None
+        browser = stealth if stealth is not None else getattr(self, "browser", None)
+        if browser is None:
+            return None
+        slug = (task.meta or {}).get("product_slug")
+        if not slug:
+            return None  # cannot build the fragment URL without the slug
+        page = (task.meta or {}).get("page")
+        from src.sources.marketplace.g2 import g2_reviews_fragment_url
+
+        url = g2_reviews_fragment_url(slug, page=page)
+        try:
+            result = browser.fetch(
+                url, source=task.source, domain=task.domain,
+                wait_ms=4000, scroll=True,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("g2 fragment fetch failed for {}: {}", task.domain, exc)
+            return None
+        if result is not None and result.ok and result.doc is not None and result.doc.body:
+            return result
+        return None
 
     def _persist(self, account, source, cands, doc) -> int:
         if not cands:

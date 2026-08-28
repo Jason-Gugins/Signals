@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Optional
 
@@ -8,6 +9,27 @@ import json
 
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.registry import register
+
+# Marker for G2's CURRENT client-rendered review DOM (elv-* component classes +
+# `article id="{slug}-review-<digits>"` cards). The legacy fixture uses itemprop
+# microdata instead, so parse()/harvest_reviews()/follow_tasks() format-detect
+# the body and route to the matching pure parser.
+_ELV_DOM_RE = re.compile(r"elv-stars|five-star-rater|id=[\"']?[^\"'>]*-review-\d")
+
+
+def _parse_g2_body(body: str, url: str, product_slug: str) -> list:
+    """Parse G2 review HTML, auto-detecting the current elv-* DOM vs legacy HTML.
+
+    The live reviews_and_filters fragment serves reviews as client-rendered
+    elv-* DOM (handled by ``extract_g2_reviews``); the legacy frozen fixture
+    uses itemprop microdata (handled by ``parse_g2_reviews``). Both are kept so
+    the adapter stays green against live G2 and the historical fixture.
+    """
+    from src.sources.marketplace.g2 import extract_g2_reviews, parse_g2_reviews
+
+    if _ELV_DOM_RE.search(body):
+        return extract_g2_reviews(body, product_slug)
+    return parse_g2_reviews(body, url)
 
 
 def upsert_g2_reviews(db, reviews: list, *, now: str, raw_ref: str | None = None) -> tuple[int, int]:
@@ -91,10 +113,9 @@ class MarketplaceG2Source(SourceAdapter):
         ]
 
     def parse(self, doc: Document, account: Account, task_meta: dict) -> list[SignalCandidate]:
-        from src.sources.marketplace.g2 import parse_g2_reviews
-
         body = (doc.body or b"").decode("utf-8", "replace")
-        reviews = parse_g2_reviews(body, doc.url or "")
+        product_slug = (task_meta or {}).get("product_slug") or account.g2_slug
+        reviews = _parse_g2_body(body, doc.url or "", product_slug)
         if not reviews:
             return []
         today_str = (task_meta or {}).get("today", "")
@@ -134,17 +155,15 @@ class MarketplaceG2Source(SourceAdapter):
         return out
 
     def harvest_reviews(self, doc: Document, account: Account, task_meta: dict) -> list:
-        from src.sources.marketplace.g2 import parse_g2_reviews
-
         body = (doc.body or b"").decode("utf-8", "replace")
-        return parse_g2_reviews(body, doc.url or "")
+        product_slug = (task_meta or {}).get("product_slug") or account.g2_slug
+        return _parse_g2_body(body, doc.url or "", product_slug)
 
     def follow_tasks(self, doc: Document, account: Account, task_meta: dict) -> list[FetchTask]:
         """Plan the next review page if current page had reviews and we haven't hit max_review_pages."""
-        from src.sources.marketplace.g2 import parse_g2_reviews
-
         body = (doc.body or b"").decode("utf-8", "replace")
-        reviews = parse_g2_reviews(body, doc.url or "")
+        product_slug = (task_meta or {}).get("product_slug") or account.g2_slug
+        reviews = _parse_g2_body(body, doc.url or "", product_slug)
         if not reviews:
             return []
         meta = task_meta or {}
@@ -156,7 +175,9 @@ class MarketplaceG2Source(SourceAdapter):
         slug = meta.get("product_slug") or account.g2_slug
         if not slug:
             return []
-        url = f"https://www.g2.com/products/{slug}/reviews?page={next_page}"
+        from src.sources.marketplace.g2 import g2_reviews_url
+
+        url = g2_reviews_url(slug, page=next_page)
         return [
             FetchTask(
                 source=self.key,

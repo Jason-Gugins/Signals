@@ -18,6 +18,51 @@ from typing import Optional
 _SLUG_RE = re.compile(r"/products/([^/]+)/reviews")
 _STARS_RE = re.compile(r"stars-(\d+)")
 
+_G2_BASE = "https://www.g2.com/products/{slug}/reviews"
+_G2_FRAGMENT_BASE = "https://www.g2.com/products/{slug}/reviews_and_filters"
+
+
+def _g2_build_url(base: str, slug: str, *, page=None, sort=None) -> str:
+    """Build a G2 reviews URL from a template and optional query params.
+
+    Plain ``?page=N`` and ``?sort=...`` query params only — G2 has no
+    Next.js ``/_next/data`` route and no buildId, so pagination and sorting
+    are simple query strings appended to the base URL. ``page`` is emitted
+    before ``sort`` when both are given; both are omitted when ``None``.
+    """
+    params = []
+    if page is not None:
+        params.append(f"page={page}")
+    if sort is not None:
+        params.append(f"sort={sort}")
+    url = base.format(slug=slug)
+    if params:
+        url = url + "?" + "&".join(params)
+    return url
+
+
+def g2_reviews_url(slug: str, *, page=None, sort=None) -> str:
+    """Build the full G2 reviews page URL for a product slug.
+
+    ``g2_reviews_url("sierra")`` -> ``https://www.g2.com/products/sierra/reviews``
+    ``g2_reviews_url("sierra", page=2, sort="newest")`` ->
+    ``https://www.g2.com/products/sierra/reviews?page=2&sort=newest``
+
+    Pure and stdlib-only.
+    """
+    return _g2_build_url(_G2_BASE, slug, page=page, sort=sort)
+
+
+def g2_reviews_fragment_url(slug: str, *, page=None, sort=None) -> str:
+    """Build the G2 ``reviews_and_filters`` fragment URL for a product slug.
+
+    Same plain ``?page=N`` / ``?sort=...`` query params as the full reviews
+    URL, on the ``reviews_and_filters`` endpoint that serves the review DOM.
+
+    Pure and stdlib-only.
+    """
+    return _g2_build_url(_G2_FRAGMENT_BASE, slug, page=page, sort=sort)
+
 
 def _extract_slug(url: str) -> str:
     """Pull the product slug out of a G2 reviews URL.

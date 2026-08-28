@@ -5,3 +5,6 @@ __pycache__/
 .env
 .pytest_cache/
 config/lists/
+
+# Rust/native engine build artifacts
+src/antibot/engine/target/

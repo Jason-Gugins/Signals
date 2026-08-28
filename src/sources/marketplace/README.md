@@ -92,23 +92,40 @@ and `harvest_reviews() -> [G2Review]` persists raw data to a dedicated table.
 
 ## Data Flow
 
+The current G2 page is a client-side React SPA: the plain `/reviews` page is only the app shell,
+and the actual review cards are served as **client-rendered `elv-*` DOM** from the
+`GET /products/{slug}/reviews_and_filters` HTML fragment (reverse-engineered — see the note
+below). There is no JSON API, no `__NEXT_DATA__`, and no `/_next/data` route. Pagination and
+sorting are plain `?page=N` and `?sort=...` query parameters that work on **both** the full
+`/reviews` URL and the `reviews_and_filters` fragment URL.
+
 1. **Plan** — `MarketplaceG2Source.plan(account, cursor)` checks `account.g2_slug` and builds a
    single `FetchTask` to `https://www.g2.com/products/{g2_slug}/reviews`. If no slug is set, returns
    `[]` (the runner skips the account entirely thanks to `requires = ("g2_slug",)`).
+   `g2_reviews_url(slug, page=N, sort=...)` builds the full-page URL; pagination/sort is optional
+   query-string state, not a separate endpoint.
 
-2. **Fetch** — The runner's `_fetch_one()` dispatches the task. Since `marketplace_g2` is a
-   browser-tier source and is in `_CF_BYPASS_SOURCES`, any Cloudflare challenge (403 or JS
-   interstitial) routes through the 5-tier bypass waterfall. On success, the HTML body is stored
-   in the content-addressed raw store (`data/raw/`).
+2. **Fetch** — The runner's `_fetch_one()` dispatches the task. `marketplace_g2` is a browser-tier
+   source, so for G2 tasks the runner first calls `_fetch_g2_fragment(task)`: when a DataDome
+   stealth (Patchright) browser is available it fetches the **rendered** `reviews_and_filters`
+   fragment (via `g2_reviews_fragment_url(slug, page=...)`) so the `Document` body contains the
+   real reviews — the `/reviews` shell alone has none. If no stealth browser is present, it falls
+   back to the normal challenge→bypass→curl flow (Cloudflare 5-tier waterfall for
+   `_CF_BYPASS_SOURCES`, then DataDome bypass). The returned HTML body is stored in the
+   content-addressed raw store (`data/raw/`).
 
-3. **Parse** — `parse(doc, account, task_meta)` decodes the HTML, calls the pure
-   `parse_g2_reviews()` function, filters reviews older than 90 days (from `task_meta["today"]`),
-   and returns `SignalCandidate` objects with `signal_type="intent_2nd_marketplace"`. Confidence is
-   0.85 for verified reviewers, 0.75 otherwise.
+3. **Parse** — `parse(doc, account, task_meta)` decodes the HTML and **format-detects** the body:
+   live `elv-*` DOM → the pure `extract_g2_reviews()`; legacy `itemprop` microdata →
+   `parse_g2_reviews()` (backward-compat fallback). It then filters reviews older than 90 days
+   (from `task_meta["today"]`) and returns `SignalCandidate` objects with
+   `signal_type="intent_2nd_marketplace"`. Confidence is 0.85 for verified reviewers, 0.75
+   otherwise.
 
-4. **Harvest** — `harvest_reviews(doc, account, task_meta)` calls the same parser and returns the
-   full list of `G2Review` objects (no date filtering). The runner upserts these to the
-   `g2_reviews` SQLite table via `upsert_g2_reviews()`.
+4. **Harvest/Follow** — `harvest_reviews(doc, account, task_meta)` runs the same format-detecting
+   parse and returns the full list of `G2Review` objects (no date filtering). The runner upserts
+   these to the `g2_reviews` SQLite table via `upsert_g2_reviews()`. `follow_tasks()` plans the
+   next page via `g2_reviews_url(slug, page=N)` up to `max_review_pages`, so a single collect run
+   sweeps multiple pages per account.
 
 5. **Export** — `python -m src.cli g2-export --slug slack` queries the `g2_reviews` table and
    writes `data/exports/g2/slack.json` and `data/exports/g2/slack.csv`.
@@ -119,7 +136,9 @@ and `harvest_reviews() -> [G2Review]` persists raw data to a dedicated table.
 
 ```
 src/sources/marketplace/
-    g2.py              Pure parser: G2Review dataclass + parse_g2_reviews(html, url)
+    g2.py              Pure parser: G2Review dataclass + extract_g2_reviews (current elv-* DOM),
+                       parse_g2_reviews (legacy itemprop fallback), g2_reviews_url /
+                       g2_reviews_fragment_url URL builders
     collector.py       MarketplaceG2Source adapter: plan/parse/harvest_reviews + upsert_g2_reviews
     __init__.py         Exports MarketplaceG2Source
     README.md           This file
@@ -128,7 +147,8 @@ src/export/
     g2_export.py        JSON and CSV exporters (export_g2_json, export_g2_csv, export_g2_all)
 
 src/pipeline/
-    runner.py           CF bypass gate (_CF_BYPASS_SOURCES), harvest_reviews hook
+    runner.py           CF bypass gate (_CF_BYPASS_SOURCES), harvest_reviews hook,
+                        _fetch_g2_fragment() fetches rendered reviews_and_filters fragment
 
 src/core/
     models.py           Account.g2_slug field
@@ -151,21 +171,33 @@ tests/
     test_runner_cf_g2.py        CF bypass routing test (1 test)
     test_g2_e2e.py              End-to-end integration test (1 test)
     fixtures/marketplace/
-        g2_reviews.html         Frozen HTML fixture (3 reviews)
+        g2_reviews.html              Frozen legacy itemprop fixture (3 reviews)
+        g2_reviews_live_sierra.html  Frozen live elv-* fragment (sierra)
+        g2_reviews_live_helcim.html  Frozen live elv-* fragment (helcim)
 ```
 
 ---
 
 ## The Parser
 
-`parse_g2_reviews(html: str, url: str) -> list[G2Review]` in `src/sources/marketplace/g2.py`.
+`src/sources/marketplace/g2.py` ships two pure parsers for the two G2 DOM shapes:
 
-**Pure**: no I/O, no network, no clock, no database. Accepts an already-fetched HTML string and a
-URL. Passes the project's [AST purity guard](../techstack/README.md) — no imports of `httpx`,
-`requests`, `sqlite3`, or `playwright`; no calls to `datetime.now()` or `date.today()`.
+- **`extract_g2_reviews(html: str, product_slug: str) -> list[G2Review]`** — the **current**
+  parser. Reads G2's live, client-rendered `elv-*` review cards (served from the
+  `reviews_and_filters` fragment). This is what `parse()` / `harvest_reviews()` / `follow_tasks()`
+  use on live data.
+- **`parse_g2_reviews(html: str, url: str) -> list[G2Review]`** — the **legacy** parser, kept for
+  backward compatibility with the historical `itemprop` schema.org microdata and the frozen
+  `g2_reviews.html` test fixture. The adapter format-detects the body (`elv-stars` / `five-star-rater`
+  / `…-review-<digits>` markers) and falls back to this when no `elv-*` markers are present.
 
-Uses BeautifulSoup4 (`bs4`) with the `lxml` parser for robust DOM handling. The `bs4` import is
-deferred to call time (inside `parse_g2_reviews`) so the module remains import-pure for the
+Both are **pure**: no I/O, no network, no clock, no database. They accept an already-fetched HTML
+string and return structured data. Both pass the project's
+[AST purity guard](../techstack/README.md) — no imports of `httpx`, `requests`, `sqlite3`, or
+`playwright`; no calls to `datetime.now()` or `date.today()`.
+
+Both use BeautifulSoup4 (`bs4`) with the `lxml` parser for robust DOM handling. The `bs4` import is
+deferred to call time (inside each parser) so the module remains import-pure for the
 [AST purity guard](../techstack/README.md) — the guard scans module-level imports only.
 
 ### G2Review dataclass
@@ -189,24 +221,36 @@ class G2Review:
     review_source: Optional[str]      # "Organic" or "Invitation from G2 (Original )"
 ```
 
-### DOM selectors
+### DOM selectors (`extract_g2_reviews` — current elv-\* DOM)
 
-G2 wraps reviews in `<div class="paper" itemscope itemtype="http://schema.org/Review">` cards (legacy)
-or `<div class="review-item">` (newer). The parser handles both.
+The live review cards are `<article id="{slug}-review-<digits>" ue="track-in-viewport">` elements
+in the rendered `reviews_and_filters` fragment. All selectors below are matched within each card:
 
 | Field | Selector | Notes |
 |---|---|---|
-| reviewer_name | `[itemprop="author"]` (span or div) | If div, strips trailing " Information" noise |
-| review_title | `[itemprop="name"]` | |
-| review_body | `[itemprop="reviewBody"]` | |
-| rating | `div.stars` class `stars-{N}` | N is out of 10; rating = N / 2.0 |
-| posted_at | `<time datetime="...">` | ISO date string |
-| reviewer_title | `div.mt-4th` (1st) | Inside `div.c-midnight-80` |
-| reviewer_company_size | `div.mt-4th` (2nd) | |
-| pros | `div[aria-label="Pros"] div.ellipsis` | One per div |
-| cons | `div[aria-label="Cons"] div.ellipsis` | One per div |
-| verified_reviewer | Text "Verified Reviewer" / "Verified Current User" | Anywhere in card |
-| review_source | Text starting with "Review source:" | Prefix stripped |
+| reviewer_name | `div.elv-font-bold` | First bold block in the card |
+| reviewer_title | `div.elv-text-xs` (1st) | |
+| reviewer_company_size | `div.elv-text-xs` (2nd) | |
+| review_title | `div.elv-text-lg.elv-font-bold` / `div.elv-text-lg` | Leads/trailing quotes stripped |
+| review_body | `p` sibling of "What do you like best…" heading | G2 attribution boilerplate stripped |
+| pros | `p` sibling of "What do you like best…" heading | One item |
+| cons | `p` sibling of "What do you dislike…" heading | One item |
+| rating | `.elv-star-wrapper__desc__rating` text `N / 5`; else `div.elv-stars` `elv-stars-{N}` | 0–5 float |
+| posted_at | `<meta content="YYYY-MM-DD">` | First ISO-date meta in card |
+| review_url | `[data-clipboard-text]` | Link-share URL; falls back to `/reviews` page |
+| review_id | from `article id="…-review-{digits}"` | Fallback `sha256(slug\|name\|date)[:16]` |
+| verified_reviewer | "validated/verified current user" etc. | Token match anywhere in card |
+| review_source | `.elv-status-badge__label` | "Source: …" / "Incentivized Review" |
+
+### DOM selectors (`parse_g2_reviews` — legacy itemprop)
+
+G2 wraps legacy reviews in `<div class="paper" itemscope itemtype="http://schema.org/Review">`
+cards (or `<div class="review-item">`). `reviewer_name` comes from `[itemprop="author"]`,
+`review_title` from `[itemprop="name"]`, `review_body` from `[itemprop="reviewBody"]`, `rating`
+from `div.stars` class `stars-{N}` (N out of 10, rating = N / 2.0), `posted_at` from
+`<time datetime="...">`, pros/cons from `div[aria-label="Pros"/"Cons"] div.ellipsis`, verification
+from the "Verified Reviewer"/"Verified Current User" text, and `review_source` from the
+"Review source:" label.
 
 ### review_id generation
 
@@ -216,6 +260,31 @@ review_id = hashlib.sha256(f"{product_slug}|{reviewer_name}|{posted_at}".encode(
 
 This is the natural key for the `g2_reviews` SQLite table. It deduplicates across collection runs —
 the same review fetched twice upserts (updates `last_seen_at`), it doesn't duplicate.
+
+### Reverse-engineered data path (recorded for cheap rebuilds)
+
+Confirmed by the discovery spike (Aug 2026): G2 is a client-side React SPA. The review data is
+**not** a JSON API, not `__NEXT_DATA__`, and not a `/_next/data` route. Reviews are served as
+**client-rendered `elv-*` DOM from `GET https://www.g2.com/products/{slug}/reviews_and_filters`**
+(a server-rendered HTML fragment the SPA injects into the `/reviews` page, which is only the app
+shell). Key facts for rebuilding without repeating the probe:
+
+- **Endpoint**: `GET /products/{slug}/reviews_and_filters` — returns the rendered review DOM in
+  the response body. Fetch it through a JS-capable browser (the DataDome stealth/Patchright tier);
+  a plain HTTP GET also works when a valid `datadome` cookie is present.
+- **Card structure**: `<article id="{slug}-review-<digits>" ue="track-in-viewport">`, with
+  `elv-*` component classes (`elv-font-bold`, `elv-text-xs`, `elv-text-lg`, `elv-stars-{N}`,
+  `elv-star-wrapper__desc__rating`, `elv-status-badge__label`) and
+  `data-controller="five-star-rater"` widgets.
+- **Pagination / sort**: plain `?page=N` and `?sort=...` query params, honored on **both** the
+  full `/reviews` URL and the `reviews_and_filters` fragment URL. No buildId, no cursor.
+- **Field mapping**: see the `extract_g2_reviews` selector table above; rating is a 0–5 float
+  (from the `N / 5` rating text or `elv-stars-{N}` where N is out of 10), `posted_at` is the first
+  ISO `YYYY-MM-DD` `<meta content>` in the card, `review_url` comes from `[data-clipboard-text]`,
+  and verification is a token match for "validated/verified current user".
+- **Test fixtures**: `tests/fixtures/marketplace/` holds both the live `elv-*` fragments
+  (`g2_reviews_live*.html`) and the legacy `itemprop` page (`g2_reviews.html`) that keeps
+  `parse_g2_reviews` coverage green.
 
 ---
 
@@ -248,7 +317,8 @@ Returns `[]` if `account.g2_slug` is falsy.
 
 ### parse(doc, account, task_meta) -> list[SignalCandidate]
 
-Decodes the HTML, runs `parse_g2_reviews()`, filters reviews older than 90 days from
+Decodes the HTML, format-detects the body (live `elv-*` DOM → `extract_g2_reviews()`, legacy
+`itemprop` → `parse_g2_reviews()` fallback), filters reviews older than 90 days from
 `task_meta["today"]`, and returns `SignalCandidate` objects:
 
 ```python
@@ -638,7 +708,7 @@ Options:
 
 ```powershell
 # Run all G2 tests
-.\.venv\Scripts\python.exe -m pytest tests/test_g2_parse.py tests/test_g2_adapter.py tests/test_g2_harvest.py tests/test_g2_export.py tests/test_g2_slug.py tests/test_g2_reviews_db.py tests/test_cli_g2.py tests/test_runner_cf_g2.py tests/test_g2_e2e.py -v
+.\.venv\Scripts\python.exe -m pytest tests/test_g2_extract.py tests/test_g2_parse.py tests/test_g2_adapter.py tests/test_g2_harvest.py tests/test_g2_export.py tests/test_g2_slug.py tests/test_g2_reviews_db.py tests/test_cli_g2.py tests/test_runner_cf_g2.py tests/test_runner_g2.py tests/test_g2_e2e.py -v
 
 # Run purity guard (verifies parser has no forbidden imports/calls)
 .\.venv\Scripts\python.exe -m pytest tests/test_source_purity.py -v
@@ -651,6 +721,7 @@ Options:
 
 | File | Tests | What it covers |
 |---|---|---|
+| `test_g2_extract.py` | 14 | `extract_g2_reviews` on live `elv-*` fragments (counts, field mapping, rating scale, verified tokens) |
 | `test_g2_parse.py` | 5 | Parser extracts all fields, handles anonymous reviewers, empty HTML |
 | `test_g2_adapter.py` | 4 | plan() requires g2_slug, returns correct URL; parse() returns candidates, filters old reviews |
 | `test_g2_harvest.py` | 1 | upsert_g2_reviews persists, idempotent (no duplicates on re-run) |
@@ -659,11 +730,21 @@ Options:
 | `test_g2_reviews_db.py` | 2 | g2_reviews table exists with all columns; upsert round-trip |
 | `test_cli_g2.py` | 2 | g2-export command exists, creates JSON + CSV files |
 | `test_runner_cf_g2.py` | 1 | Cloudflare bypass routes marketplace_g2 tasks |
+| `test_runner_g2.py` | 2 | runner `_fetch_g2_fragment` renders the reviews_and_filters fragment for G2 tasks |
 | `test_g2_e2e.py` | 1 | Full pipeline: plan -> parse -> harvest -> export -> idempotent upsert |
 
-### Fixture
+### Fixtures
 
-`tests/fixtures/marketplace/g2_reviews.html` — a frozen HTML page with 3 review cards:
+Live `elv-*` fragments (frozen real captures of the `reviews_and_filters` DOM, used by
+`extract_g2_reviews`):
+
+| File | Product | Notes |
+|---|---|---|
+| `g2_reviews_live_sierra.html` | sierra | Real rendered review cards |
+| `g2_reviews_live_helcim.html` | helcim | Real rendered review cards |
+
+Legacy `itemprop` page (kept for `parse_g2_reviews` backward-compat coverage),
+`g2_reviews.html` — a frozen HTML page with 3 review cards:
 
 | # | Reviewer | Rating | Date | Verified | Source |
 |---|---|---|---|---|---|
@@ -737,9 +818,10 @@ roadmap item; see the commit references in the project history.
   browser export format) to attach a G2 sign-in session. This unlocks full review text that G2
   gates behind login without any automated login form submission.
 
-- **BeautifulSoup4 parser** — `parse_g2_reviews()` uses `bs4.BeautifulSoup` with the `lxml`
-  parser instead of a hand-rolled `HTMLParser`. More resilient to G2's obfuscated, shifting
-  class names and nested structure.
+- **BeautifulSoup4 parsers** — `extract_g2_reviews()` (current `elv-*` DOM) and
+  `parse_g2_reviews()` (legacy `itemprop` fallback) use `bs4.BeautifulSoup` with the `lxml` parser
+  instead of a hand-rolled `HTMLParser`. More resilient to G2's obfuscated, shifting class names
+  and nested structure.
 
 - **2Captcha solver wiring** — the Cloudflare bypass waterfall's tier 3 (`_solver_via_browser`)
   calls the 2Captcha/anti-captcha Turnstile API and attempts to inject the token via
@@ -759,14 +841,6 @@ roadmap item; see the commit references in the project history.
 ## Limitations & Roadmap
 
 ### Current limitations
-
-- **G2 has migrated to a client-side React SPA**: As of Aug 2026, G2's reviews page renders reviews
-  via a JavaScript API on `https://www.g2.com/products/{slug}/reviews`; review cards are NOT in the
-  initial server HTML. The page also replaced the historical `itemprop` schema.org microdata (which
-  `parse_g2_reviews` targets) with a new `elv-*` component library. Two consequences:
-      1. The pure bs4 parser extracts 0 reviews from the current live DOM — it needs a rewrite against
-         the new `elv-*` structure and/or a call to G2's internal reviews API.
-      2. Extracted pages must be rendered post-JS, which requires the browser tier.
 
 - **DataDome blocks headless mode**: The DataDome bypass (tier 2.5 Patchright) only succeeds in
   HEADED (visible) mode. In headless, DataDome's Proof-of-Browser fingerprint detects the software

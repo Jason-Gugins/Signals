@@ -1,7 +1,12 @@
 use pyo3::prelude::*;
 
 mod h2;
+mod pool;
+mod session;
 mod tls;
+
+use pool::ConnectionPool;
+use session::SessionStore;
 
 #[pyfunction]
 fn engine_version() -> String {
@@ -24,8 +29,8 @@ fn tls_config_json() -> String {
     tls::tls_config_json()
 }
 
-/// Core h2 GET over the Chrome TLS connection; returns the (decompressed)
-/// response body bytes. `extra_headers` may carry e.g. cookies.
+/// Core h2 GET over an already-established Chrome TLS connection; returns the
+/// (decompressed) response body bytes.
 pub(crate) fn h2_fetch_bytes(
     url: &str,
     method: &str,
@@ -104,6 +109,166 @@ fn fetch_h2_parts(
     let resp = client.get(&headers)?;
     let body = decode_content_encoding(&resp)?;
     Ok((resp.status, resp.headers, body))
+}
+
+// ---------------------------------------------------------------------------
+// Task 3 temporal stealth: pooled/session-aware engine (SignalsEngine)
+// ---------------------------------------------------------------------------
+
+/// A request outcome with temporal-stealth metadata.
+struct FetchOutcome {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+    resumed_session: bool,
+    reused_connection: bool,
+}
+
+/// Run one h2 GET over a connected, preface-sent client.
+fn h2_get_over(
+    client: &mut h2::H2Client<boring::ssl::SslStream<std::net::TcpStream>>,
+    host: &str,
+    path: &str,
+    extra: &[(String, String)],
+) -> Result<(u16, Vec<(String, String)>, Vec<u8>), String> {
+    let headers = h2::build_request_headers(host, path, h2::CHROME_USER_AGENT, extra);
+    let resp = client.get(&headers)?;
+    let body = decode_content_encoding(&resp)?;
+    Ok((resp.status, resp.headers, body))
+}
+
+fn outcome_json(o: &FetchOutcome) -> String {
+    serde_json::json!({
+        "status": o.status,
+        "headers": o
+            .headers
+            .iter()
+            .map(|(n, v)| serde_json::json!([n, v]))
+            .collect::<Vec<_>>(),
+        "body": String::from_utf8_lossy(&o.body),
+        "body_b64": base64_encode(&o.body),
+        "body_len": o.body.len(),
+        "resumed_session": o.resumed_session,
+        "reused_connection": o.reused_connection,
+    })
+    .to_string()
+}
+
+/// Persistent engine state for the temporal-stealth layer: per-origin TLS
+/// session tickets (abbreviated resumption handshakes) + per-origin h2
+/// connection pool (keep-alive stream reuse). Construct once and reuse across
+/// fetches — like a browser session.
+#[pyclass]
+pub struct SignalsEngine {
+    /// One connector (one BoringSSL SSL_CTX) for the engine's lifetime —
+    /// session tickets are only resumable within their creating context.
+    connector: tls::BuiltConnector,
+    sessions: SessionStore,
+    pool: ConnectionPool,
+}
+
+#[pymethods]
+impl SignalsEngine {
+    #[new]
+    fn new() -> PyResult<Self> {
+        let connector = tls::build_chrome_context()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+        Ok(SignalsEngine {
+            connector,
+            sessions: SessionStore::new(),
+            pool: ConnectionPool::new(),
+        })
+    }
+
+    /// h2 GET with connection reuse + session resumption. The JSON payload
+    /// carries `resumed_session` (abbreviated TLS handshake) and
+    /// `reused_connection` (request served over a pooled h2 connection).
+    #[pyo3(signature = (url, headers=None))]
+    fn fetch(&mut self, url: &str, headers: Option<Vec<(String, String)>>) -> PyResult<String> {
+        let extra = headers.unwrap_or_default();
+        self.fetch_internal(url, &extra)
+            .map(|o| outcome_json(&o))
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e))
+    }
+
+    /// Number of origins with a pooled connection (introspection).
+    fn pool_size(&self) -> usize {
+        self.pool.len()
+    }
+
+    fn session_count(&self) -> usize {
+        self.sessions.len()
+    }
+
+    /// Drop all pooled connections and session tickets.
+    fn close(&mut self) {
+        self.pool.clear();
+        self.sessions.clear();
+    }
+
+    /// Drop pooled connections but KEEP session tickets (the next dial to a
+    /// known origin will attempt an abbreviated resumption handshake).
+    fn close_pool(&mut self) {
+        self.pool.clear();
+    }
+}
+
+impl SignalsEngine {
+    fn fetch_internal(
+        &mut self,
+        url: &str,
+        extra: &[(String, String)],
+    ) -> Result<FetchOutcome, String> {
+        let u = tls::parse_url(url)?;
+        self.pool.evict_idle();
+
+        // 1) Pooled connection reuse: Chrome multiplexes each new request as a
+        //    new h2 stream on the same keep-alive socket.
+        if let Some(mut client) = self.pool.take(&u.host) {
+            match h2_get_over(&mut client, &u.host, &u.path, extra) {
+                Ok((status, hdrs, body)) => {
+                    self.pool.insert(&u.host, client);
+                    return Ok(FetchOutcome {
+                        status,
+                        headers: hdrs,
+                        body,
+                        resumed_session: false,
+                        reused_connection: true,
+                    });
+                }
+                Err(_) => {
+                    // Dead pooled connection (idle close / GOAWAY): dial fresh.
+                }
+            }
+        }
+
+        // 2) Fresh dial, resuming the stored TLS session when we have one.
+        let stored = self.sessions.get(&u.host);
+        let (tls, resumed) =
+            tls::connect_chrome_tls_with_connector(&self.connector, &u.host, stored)?;
+        // Newest session ticket wins (Chrome semantics). Session from a
+        // resumption is also retained (servers may rotate tickets).
+        if let Some(s) = tls.ssl().session() {
+            self.sessions.store(&u.host, s);
+        }
+        let mut client = h2::H2Client::new(tls);
+        client.send_preface()?;
+        let (status, hdrs, body) = h2_get_over(&mut client, &u.host, &u.path, extra)?;
+        // TLS 1.3 session tickets arrive after the handshake flight; pump the
+        // socket briefly so BoringSSL processes them (Chrome keeps them too).
+        client.pump_for_session(std::time::Duration::from_millis(300));
+        if let Some(s) = client.ssl_session() {
+            self.sessions.store(&u.host, s);
+        }
+        self.pool.insert(&u.host, client);
+        Ok(FetchOutcome {
+            status,
+            headers: hdrs,
+            body,
+            resumed_session: resumed,
+            reused_connection: false,
+        })
+    }
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -193,6 +358,7 @@ fn signals_antibot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tls_config_json, m)?)?;
     m.add_function(wrap_pyfunction!(probe_fingerprint, m)?)?;
     m.add_function(wrap_pyfunction!(fetch_h2, m)?)?;
+    m.add_class::<SignalsEngine>()?;
     m.add_function(wrap_pyfunction!(hpack_encode, m)?)?;
     m.add_function(wrap_pyfunction!(hpack_decode, m)?)?;
     m.add_function(wrap_pyfunction!(huffman_encode, m)?)?;

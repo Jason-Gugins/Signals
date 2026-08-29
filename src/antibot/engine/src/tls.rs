@@ -111,6 +111,10 @@ impl CertificateCompressor for BrotliCertCompressor {
 // Chrome-configured SslContext
 // ---------------------------------------------------------------------------
 
+/// The shared, Chrome-configured connector held by SignalsEngine (one SSL_CTX
+/// for the engine lifetime so TLS session tickets stay resumable).
+pub type BuiltConnector = SslConnector;
+
 /// Build a BoringSSL `SslContext` configured the way Chrome configures its own.
 ///
 /// Flags that BoringSSL only exposes per-connection (ECH-GREASE, ALPS) are applied
@@ -256,7 +260,30 @@ pub(crate) fn parse_url(url: &str) -> Result<Url, String> {
 /// and apply the per-connection Chrome toggles. Shared by probe_fingerprint
 /// and the h2 client.
 pub fn connect_chrome_tls(host: &str) -> Result<SslStream<TcpStream>, String> {
+    Ok(connect_chrome_tls_with_session(host, None)?.0)
+}
+
+/// Establish a TLS connection, optionally resuming a stored TLS session for
+/// the origin (Task 3 temporal stealth — abbreviated handshakes like Chrome).
+/// Returns the stream plus whether the handshake was a session resumption.
+pub fn connect_chrome_tls_with_session(
+    host: &str,
+    session: Option<&boring::ssl::SslSessionRef>,
+) -> Result<(SslStream<TcpStream>, bool), String> {
     let connector = build_chrome_context().map_err(|e| e.to_string())?;
+    connect_chrome_tls_with_connector(&connector, host, session)
+}
+
+/// Variant sharing one SslConnector across dials. Required for session
+/// resumption: a BoringSSL `SSL_SESSION` is bound to the `SSL_CTX` that
+/// created it and must not be replayed from a different context (boring's
+/// docs say exactly this). [`SignalsEngine`](crate::SignalsEngine) therefore
+/// builds its connector once and dials through it.
+pub fn connect_chrome_tls_with_connector(
+    connector: &SslConnector,
+    host: &str,
+    session: Option<&boring::ssl::SslSessionRef>,
+) -> Result<(SslStream<TcpStream>, bool), String> {
     let addr = format!("{}:443", host);
     let tcp = TcpStream::connect(&addr).map_err(|e| format!("tcp connect: {e}"))?;
     tcp.set_read_timeout(Some(std::time::Duration::from_secs(15)))
@@ -266,6 +293,15 @@ pub fn connect_chrome_tls(host: &str) -> Result<SslStream<TcpStream>, String> {
 
     let mut config: ConnectConfiguration = connector.configure().map_err(|e| e.to_string())?;
     apply_per_connection_chrome_toggles(&config)?;
+    if let Some(s) = session {
+        // SAFETY: boring's set_session only requires the SSL* be live; the
+        // session ref outlives the handshake (borrowed from the session store).
+        unsafe {
+            config
+                .set_session(s)
+                .map_err(|e| format!("ssl set_session: {e}"))?;
+        }
+    }
     let tls = config
         .connect(host, tcp)
         .map_err(|e| format!("tls handshake: {e}"))?;
@@ -277,7 +313,8 @@ pub fn connect_chrome_tls(host: &str) -> Result<SslStream<TcpStream>, String> {
     } else {
         return Err("no ALPN negotiated".into());
     }
-    Ok(tls)
+    let reused = tls.ssl().session_reused();
+    Ok((tls, reused))
 }
 
 /// Perform a real TLS fetch of `url` with the Chrome-configured context and

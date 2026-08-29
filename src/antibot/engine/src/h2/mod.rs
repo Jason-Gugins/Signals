@@ -18,6 +18,7 @@ pub use flow::CHROME_H2_SETTINGS;
 pub use frames::{frame_types, Frame};
 
 use std::io::{Read, Write};
+use std::time::Instant;
 
 use flow::{CHROME_CONN_WINDOW_INCREMENT, CHROME_STREAM_INITIAL_WINDOW};
 use frames::flags;
@@ -130,6 +131,9 @@ pub struct H2Client<T: Read + Write> {
     dec: hpack::Decoder,
     conn_window: flow::ReceiveWindow,
     stream_window: flow::ReceiveWindow,
+    /// Next client-initiated stream id (odd, starts at 1; +2 per request).
+    /// Persists across requests on a pooled connection (Task 3).
+    next_stream_id: u32,
 }
 
 const MAX_BODY: usize = 32 * 1024 * 1024;
@@ -143,7 +147,13 @@ impl<T: Read + Write> H2Client<T> {
             dec: hpack::Decoder::new(65_536),
             conn_window: flow::ReceiveWindow::new(flow::CHROME_CONNECTION_WINDOW),
             stream_window: flow::ReceiveWindow::new(CHROME_STREAM_INITIAL_WINDOW),
+            next_stream_id: 1,
         }
+    }
+
+    /// Stream id that the next request will use.
+    pub fn next_stream_id(&self) -> u32 {
+        self.next_stream_id
     }
 
     fn write_all(&mut self, data: &[u8]) -> Result<(), String> {
@@ -157,8 +167,12 @@ impl<T: Read + Write> H2Client<T> {
         self.write_all(&chrome_preface_bytes())
     }
 
-    /// Send a GET request on stream 1 and read the response to END_STREAM.
+    /// Send a GET request on the next client stream and read the response to
+    /// END_STREAM. Stream ids advance by 2 per request so a pooled connection
+    /// (Task 3) can carry successive streams like Chrome's socket.
     pub fn get(&mut self, headers: &[(String, String)]) -> Result<H2Response, String> {
+        let stream_id = self.next_stream_id;
+        self.next_stream_id += 2;
         let block = self.enc.encode(headers);
         // Chrome sends HEADERS with the PRIORITY flag: exclusive dep on 0,
         // weight byte 255 (displayed 256).
@@ -167,11 +181,11 @@ impl<T: Read + Write> H2Client<T> {
         let headers_frame = Frame {
             ftype: frame_types::HEADERS,
             flags: flags::END_STREAM | flags::END_HEADERS | flags::PRIORITY,
-            stream_id: 1,
+            stream_id,
             payload,
         };
         self.write_all(&headers_frame.encode())?;
-        self.read_response(1)
+        self.read_response(stream_id)
     }
 
     /// Read frames until the given stream is complete; service the
@@ -372,6 +386,43 @@ impl<T: Read + Write> H2Client<T> {
             }
             self.buf.extend_from_slice(&chunk[..n]);
         }
+    }
+}
+
+/// SSL-aware helpers for the concrete connection type used by the engine.
+impl H2Client<boring::ssl::SslStream<std::net::TcpStream>> {
+    /// TLS session established on this connection, if BoringSSL has processed
+    /// the server's session tickets yet.
+    pub fn ssl_session(&self) -> Option<&boring::ssl::SslSessionRef> {
+        self.stream.ssl().session()
+    }
+
+    /// Read whatever frames the server pushes after a response (TLS 1.3
+    /// session tickets are processed by BoringSSL during SSL_read) until the
+    /// TLS session is available or the deadline passes. Silence is success:
+    /// idle servers simply time out the short read window.
+    pub fn pump_for_session(&mut self, max_wait: std::time::Duration) {
+        let deadline = Instant::now() + max_wait;
+        // Short read timeout so we poll instead of blocking the full 15s.
+        let _ = self
+            .stream
+            .get_mut()
+            .set_read_timeout(Some(std::time::Duration::from_millis(100)));
+        while Instant::now() < deadline {
+            if self.stream.ssl().session().is_some() {
+                break;
+            }
+            let mut chunk = [0u8; 16384];
+            match self.stream.get_mut().read(&mut chunk) {
+                Ok(0) => break, // server closed
+                Ok(n) => self.buf.extend_from_slice(&chunk[..n]),
+                Err(_) => continue, // WouldBlock / TimedOut — poll again
+            }
+        }
+        let _ = self
+            .stream
+            .get_mut()
+            .set_read_timeout(Some(std::time::Duration::from_secs(15)));
     }
 }
 

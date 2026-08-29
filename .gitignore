@@ -8,3 +8,6 @@ config/lists/
 
 # Rust/native engine build artifacts
 src/antibot/engine/target/
+
+# Anti-bot runtime state (routing.json, cookies.json)
+data/antibot/

@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 
 from src.core.curl_fetcher import CurlCffiFetcher, CurlCffiResponse
 
+from .cookies import PersistentCookieJar
 from .temporal import RevalidationCache
 
 # Chrome 151 posture — mirrors fingerprints.py CHROME_TARGET["major"] and the
@@ -88,10 +89,12 @@ class SignalsTransport:
         user_agent: str = DEFAULT_USER_AGENT,
         proxy: str | None = None,
         conditional: bool = True,
+        cookie_jar: "PersistentCookieJar | None" = None,
     ):
         self.user_agent = user_agent
         self.proxy = proxy
         self.conditional = conditional
+        self.cookie_jar = cookie_jar
         self._engine = _engine()
         self._native = None  # persistent SignalsEngine (pool + session store)
         self._cache = RevalidationCache()
@@ -111,10 +114,21 @@ class SignalsTransport:
         conditional: bool | None = None,
     ) -> AntibotResponse:
         do_conditional = self.conditional if conditional is None else conditional
+        # Merge the jar's cookies under the caller's (caller wins on name
+        # conflicts) — Chrome always re-sends stored cookies.
+        if self.cookie_jar is not None:
+            jar_cookies = self.cookie_jar.cookies_for(url)
+            provided = {c["name"]: c for c in cookies or []}
+            for jc in jar_cookies:
+                if jc["name"] not in provided:
+                    provided[jc["name"]] = jc
+            cookies = list(provided.values()) or None
         response = self._fetch(
             url, headers=headers, cookies=cookies, method=method,
             conditional=do_conditional,
         )
+        if self.cookie_jar is not None:
+            self.cookie_jar.set_from_response(url, response.headers)
         if do_conditional and method == "GET":
             self._cache.on_response(url, response)
         return response

@@ -114,3 +114,38 @@ def test_engine_tls_session_resumption_abbreviates_handshake():
     engine.close()
     assert r1["status"] == 200 and r2["status"] == 200
     assert r2["resumed_session"] is True
+
+
+# ---------------------------------------------------------------------------
+# Happy Eyeballs: IPv6/IPv4 race with 250ms stagger (temporal stealth)
+# ---------------------------------------------------------------------------
+
+def test_split_families_partitions_dual_stack_host():
+    """split_families resolves the host and reports the v4/v6 partition
+    counts (pure resolution logic — no connection)."""
+    import signals_antibot
+
+    out = json.loads(signals_antibot.split_families("cloudflare.com"))
+    # cloudflare.com is dual-stack: both families must be present.
+    assert out["v4_addrs"] >= 1
+    assert out["v6_addrs"] >= 1
+
+
+def test_split_families_single_family_host():
+    """A v4-only hostname resolves to v4 only (partition correctness)."""
+    import signals_antibot
+
+    out = json.loads(signals_antibot.split_families("ipv4only.arpa"))
+    assert out["v4_addrs"] >= 1 and out["v6_addrs"] == 0
+
+
+@pytest.mark.antibot_live
+def test_connect_eyeballs_timing_reports_winner():
+    """connect_eyeballs_timing dials cloudflare.com with the Happy Eyeballs
+    race and reports which family won."""
+    import signals_antibot
+
+    out = json.loads(signals_antibot.connect_eyeballs_timing("cloudflare.com"))
+    assert out["stagger_ms"] == 250
+    assert out["winner_family"] in ("v4", "v6")
+    assert out["v4_addrs"] >= 1

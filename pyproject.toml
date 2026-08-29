@@ -9,6 +9,10 @@ pythonpath = ["."]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-q"
+markers = [
+    "antibot_live: live TLS fingerprint parity against tls.peet.ws (skipped unless -m antibot_live)",
+    "allow_network: test is allowed to make real network calls",
+]
 
 [tool.ruff]
 line-length = 100

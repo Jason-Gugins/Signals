@@ -11,6 +11,9 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.22", features = ["extension-module"] }
 boring = "4"
 boring-sys = "4"
+brotli = "7"
+serde_json = "1"
+foreign-types = "0.5"
 
 [profile.release]
 lto = true

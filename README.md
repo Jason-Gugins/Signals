@@ -115,6 +115,16 @@ CLOUDFLARE_BYPASS_STRATEGY=browser_first
 
 See [`src/sources/techstack/README.md`](src/sources/techstack/README.md) for the full waterfall and [`src/sources/techstack/cf_bypass.py`](src/sources/techstack/cf_bypass.py) for the implementation.
 
+## Anti-Bot Evasion
+
+`src/antibot` (SignalsShadow) is a native Rust/BoringSSL fetch tier whose TLS
+fingerprint is emergent from Chrome's own engine — "Chrome TLS, not
+Chrome-like" — plus an in-house HTTP/2 stack (Akamai h2 byte-exact), temporal
+stealth (session resumption, pooling, 304 revalidation), and solve-and-bounce
+ghost orchestration with self-improving per-domain routing. Falls back to
+`curl_cffi` when the engine isn't built. No CAPTCHA solving, no login
+bypass — honest limits are documented. Full notes: [`src/antibot/README.md`](src/antibot/README.md).
+
 ## Add a source in 20 lines
 
 1. Write a pure `parse_*(body) -> list[SignalCandidate]` (no I/O, no clock).

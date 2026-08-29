@@ -1,0 +1,23 @@
+**********************************************************************
+** Visual Studio 2022 Developer Command Prompt v17.14.38
+** Copyright (c) 2025 Microsoft Corporation
+**********************************************************************
+[vcvarsall.bat] Environment initialized for: 'x64'
+🐍 Found CPython 3.12 at C:\Users\Jason\Documents\AI\Signals\.venv\Scripts\python.exe
+🔗 Found pyo3 bindings
+   Compiling signals_antibot v0.1.0 (C:\Users\Jason\Documents\AI\Signals\src\antibot\engine)
+warning: variable does not need to be mutable
+   --> src\tls.rs:282:9
+    |
+282 |     let mut config: ConnectConfiguration = connector.configure().map_err(|e| e.to_string())?;
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `signals_antibot` (lib) generated 1 warning (run `cargo fix --lib -p signals_antibot` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 20.63s
+📦 Built wheel for CPython 3.12 to C:\Users\Jason\AppData\Local\Temp\.tmpFobPwR\signals_antibot-0.1.0-cp312-cp312-win_amd64.whl
+✏️ Setting installed package as editable
+🛠 Installed signals_antibot-0.1.0

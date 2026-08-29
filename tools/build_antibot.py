@@ -31,10 +31,42 @@ EXTRA_PATH = [
 ]
 
 
+def apply_registry_patches() -> None:
+    """Apply our Chrome-parity patches to the vendored boring-sys BoringSSL.
+
+    The cargo registry source is ephemeral (refreshed by `cargo update` /
+    `cargo clean` of the registry), so re-apply on every build. Idempotent.
+
+    Patches (see BUILD_NOTES.md 'Vendored BoringSSL patch'):
+      - TLSEXT_TYPE_application_settings 17513 -> 17613 (Chrome 151+ emits the
+        final IANA codepoint; upstream BoringSSL still sends the legacy draft).
+    """
+    import glob
+    import re
+
+    pattern = os.path.expanduser(
+        r"~\.cargo\registry\src\*\boring-sys-*\deps\boringssl\src\include\openssl\tls1.h"
+    )
+    for header in glob.glob(pattern):
+        text = Path(header).read_text(encoding="utf-8", errors="replace")
+        patched = re.sub(
+            r"#define TLSEXT_TYPE_application_settings 17513\b",
+            "#define TLSEXT_TYPE_application_settings 17613",
+            text,
+        )
+        if patched != text:
+            Path(header).write_text(patched, encoding="utf-8")
+            print(f"Patched ALPS codepoint 17513 -> 17613 in {header}")
+        else:
+            print(f"ALPS codepoint already patched (or not found): {header}")
+
+
 def main() -> int:
     env = os.environ.copy()
     env["PATH"] = os.pathsep.join(EXTRA_PATH) + os.pathsep + env.get("PATH", "")
     env["LIBCLANG_PATH"] = r"C:\Program Files\LLVM\bin"
+
+    apply_registry_patches()
 
     venv_maturin = REPO / ".venv" / "Scripts" / "maturin.exe"
     maturin = str(venv_maturin) if venv_maturin.exists() else "maturin"

@@ -113,8 +113,22 @@ Stated plainly, DonSeTch-style:
 
 ## Configuration
 
-The transport is parameterized at construction: `user_agent`, `proxy`, and
-`conditional` (304 revalidation on/off). Routing state persists at
+The `antibot:` block in `config/default.yaml` gates the module:
+
+```yaml
+antibot:
+  enabled: true          # wire SignalsShadow into the bypass waterfalls
+  fallback: curl_cffi    # tier used when the engine isn't built
+  recheck_after_hours: 24
+```
+
+`config.antibot.enabled=true` makes the orchestrator construct a
+`SignalsTransport` and hand it to `DataDomeBypass`/`CloudflareBypass` as the
+preferred tier-1 (tier order: cookie reuse → signals_shadow → curl_cffi →
+stealth browser → solver → hard stop). Construction is guarded — an unbuilt
+engine degrades gracefully to the fallback.
+
+The transport itself is parameterized at construction: `user_agent`, `proxy`,
+and `conditional` (304 revalidation on/off). Routing state persists at
 `data/antibot/routing.json` (configurable `path` + `recheck_seconds` on
-`RouteState`). An `antibot:` block in `config/default.yaml` is the planned
-wiring point for turning the tier on per-source.
+`RouteState`).

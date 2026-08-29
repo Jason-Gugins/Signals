@@ -13,12 +13,12 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 
 use boring::error::ErrorStack;
-use foreign_types::ForeignTypeRef;
 use boring::ssl::{
     CertificateCompressionAlgorithm, CertificateCompressor, ConnectConfiguration, SslConnector,
-    SslMethod, SslVersion,
+    SslMethod, SslStream, SslVersion,
 };
 use boring_sys as ffi;
+use foreign_types::ForeignTypeRef;
 use serde_json::{json, Value};
 
 // ---------------------------------------------------------------------------
@@ -59,10 +59,10 @@ pub const CHROME_ALPN: &[&str] = &["h2", "http/1.1"];
 
 /// Chrome HTTP/2 SETTINGS sent inside the ALPS extension (key -> value).
 pub const CHROME_ALPS_H2_SETTINGS: &[(u16, u32)] = &[
-    (1, 65536),      // HEADER_TABLE_SIZE
-    (2, 0),          // ENABLE_PUSH
-    (4, 6291456),    // INITIAL_WINDOW_SIZE
-    (6, 262_144),    // MAX_HEADER_LIST_SIZE
+    (1, 65536),   // HEADER_TABLE_SIZE
+    (2, 0),       // ENABLE_PUSH
+    (4, 6291456), // INITIAL_WINDOW_SIZE
+    (6, 262_144), // MAX_HEADER_LIST_SIZE
 ];
 
 fn alpn_wire(protocols: &[&str]) -> Vec<u8> {
@@ -146,11 +146,8 @@ pub fn build_chrome_context() -> Result<SslConnector, ErrorStack> {
         .filter(|s| !matches!(s, 0x0904 | 0x0905 | 0x0906))
         .collect();
     unsafe {
-        let ok = ffi::SSL_CTX_set_signing_algorithm_prefs(
-            b.as_ptr(),
-            sigs.as_ptr(),
-            sigs.len(),
-        ) == 1
+        let ok = ffi::SSL_CTX_set_signing_algorithm_prefs(b.as_ptr(), sigs.as_ptr(), sigs.len())
+            == 1
             || ffi::SSL_CTX_set_signing_algorithm_prefs(
                 b.as_ptr(),
                 classic.as_ptr(),
@@ -235,12 +232,12 @@ pub fn tls_config_json() -> String {
 // probe_fingerprint: real TLS fetch with the Chrome context + minimal HTTP/2
 // ---------------------------------------------------------------------------
 
-struct Url {
-    host: String,
-    path: String,
+pub(crate) struct Url {
+    pub(crate) host: String,
+    pub(crate) path: String,
 }
 
-fn parse_url(url: &str) -> Result<Url, String> {
+pub(crate) fn parse_url(url: &str) -> Result<Url, String> {
     let rest = url
         .strip_prefix("https://")
         .ok_or_else(|| "only https:// URLs are supported".to_string())?;
@@ -255,37 +252,12 @@ fn parse_url(url: &str) -> Result<Url, String> {
     })
 }
 
-fn hpack_literal(out: &mut Vec<u8>, name: &str, value: &str) {
-    // Literal header field without indexing, new name (0x00), no Huffman.
-    out.push(0x00);
-    out.push(name.len() as u8);
-    out.extend_from_slice(name.as_bytes());
-    out.push(value.len() as u8);
-    out.extend_from_slice(value.as_bytes());
-}
-
-fn frame(ftype: u8, flags: u8, stream: u32, payload: &[u8]) -> Vec<u8> {
-    let mut f = Vec::with_capacity(9 + payload.len());
-    f.extend_from_slice(&(payload.len() as u32).to_be_bytes()[1..]);
-    f.push(ftype);
-    f.push(flags);
-    f.extend_from_slice(&(stream & 0x7fff_ffff).to_be_bytes());
-    f.extend_from_slice(payload);
-    f
-}
-
-/// Perform a real TLS connection using the Chrome context, speak a minimal
-/// HTTP/2 GET (h2 is what Chrome's ALPN negotiates), and return the JSON the
-/// fingerprint endpoint echoes (for tls.peet.ws: ja4, ja3_hash, akamai_h2,
-/// tls_extensions, ...).
-///
-/// NOTE: the h2 client here is deliberately minimal (literal HPACK, fixed
-/// preface) — Akamai-h2 parity of the *request* preface is Task 2's job. The
-/// TLS fingerprint the server reports is unaffected by request-side h2 bytes.
-pub fn probe_fingerprint(url: &str) -> Result<Value, String> {
-    let u = parse_url(url)?;
+/// Establish a TLS connection with the Chrome-configured context (ALPN h2)
+/// and apply the per-connection Chrome toggles. Shared by probe_fingerprint
+/// and the h2 client.
+pub fn connect_chrome_tls(host: &str) -> Result<SslStream<TcpStream>, String> {
     let connector = build_chrome_context().map_err(|e| e.to_string())?;
-    let addr = format!("{}:443", u.host);
+    let addr = format!("{}:443", host);
     let tcp = TcpStream::connect(&addr).map_err(|e| format!("tcp connect: {e}"))?;
     tcp.set_read_timeout(Some(std::time::Duration::from_secs(15)))
         .map_err(|e| e.to_string())?;
@@ -294,8 +266,8 @@ pub fn probe_fingerprint(url: &str) -> Result<Value, String> {
 
     let mut config: ConnectConfiguration = connector.configure().map_err(|e| e.to_string())?;
     apply_per_connection_chrome_toggles(&config)?;
-    let mut tls = config
-        .connect(&u.host, tcp)
+    let tls = config
+        .connect(host, tcp)
         .map_err(|e| format!("tls handshake: {e}"))?;
 
     if let Some(alpn) = tls.ssl().selected_alpn_protocol() {
@@ -305,85 +277,20 @@ pub fn probe_fingerprint(url: &str) -> Result<Value, String> {
     } else {
         return Err("no ALPN negotiated".into());
     }
+    Ok(tls)
+}
 
-    // -- minimal h2 client ------------------------------------------------
-    let mut req: Vec<u8> = Vec::new();
-    req.extend_from_slice(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
-    req.extend_from_slice(&frame(4, 0, 0, &[])); // empty SETTINGS (preface requirement)
-    // generous connection-level window so mid-size responses never stall
-    let mut win = [0u8; 4];
-    win.copy_from_slice(&0x00FF_FFFFu32.to_be_bytes());
-    req.extend_from_slice(&frame(8, 0, 0, &win)); // WINDOW_UPDATE stream 0
-
-    let mut hdrs = Vec::new();
-    hpack_literal(&mut hdrs, ":method", "GET");
-    hpack_literal(&mut hdrs, ":scheme", "https");
-    hpack_literal(&mut hdrs, ":authority", &u.host);
-    hpack_literal(&mut hdrs, ":path", &u.path);
-    hpack_literal(&mut hdrs, "user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36");
-    hpack_literal(&mut hdrs, "accept", "*/*");
-    hpack_literal(&mut hdrs, "accept-encoding", "gzip, deflate, br");
-    hpack_literal(&mut hdrs, "accept-language", "en-US,en;q=0.9");
-    req.extend_from_slice(&frame(1, 0x1 | 0x4, 1, &hdrs)); // HEADERS END_STREAM|END_HEADERS
-
-    tls.write_all(&req).map_err(|e| format!("h2 write: {e}"))?;
-
-    let mut body = Vec::new();
-    let mut buf = [0u8; 16384];
-    loop {
-        let n = tls.read(&mut buf).map_err(|e| format!("h2 read: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        // Parse frames out of the stream (they arrive aligned on a single
-        // connection doing one request at a time, so scan sequentially).
-        let mut off = 0usize;
-        let chunk = &buf[..n];
-        while off + 9 <= chunk.len() {
-            let len = u32::from_be_bytes([0, chunk[off], chunk[off + 1], chunk[off + 2]]) as usize;
-            let ftype = chunk[off + 3];
-            let flags = chunk[off + 4];
-            let payload_end = off + 9 + len;
-            if payload_end > chunk.len() {
-                // frame split across reads — for this single-request probe we
-                // just keep the payload we have; peet.ws responses fit easily.
-                break;
-            }
-            let payload = &chunk[off + 9..payload_end];
-            match ftype {
-                0 => {
-                    // DATA
-                    if (flags & 0x1) != 0 || !payload.is_empty() {
-                        body.extend_from_slice(payload);
-                    }
-                    if flags & 0x1 != 0 {
-                        let json: Value = serde_json::from_slice(&body)
-                            .map_err(|e| format!("bad json from endpoint: {e}"))?;
-                        return Ok(extract_fingerprint_fields(json));
-                    }
-                }
-                4 => {
-                    // SETTINGS -> ACK it
-                    let ack = frame(4, 0x1, 0, &[]);
-                    let _ = tls.write_all(&ack);
-                }
-                6 => {
-                    // PING -> ACK
-                    if flags & 0x1 == 0 {
-                        let ack = frame(6, 0x1, 0, payload);
-                        let _ = tls.write_all(&ack);
-                    }
-                }
-                7 => return Err(format!("GOAWAY: {}", String::from_utf8_lossy(payload))),
-                _ => {}
-            }
-            off = payload_end;
-        }
-        if body.len() > 2_000_000 {
-            return Err("response too large".into());
-        }
-    }
-    Err("stream ended before END_STREAM".into())
+/// Perform a real TLS fetch of `url` with the Chrome-configured context and
+/// return (as JSON) whatever fingerprint data the endpoint echoes.
+///
+/// The request is sent over the Task-2 own HTTP/2 stack (h2 module): Chrome's
+/// exact preface (SETTINGS + WINDOW_UPDATE), HPACK-encoded browser-order
+/// headers. The endpoint response body is the JSON of e.g. tls.peet.ws/api/all.
+pub fn probe_fingerprint(url: &str) -> Result<Value, String> {
+    let body = crate::h2_fetch_bytes(url, "GET", &[])?;
+    let json: Value =
+        serde_json::from_slice(&body).map_err(|e| format!("bad json from endpoint: {e}"))?;
+    Ok(extract_fingerprint_fields(json))
 }
 
 /// Project the full peet.ws payload onto the small set of fields the parity

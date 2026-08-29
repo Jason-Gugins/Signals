@@ -284,8 +284,12 @@ pub fn connect_chrome_tls_with_connector(
     host: &str,
     session: Option<&boring::ssl::SslSessionRef>,
 ) -> Result<(SslStream<TcpStream>, bool), String> {
-    let addr = format!("{}:443", host);
-    let tcp = TcpStream::connect(&addr).map_err(|e| format!("tcp connect: {e}"))?;
+    let tcp = crate::eyeballs::connect_happy_eyeballs(
+        host,
+        443,
+        crate::eyeballs::STAGGER_MS,
+    )
+    .map_err(|e| format!("tcp connect: {e}"))?;
     tcp.set_read_timeout(Some(std::time::Duration::from_secs(15)))
         .map_err(|e| e.to_string())?;
     tcp.set_write_timeout(Some(std::time::Duration::from_secs(15)))

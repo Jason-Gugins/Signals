@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 
+mod eyeballs;
 mod h2;
 mod pool;
 mod session;
@@ -351,6 +352,22 @@ fn chrome_h2_preface() -> PyResult<Vec<u8>> {
     Ok(h2::chrome_preface_bytes())
 }
 
+/// Happy Eyeballs: report the IPv4/IPv6 DNS partition for `host` (no
+/// connection is made — pure resolution + partition, unit-testable).
+#[pyfunction]
+fn split_families(host: &str) -> PyResult<String> {
+    eyeballs::split_families_json(host, 443)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e))
+}
+
+/// Happy Eyeballs: dial `host:443` with the IPv6/IPv4 race (250ms stagger)
+/// and report which family won.
+#[pyfunction]
+fn connect_eyeballs_timing(host: &str) -> PyResult<String> {
+    eyeballs::connect_eyeballs_timing(host, 443, eyeballs::STAGGER_MS)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e))
+}
+
 #[pymodule]
 fn signals_antibot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(engine_version, m)?)?;
@@ -365,5 +382,7 @@ fn signals_antibot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(huffman_decode, m)?)?;
     m.add_function(wrap_pyfunction!(build_settings_frame, m)?)?;
     m.add_function(wrap_pyfunction!(chrome_h2_preface, m)?)?;
+    m.add_function(wrap_pyfunction!(split_families, m)?)?;
+    m.add_function(wrap_pyfunction!(connect_eyeballs_timing, m)?)?;
     Ok(())
 }

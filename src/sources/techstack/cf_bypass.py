@@ -22,11 +22,14 @@ class BypassOutcome:
 
 
 class CloudflareBypass:
-    def __init__(self, config: Config, cookie_store: CfCookieStore, http_fetcher, browser_fetcher):
+    def __init__(self, config: Config, cookie_store: CfCookieStore, http_fetcher, browser_fetcher, shadow=None):
         self.config = config
         self.cookies = cookie_store
         self.http = http_fetcher
         self.browser = browser_fetcher
+        # Optional SignalsShadow tier-1 (real Chrome TLS via src/antibot).
+        # When present it runs after cookie reuse and before the browser tier.
+        self.shadow = shadow
 
     def attempt(self, *, domain: str, url: str, user_agent: str, proxy: str = "direct", source: str = "techstack", click_show_more: bool = False) -> BypassOutcome:
         cf = self.config.cloudflare
@@ -41,6 +44,43 @@ class CloudflareBypass:
             if result.ok and not self._is_challenge(result):
                 return BypassOutcome(True, "cookie_reuse", None, result, cached_cookies)
             self.cookies.clear(domain)  # stale
+
+        # Tier 1.5: SignalsShadow (real Chrome TLS tier-1, antibot module)
+        if self.shadow is not None:
+            shadow_resp = None
+            try:
+                shadow_resp = self.shadow.fetch(
+                    url,
+                    cookies=cached_cookies if cached else None,
+                    headers={"User-Agent": user_agent},
+                )
+            except Exception as e:
+                logger.warning("signals_shadow fetch failed for {}: {}", url, e)
+            if shadow_resp is not None:
+                shadow_body = shadow_resp.body
+                if not isinstance(shadow_body, bytes):
+                    shadow_body = (shadow_body or "").encode("utf-8", "replace")
+                shadow_cookies = [
+                    {"name": name, "value": value, "domain": domain}
+                    for name, value in (getattr(shadow_resp, "cookies", None) or {}).items()
+                ]
+                from src.core.http import FetchResult
+                from src.core.models import Document
+
+                shadow_result = FetchResult(
+                    ok=getattr(shadow_resp, "status", 0) == 200,
+                    status=getattr(shadow_resp, "status", 0),
+                    doc=Document(doc_id=f"shadow-{url}", source=source, url=url, body=shadow_body),
+                    cached=bool(getattr(shadow_resp, "from_cache", False)),
+                    error=None,
+                    elapsed_ms=0,
+                    cloudflare_cookies=shadow_cookies,
+                )
+                if shadow_result.ok and not self._is_challenge(shadow_result):
+                    expires_at = self._cookie_expiry(shadow_cookies)
+                    self._persist(domain, shadow_cookies, user_agent, proxy,
+                                  expires_at, method="signals_shadow")
+                    return BypassOutcome(True, "signals_shadow", "js", shadow_result, shadow_cookies)
 
         # Tier 2: browser solve (standard JS challenge)
         result: FetchResult | None = None

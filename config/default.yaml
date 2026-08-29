@@ -43,6 +43,11 @@ datadome:
   cookie_ttl_hours: 24          # datadome cookies are short-lived
   residential_proxy: null       # required for solver — set via DATADOME_RESIDENTIAL_PROXY env var
 
+antibot:
+  enabled: true                 # opt-in — SignalsShadow tier-1 (real Chrome TLS) in bypass waterfalls
+  fallback: curl_cffi           # tier used when the shadow tier can't clear (curl_cffi | browser)
+  recheck_after_hours: 24       # periodic cold recheck window for warm domains
+
 storage:
   db_path: "data/signals.db"
   raw_dir: "data/raw"

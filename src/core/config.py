@@ -82,6 +82,13 @@ class DataDomeConfig:
 
 
 @dataclass
+class AntibotConfig:
+    enabled: bool = False
+    fallback: str = "curl_cffi"
+    recheck_after_hours: int = 24
+
+
+@dataclass
 class StorageConfig:
     db_path: str = "data/signals.db"
     raw_dir: str = "data/raw"
@@ -119,6 +126,7 @@ class Config:
     browser: BrowserConfig = field(default_factory=BrowserConfig)
     cloudflare: CloudflareConfig = field(default_factory=CloudflareConfig)
     datadome: DataDomeConfig = field(default_factory=DataDomeConfig)
+    antibot: AntibotConfig = field(default_factory=AntibotConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     external_dbs: ExternalDbConfig = field(default_factory=ExternalDbConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)

@@ -254,6 +254,25 @@ class Orchestrator:
                     self.config, dd_store, curl_fetcher,
                     stealth_browser=stealth_browser,
                 )
+            # SignalsShadow tier-1 (real Chrome TLS, antibot module) — wired into
+            # both waterfalls when enabled. Guarded: the native engine may not
+            # be built; waterfalls degrade to their existing tiers.
+            if getattr(self.config, "antibot", None) and self.config.antibot.enabled:
+                shadow = None
+                try:
+                    from src.antibot.python.transport import SignalsTransport
+
+                    proxy = getattr(self.config.datadome, "residential_proxy", None)
+                    shadow = SignalsTransport(
+                        user_agent=self.config.browser.user_agent, proxy=proxy,
+                    )
+                except Exception:
+                    shadow = None  # engine not built / import failed — tiers unchanged
+                if shadow is not None:
+                    if dd_bypass is not None:
+                        dd_bypass.shadow = shadow
+                    if cf_bypass is not None:
+                        cf_bypass.shadow = shadow
             try:
                 runner = CollectorRunner(
                     self.config, self.db, self.registry, self.raw, fetcher, self.signal_store, self.taxonomy, ctx,

@@ -32,11 +32,14 @@ class DataDomeOutcome:
 
 
 class DataDomeBypass:
-    def __init__(self, config, cookie_store, curl_fetcher, stealth_browser=None):
+    def __init__(self, config, cookie_store, curl_fetcher, stealth_browser=None, shadow=None):
         self.config = config
         self.cookies = cookie_store
         self.curl = curl_fetcher
         self.stealth = stealth_browser
+        # Optional SignalsShadow tier-1 (real Chrome TLS via src/antibot). When
+        # present it runs after cookie reuse and before curl_cffi.
+        self.shadow = shadow
 
     def attempt(self, *, domain: str, url: str, user_agent: str, proxy: str = "direct") -> DataDomeOutcome:
         dd = getattr(self.config, "datadome", None)
@@ -51,6 +54,31 @@ class DataDomeBypass:
             if result and result.status == 200 and not is_datadome_challenge(status=result.status, body=result.body):
                 return DataDomeOutcome(True, "cookie_reuse", result.body, cached_cookies)
             self.cookies.clear(domain)
+
+        # Tier 1.5: SignalsShadow (real Chrome TLS tier-1, antibot module)
+        if self.shadow is not None:
+            shadow_resp = None
+            try:
+                shadow_resp = self.shadow.fetch(
+                    url,
+                    cookies=cached_cookies if cached else None,
+                    headers={"User-Agent": user_agent},
+                )
+            except Exception as e:
+                logger.warning("signals_shadow fetch failed for {}: {}", url, e)
+            if shadow_resp is not None:
+                shadow_body = shadow_resp.body
+                if not isinstance(shadow_body, bytes):
+                    shadow_body = (shadow_body or "").encode("utf-8", "replace")
+                if (
+                    getattr(shadow_resp, "status", 0) == 200
+                    and not is_datadome_challenge(status=shadow_resp.status, body=shadow_body)
+                ):
+                    shadow_cookies = self._shadow_cookies(shadow_resp, domain)
+                    if shadow_cookies:
+                        self._persist(domain, shadow_cookies, user_agent, proxy,
+                                      method="signals_shadow")
+                    return DataDomeOutcome(True, "signals_shadow", shadow_body, shadow_cookies)
 
         # Tier 2: curl_cffi TLS impersonation (no cookies, just right fingerprint)
         result = self._fetch_with_curl(url, cookies=None, user_agent=user_agent, proxy=proxy)
@@ -144,6 +172,14 @@ class DataDomeBypass:
         for name, value in result.cookies.items():
             if name == "datadome":
                 cookies.append({"name": name, "value": value, "domain": ".g2.com"})
+        return cookies
+
+    def _shadow_cookies(self, shadow_resp, domain: str) -> list[dict]:
+        """Extract the datadome cookie from a SignalsShadow response."""
+        cookies = []
+        for name, value in (getattr(shadow_resp, "cookies", None) or {}).items():
+            if name == "datadome":
+                cookies.append({"name": name, "value": value, "domain": f".{domain}"})
         return cookies
 
     def _parse_cookie_string(self, cookie_str: str, domain: str) -> list[dict]:

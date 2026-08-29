@@ -423,10 +423,22 @@ class CollectorRunner:
         from src.sources.marketplace.g2 import g2_reviews_fragment_url
 
         url = g2_reviews_fragment_url(slug, page=page)
+        # DataDome clears in HEADED mode only (Proof-of-Browser detects the
+        # headless SwiftShader renderer), and it scores behavioral signals —
+        # warm up like a human (homepage visit + scroll + dwell) before the
+        # fragment navigation. The browser is forced headed via config
+        # mutation (PatchrightBrowserFetcher launches from config.browser).
+        try:
+            browser_cfg = getattr(browser, "config", None)
+            if browser_cfg is not None and getattr(browser_cfg, "browser", None) is not None:
+                browser_cfg.browser.headless = False
+        except Exception:  # pragma: no cover - defensive
+            pass
         try:
             result = browser.fetch(
                 url, source=task.source, domain=task.domain,
                 wait_ms=4000, scroll=True,
+                warmup_url="https://www.g2.com/", warmup_ms=4000,
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("g2 fragment fetch failed for {}: {}", task.domain, exc)

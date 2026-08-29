@@ -75,6 +75,13 @@ def test_runner_routes_marketplace_g2_to_fragment_via_stealth(tmp_path):
     # The plain over-HTTP fetcher was not used on the rendered path.
     stub_fetcher.get.assert_not_called()
 
+    # DataDome clears in HEADED mode only — the fragment path must run the
+    # stealth browser headed (config default is headless: true) with a
+    # behavioral warm-up (homepage visit + scroll + dwell) before navigating.
+    call_kwargs = stealth_browser.fetch.call_args[1]
+    assert call_kwargs.get("warmup_url"), "G2 fragment path must warm up like a human first"
+    assert "g2.com" in call_kwargs["warmup_url"]
+
 
 def test_runner_marketplace_g2_falls_back_when_no_stealth_slug(tmp_path):
     """Without a product_slug (and with no usable browser) the runner falls back to the fetcher."""

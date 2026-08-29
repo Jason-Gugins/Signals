@@ -3,6 +3,8 @@ Task 1: Chrome-configured TLS context assertions (config-level, always-on)."""
 
 import json
 
+import pytest
+
 from src.antibot.python.fingerprints import CHROME_TARGET
 
 
@@ -64,3 +66,51 @@ def test_probe_fingerprint_returns_endpoint_json():
     assert fp["ja4"] is not None and isinstance(fp["ja4"], str)
     assert fp["ja4"].startswith("t13")
     assert isinstance(fp["tls_extensions"], list) and fp["tls_extensions"]
+
+
+# ---------------------------------------------------------------------------
+# Task 3: temporal stealth — TLS resumption, h2 pooling
+# ---------------------------------------------------------------------------
+
+def test_signals_engine_class_present():
+    import signals_antibot
+
+    engine = signals_antibot.SignalsEngine()
+    assert engine.pool_size() == 0
+    assert engine.session_count() == 0
+    engine.close()
+    engine.close_pool()
+
+
+@pytest.mark.antibot_live
+def test_engine_second_fetch_reuses_connection_or_resumes_session():
+    """Temporal stealth, live: two fetches of the same origin through ONE
+    SignalsEngine must show browser-like temporal behavior — the second
+    response is served over the pooled h2 connection (reused_connection)
+    and/or after an abbreviated TLS handshake (resumed_session)."""
+    import signals_antibot
+
+    engine = signals_antibot.SignalsEngine()
+    r1 = json.loads(engine.fetch("https://www.cloudflare.com/cdn-cgi/trace"))
+    r2 = json.loads(engine.fetch("https://www.cloudflare.com/cdn-cgi/trace"))
+    engine.close()
+    assert r1["status"] == 200
+    assert r2["status"] == 200
+    assert r2["reused_connection"] is True or r2["resumed_session"] is True
+
+
+@pytest.mark.antibot_live
+def test_engine_tls_session_resumption_abbreviates_handshake():
+    """With the pool dropped but session tickets kept, the next dial must
+    resume the TLS session (abbreviated handshake) on an origin that honors
+    resumption tickets."""
+    import signals_antibot
+
+    engine = signals_antibot.SignalsEngine()
+    r1 = json.loads(engine.fetch("https://httpbin.org/get"))
+    assert engine.session_count() >= 1
+    engine.close_pool()
+    r2 = json.loads(engine.fetch("https://httpbin.org/get"))
+    engine.close()
+    assert r1["status"] == 200 and r2["status"] == 200
+    assert r2["resumed_session"] is True

@@ -879,6 +879,9 @@ roadmap item; see the commit references in the project history.
   (`record_solve` on success, `expire` on challenge) so per-domain cookie lifetimes converge
   from real observations, and the warm-up is skipped automatically once cookies are known-stale.
 
+- **Multi-slug accounts** — `g2_slug` accepts comma-separated slugs; one collection task per
+  G2 product.
+
 ---
 
 ## Limitations & Roadmap
@@ -908,8 +911,8 @@ roadmap item; see the commit references in the project history.
 - **Extra review fields** — G2 cards carry NPS score, helpful-vote counts, and reviewer
   metadata beyond what `extract_g2_reviews` maps; the `g2_reviews` schema has room. Low effort,
   more signal per review.
-- **Multi-slug accounts** — `g2_slug` is a single slug; companies with several G2 products
-  (e.g. Databricks) only collect from one. Support comma-separated slugs or a slug lookup.
+- ~~**Multi-slug accounts**~~ — **Done.** `g2_slug` accepts comma-separated slugs; `plan()`
+  fans out one FetchTask per G2 product (see Features).
 - **Selector-drift self-check** — a `--selfcheck` mode that fetches one known-good product and
   asserts ≥1 review parses, alerting when live markup diverges from the frozen fixtures.
 - **Wire the 2Captcha token-to-cookie browser injection** so the solver tier can produce a real

@@ -93,10 +93,17 @@ class MarketplaceG2Source(SourceAdapter):
             pass
         return []
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
-        if not account.g2_slug:
+    @staticmethod
+    def _split_slugs(g2_slug: str | None) -> list[str]:
+        """g2_slug may hold comma-separated slugs. Returns clean slug list."""
+        if not g2_slug:
             return []
-        url = f"https://www.g2.com/products/{account.g2_slug}/reviews"
+        return [s.strip() for s in g2_slug.split(",") if s.strip()]
+
+    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+        slugs = self._split_slugs(account.g2_slug)
+        if not slugs:
+            return []
         headers = {}
         cookies = self._load_cookies()
         if cookies:
@@ -105,11 +112,12 @@ class MarketplaceG2Source(SourceAdapter):
         return [
             FetchTask(
                 source=self.key,
-                url=url,
+                url=f"https://www.g2.com/products/{slug}/reviews",
                 domain=account.domain,
                 headers=headers,
-                meta={"kind": "reviews", "product_slug": account.g2_slug, "page": 1},
+                meta={"kind": "reviews", "product_slug": slug, "page": 1},
             )
+            for slug in slugs
         ]
 
     def parse(self, doc: Document, account: Account, task_meta: dict) -> list[SignalCandidate]:

@@ -144,3 +144,36 @@ def test_g2_plan_without_session_cookies():
     tasks = adapter.plan(acct, None)
     assert len(tasks) == 1
     assert "Cookie" not in tasks[0].headers
+
+
+def test_g2_plan_fans_out_multi_slug():
+    """Comma-separated g2_slug produces one FetchTask per slug, each with its own product_slug."""
+    adapter = MarketplaceG2Source()
+    acct = Account(domain="db.com", g2_slug="databricks,databricks-sql")
+    tasks = adapter.plan(acct, None)
+    assert len(tasks) == 2
+    slugs = [t.meta["product_slug"] for t in tasks]
+    assert slugs == ["databricks", "databricks-sql"]
+    assert all("reviews_and_filters" not in t.url for t in tasks)  # plan targets /reviews
+    assert all(t.source == "marketplace_g2" for t in tasks)
+
+
+def test_g2_plan_multi_slug_strips_whitespace():
+    adapter = MarketplaceG2Source()
+    acct = Account(domain="db.com", g2_slug=" alpha , beta ,")
+    tasks = adapter.plan(acct, None)
+    assert [t.meta["product_slug"] for t in tasks] == ["alpha", "beta"]
+
+
+def test_g2_plan_single_slug_unchanged():
+    adapter = MarketplaceG2Source()
+    acct = Account(domain="a.com", g2_slug="solo")
+    tasks = adapter.plan(acct, None)
+    assert len(tasks) == 1
+    assert tasks[0].meta["product_slug"] == "solo"
+
+
+def test_g2_plan_empty_slug_still_returns_no_tasks():
+    adapter = MarketplaceG2Source()
+    acct = Account(domain="a.com", g2_slug="")
+    assert adapter.plan(acct, None) == []

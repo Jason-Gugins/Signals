@@ -443,11 +443,22 @@ class CollectorRunner:
                 browser_cfg.browser.headless = False
         except Exception:  # pragma: no cover - defensive
             pass
+        # The behavioral warm-up (~4s of homepage dwell = extra DataDome
+        # exposure) only pays for itself on the first page of a session;
+        # pagination pages 2..N reuse the already-warm session.
+        try:
+            page_num = int(page) if page else 1
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            page_num = 1
+        warmup_kwargs = (
+            {"warmup_url": "https://www.g2.com/", "warmup_ms": 4000}
+            if page_num <= 1
+            else {}
+        )
         try:
             result = browser.fetch(
                 url, source=task.source, domain=task.domain,
-                wait_ms=4000, scroll=True,
-                warmup_url="https://www.g2.com/", warmup_ms=4000,
+                wait_ms=4000, scroll=True, **warmup_kwargs,
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("g2 fragment fetch failed for {}: {}", task.domain, exc)

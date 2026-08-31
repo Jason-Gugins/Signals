@@ -130,6 +130,78 @@ def test_runner_closes_stealth_browser_after_run(tmp_path):
     stealth_browser.close.assert_called_once()
 
 
+def test_g2_fragment_warmup_only_on_page_1(tmp_path):
+    """The behavioral warm-up (homepage + dwell) is ~4s of extra DataDome
+    exposure per fetch. It must run on page 1 (session establishment) but NOT
+    on pagination pages 2..N (the session is already warm)."""
+    page1 = Document(doc_id="p1", source="marketplace_g2",
+                     url="https://www.g2.com/products/sierra/reviews_and_filters",
+                     body=b"<html>page1</html>")
+    stealth_browser = MagicMock()
+    stealth_browser.fetch.return_value = FetchResult(
+        ok=True, status=200, doc=page1, cached=False, error=None, elapsed_ms=10)
+    datadome_bypass = MagicMock()
+    datadome_bypass.stealth = stealth_browser
+    runner = _make_runner(MagicMock(), datadome_bypass)
+
+    task1 = FetchTask(source="marketplace_g2", url="https://www.g2.com/products/sierra/reviews",
+                      domain="g2.com", meta={"product_slug": "sierra", "page": 1})
+    runner._fetch_one(task1, None, None)
+    kw1 = stealth_browser.fetch.call_args[1]
+    assert kw1.get("warmup_url"), "page 1 must warm up"
+
+    stealth_browser.fetch.reset_mock()
+    task2 = FetchTask(source="marketplace_g2", url="https://www.g2.com/products/sierra/reviews?page=2",
+                      domain="g2.com", meta={"product_slug": "sierra", "page": 2})
+    runner._fetch_one(task2, None, None)
+    kw2 = stealth_browser.fetch.call_args[1]
+    assert not kw2.get("warmup_url"), "pages 2..N must NOT re-run the warm-up"
+
+
+def test_follow_tasks_page2_refetches_fragment_page_2(tmp_path):
+    """End-to-end two-pass: after page 1 parses, follow_tasks plans page=2 and
+    _fetch_one fetches the *fragment* for page 2 through the stealth browser."""
+    page1_html = b"<html><article id='sierra-review-1' ue='track-in-viewport'>x</article></html>"
+    page2_html = b"<html><article id='sierra-review-2' ue='track-in-viewport'>y</article></html>"
+    stealth_browser = MagicMock()
+    stealth_browser.fetch.side_effect = [
+        FetchResult(ok=True, status=200,
+                    doc=Document(doc_id="f1", source="marketplace_g2",
+                                 url="https://www.g2.com/products/sierra/reviews_and_filters?page=1",
+                                 body=page1_html),
+                    cached=False, error=None, elapsed_ms=10),
+        FetchResult(ok=True, status=200,
+                    doc=Document(doc_id="f2", source="marketplace_g2",
+                                 url="https://www.g2.com/products/sierra/reviews_and_filters?page=2",
+                                 body=page2_html),
+                    cached=False, error=None, elapsed_ms=10),
+    ]
+    datadome_bypass = MagicMock()
+    datadome_bypass.stealth = stealth_browser
+    runner = _make_runner(MagicMock(), datadome_bypass)
+
+    from src.sources.marketplace.collector import MarketplaceG2Source
+    from src.core.models import Account
+    adapter = MarketplaceG2Source()
+    account = Account(domain="sierra.com", g2_slug="sierra")
+
+    # pass 1
+    task1 = FetchTask(source="marketplace_g2", url="https://www.g2.com/products/sierra/reviews",
+                      domain="g2.com", meta={"kind": "reviews", "product_slug": "sierra", "page": 1})
+    result1 = runner._fetch_one(task1, None, None)
+    meta1 = {"kind": "reviews", "product_slug": "sierra", "page": 1, "max_review_pages": 5,
+             "today": "2026-08-30"}
+    follow = adapter.follow_tasks(result1.doc, account, meta1)
+    assert len(follow) == 1
+    assert "page=2" in follow[0].url
+
+    # pass 2 — follow task flows back through _fetch_one
+    result2 = runner._fetch_one(follow[0], None, None)
+    second_call = stealth_browser.fetch.call_args_list[1]
+    assert "page=2" in second_call[0][0]
+    assert result2.doc.body == page2_html
+
+
 def test_runner_closes_stealth_browser_even_when_collection_raises(tmp_path):
     """close() must happen in a finally — an exception mid-collection must
     not leak the browser."""

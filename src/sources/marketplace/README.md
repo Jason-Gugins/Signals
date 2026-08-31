@@ -507,6 +507,22 @@ The cookie is set directly in the HTTP client's cookie jar — no browser re-ent
 Cookies persist in the `datadome_cookies` SQLite table (`DataDomeCookieStore` in
 `src/core/db.py`), bound to domain + User-Agent + proxy, reused on the next weekly collect.
 
+### Empirical findings (Aug 2026 live testing)
+
+- **The DataDome clearance cookie is fingerprint-bound to the browser session that solved
+  it.** Replay through any HTTP tier — even one with byte-exact Chrome TLS + HTTP/2
+  fingerprints (`src/antibot/`) — still returns the 403 interstitial. DataDome validates the
+  JS probe payload behind the cookie, not just network identity. Therefore **G2 collection
+  renders and parses inside the headed browser** (no HTTP-tier refetch).
+- **Headed + warm-up is what clears it.** The runner forces the stealth browser headed and
+  runs a behavioral warm-up (homepage → scroll → dwell) before the fragment navigation.
+  Headless always gets the `rt='i'` interstitial; headed clears consistently.
+- **Empty ≠ blocked.** Products with no reviews return a real 200 page with zero review
+  cards (~215KB shell, no `elv-stars`) — logged as `empty`, distinct from a challenge.
+- **Pacing still matters.** Repeated rapid browser launches escalate DataDome into blocking
+  whole sessions. Keep live collection paced (the runner's built-in warm-up + per-page flow
+  is tuned for this; avoid tight custom loops).
+
 ### Residential proxy requirement
 
 A **residential proxy is required for the solver tier** (Tier 3). DataDome bans datacenter
@@ -651,7 +667,7 @@ In `config/default.yaml`:
 ```yaml
 browser:
   enabled: true
-  headless: true
+  headless: true        # ignored for G2 fragments — the runner forces headed (see DataDome Protection)
 ```
 
 ### 4. Collect reviews
@@ -660,9 +676,19 @@ browser:
 .\.venv\Scripts\python.exe -m src.cli collect --source marketplace_g2 --force
 ```
 
-This fetches the G2 reviews page (routing through the Cloudflare bypass if challenged), parses
-the HTML, emits `intent_2nd_marketplace` signals, and upserts raw reviews to the `g2_reviews`
-SQLite table.
+This fetches the **rendered `reviews_and_filters` fragment through the stealth browser forced
+headed with a behavioral warm-up** (homepage visit + scroll + dwell — DataDome only clears headed,
+and its clearance cookie is fingerprint-bound to the browser session, so an HTTP-tier refetch of
+the harvested cookie does not work), classifies the fragment (`ok` / `empty` / `challenge`),
+parses the HTML, emits `intent_2nd_marketplace` signals, and upserts raw reviews to the
+`g2_reviews` SQLite table. Pages 2..N (via `follow_tasks`) skip the warm-up; successful fetches
+feed the anti-bot `RouteState` so per-domain cookie lifetimes are learned automatically.
+
+**Log lines to know:**
+- `g2 slug X has zero reviews (new/quiet product) — not a block` → INFO, expected for new products
+- `g2 fragment ... is a DataDome challenge — session cookies likely stale; re-export
+  data/g2_cookies.json from a logged-in browser` → WARNING: re-export cookies and re-run
+- `skipping warm-up (cookies known-stale)` → anti-bot routing has learned the cookies are dead
 
 ### 5. Export
 
@@ -836,6 +862,23 @@ roadmap item; see the commit references in the project history.
   `config/marketplace.yaml` controls how old a review can be and still emit a signal. No longer
   hardcoded.
 
+- **Stealth-browser lifecycle management** — the runner owns the stealth (Patchright) browser
+  and closes it in `run()`'s `finally` (success or exception). No leaked headed Chromium
+  processes between collection runs.
+
+- **Warm-up gating + fragment pagination** — the behavioral warm-up runs once per session
+  (page 1); pagination pages 2..N (`follow_tasks` → `?page=N` fragment fetches) skip it. The
+  two-pass flow (page 1 parse → plan page 2 → fragment refetch) is contract-tested.
+
+- **Fragment state classification** — every fragment fetch is classified `ok` / `empty` /
+  `challenge` (attached as `g2_state` on the Document) and logged: empty slugs (new products
+  with no reviews) are INFO and distinct from blocks; DataDome challenges emit a WARNING with
+  the fix ("re-export data/g2_cookies.json") and fall back to the bypass waterfall.
+
+- **Cookie-lifetime learning** — fragment outcomes feed the anti-bot `RouteState`
+  (`record_solve` on success, `expire` on challenge) so per-domain cookie lifetimes converge
+  from real observations, and the warm-up is skipped automatically once cookies are known-stale.
+
 ---
 
 ## Limitations & Roadmap
@@ -862,5 +905,14 @@ roadmap item; see the commit references in the project history.
 
 ### Roadmap
 
-- Wire the 2Captcha token-to-cookie browser injection so the solver tier can produce a real
+- **Extra review fields** — G2 cards carry NPS score, helpful-vote counts, and reviewer
+  metadata beyond what `extract_g2_reviews` maps; the `g2_reviews` schema has room. Low effort,
+  more signal per review.
+- **Multi-slug accounts** — `g2_slug` is a single slug; companies with several G2 products
+  (e.g. Databricks) only collect from one. Support comma-separated slugs or a slug lookup.
+- **Selector-drift self-check** — a `--selfcheck` mode that fetches one known-good product and
+  asserts ≥1 review parses, alerting when live markup diverges from the frozen fixtures.
+- **Wire the 2Captcha token-to-cookie browser injection** so the solver tier can produce a real
   `cf_clearance` cookie end-to-end (currently the API call succeeds but the injection is stubbed).
+- **"Empty since" bookkeeping** — persist empty-slug checks so cadence can back off products
+  that have had zero reviews across multiple cycles (currently INFO-logged only).

@@ -230,6 +230,7 @@ class Orchestrator:
                 cf_bypass = CloudflareBypass(self.config, cf_store, fetcher, browser)
             dd_bypass = None
             stealth_browser = None
+            routing = None
             if (
                 getattr(self.config, "datadome", None)
                 and self.config.datadome.enabled
@@ -274,6 +275,14 @@ class Orchestrator:
                         dd_bypass.shadow = shadow
                     if cf_bypass is not None:
                         cf_bypass.shadow = shadow
+                # RouteState: per-run cookie-lifetime learning (guarded).
+                routing = None
+                try:
+                    from src.antibot.python.routing import RouteState
+
+                    routing = RouteState()  # data/antibot/routing.json
+                except Exception:
+                    routing = None
             try:
                 runner = CollectorRunner(
                     self.config, self.db, self.registry, self.raw, fetcher, self.signal_store, self.taxonomy, ctx,
@@ -281,6 +290,7 @@ class Orchestrator:
                     cloudflare_bypass=cf_bypass,
                     datadome_bypass=dd_bypass,
                     stealth_browser=stealth_browser,
+                    routing=routing,
                 )
                 rest = runner.run(adapters, accounts, force=force, dry_run=dry_run)
             finally:

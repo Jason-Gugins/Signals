@@ -55,6 +55,36 @@ class CollectorRunner:
         self.datadome_bypass = datadome_bypass
         self.routing = routing
         self.stealth_browser = stealth_browser
+        self._empty_log = None  # lazy: EmptyLog(data/antibot/empty_slugs.json)
+
+    @property
+    def empty_log(self):
+        """Lazy EmptyLog for marketplace 'empty since' bookkeeping."""
+        if self._empty_log is None:
+            from src.sources.marketplace.empty_log import EmptyLog
+
+            self._empty_log = EmptyLog()
+        return self._empty_log
+
+    def _filter_backoff(self, adapter, tasks: list) -> list:
+        """Drop marketplace tasks whose slug is in empty-since backoff.
+
+        A slug that has rendered zero reviews for >= 3 consecutive cycles is
+        skipped ("skipping (empty since X)") to conserve anti-bot budget.
+        """
+        if not str(getattr(adapter, "key", "")).startswith("marketplace_"):
+            return tasks
+        out: list = []
+        for t in tasks:
+            slug = (t.meta or {}).get("product_slug")
+            if slug and self.empty_log.is_in_backoff(str(slug), "g2"):
+                entry = self.empty_log.entry(str(slug), "g2")
+                logger.info(
+                    "skipping {} (empty since {})", slug, entry.get("first_empty")
+                )
+                continue
+            out.append(t)
+        return out
 
     def run(
         self,
@@ -143,7 +173,7 @@ class CollectorRunner:
                 tasks = pending_follow
                 pending_follow = []
             else:
-                tasks = adapter.plan(account, cursor)
+                tasks = self._filter_backoff(adapter, adapter.plan(account, cursor))
             if limit_per_source:
                 tasks = tasks[:limit_per_source]
             if dry_run:
@@ -156,6 +186,7 @@ class CollectorRunner:
             all_cands = []
             follow: list[FetchTask] = []
             tech_harvests: list = []
+            review_harvests: dict[str, list] = {}  # slug -> page-1 reviews
             for task, result in results:
                 if result is None:
                     continue
@@ -251,6 +282,49 @@ class CollectorRunner:
                         else:
                             upsert_g2_reviews(self.db, revs, now=_iso(now),
                                               raw_ref=result.doc.doc_id)
+                        # Track page-1 review stats per slug for the
+                        # review-velocity trend signal (page 1 is the
+                        # freshest page; consistent cycle-over-cycle).
+                        if int(meta.get("page", 1) or 1) <= 1:
+                            slug = str(meta.get("product_slug") or "")
+                            if slug:
+                                review_harvests.setdefault(slug, []).extend(revs)
+            # Review-velocity trend signals: diff this cycle's per-slug
+            # count/avg-rating against the previous cycle's stored stats.
+            if review_harvests:
+                from src.sources.marketplace.trend import (
+                    compute_stats,
+                    load_stats,
+                    review_trend_signal,
+                    save_stats,
+                    stats_key,
+                )
+
+                try:
+                    rt_cfg = (self.config.load_yaml("marketplace") or {}).get(
+                        "review_trend", {}
+                    )
+                except Exception:  # pragma: no cover - defensive
+                    rt_cfg = {}
+                source_name = adapter.key[len("marketplace_"):]
+                stats_state = load_stats()
+                for slug, revs in review_harvests.items():
+                    curr = compute_stats(revs)
+                    key = stats_key(source_name, slug)
+                    cand = review_trend_signal(
+                        slug,
+                        source_name,
+                        stats_state.get(key),
+                        curr,
+                        domain=account.domain,
+                        today=now.date().isoformat(),
+                        min_count_delta=int(rt_cfg.get("min_count_delta", 5)),
+                        min_rating_delta=float(rt_cfg.get("min_rating_delta", 0.5)),
+                    )
+                    stats_state[key] = curr
+                    if cand is not None:
+                        all_cands.append(cand)
+                save_stats(stats_state)
             if tech_harvests:
                 from src.sources.techstack.collector import upsert_technologies
                 from src.sources.techstack.diff import diff_technologies
@@ -552,6 +626,15 @@ class CollectorRunner:
                 return None  # fall back to the challenge->bypass->curl waterfall
             reviews_count = len(extract_g2_reviews(body.decode("utf-8", "replace"), slug))
             result.doc.g2_state = "ok" if reviews_count else "empty"
+            # Empty-since bookkeeping: consecutive empty cycles put the slug
+            # into cadence backoff; a cycle with reviews resets the counter.
+            try:
+                if result.doc.g2_state == "empty":
+                    self.empty_log.record_empty(str(slug), "g2")
+                else:
+                    self.empty_log.record_reviews(str(slug), "g2")
+            except Exception:  # pragma: no cover - defensive
+                pass
             if reviews_count == 0:
                 logger.info("g2 slug {} has zero reviews (new/quiet product) — not a block", slug)
             if routing is not None:

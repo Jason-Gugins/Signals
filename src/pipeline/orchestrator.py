@@ -229,6 +229,7 @@ class Orchestrator:
                 cf_store = CfCookieStore(self.db)
                 cf_bypass = CloudflareBypass(self.config, cf_store, fetcher, browser)
             dd_bypass = None
+            stealth_browser = None
             if (
                 getattr(self.config, "datadome", None)
                 and self.config.datadome.enabled
@@ -279,6 +280,7 @@ class Orchestrator:
                     browser=browser,
                     cloudflare_bypass=cf_bypass,
                     datadome_bypass=dd_bypass,
+                    stealth_browser=stealth_browser,
                 )
                 rest = runner.run(adapters, accounts, force=force, dry_run=dry_run)
             finally:

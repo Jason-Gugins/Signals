@@ -104,3 +104,55 @@ def test_runner_marketplace_g2_falls_back_when_no_stealth_slug(tmp_path):
     stub_fetcher.get.assert_called()
     datadome_bypass.stealth.fetch.assert_not_called()
     assert result is not None
+
+
+def test_runner_closes_stealth_browser_after_run(tmp_path):
+    """The stealth (Patchright) browser must be closed exactly once when the
+    run finishes — it is a full headed Chromium (~300-500MB) and leaks if
+    never closed."""
+    stealth_browser = MagicMock()
+    datadome_bypass = MagicMock()
+    datadome_bypass.stealth = stealth_browser
+    stub_fetcher = MagicMock()
+
+    runner = _make_runner(stub_fetcher, datadome_bypass)
+    runner.db = MagicMock()
+    runner.stealth_browser = stealth_browser
+
+    adapter = MagicMock()
+    adapter.key = "marketplace_g2"
+    adapter.plan.return_value = []
+    adapter.follow_tasks.return_value = []
+    account = MagicMock()
+
+    runner.run([adapter], [account], force=True, dry_run=True)
+
+    stealth_browser.close.assert_called_once()
+
+
+def test_runner_closes_stealth_browser_even_when_collection_raises(tmp_path):
+    """close() must happen in a finally — an exception mid-collection must
+    not leak the browser."""
+    stealth_browser = MagicMock()
+    datadome_bypass = MagicMock()
+    datadome_bypass.stealth = stealth_browser
+
+    runner = _make_runner(MagicMock(), datadome_bypass)
+    runner.db = MagicMock()
+    runner.stealth_browser = stealth_browser
+
+    adapter = MagicMock()
+    adapter.key = "marketplace_g2"
+    account = MagicMock()
+
+    # run()'s per-account handler (try/except around _run_pair) swallows
+    # adapter.plan() failures, so raise from the eligibility loop's uncaught
+    # cursor lookup to exercise the finally with a genuinely propagating error.
+    runner._cursor = MagicMock(side_effect=RuntimeError("boom"))
+
+    try:
+        runner.run([adapter], [account], force=True, dry_run=True)
+    except RuntimeError:
+        pass
+
+    stealth_browser.close.assert_called_once()

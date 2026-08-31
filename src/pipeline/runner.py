@@ -41,7 +41,7 @@ def _iso(dt: datetime) -> str:
 
 
 class CollectorRunner:
-    def __init__(self, config, db, registry, store, fetcher, signal_store, taxonomy, ctx: RunContext, browser=None, cloudflare_bypass=None, datadome_bypass=None):
+    def __init__(self, config, db, registry, store, fetcher, signal_store, taxonomy, ctx: RunContext, browser=None, cloudflare_bypass=None, datadome_bypass=None, stealth_browser=None):
         self.config = config
         self.db = db
         self.registry = registry
@@ -53,6 +53,7 @@ class CollectorRunner:
         self.browser = browser
         self.cloudflare_bypass = cloudflare_bypass
         self.datadome_bypass = datadome_bypass
+        self.stealth_browser = stealth_browser
 
     def run(
         self,
@@ -66,46 +67,54 @@ class CollectorRunner:
     ) -> RunnerStats:
         stats = RunnerStats()
         now = _now()
-        for adapter in adapters:
-            if adapter.key == "marketplace_g2":
-                try:
-                    g2_cfg = self.config.load_yaml("marketplace").get("sites", {}).get("g2", {})
-                    cookie_file = g2_cfg.get("session_cookie_file")
-                    if cookie_file and hasattr(adapter, "_session_cookie_file"):
-                        adapter._session_cookie_file = cookie_file
-                except Exception:
-                    pass
-        for adapter in adapters:
-            eligible = []
-            for account in accounts:
-                if not _requires_met(adapter, account):
-                    stats.skipped += 1
-                    stats._src(adapter.key)["skipped"] += 1
+        try:
+            for adapter in adapters:
+                if adapter.key == "marketplace_g2":
+                    try:
+                        g2_cfg = self.config.load_yaml("marketplace").get("sites", {}).get("g2", {})
+                        cookie_file = g2_cfg.get("session_cookie_file")
+                        if cookie_file and hasattr(adapter, "_session_cookie_file"):
+                            adapter._session_cookie_file = cookie_file
+                    except Exception:
+                        pass
+            for adapter in adapters:
+                eligible = []
+                for account in accounts:
+                    if not _requires_met(adapter, account):
+                        stats.skipped += 1
+                        stats._src(adapter.key)["skipped"] += 1
+                        continue
+                    cur = self._cursor(adapter.key, _ckey(adapter, account))
+                    if not force and cur:
+                        if int(cur.get("fail_count") or 0) >= 5:
+                            stats.skipped += 1
+                            stats._src(adapter.key)["skipped"] += 1
+                            continue
+                        due = cur.get("next_due_at")
+                        if due and due > _iso(now):
+                            stats.skipped += 1
+                            stats._src(adapter.key)["skipped"] += 1
+                            continue
+                    eligible.append(account)
+                if getattr(adapter, "fanout", False) and eligible:
+                    self._run_fanout(adapter, eligible, stats, force=force, dry_run=dry_run, now=now)
                     continue
-                cur = self._cursor(adapter.key, _ckey(adapter, account))
-                if not force and cur:
-                    if int(cur.get("fail_count") or 0) >= 5:
-                        stats.skipped += 1
-                        stats._src(adapter.key)["skipped"] += 1
-                        continue
-                    due = cur.get("next_due_at")
-                    if due and due > _iso(now):
-                        stats.skipped += 1
-                        stats._src(adapter.key)["skipped"] += 1
-                        continue
-                eligible.append(account)
-            if getattr(adapter, "fanout", False) and eligible:
-                self._run_fanout(adapter, eligible, stats, force=force, dry_run=dry_run, now=now)
-                continue
-            for account in eligible:
+                for account in eligible:
+                    try:
+                        self._run_pair(adapter, account, stats, force=force, dry_run=dry_run, max_passes=max_passes, limit_per_source=limit_per_source, now=now)
+                    except Exception as exc:
+                        logger.exception("adapter {} failed for {}", adapter.key, account.domain)
+                        self._record_fail(adapter.key, account.domain, exc)
+                        stats.failed += 1
+                        stats._src(adapter.key)["failed"] += 1
+                        self.ctx.bump(errors=1)
+        finally:
+            stealth = getattr(self, "stealth_browser", None)
+            if stealth is not None:
                 try:
-                    self._run_pair(adapter, account, stats, force=force, dry_run=dry_run, max_passes=max_passes, limit_per_source=limit_per_source, now=now)
-                except Exception as exc:
-                    logger.exception("adapter {} failed for {}", adapter.key, account.domain)
-                    self._record_fail(adapter.key, account.domain, exc)
-                    stats.failed += 1
-                    stats._src(adapter.key)["failed"] += 1
-                    self.ctx.bump(errors=1)
+                    stealth.close()
+                except Exception:
+                    logger.warning("stealth browser close() failed")
         return stats
 
     def _run_pair(self, adapter, account, stats, *, force, dry_run, max_passes, limit_per_source, now):

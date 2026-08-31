@@ -3,10 +3,37 @@
 from __future__ import annotations
 
 import json
+import random
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from urllib.error import URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+
+# Module-level indirection so tests can patch the HTTP entry point.
+_urlopen = urlopen
 
 from loguru import logger
+
+# Default HTTP timeout for webhook posts (seconds).
+DEFAULT_WEBHOOK_TIMEOUT_S = 10
+# Retry policy: 3 attempts with exponential backoff + jitter.
+WEBHOOK_ATTEMPTS = 3
+WEBHOOK_BASE_DELAY_S = 1.0
+WEBHOOK_JITTER = 0.2
+
+# In-memory natural-key dedupe store: natural_key -> delivery epoch seconds.
+# Deliberately process-local (no persistence); a restart clears the window.
+_DELIVERED: dict[tuple, float] = {}
+
+
+def _validate_webhook_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 
 @dataclass
@@ -77,25 +104,100 @@ def format_slack_text(alert: Alert) -> str:
     return " · ".join(b for b in bits if b)
 
 
-def post_webhook(alerts: list[Alert], url: str, *, client=None, batch: int = 10) -> int:
-    import httpx
+def _natural_key(alert: Alert) -> tuple:
+    return (alert.domain, alert.signal_type, alert.at)
 
-    own = client is None
-    client = client or httpx.Client(timeout=10)
+
+def _deliver_once(client, url: str, payload: dict, timeout: float) -> bool:
+    """Single POST attempt. Returns True on 2xx, False otherwise."""
+    if client is not None:
+        resp = client.post(url, json=payload, timeout=timeout)
+        status = getattr(resp, "status_code", 500)
+        if status >= 400:
+            logger.warning("webhook {} -> HTTP {}", url, status)
+            return False
+        return True
+    req = Request(url, data=json.dumps(payload).encode("utf-8"),
+                  headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with _urlopen(req, timeout=timeout) as resp:
+            return getattr(resp, "status", 200) < 400
+    except URLError as exc:
+        logger.warning("webhook {} -> {}", url, exc)
+        return False
+
+
+# Sentinel distinguishing "no client passed" from "client=None means urllib".
+_NO_CLIENT = object()
+
+
+def post_webhook(
+    alerts: list[Alert],
+    url: str,
+    *,
+    client=_NO_CLIENT,
+    batch: int = 10,
+    timeout: float = DEFAULT_WEBHOOK_TIMEOUT_S,
+    sleep=time.sleep,
+    dedupe_window_h: float = 24.0,
+) -> int:
+    """Deliver alerts to a Slack-compatible webhook.
+
+    Hardened delivery:
+    - URL must be http/https with a host; invalid URLs are skipped with a
+      warning (collect runs are never crashed by a bad webhook config).
+    - Each alert is retried up to 3 attempts with exponential backoff
+      (1s/2s/4s base, ±20% jitter). Pass ``sleep`` to avoid real delays.
+    - Delivery outcomes are logged (success / exhausted retries).
+    - Natural-key dedupe: an alert whose (domain, signal_type, at) key was
+      delivered within ``dedupe_window_h`` hours is skipped. The store is
+      in-memory only (no persistence) — a restart clears the window.
+    """
+    if not _validate_webhook_url(url):
+        logger.warning("webhook skipped: invalid URL {!r} (must be http/https with a host)", url)
+        return 0
+
+    now = time.time()
+    cutoff_h = dedupe_window_h
+    pending = []
+    for a in alerts:
+        key = _natural_key(a)
+        delivered_at = _DELIVERED.get(key)
+        if delivered_at is not None and (now - delivered_at) < cutoff_h * 3600:
+            logger.debug("webhook dedupe: skipping already-delivered {}", key)
+            continue
+        pending.append(a)
+
+    own = client is _NO_CLIENT
+    if own:
+        import httpx
+
+        http_client = httpx.Client(timeout=timeout)
+    else:
+        http_client = client
     sent = 0
     try:
-        for i in range(0, len(alerts), batch):
-            chunk = alerts[i : i + batch]
-            try:
-                for a in chunk:
-                    resp = client.post(url, json={"text": format_slack_text(a)})
-                    if getattr(resp, "status_code", 200) >= 400:
-                        logger.warning("webhook {} -> {}", url, getattr(resp, "status_code", "?"))
-                        continue
-                    sent += 1
-            except Exception as exc:
-                logger.warning("webhook failed: {}", exc)
+        for i in range(0, len(pending), batch):
+            chunk = pending[i : i + batch]
+            for a in chunk:
+                key = _natural_key(a)
+                payload = {"text": format_slack_text(a)}
+                for attempt in range(1, WEBHOOK_ATTEMPTS + 1):
+                    try:
+                        if _deliver_once(http_client, url, payload, timeout):
+                            sent += 1
+                            _DELIVERED[key] = time.time()
+                            logger.info("webhook delivered: {} (attempt {})", key, attempt)
+                            break
+                    except Exception as exc:
+                        logger.warning("webhook {} attempt {} failed: {}", url, attempt, exc)
+                    if attempt < WEBHOOK_ATTEMPTS:
+                        delay = WEBHOOK_BASE_DELAY_S * (2 ** (attempt - 1))
+                        delay *= 1 + random.uniform(-WEBHOOK_JITTER, WEBHOOK_JITTER)
+                        sleep(delay)
+                else:
+                    logger.error("webhook delivery failed after {} attempts: {}", WEBHOOK_ATTEMPTS, key)
         return sent
     finally:
         if own:
-            client.close()
+            http_client.close()

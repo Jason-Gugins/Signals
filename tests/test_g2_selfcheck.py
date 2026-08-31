@@ -115,3 +115,64 @@ def test_capterra_selfcheck_error():
     f.fetch.side_effect = RuntimeError("connection refused")
     r = run_selfcheck(f, slug="19319/JIRA", source="capterra")
     assert r.state == "error"
+
+
+# ------------------------------------------------------------ TrustRadius ---
+# TrustRadius is server-rendered (Next.js behind Cloudflare), so the
+# self-check uses the plain HTTP fetcher (no stealth browser), mirroring
+# the Capterra branch.
+
+TR_GOOD = (b"<html><article class='Review_review__5RC6b'>"
+           b"<div class='_sr-only_'>Rating: 9 out of 10</div>"
+           b"<div data-testid='stars-container' data-rating='9'></div>"
+           b"<header><h2><a href='/reviews/slack-2026-08-05-00-29-43'>Great Slack</a></h2></header>"
+           b"<div data-testid='content'><p>Body text here.</p></div>"
+           b"<time datetime='2026-08-10T16:20:28.250Z'>August 10, 2026</time>"
+           b"</article></html>")
+TR_CHALLENGE = b"<html><head><title>Just a moment...</title></head><body></body></html>"
+TR_EMPTY = b"<html class='no-reviews-yet'></html>"
+TR_DRIFT = (b"<html><article class='Review_review__5RC6b'>"
+            b"<div data-testid='stars-container'></div>"
+            b"<div data-testid='content'></div></article></html>")
+
+
+def _trustradius_fetcher_returning(body):
+    f = MagicMock()
+    f.fetch.return_value = FetchResult(ok=True, status=200,
+        doc=Document(doc_id="d", source="marketplace_trustradius",
+                     url="https://www.trustradius.com/products/slack/reviews",
+                     body=body), cached=False, error=None, elapsed_ms=10)
+    return f
+
+
+def test_trustradius_selfcheck_ok():
+    r = run_selfcheck(_trustradius_fetcher_returning(TR_GOOD), slug="slack",
+                      source="trustradius")
+    assert r.state == "ok" and r.review_count >= 1
+    assert r.url == "https://www.trustradius.com/products/slack/reviews"
+
+
+def test_trustradius_selfcheck_empty():
+    r = run_selfcheck(_trustradius_fetcher_returning(TR_EMPTY), slug="slack",
+                      source="trustradius")
+    assert r.state == "empty"
+
+
+def test_trustradius_selfcheck_drift():
+    """Review-card markup present but 0 parsed = selector drift."""
+    r = run_selfcheck(_trustradius_fetcher_returning(TR_DRIFT), slug="slack",
+                      source="trustradius")
+    assert r.state == "drift"
+
+
+def test_trustradius_selfcheck_challenge_cf_body():
+    r = run_selfcheck(_trustradius_fetcher_returning(TR_CHALLENGE), slug="slack",
+                      source="trustradius")
+    assert r.state == "challenge"
+
+
+def test_trustradius_selfcheck_error():
+    f = MagicMock()
+    f.fetch.side_effect = RuntimeError("connection refused")
+    r = run_selfcheck(f, slug="slack", source="trustradius")
+    assert r.state == "error"

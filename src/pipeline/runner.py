@@ -131,7 +131,7 @@ class CollectorRunner:
         # (g2 default 5, capterra default 3 -> max_passes = pages + 1).
         if adapter.key.startswith("marketplace_"):
             site = adapter.key[len("marketplace_"):]
-            site_defaults = {"g2": 5, "capterra": 3}
+            site_defaults = {"g2": 5, "capterra": 3, "trustradius": 2}
             pages_default = site_defaults.get(site, 5)
             try:
                 site_cfg = self.config.load_yaml("marketplace").get("sites", {}).get(site, {})
@@ -214,7 +214,7 @@ class CollectorRunner:
                 # them — this branch only fills gaps from sites.<site> config.
                 if adapter.key.startswith("marketplace_"):
                     site = adapter.key[len("marketplace_"):]
-                    site_meta_defaults = {"g2": (90, 5), "capterra": (90, 3)}
+                    site_meta_defaults = {"g2": (90, 5), "capterra": (90, 3), "trustradius": (90, 2)}
                     lookback_d, pages_d = site_meta_defaults.get(site, (90, 5))
                     try:
                         site_cfg = self.config.load_yaml("marketplace").get("sites", {}).get(site, {})
@@ -236,6 +236,7 @@ class CollectorRunner:
                     from src.sources.marketplace.collector import (
                         upsert_capterra_reviews,
                         upsert_g2_reviews,
+                        upsert_trustradius_reviews,
                     )
                     revs = harvest_revs(result.doc, account, meta) or []
                     if revs:
@@ -244,6 +245,9 @@ class CollectorRunner:
                         if adapter.key == "marketplace_capterra":
                             upsert_capterra_reviews(self.db, revs, now=_iso(now),
                                                     raw_ref=result.doc.doc_id)
+                        elif adapter.key == "marketplace_trustradius":
+                            upsert_trustradius_reviews(self.db, revs, now=_iso(now),
+                                                       raw_ref=result.doc.doc_id)
                         else:
                             upsert_g2_reviews(self.db, revs, now=_iso(now),
                                               raw_ref=result.doc.doc_id)
@@ -612,7 +616,7 @@ def _ckey(adapter, account) -> str:
 
 
 ATS_PREFIX = "ats_"
-_CF_BYPASS_SOURCES = {"techstack", "marketplace_g2", "marketplace_capterra"}
+_CF_BYPASS_SOURCES = {"techstack", "marketplace_g2", "marketplace_capterra", "marketplace_trustradius"}
 COLLECTED_VENDORS = {
     "greenhouse",
     "lever",

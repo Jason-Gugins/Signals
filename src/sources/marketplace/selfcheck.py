@@ -20,6 +20,10 @@ from dataclasses import dataclass
 
 _CAPTERRA_CHALLENGE_MARKERS = (b"cf-chl", b"Just a moment")
 
+# TrustRadius is CF-fronted too (Next.js server-rendered pages behind
+# Cloudflare) — same challenge markers as Capterra.
+_TRUSTRADIUS_CHALLENGE_MARKERS = _CAPTERRA_CHALLENGE_MARKERS
+
 
 @dataclass
 class SelfcheckResult:
@@ -41,9 +45,23 @@ def capterra_reviews_url(segment: str, *, page: int | None = None) -> str:
     return url
 
 
+def trustradius_reviews_url(slug: str, *, page: int | None = None) -> str:
+    """``'slack'`` -> ``https://www.trustradius.com/products/slack/reviews``.
+
+    Pagination is client-side on the live page, but the conventional
+    ``?page=N`` query param is honored by follow_tasks.
+    """
+    url = f"https://www.trustradius.com/products/{slug}/reviews"
+    if page is not None:
+        url += f"?page={page}"
+    return url
+
+
 def run_selfcheck(fetcher, *, slug: str, config=None, source: str = "g2") -> SelfcheckResult:
     if source == "capterra":
         return _run_selfcheck_capterra(fetcher, slug=slug)
+    if source == "trustradius":
+        return _run_selfcheck_trustradius(fetcher, slug=slug)
     return _run_selfcheck_g2(fetcher, slug=slug)
 
 
@@ -105,4 +123,37 @@ def _run_selfcheck_capterra(fetcher, *, slug: str) -> SelfcheckResult:
     if has_markers:
         return SelfcheckResult("drift", 0, url,
                                detail="review-cards-container present but parser extracted 0 — selectors stale")
+    return SelfcheckResult("empty", 0, url)
+
+
+def _run_selfcheck_trustradius(fetcher, *, slug: str) -> SelfcheckResult:
+    from src.sources.marketplace.trustradius import extract_trustradius_reviews
+    from src.sources.techstack.datadome import is_datadome_challenge
+
+    url = trustradius_reviews_url(slug)
+    try:
+        # TrustRadius is server-rendered (Next.js), so the plain fetcher is
+        # used — no stealth browser needed for parsing.
+        result = fetcher.fetch(url, source="marketplace_trustradius",
+                               domain="trustradius.com")
+    except Exception as e:  # noqa: BLE001
+        return SelfcheckResult("error", 0, url, detail=str(e))
+    if result is None or not result.ok or result.doc is None:
+        return SelfcheckResult("error", 0, url, detail="fetch returned no document")
+    body = result.doc.body or b""
+    if (is_datadome_challenge(status=result.status, body=body)
+            or any(m in body for m in _TRUSTRADIUS_CHALLENGE_MARKERS)):
+        return SelfcheckResult("challenge", 0, url)
+    html = body.decode("utf-8", "replace")
+    reviews = extract_trustradius_reviews(html, slug)
+    if reviews:
+        return SelfcheckResult("ok", len(reviews), url)
+    # Drift marker: review-card markup (Review article + stars-container
+    # test id) is present but nothing parsed.
+    has_markers = (b"data-testid='stars-container'" in body
+                   or b'data-testid="stars-container"' in body
+                   or b"Review_review" in body)
+    if has_markers:
+        return SelfcheckResult("drift", 0, url,
+                               detail="review-card markup present but parser extracted 0 — selectors stale")
     return SelfcheckResult("empty", 0, url)

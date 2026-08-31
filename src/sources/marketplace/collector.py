@@ -357,3 +357,150 @@ class MarketplaceCapterraSource(SourceAdapter):
                 meta={"kind": "reviews", "product_slug": segment, "page": next_page},
             )
         ]
+
+
+def _parse_trustradius_body(body: str, product_slug: str) -> list:
+    """Parse TrustRadius review HTML via the pure parser (deferred bs4 import)."""
+    from src.sources.marketplace.trustradius import extract_trustradius_reviews
+
+    return extract_trustradius_reviews(body, product_slug)
+
+
+@register
+class MarketplaceTrustRadiusSource(SourceAdapter):
+    key = "marketplace_trustradius"
+    tier = "browser"
+    cadence_hours = 168
+    requires = ("g2_slug",)
+
+    def __init__(self):
+        self._session_cookie_file: str | None = None
+
+    def _load_cookies(self) -> list[dict]:
+        """Load session cookies from a JSON file if configured."""
+        from pathlib import Path
+        if not self._session_cookie_file:
+            return []
+        try:
+            p = Path(self._session_cookie_file)
+            if p.exists():
+                return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        return []
+
+    @staticmethod
+    def _split_slugs(slug_field: str | None) -> list[str]:
+        """Slug field may hold comma-separated TrustRadius product slugs."""
+        return split_slugs(slug_field)
+
+    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+        slugs = self._split_slugs(account.g2_slug)
+        if not slugs:
+            return []
+        headers = {}
+        cookies = self._load_cookies()
+        if cookies:
+            cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+            headers["Cookie"] = cookie_str
+        return [
+            FetchTask(
+                source=self.key,
+                url=f"https://www.trustradius.com/products/{slug}/reviews",
+                domain=account.domain,
+                headers=headers,
+                meta={
+                    "kind": "reviews",
+                    "product_slug": slug,
+                    "page": 1,
+                    "review_lookback_days": 90,
+                    "max_review_pages": 2,
+                },
+            )
+            for slug in slugs
+        ]
+
+    def parse(self, doc: Document, account: Account, task_meta: dict) -> list[SignalCandidate]:
+        body = (doc.body or b"").decode("utf-8", "replace")
+        product_slug = (task_meta or {}).get("product_slug") or account.g2_slug
+        reviews = _parse_trustradius_body(body, product_slug)
+        if not reviews:
+            return []
+        today_str = (task_meta or {}).get("today", "")
+        if not today_str:
+            return []
+        today = date.fromisoformat(today_str)
+        lookback = int((task_meta or {}).get("review_lookback_days", 90))
+        out: list[SignalCandidate] = []
+        for r in reviews:
+            posted = r.posted_at
+            if posted:
+                try:
+                    if (today - date.fromisoformat(posted)).days > lookback:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            out.append(
+                SignalCandidate(
+                    signal_type="intent_2nd_marketplace",
+                    observed_at=posted or today_str,
+                    natural_key=f"trrev:{r.product_slug}:{r.review_id}",
+                    title=r.review_title or f"Review by {r.reviewer_name}",
+                    summary=(r.review_body or "")[:200],
+                    url=r.review_url,
+                    confidence=0.85 if r.verified_reviewer else 0.75,
+                    evidence_data={
+                        "product_slug": r.product_slug,
+                        "reviewer_name": r.reviewer_name,
+                        "reviewer_title": r.reviewer_title,
+                        "rating": r.rating,
+                        "pros": r.pros,
+                        "cons": r.cons,
+                        "review_source": r.review_source,
+                    },
+                )
+            )
+        return out
+
+    def harvest_reviews(self, doc: Document, account: Account, task_meta: dict) -> list:
+        body = (doc.body or b"").decode("utf-8", "replace")
+        product_slug = (task_meta or {}).get("product_slug") or account.g2_slug
+        return _parse_trustradius_body(body, product_slug)
+
+    def follow_tasks(self, doc: Document, account: Account, task_meta: dict) -> list[FetchTask]:
+        """Plan the next review page if current page had reviews and we haven't hit max_review_pages."""
+        body = (doc.body or b"").decode("utf-8", "replace")
+        product_slug = (task_meta or {}).get("product_slug") or account.g2_slug
+        reviews = _parse_trustradius_body(body, product_slug)
+        if not reviews:
+            return []
+        meta = task_meta or {}
+        current_page = int(meta.get("page", 1))
+        max_pages = int(meta.get("max_review_pages", 2))
+        if current_page >= max_pages:
+            return []
+        next_page = current_page + 1
+        slug = meta.get("product_slug") or account.g2_slug
+        if not slug:
+            return []
+        return [
+            FetchTask(
+                source=self.key,
+                url=f"https://www.trustradius.com/products/{slug}/reviews?page={next_page}",
+                domain=account.domain,
+                meta={"kind": "reviews", "product_slug": slug, "page": next_page},
+            )
+        ]
+
+
+def upsert_trustradius_reviews(db, reviews: list, *, now: str,
+                               raw_ref: str | None = None) -> tuple[int, int]:
+    """Upsert TrustRadiusReview objects into g2_reviews with source='trustradius'.
+
+    Shares the table (and PK) with G2/Capterra reviews; the ``source`` column
+    distinguishes provenance. TrustRadius review ids are the per-review URL
+    slug (e.g. ``slack-2026-08-05-00-29-43``) while G2 ids are raw numeric
+    survey ids and Capterra ids are sha256 hashes — no collision risk.
+    Natural keys use the ``trrev:`` prefix.
+    """
+    return upsert_g2_reviews(db, reviews, now=now, raw_ref=raw_ref, source="trustradius")

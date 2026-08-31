@@ -337,8 +337,23 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
 # additive NEW_COLUMNS pass is folded in here (v1) so pre-existing DBs
 # (which were at user_version 0 with all columns already applied) upgrade
 # cleanly and idempotently.
+def _create_calibration(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS calibration (
+            source TEXT NOT NULL,
+            signal_type TEXT NOT NULL,
+            samples INTEGER NOT NULL DEFAULT 0,
+            hits INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (source, signal_type)
+        )
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (1, "additive NEW_COLUMNS pass (g2_slug, nps_score, helpful_votes, source)", _add_missing_columns),
+    (2, "create calibration table (per-source/per-signal-type hit rates)", _create_calibration),
 ]
 
 LATEST_VERSION: int = max(v for v, _, _ in MIGRATIONS)

@@ -21,6 +21,7 @@ from src.pipeline.runner import CollectorRunner, RunnerStats
 from src.signals.combos import evaluate_combos
 from src.signals.normalize import normalize_batch
 from src.signals.plays import assign_plays
+from src.signals.calibration import load_stats
 from src.signals.score import score_account
 from src.signals.store import SignalStore
 from src.signals.taxonomy import Taxonomy
@@ -376,12 +377,13 @@ class Orchestrator:
         with RunContext(self.db, "score") as ctx:
             scoring = self.config.load_yaml("scoring")
             plays_cfg = self.config.load_yaml("plays")
+            calibration_stats = load_stats(self.db)
             today = _today()
             n = 0
             for acct in self._accounts(cohort=cohort, domains=domains):
                 signals = self.signal_store.for_account(acct.domain)
                 combos = evaluate_combos(signals, scoring.get("combos") or [], today=today)
-                result = score_account(acct, signals, taxonomy=self.taxonomy, cfg=scoring, today=today, combos=combos)
+                result = score_account(acct, signals, taxonomy=self.taxonomy, cfg=scoring, today=today, combos=combos, calibration_stats=calibration_stats)
                 tier = assign_tier(signals, result, taxonomy=self.taxonomy, cfg=scoring, today=today)
                 contacts = self._contacts(acct.domain)
                 plays = assign_plays(acct, signals, result, tier, taxonomy=self.taxonomy, plays_cfg=plays_cfg, contacts=contacts, today=today)
@@ -423,6 +425,7 @@ class Orchestrator:
         with RunContext(self.db, "brief") as ctx:
             scoring = self.config.load_yaml("scoring")
             plays_cfg = self.config.load_yaml("plays")
+            calibration_stats = load_stats(self.db)
             today = _today()
             paths = []
             for acct in self._accounts(cohort=cohort, domains=domains):
@@ -430,7 +433,7 @@ class Orchestrator:
                     continue
                 signals = self.signal_store.for_account(acct.domain)
                 combos = evaluate_combos(signals, scoring.get("combos") or [], today=today)
-                result = score_account(acct, signals, taxonomy=self.taxonomy, cfg=scoring, today=today, combos=combos)
+                result = score_account(acct, signals, taxonomy=self.taxonomy, cfg=scoring, today=today, combos=combos, calibration_stats=calibration_stats)
                 tier = assign_tier(signals, result, taxonomy=self.taxonomy, cfg=scoring, today=today)
                 contacts = self._contacts(acct.domain)
                 plays = assign_plays(acct, signals, result, tier, taxonomy=self.taxonomy, plays_cfg=plays_cfg, contacts=contacts, today=today)

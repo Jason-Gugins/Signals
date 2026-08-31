@@ -80,23 +80,38 @@ def watch_loop(
             now = now_fn()
             due = scheduler.decide_due(adapters, now=now)
             if due:
-                domains = sorted({d for _, ds in due_sources(orch.db, due, now=now) for d in ds})
+                pairs = due_sources(orch.db, due, now=now)
+                domains = sorted({d for _, ds in pairs for d in ds})
                 lock = SingleFlight(lock_path, pid_alive=pid_alive, time_fn=now.timestamp)
                 if not lock.acquire():
                     logger.info("collect already running (single-flight lock held) — skipping tick")
                 else:
                     try:
-                        try:
-                            stats = orch.collect(
-                                sources=[a.key for a in due], domains=domains or None, force=False
-                            )
-                        except Exception:
-                            logger.exception("collect failed for due sources {}", [a.key for a in due])
-                            for a in due:
-                                scheduler.record_failure(a.key, now=now_fn(), error="collect error")
-                            stats = None
-                        else:
-                            _record_outcomes(scheduler, due, stats, now=now_fn())
+                        # Per-source isolation: one adapter raising must not
+                        # skip the rest of this tick's due sources.
+                        collected_any = False
+                        for adapter, src_domains in pairs:
+                            try:
+                                stats = orch.collect(
+                                    sources=[adapter.key], domains=src_domains or None, force=False
+                                )
+                            except Exception:
+                                logger.exception("watch: adapter {} failed", adapter.key)
+                                try:
+                                    scheduler.record_failure(
+                                        adapter.key, now=now_fn(), error="collect error"
+                                    )
+                                except Exception:
+                                    logger.exception(
+                                        "scheduler bookkeeping failed for {}", adapter.key
+                                    )
+                                continue
+                            collected_any = True
+                            try:
+                                _record_outcomes(scheduler, [adapter], stats, now=now_fn())
+                            except Exception:
+                                logger.exception("scheduler bookkeeping failed for {}", adapter.key)
+                        if collected_any:
                             orch.score(domains=domains or None)
                     finally:
                         lock.release()

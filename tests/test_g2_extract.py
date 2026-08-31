@@ -120,3 +120,21 @@ def test_g2_reviews_fragment_url_sort():
 def test_g2_reviews_fragment_url_page_and_sort():
     expected = FRAGMENT.format(slug="sierra") + "?page=2&sort=newest"
     assert g2_reviews_fragment_url("sierra", page=2, sort="newest") == expected
+
+
+def test_g2_review_dataclass_has_new_fields():
+    r = G2Review(review_id="r1", product_slug="sierra")
+    assert r.nps_score is None
+    assert r.helpful_votes is None
+
+
+def test_extract_g2_reviews_sets_nps_helpful_fields():
+    # Step 0 discovery: real captures (sierra/helcim/harmonic) carry no per-card
+    # NPS-score or helpful-vote markup — "nps_score" appears only in the star
+    # filter widget, and the leading card metas are constant across all cards.
+    # Until real per-card markup is captured, extraction must return None (no
+    # invented selectors) but the fields must always exist.
+    for slug, html in (("sierra", SIERRA_HTML), ("helcim", HELCIM_HTML)):
+        for r in _extract(html, slug):
+            assert r.nps_score is None
+            assert r.helpful_votes is None

@@ -298,6 +298,8 @@ CREATE TABLE IF NOT EXISTS g2_reviews (
     review_url           TEXT,
     verified_reviewer    INTEGER DEFAULT 0,
     review_source        TEXT,
+    nps_score            INTEGER,
+    helpful_votes        INTEGER,
     first_seen_at        TEXT NOT NULL,
     last_seen_at         TEXT NOT NULL,
     raw_ref              TEXT
@@ -311,6 +313,7 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
     "accounts": {"g2_slug": "TEXT"},
     "signals": {},
     "documents": {},
+    "g2_reviews": {"nps_score": "INTEGER", "helpful_votes": "INTEGER"},
 }
 
 

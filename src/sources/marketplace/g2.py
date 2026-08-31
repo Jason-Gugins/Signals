@@ -105,6 +105,11 @@ class G2Review:
     review_url: Optional[str] = None
     verified_reviewer: bool = False
     review_source: Optional[str] = None
+    # Present in the dataclass contract, but G2's current rendered review cards
+    # carry no identifiable per-card NPS-score or helpful-vote markup (verified
+    # against live captures), so extraction yields None until real markup maps.
+    nps_score: Optional[int] = None
+    helpful_votes: Optional[int] = None
 
 
 def parse_g2_reviews(html: str, url: str) -> list[G2Review]:
@@ -293,5 +298,9 @@ def extract_g2_reviews(html: str, product_slug: str) -> list[G2Review]:
             review_url=review_url,
             verified_reviewer=verified,
             review_source=review_source,
+            # No identifiable per-card NPS/helpful markup in current G2 DOM
+            # (Step 0 discovery, Aug 2026) — None until real selectors exist.
+            nps_score=None,
+            helpful_votes=None,
         ))
     return reviews

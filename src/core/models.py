@@ -48,6 +48,9 @@ class Account:
     linkedin_company_id: Optional[str] = None
     repvue_slug: Optional[str] = None
     g2_slug: Optional[str] = None
+    app_store_id: Optional[str] = None
+    play_id: Optional[str] = None
+    subreddit: Optional[str] = None
     cik: Optional[str] = None
     ticker: Optional[str] = None
     ats_vendor: Optional[str] = None
@@ -84,6 +87,9 @@ class Account:
             "linkedin_company_id": self.linkedin_company_id,
             "repvue_slug": self.repvue_slug,
             "g2_slug": self.g2_slug,
+            "app_store_id": self.app_store_id,
+            "play_id": self.play_id,
+            "subreddit": self.subreddit,
             "cik": self.cik,
             "ticker": self.ticker,
             "ats_vendor": self.ats_vendor,

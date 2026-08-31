@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     linkedin_company_id TEXT,
     repvue_slug         TEXT,
     g2_slug             TEXT,
+    app_store_id        TEXT,                      -- Apple App Store numeric id (iTunes RSS)
+    play_id             TEXT,                      -- Google Play package name (synthetic-only per spike)
+    subreddit           TEXT,                      -- community source handle
     cik                 TEXT,                      -- 10-digit zero-padded
     ticker              TEXT,
     ats_vendor          TEXT,                      -- greenhouse|lever|ashby|...
@@ -313,7 +316,13 @@ CREATE INDEX IF NOT EXISTS idx_g2_reviews_posted ON g2_reviews(posted_at DESC);
 
 # table -> {column: type-with-default}  — populated by later tasks
 NEW_COLUMNS: dict[str, dict[str, str]] = {
-    "accounts": {"g2_slug": "TEXT"},
+    "accounts": {
+        "g2_slug": "TEXT",
+        # P2 Task 9: optional account fields for app-store/community sources.
+        "app_store_id": "TEXT",
+        "play_id": "TEXT",
+        "subreddit": "TEXT",
+    },
     "signals": {},
     "documents": {},
     "g2_reviews": {

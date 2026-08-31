@@ -373,7 +373,7 @@ def _add_fetch_log_error_class(conn: sqlite3.Connection) -> None:
 
 
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
-    (1, "additive NEW_COLUMNS pass (g2_slug, nps_score, helpful_votes, source)", _add_missing_columns),
+    (1, "additive NEW_COLUMNS pass (g2_slug, nps_score, helpful_votes, source, app_store_id, play_id, subreddit)", _add_missing_columns),
     (2, "create calibration table (per-source/per-signal-type hit rates)", _create_calibration),
     (3, "add fetch_log.error_class (fetch error taxonomy)", _add_fetch_log_error_class),
 ]

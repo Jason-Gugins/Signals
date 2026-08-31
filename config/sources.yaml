@@ -39,7 +39,11 @@ sources:
   crtsh:          { enabled: true, cadence_hours: 336, rate_per_host: 0.2 }
   community_hn:   { enabled: true, cadence_hours: 24, rate_per_host: 1.0 }
   community_github: { enabled: true, cadence_hours: 48, rate_per_host: 1.0 }
-  community_reddit: { enabled: false, cadence_hours: 24, rate_per_host: 0.2 }   # aggressive limits
+  community_reddit: { enabled: false, cadence_hours: 24, rate_per_host: 0.2 }   # aggressive limits; live blocked per P2 spike
+  yc_batch:        { enabled: false, cadence_hours: 720, rate_per_host: 0.2 }   # stub — browser-tier upgrade required per P2 spike
+  content_producthunt: { enabled: false, cadence_hours: 168, rate_per_host: 0.2 } # stub — CF-blocked per P2 spike
+  appstore_reviews: { enabled: true, cadence_hours: 168, rate_per_host: 1.0 }    # live iTunes RSS (GO per P2 spike)
+  bbb_profile:     { enabled: true, cadence_hours: 720, rate_per_host: 0.2 }     # live SSR (GO per P2 spike); needs extra_data.bbb_url
   marketplace_g2:
     enabled: false              # browser tier, opt-in. See config/marketplace.yaml for G2-specific options
     cadence_hours: 168

@@ -163,7 +163,9 @@ class BbbProfileSource(SourceAdapter):
         for alt in facts.get("alternate_names", []):
             try:
                 hit = registry.resolve(name=alt)
-            except Exception:
+            except (KeyError, ValueError):
+                # Bad alias rows / schema drift — skip this name, but let
+                # programming errors (TypeError etc.) surface.
                 continue
             if hit is None:
                 continue

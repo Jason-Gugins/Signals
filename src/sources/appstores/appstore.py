@@ -194,7 +194,11 @@ def upsert_appstore_reviews(db, reviews: list[dict], *, now: str,
                 "raw_ref": raw_ref,
             },
             pk=("review_id",),
-            overwrite={"last_seen_at", "review_body", "rating", "raw_ref"},
+            # Only bump freshness metadata on re-observation. review_body and
+            # rating are NOT in the overwrite set: a later feed entry with a
+            # missing/unparseable content or rating must not NULL out what a
+            # previous cycle stored (G2 path COALESCEs for the same reason).
+            overwrite={"last_seen_at", "raw_ref"},
         )
         if existing:
             updated += 1

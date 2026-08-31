@@ -112,9 +112,15 @@ Enabled adapters live in `config/sources.yaml`:
 
 - Footprint: `techstack`, `wayback`, `crtsh`, `jobsignals`
 - Community: `community_hn`, `community_github`
+- App stores / registry: `appstore_reviews` (live iTunes RSS reviews; set the
+  account's `app_store_id`), `bbb_profile` (live BBB business profiles; seed
+  `extra_data.bbb_url` per account — URLs are not derivable from name+domain)
 - Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db`, `content_itunes`
 
-Disabled by default: `community_reddit`. Marketplace collection
+Disabled by default: `community_reddit` (live fetching blocked — www 403 block
+page + old.reddit login wall, P2 spike 2026-08-31), `yc_batch` (Y Combinator
+directory is a client-rendered Inertia shell; parser needs a browser-tier
+upgrade), `content_producthunt` (Cloudflare-blocked). Marketplace collection
 (`marketplace_g2`, `marketplace_capterra`, `marketplace_trustradius`) is
 opt-in — the adapter's `enabled` flag in `config/sources.yaml` is the enforced
 gate and all three ship `false`. The `sites.*` blocks in

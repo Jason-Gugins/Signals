@@ -283,6 +283,15 @@ class CollectorRunner:
                         elif adapter.key == "marketplace_trustradius":
                             upsert_trustradius_reviews(self.db, revs, now=_iso(now),
                                                        raw_ref=result.doc.doc_id)
+                        elif adapter.key == "appstore_reviews":
+                            # App Store harvest_reviews yields plain dicts,
+                            # not attribute objects — must NOT fall through
+                            # to upsert_g2_reviews (AttributeError).
+                            from src.sources.appstores.appstore import (
+                                upsert_appstore_reviews,
+                            )
+                            upsert_appstore_reviews(self.db, revs, now=_iso(now),
+                                                    raw_ref=result.doc.doc_id)
                         else:
                             upsert_g2_reviews(self.db, revs, now=_iso(now),
                                               raw_ref=result.doc.doc_id)

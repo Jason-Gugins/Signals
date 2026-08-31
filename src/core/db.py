@@ -179,6 +179,7 @@ CREATE TABLE IF NOT EXISTS source_cursors (
     next_due_at   TEXT,
     fail_count    INTEGER DEFAULT 0,
     last_error    TEXT,
+    error_class   TEXT,             -- FetchErrorClass (P2 Task 2 taxonomy)
     PRIMARY KEY (source, key)
 );
 CREATE INDEX IF NOT EXISTS idx_cursors_due ON source_cursors(next_due_at);
@@ -351,9 +352,17 @@ def _create_calibration(conn: sqlite3.Connection) -> None:
     )
 
 
+def _add_fetch_log_error_class(conn: sqlite3.Connection) -> None:
+    """v3 (Task 2): fetch_log gains an error_class column (fetch error taxonomy)."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(fetch_log)").fetchall()}
+    if "error_class" not in existing:
+        conn.execute("ALTER TABLE fetch_log ADD COLUMN error_class TEXT")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (1, "additive NEW_COLUMNS pass (g2_slug, nps_score, helpful_votes, source)", _add_missing_columns),
     (2, "create calibration table (per-source/per-signal-type hit rates)", _create_calibration),
+    (3, "add fetch_log.error_class (fetch error taxonomy)", _add_fetch_log_error_class),
 ]
 
 LATEST_VERSION: int = max(v for v, _, _ in MIGRATIONS)

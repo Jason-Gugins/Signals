@@ -9,6 +9,7 @@ from typing import Optional
 
 from loguru import logger
 
+from src.core.errors import BACKOFF_MULTIPLIER, FetchErrorClass, classify_fetch_error
 from src.core.models import Account, Document
 from src.core.runlog import RunContext
 from src.signals.normalize import normalize_batch
@@ -223,7 +224,9 @@ class CollectorRunner:
                         )
                         result._cloudflare_unsolved = True
                 if not result.ok or result.doc is None:
-                    raise RuntimeError(result.error or f"fetch failed {result.status}")
+                    exc = RuntimeError(result.error or f"fetch failed {result.status}")
+                    _attach_fetch_context(exc, result)
+                    raise exc
                 stats.fetched += 1
                 stats._src(adapter.key)["fetched"] += 1
                 self.ctx.bump(documents=1)
@@ -398,7 +401,9 @@ class CollectorRunner:
                     stats.cached += 1
                 continue
             if not result.ok or result.doc is None:
-                raise RuntimeError(result.error or "fanout fetch failed")
+                exc = RuntimeError(result.error or "fanout fetch failed")
+                _attach_fetch_context(exc, result)
+                raise exc
             stats.fetched += 1
             last_doc = result.doc
             for account in accounts:
@@ -699,8 +704,32 @@ class CollectorRunner:
         )
 
     def _record_fail(self, source, key, exc):
+        """Stamp the failure on the cursor: fail_count, error_class, and a
+        next-due penalty multiplied by the class's BACKOFF_MULTIPLIER.
+
+        The scheduler is untouched — the multiplier folds into the existing
+        exponential next-due computation (base penalty 2^fail, 1-day units).
+        """
         row = self._cursor(source, key) or {}
         n = int(row.get("fail_count") or 0) + 1
+        status = getattr(exc, "fetch_status", None)
+        error = getattr(exc, "fetch_error", None) or str(exc)
+        body_hint = getattr(exc, "fetch_body_hint", None)
+        error_class = classify_fetch_error(status, error, body_hint)
+        multiplier = BACKOFF_MULTIPLIER.get(error_class, 1)
+        prev_due = row.get("next_due_at")
+        if prev_due:
+            penalty_days = (2 ** (n - 1)) * multiplier
+            due = _iso(
+                datetime.fromisoformat(prev_due).replace(
+                    tzinfo=timezone.utc if datetime.fromisoformat(prev_due).tzinfo is None
+                    else datetime.fromisoformat(prev_due).tzinfo
+                )
+                + timedelta(days=penalty_days)
+            )
+        else:
+            penalty_hours = int(getattr(self, "_default_cadence_hours", 24)) * multiplier
+            due = _iso(_now() + timedelta(hours=penalty_hours))
         self.db.upsert(
             "source_cursors",
             {
@@ -710,9 +739,10 @@ class CollectorRunner:
                 "etag": row.get("etag"),
                 "last_modified": row.get("last_modified"),
                 "last_run_at": row.get("last_run_at"),
-                "next_due_at": row.get("next_due_at"),
+                "next_due_at": due,
                 "fail_count": n,
                 "last_error": str(exc)[:500],
+                "error_class": error_class.value,
             },
             pk=("source", "key"),
         )
@@ -720,6 +750,27 @@ class CollectorRunner:
 
 def _ckey(adapter, account) -> str:
     return "global" if getattr(adapter, "fanout", False) else account.domain
+
+
+def _attach_fetch_context(exc: BaseException, result) -> None:
+    """Attach fetch context to an exception so _record_fail can classify it.
+
+    Carries the HTTP status, the error string, and (when a challenge body was
+    stored) a decoded body hint for classify_fetch_error.
+    """
+    try:
+        exc.fetch_status = result.status if getattr(result, "status", None) else None
+        exc.fetch_error = getattr(result, "error", None)
+        doc = getattr(result, "doc", None)
+        body = getattr(doc, "body", None) if doc is not None else None
+        if body:
+            exc.fetch_body_hint = (
+                body.decode("utf-8", "replace")
+                if isinstance(body, (bytes, bytearray))
+                else str(body)
+            )
+    except Exception:  # pragma: no cover - defensive
+        pass
 
 
 ATS_PREFIX = "ats_"

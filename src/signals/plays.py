@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from src.core.config import Config
 from src.core.models import Account, Contact, Signal
 from src.signals.evidence import SafeDict
 from src.signals.score import ScoreResult
@@ -21,6 +22,25 @@ COMBO_PLAY = {
     "displacement_clock": "displacement_pitch",
     "contextual_cold": "contextual_cold",
 }
+
+
+def validate_combo_coverage() -> list[str]:
+    """Return every emittable combo id that has no COMBO_PLAY entry.
+
+    The universe of emittable combo ids is config-driven: the ``combos`` list
+    in ``config/scoring.yaml`` (consumed by
+    :func:`src.signals.combos.evaluate_combos` and read via
+    ``Config.load_yaml("scoring")``). A combo id missing from ``COMBO_PLAY``
+    silently yields ``play_id=""`` in :func:`assign_plays`, so we surface the
+    gaps instead of letting them slip through.
+    """
+    try:
+        scoring = Config.load().load_yaml("scoring")
+    except Exception:
+        return []
+    combo_defs = scoring.get("combos") or []
+    universe = {str(spec.get("id")) for spec in combo_defs if spec.get("id")}
+    return sorted(universe - set(COMBO_PLAY))
 
 _SPACES = re.compile(r" {2,}")
 

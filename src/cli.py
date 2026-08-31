@@ -501,10 +501,14 @@ def status(ctx):
 @click.pass_context
 def doctor(ctx, no_network):
     from src.pipeline.health import doctor as run_doctor
+    from src.signals.plays import validate_combo_coverage
 
     rows = run_doctor(ctx.obj["config"], Database(ctx.obj["config"].storage.db_path), check_network=not no_network)
     for name, st, detail in rows:
         click.echo(f"{st}\t{name}\t{detail}")
+    gaps = validate_combo_coverage()
+    if gaps:
+        click.echo(f"WARN\tcombo_coverage\tcombo coverage gaps: {', '.join(gaps)}")
 
 
 if __name__ == "__main__":

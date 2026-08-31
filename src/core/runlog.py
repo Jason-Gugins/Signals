@@ -78,12 +78,13 @@ class RunContext:
         cached: bool = False,
         domain: str | None = None,
         error: str | None = None,
+        error_class: str | None = None,
     ) -> None:
         self.db.execute(
             """
             INSERT INTO fetch_log(run_id, source, domain, url, status,
-                                  elapsed_ms, bytes, cached, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  elapsed_ms, bytes, cached, error, error_class)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 self.run_id,
@@ -95,5 +96,6 @@ class RunContext:
                 bytes,
                 1 if cached else 0,
                 error,
+                error_class,
             ),
         )

@@ -13,6 +13,7 @@ from urllib.robotparser import RobotFileParser
 import httpx
 
 from src.core.config import Config
+from src.core.errors import FetchErrorClass, classify_fetch_error
 from src.core.models import Document
 from src.core.ratelimit import RateLimiter
 from src.core.rawstore import RawStore
@@ -289,6 +290,16 @@ class HttpFetcher:
         if attempts > 1:
             note = f"attempts={attempts}"
             error = f"{error}; {note}" if error else note
+        # Formal error taxonomy (P2 Task 2): record the classified class on the
+        # fetch-log row. The 403 challenge body (if stored) is passed as the
+        # body hint so Cloudflare interstitials classify as `challenge`.
+        body_hint: str | None = None
+        if result.doc is not None and result.doc.body:
+            try:
+                body_hint = result.doc.body.decode("utf-8", "replace")
+            except Exception:  # pragma: no cover - defensive
+                body_hint = None
+        error_class = classify_fetch_error(result.status, error, body_hint)
         self.ctx.log_fetch(
             source=getattr(task, "source", "http"),
             url=task.url,
@@ -298,6 +309,9 @@ class HttpFetcher:
             cached=result.cached,
             domain=getattr(task, "domain", None),
             error=error,
+            error_class=error_class.value
+            if isinstance(error_class, FetchErrorClass)
+            else error_class,
         )
 
 

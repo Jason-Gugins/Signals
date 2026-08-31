@@ -69,11 +69,14 @@ class CollectorRunner:
         stats = RunnerStats()
         now = _now()
         try:
+            # Per-source site config: 'marketplace_<site>' adapters read
+            # sites.<site> from the marketplace YAML (session cookies, etc.).
             for adapter in adapters:
-                if adapter.key == "marketplace_g2":
+                if adapter.key.startswith("marketplace_"):
+                    site = adapter.key[len("marketplace_"):]
                     try:
-                        g2_cfg = self.config.load_yaml("marketplace").get("sites", {}).get("g2", {})
-                        cookie_file = g2_cfg.get("session_cookie_file")
+                        site_cfg = self.config.load_yaml("marketplace").get("sites", {}).get(site, {})
+                        cookie_file = site_cfg.get("session_cookie_file")
                         if cookie_file and hasattr(adapter, "_session_cookie_file"):
                             adapter._session_cookie_file = cookie_file
                     except Exception:
@@ -123,12 +126,18 @@ class CollectorRunner:
         cursor_row = self._cursor(adapter.key, key) or {}
         cursor = cursor_row.get("cursor")
         pending_follow: list[FetchTask] = []
-        if adapter.key == "marketplace_g2":
+        # Per-source pagination budget: sites.<site>.max_review_pages drives
+        # how many follow passes the runner allows for this marketplace source
+        # (g2 default 5, capterra default 3 -> max_passes = pages + 1).
+        if adapter.key.startswith("marketplace_"):
+            site = adapter.key[len("marketplace_"):]
+            site_defaults = {"g2": 5, "capterra": 3}
+            pages_default = site_defaults.get(site, 5)
             try:
-                g2_cfg = self.config.load_yaml("marketplace").get("sites", {}).get("g2", {})
-                max_passes = int(g2_cfg.get("max_review_pages", 5)) + 1
+                site_cfg = self.config.load_yaml("marketplace").get("sites", {}).get(site, {})
+                max_passes = int(site_cfg.get("max_review_pages", pages_default)) + 1
             except Exception:
-                max_passes = 6
+                max_passes = pages_default + 1
         for pass_i in range(max_passes):
             if pending_follow:
                 tasks = pending_follow
@@ -199,14 +208,21 @@ class CollectorRunner:
                         meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
                     except Exception:
                         meta["watches"] = []
-                if adapter.key == "marketplace_g2":
+                # Meta defaults are per marketplace site. The Capterra adapter
+                # injects its own defaults (review_lookback_days=90,
+                # max_review_pages=3) in plan(), so setdefault never overrides
+                # them — this branch only fills gaps from sites.<site> config.
+                if adapter.key.startswith("marketplace_"):
+                    site = adapter.key[len("marketplace_"):]
+                    site_meta_defaults = {"g2": (90, 5), "capterra": (90, 3)}
+                    lookback_d, pages_d = site_meta_defaults.get(site, (90, 5))
                     try:
-                        g2_cfg = self.config.load_yaml("marketplace").get("sites", {}).get("g2", {})
-                        meta.setdefault("review_lookback_days", g2_cfg.get("review_lookback_days", 90))
-                        meta.setdefault("max_review_pages", g2_cfg.get("max_review_pages", 5))
-                        meta.setdefault("click_show_more", g2_cfg.get("deep_reviews", False))
+                        site_cfg = self.config.load_yaml("marketplace").get("sites", {}).get(site, {})
+                        meta.setdefault("review_lookback_days", site_cfg.get("review_lookback_days", lookback_d))
+                        meta.setdefault("max_review_pages", site_cfg.get("max_review_pages", pages_d))
+                        meta.setdefault("click_show_more", site_cfg.get("deep_reviews", False))
                     except Exception:
-                        meta.setdefault("review_lookback_days", 90)
+                        meta.setdefault("review_lookback_days", lookback_d)
                 cands = adapter.parse(result.doc, account, meta)
                 all_cands.extend(cands)
                 follow.extend(adapter.follow_tasks(result.doc, account, meta) or [])
@@ -322,10 +338,15 @@ class CollectorRunner:
                 capture_network=True,
                 wait_ms=2500,
             )
-        # marketplace_g2: G2 serves reviews as client-rendered elv-* DOM in the
+        # marketplace_g2 ONLY: G2 serves reviews as client-rendered elv-* DOM in the
         # /products/{slug}/reviews_and_filters fragment (the /reviews page is
         # only the app shell). Prefer the rendered fragment via the DataDome
         # stealth browser so the Document body contains the real reviews.
+        # NOTE: marketplace_capterra is deliberately NOT routed here — Capterra
+        # is server-rendered (Next.js RSC; all review cards are in the raw
+        # HTML of /reviews/) and CF-only, so it flows through the normal
+        # fetcher.get path below. No fragment fetch (and no headed stealth
+        # browser) is needed for Capterra.
         if task.source == "marketplace_g2":
             g2_result = self._fetch_g2_fragment(task)
             if g2_result is not None:
@@ -581,7 +602,7 @@ def _ckey(adapter, account) -> str:
 
 
 ATS_PREFIX = "ats_"
-_CF_BYPASS_SOURCES = {"techstack", "marketplace_g2"}
+_CF_BYPASS_SOURCES = {"techstack", "marketplace_g2", "marketplace_capterra"}
 COLLECTED_VENDORS = {
     "greenhouse",
     "lever",

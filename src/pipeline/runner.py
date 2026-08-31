@@ -253,11 +253,31 @@ class CollectorRunner:
                                               raw_ref=result.doc.doc_id)
             if tech_harvests:
                 from src.sources.techstack.collector import upsert_technologies
+                from src.sources.techstack.diff import diff_technologies
                 from src.sources.techstack.fingerprint import merge_matches
 
-                upsert_technologies(
-                    self.db, account.domain, merge_matches(*tech_harvests), now=_iso(now)
-                )
+                merged = merge_matches(*tech_harvests)
+                # Diff against the previous cycle's vendor set for this domain
+                # and persist any install/churn change signals before upserting.
+                try:
+                    prev_rows = self.db.query(
+                        "SELECT vendor FROM technologies WHERE domain=?", (account.domain,)
+                    )
+                    previous = {r["vendor"] for r in prev_rows}
+                    tech_changes = diff_technologies(
+                        previous, {m.vendor for m in merged},
+                        domain=account.domain, today=_iso(now)[:10],
+                    )
+                    change_cands = [cand for _, cand in tech_changes]
+                except Exception:
+                    change_cands = []
+                if change_cands:
+                    added = self._persist(account, adapter.key, change_cands, None)
+                    stats.signals_new += added
+                    stats._src(adapter.key)["signals_new"] += added
+                    stats.candidates += len(change_cands)
+
+                upsert_technologies(self.db, account.domain, merged, now=_iso(now))
             stats.candidates += len(all_cands)
             stats._src(adapter.key)["candidates"] += len(all_cands)
             new_n = self._persist(account, adapter.key, all_cands, last_doc)

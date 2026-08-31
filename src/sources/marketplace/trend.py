@@ -16,6 +16,7 @@ and reads no clock — ``today`` is injected.
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 from pathlib import Path
 
@@ -44,10 +45,12 @@ def load_stats(path: str | Path = DEFAULT_STATS_PATH) -> dict:
 
 
 def save_stats(stats: dict, path: str | Path = DEFAULT_STATS_PATH) -> None:
-    """Persist the per-slug stats state."""
+    """Persist the per-slug stats state (atomic: temp file + os.replace)."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(stats, indent=2, sort_keys=True), encoding="utf-8")
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    tmp.write_text(json.dumps(stats, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, p)
 
 
 def compute_stats(reviews: list) -> dict:

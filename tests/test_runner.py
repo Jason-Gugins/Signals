@@ -539,3 +539,62 @@ def test_full_board_marks_missing_job_closed(tmp_path):
     assert gone["closed_at"]
     keep = db.one("SELECT closed_at FROM jobs WHERE external_id='keep'")
     assert keep["closed_at"] is None
+
+
+# ── per-source empty-log backoff keys ───────────────────────────────────────
+
+
+def _fake_backoff_runner(log):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(empty_log=log)
+
+
+def _mk_task(slug):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(meta={"product_slug": slug})
+
+
+def test_filter_backoff_derives_source_per_adapter(tmp_path):
+    """marketplace_trustradius slugs are keyed under 'trustradius:<slug>'."""
+    from types import SimpleNamespace
+
+    from src.pipeline.runner import CollectorRunner
+    from src.sources.marketplace.empty_log import EmptyLog
+
+    log = EmptyLog(tmp_path / "e.json", clock=lambda: 1000.0)
+    for _ in range(3):
+        log.record_empty("19319/JIRA", "trustradius")
+    adapter = SimpleNamespace(key="marketplace_trustradius")
+    task = _mk_task("19319/JIRA")
+    out = CollectorRunner._filter_backoff(
+        _fake_backoff_runner(log), adapter, [task]
+    )
+    assert out == []  # in backoff under its own source key
+    # a g2-keyed entry must NOT trip the trustradius adapter
+    log_g2 = EmptyLog(tmp_path / "g.json", clock=lambda: 1000.0)
+    for _ in range(3):
+        log_g2.record_empty("19319/JIRA", "g2")
+    out2 = CollectorRunner._filter_backoff(
+        _fake_backoff_runner(log_g2), adapter, [task]
+    )
+    assert out2 == [task]
+
+
+def test_filter_backoff_still_keys_g2_under_g2(tmp_path):
+    from types import SimpleNamespace
+
+    from src.pipeline.runner import CollectorRunner
+    from src.sources.marketplace.empty_log import EmptyLog
+
+    log = EmptyLog(tmp_path / "e.json", clock=lambda: 1000.0)
+    for _ in range(3):
+        log.record_empty("sierra", "g2")
+    adapter = SimpleNamespace(key="marketplace_g2")
+    task = _mk_task("sierra")
+    out = CollectorRunner._filter_backoff(
+        _fake_backoff_runner(log), adapter, [task]
+    )
+    assert out == []
+    assert log.entry("sierra", "g2").get("cycles") == 3

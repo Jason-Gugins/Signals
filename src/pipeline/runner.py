@@ -74,11 +74,12 @@ class CollectorRunner:
         """
         if not str(getattr(adapter, "key", "")).startswith("marketplace_"):
             return tasks
+        source = str(getattr(adapter, "key", ""))[len("marketplace_"):] or "g2"
         out: list = []
         for t in tasks:
             slug = (t.meta or {}).get("product_slug")
-            if slug and self.empty_log.is_in_backoff(str(slug), "g2"):
-                entry = self.empty_log.entry(str(slug), "g2")
+            if slug and self.empty_log.is_in_backoff(str(slug), source):
+                entry = self.empty_log.entry(str(slug), source)
                 logger.info(
                     "skipping {} (empty since {})", slug, entry.get("first_empty")
                 )
@@ -344,6 +345,9 @@ class CollectorRunner:
                     )
                     change_cands = [cand for _, cand in tech_changes]
                 except Exception:
+                    logger.exception(
+                        "techstack diff failed for {}", account.domain
+                    )
                     change_cands = []
                 if change_cands:
                     added = self._persist(account, adapter.key, change_cands, None)

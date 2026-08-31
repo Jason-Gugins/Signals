@@ -115,7 +115,7 @@ def inject_turnstile_token(browser, url, token, *, timeout_ms: int = 20000, poll
             pass
         return True
     except Exception as e:
-        logger.warning("inject_turnstile_token failed for %s: %s", url, e)
+        logger.warning("inject_turnstile_token failed for {}: {}", url, e)
         return False
 
 

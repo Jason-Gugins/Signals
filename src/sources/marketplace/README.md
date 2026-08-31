@@ -24,6 +24,8 @@ Disabled by default. Opt-in only. G2's Terms of Service restrict automated scrap
 - [DataDome Protection](#datadome-protection)
 - [Configuration](#configuration)
 - [Quick Start](#quick-start)
+- [Capterra](#capterra)
+- [TrustRadius](#trustradius)
 - [CLI Reference](#cli-reference)
 - [Testing](#testing)
 - [How It Fits in Signals](#how-it-fits-in-signals)
@@ -193,12 +195,12 @@ tests/
 
 Both are **pure**: no I/O, no network, no clock, no database. They accept an already-fetched HTML
 string and return structured data. Both pass the project's
-[AST purity guard](../techstack/README.md) — no imports of `httpx`, `requests`, `sqlite3`, or
+[AST purity guard](../../../tests/test_source_purity.py) — no imports of `httpx`, `requests`, `sqlite3`, or
 `playwright`; no calls to `datetime.now()` or `date.today()`.
 
 Both use BeautifulSoup4 (`bs4`) with the `lxml` parser for robust DOM handling. The `bs4` import is
 deferred to call time (inside each parser) so the module remains import-pure for the
-[AST purity guard](../techstack/README.md) — the guard scans module-level imports only.
+[AST purity guard](../../../tests/test_source_purity.py) — the guard scans module-level imports only.
 
 ### G2Review dataclass
 
@@ -461,7 +463,7 @@ The scraper reuses the existing Signals techstack Cloudflare bypass waterfall
 cover `marketplace_g2` via the `_CF_BYPASS_SOURCES` set in `src/pipeline/runner.py`:
 
 ```python
-_CF_BYPASS_SOURCES = {"techstack", "marketplace_g2"}
+_CF_BYPASS_SOURCES = {"techstack", "marketplace_g2", "marketplace_capterra", "marketplace_trustradius"}
 ```
 
 ### 5-tier waterfall
@@ -470,8 +472,8 @@ _CF_BYPASS_SOURCES = {"techstack", "marketplace_g2"}
 |---|---|---|
 | 1 | Cookie reuse | Replay a previously-solved `cf_clearance` + `__cf_bm` cookie jar (UA + proxy bound) via httpx |
 | 2 | Browser solve | Fresh Chromium context (no stale `storage_state`), stealth init script, polls for title change |
-| 3 | External solver | 2Captcha/anti-captcha Turnstile token (stub — token-to-cookie injection not fully wired) |
-| 4 | Headed fallback | Visible browser, manual or auto-solve (bounded by `headed_solve_timeout_ms`) |
+| 3 | External solver | 2Captcha/anti-captcha Turnstile token → `inject_turnstile_token` sets `cf_clearance` in the browser and polls for clearance |
+| 4 | Headed fallback | Visible browser, manual or auto-solve (the `headed_solve_timeout_ms` config field is currently advisory — the effective bound is `solve_timeout_ms`) |
 | 5 | Hard stop | Records `cloudflare` as a named observation, invents nothing |
 
 Cookies persist in the `cloudflare_cookies` SQLite table (UA + proxy bound, real expiry from
@@ -501,7 +503,7 @@ Cloudflare bypass — if the response is still a DataDome challenge (403 or 200 
 | 2 | curl_cffi TLS impersonation | HTTP GET with `curl_cffi` using `impersonate="chrome"` — matches a real browser's JA3/JA4 fingerprint. Many DD challenges clear here with no CAPTCHA solve |
 | 2.5 | Patchright stealth browser | Undetected Chromium with behavioral warm-up — navigates to the G2 homepage first (scroll, dwell), then to the target page. Clears DataDome's `rt='i'` interstitial device check that curl_cffi can't (requires JS execution). Patchright patches Chromium at the C++ level (not JS injection) to remove `navigator.webdriver`, the `Runtime.enable` CDP leak, and `--enable-automation` flags |
 | 3 | External solver | 2Captcha/CapSolver `DataDomeSliderTask` — returns a `datadome` cookie directly (set in the HTTP client's cookie jar, no browser re-entry needed) |
-| 4 | Headed fallback | Visible browser, manual or auto-solve (bounded by `headed_solve_timeout_ms`) |
+| 4 | Headed fallback | Visible browser, manual or auto-solve (the `headed_solve_timeout_ms` config field is currently advisory — the effective bound is `solve_timeout_ms`) |
 | 5 | Hard stop | Records `datadome` as a named observation, invents nothing |
 
 **Key difference from Cloudflare**: The DataDome solver returns a **cookie**, not a token.
@@ -583,7 +585,7 @@ sites:
     sign_in_required: false    # full review text requires G2 sign-in (manual cookie)
     max_review_pages: 5        # cap pagination via follow_tasks
     review_lookback_days: 90   # drop reviews older than this (config-driven)
-    session_cookie_file: null  # path to a JSON cookie file for G2 sign-in (no automated login)
+    session_cookie_file: null  # path to a JSON cookie file for G2 sign-in (no automated login); may hold a real path
 ```
 
 ### Environment variables
@@ -609,7 +611,7 @@ DATADOME_RESIDENTIAL_PROXY=http://user:pass@gate.provider.com:8000  # required f
 
 ```yaml
 datadome:
-  enabled: false                # opt-in — DataDome bypass for marketplace_g2
+  enabled: true                 # bypass layers for marketplace_g2 (default.yaml ships it on)
   bypass_strategy: solver       # solver | curl_cffi_first | disabled
   solver_provider: null         # 2captcha | capsolver | null
   solver_api_key: null          # set via DATADOME_SOLVER_API_KEY env var
@@ -620,7 +622,7 @@ datadome:
 
 | Config key | Env var | Default | Description |
 |---|---|---|---|
-| `datadome.enabled` | — | `false` | Opt-in master switch for the DataDome bypass |
+| `datadome.enabled` | — | `true` | Master switch for the DataDome bypass layers (live targets additionally need the solver env vars) |
 | `datadome.bypass_strategy` | — | `solver` | `solver` \| `curl_cffi_first` \| `disabled` |
 | `datadome.solver_provider` | `DATADOME_SOLVER_PROVIDER` | `null` | `2captcha` \| `capsolver` \| `null` |
 | `datadome.solver_api_key` | `DATADOME_SOLVER_API_KEY` | `null` | Solver API key (prefer env var) |
@@ -810,7 +812,11 @@ curl_cffi chrome-impersonation request to
   by default, `max_review_pages: 2`, `review_lookback_days: 90`).
 - **Self-check:** `run_selfcheck(fetcher, slug='slack', source='trustradius')` —
   same five states as capterra (ok/drift/empty/challenge/error) via the plain
-  HTTP fetcher. Drift = review-card markup present but 0 parsed.
+  HTTP fetcher. Drift = review-card markup present but 0 parsed. There is no
+  dedicated CLI command yet (a `trustradius-selfcheck` command is a roadmap
+  item); the fetcher needs a small shim — copy the `_CurlShim` adapter from
+  the `capterra-selfcheck` command in `src/cli.py` and pass
+  `run_selfcheck(shim, slug="slack", source="trustradius", config=cfg)`.
 - **Pacing:** keep ≥4s between requests to trustradius.com; the self-check
   makes a single request.
 - **Legal & ethics:** same posture as G2/Capterra — ToS restrict automated
@@ -935,7 +941,8 @@ The adapter is disabled by default (`enabled: false` in `config/sources.yaml`). 
 
 - **Cloudflare bypass**: The bypass solves JS/managed challenges to read public review pages. It
   does not bypass authentication, paywalls, or login-gated content. It is scoped to `techstack`,
-  `marketplace_g2`, and `marketplace_capterra` — other sources retain the 403 hard-stop.
+  `marketplace_g2`, `marketplace_capterra`, and `marketplace_trustradius` — other sources retain
+  the 403 hard-stop.
 
 - **No auth bypass**: There is no automated login. Sign-in for full review text (if needed) is a
   manual, opt-in flow where the user provides a G2 session cookie. No password storage, no

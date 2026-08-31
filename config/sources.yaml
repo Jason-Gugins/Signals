@@ -41,7 +41,7 @@ sources:
   community_github: { enabled: true, cadence_hours: 48, rate_per_host: 1.0 }
   community_reddit: { enabled: false, cadence_hours: 24, rate_per_host: 0.2 }   # aggressive limits
   marketplace_g2:
-    enabled: true               # browser tier, opt-in. See config/marketplace.yaml for G2-specific options
+    enabled: false              # browser tier, opt-in. See config/marketplace.yaml for G2-specific options
     cadence_hours: 168
     rate_per_host: 0.5
   marketplace_capterra:

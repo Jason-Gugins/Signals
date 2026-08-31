@@ -55,18 +55,24 @@ class Orchestrator:
     def seed(self, *, csv: str | None = None, linkedin: bool = False, repvue: bool = False, cohort: str | None = None, limit: int | None = None) -> SeedStats:
         with RunContext(self.db, "seed") as ctx:
             stats = SeedStats()
+            # Load ICP rules once so the seeder stays I/O-clean; {} keeps the
+            # 1.0 default when config/icp.yaml is missing/empty.
+            try:
+                icp_rules = self.config.load_yaml("icp") or {}
+            except Exception:
+                icp_rules = {}
             if csv:
-                part = seed_from_csv(self.registry, csv, cohort=cohort)
+                part = seed_from_csv(self.registry, csv, cohort=cohort, icp_rules=icp_rules)
                 stats.created += part.created
                 stats.updated += part.updated
                 stats.skipped += part.skipped
             if linkedin:
-                part = seed_from_linkedin_db(self.registry, self.config.external_dbs.linkedin_db, cohort=cohort, limit=limit)
+                part = seed_from_linkedin_db(self.registry, self.config.external_dbs.linkedin_db, cohort=cohort, limit=limit, icp_rules=icp_rules)
                 stats.created += part.created
                 stats.updated += part.updated
                 stats.skipped += part.skipped
             if repvue:
-                part = seed_from_repvue_db(self.registry, self.config.external_dbs.repvue_db, cohort=cohort, limit=limit)
+                part = seed_from_repvue_db(self.registry, self.config.external_dbs.repvue_db, cohort=cohort, limit=limit, icp_rules=icp_rules)
                 stats.created += part.created
                 stats.updated += part.updated
                 stats.skipped += part.skipped

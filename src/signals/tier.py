@@ -35,12 +35,20 @@ _TODAY_SENTINEL = date.max
 
 
 def newest_primary(signals: list[Signal], *, taxonomy: Taxonomy) -> Signal | None:
-    """Newest primary signal — an unparseable observed_at is unknown, which is
-    neutral-fresh (age 0), not oldest; it may still anchor the buying window."""
+    """Newest primary signal — preferring candidates with a KNOWN age.
+
+    Unknown observed_at is neither fresh nor ancient: known-age candidates
+    win; the raw-string sort is only a fallback when NO candidate has a
+    parseable date.
+    """
     primary = taxonomy.primary_types()
     cands = [s for s in signals if s.signal_type in primary]
     if not cands:
         return None
+    known = [(s, _age(s, date.max)) for s in cands if _age(s, date.max) is not None]
+    if known:
+        known.sort(key=lambda pair: pair[1])
+        return known[0][0]
     cands.sort(key=lambda s: s.observed_at, reverse=True)
     return cands[0]
 
@@ -53,13 +61,14 @@ def buying_window(signals: list[Signal], *, taxonomy: Taxonomy, cfg: dict, today
     prim = newest_primary(signals, taxonomy=taxonomy)
     if prim is not None:
         age = _age(prim, today)
-        if age is None:
-            # Unknown observed_at: neutral-fresh (age 0), mirroring score.py.
-            age = 0
-        if age <= active_d:
-            return "active"
-        if age <= opening_d:
-            return "opening"
+        if age is not None:
+            # Unknown observed_at is window-neutral: it must NOT behave like
+            # the freshest signal (age 0). Fall through to the ages-based
+            # logic below, where unknown = not newer than known evidence.
+            if age <= active_d:
+                return "active"
+            if age <= opening_d:
+                return "opening"
     ages = [a for a in (_age(s, today) for s in signals) if a is not None]
     if ages and min(ages) <= developing_d:
         return "developing"
@@ -86,22 +95,30 @@ def assign_tier(
     ages = []
     for s in signals:
         a = _age(s, today)
+        known = a is not None
         if a is None:
-            # Unknown observed_at: neutral-fresh (age 0), mirroring score.py's
-            # "unknown = neutral decay 1.0". Never silently treat an unknown
-            # date as decades-old — that would demote accounts to dormant.
+            # Unknown observed_at: neutral-fresh (age 0) for score/decay
+            # parity, but EXCLUDED from the prim_int_30/90 recency lists
+            # below — an unknown date must not count as a *recent* trigger
+            # for tier purposes (window-neutral; score.py handles it).
             a = 0
         spec = None
         try:
             spec = taxonomy.get(s.signal_type)
         except Exception:
             continue
-        ages.append((s, a, spec))
+        ages.append((s, a, spec, known))
 
-    prim_int_30 = [s for s, a, spec in ages if s.signal_type in primary and spec.origin == "internal" and a <= 30]
-    prim_int_90 = [s for s, a, spec in ages if s.signal_type in primary and spec.origin == "internal" and a <= 90]
-    ext_90 = [s for s, a, spec in ages if spec.origin == "external" and a <= 90]
-    only_ext_or_d3 = ages and all(spec.origin == "external" or spec.degree == 3 for _, _, spec in ages)
+    prim_int_30 = [
+        s for s, a, spec, known in ages
+        if s.signal_type in primary and spec.origin == "internal" and a <= 30 and known
+    ]
+    prim_int_90 = [
+        s for s, a, spec, known in ages
+        if s.signal_type in primary and spec.origin == "internal" and a <= 90 and known
+    ]
+    ext_90 = [s for s, a, spec, known in ages if spec.origin == "external" and a <= 90]
+    only_ext_or_d3 = ages and all(spec.origin == "external" or spec.degree == 3 for _, _, spec, _ in ages)
 
     if result.urgency >= int(t1.get("or_urgency", 8)):
         return TierResult(1, window, f"Tier 1: combo urgency {result.urgency}.")

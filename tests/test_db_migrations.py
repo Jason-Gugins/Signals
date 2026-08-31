@@ -58,6 +58,51 @@ def test_v0_db_missing_column_is_migrated_on_reopen(tmp_path: Path) -> None:
         db2.close()
 
 
+def test_v2_db_gets_source_cursors_error_class(tmp_path: Path) -> None:
+    """Legacy v2 DBs predate the fetch error taxonomy: reopening must add
+    source_cursors.error_class via the additive NEW_COLUMNS pass."""
+    path = tmp_path / "v2legacy.db"
+    db = Database(path)
+    # Simulate a v2-era source_cursors table without the error_class column.
+    db.execute("ALTER TABLE source_cursors RENAME TO source_cursors_old")
+    db.execute(
+        """
+        CREATE TABLE source_cursors (
+            source TEXT NOT NULL,
+            key TEXT NOT NULL,
+            cursor TEXT,
+            etag TEXT,
+            last_modified TEXT,
+            last_run_at TEXT,
+            next_due_at TEXT,
+            fail_count INTEGER DEFAULT 0,
+            last_error TEXT,
+            PRIMARY KEY (source, key)
+        )
+        """
+    )
+    db.execute("DROP TABLE source_cursors_old")
+    db.execute("PRAGMA user_version = 2")
+    assert "error_class" not in db.table_columns("source_cursors")
+    db.close()
+
+    db2 = Database(path)
+    try:
+        cols = db2.table_columns("source_cursors")
+        assert "error_class" in cols
+        assert _user_version(db2) == LATEST
+        # The column must be usable: stamp a classified error class.
+        db2.upsert(
+            "source_cursors",
+            {"source": "news_rss", "key": "acme.com", "error_class": "auth"},
+            pk=("source", "key"),
+        )
+        row = db2.one("SELECT error_class FROM source_cursors WHERE source='news_rss'")
+        assert row["error_class"] == "auth"
+    finally:
+        db2.close()
+
+
 def test_corrupt_db_raises_clear_error(tmp_path: Path) -> None:
     path = tmp_path / "corrupt.db"
     path.write_bytes(b"this is definitely not a sqlite database" * 64)

@@ -13,6 +13,7 @@ markers = [
     "antibot_live: live TLS fingerprint parity against tls.peet.ws (skipped unless -m antibot_live)",
     "allow_network: test is allowed to make real network calls",
     "live_fetch: hits a real network host; requires explicit opt-in",
+    "fake_net_seam: test exercises a network SEAM with fake engines; no real host contacted",
 ]
 
 [tool.ruff]

@@ -214,7 +214,7 @@ def test_transport_jar_accumulates_across_fetches(monkeypatch, transport_cls, tm
     }
 
 
-@pytest.mark.allow_network  # exercises the curl_cffi fallback seam with fake engines — no real host contacted
+@pytest.mark.fake_net_seam  # exercises the curl_cffi fallback seam with fake engines — no real host contacted
 def test_transport_caller_cookies_win_over_jar(monkeypatch, transport_cls, tmp_path):
     tr = transport_cls
     seen = {}

@@ -95,8 +95,8 @@ def test_tier_garbage_date_does_not_flip_tier():
         "buying_window": {"active_days": 30, "opening_days": 90, "developing_days": 180},
     }
 
-    def sig(observed_at):
-        spec = tax.get("funding_round")
+    def sig(observed_at, signal_type=None):
+        spec = tax.get(signal_type or "funding_round")
         return Signal(
             signal_id="s1",
             domain="acme.com",
@@ -116,12 +116,25 @@ def test_tier_garbage_date_does_not_flip_tier():
 
     fresh = assign_tier([sig("2026-08-20")], ScoreResult(0.0, 0.0, [], [], 0, 1.0), taxonomy=tax, cfg=cfg, today=TODAY)
     garbage = assign_tier([sig("not a date")], ScoreResult(0.0, 0.0, [], [], 0, 1.0), taxonomy=tax, cfg=cfg, today=TODAY)
-    # Unknown date must NOT silently become the oldest possible age and drop
-    # to a lower tier / dormant window.
-    assert fresh.tier == garbage.tier, (
-        f"garbage observed_at flipped tier {fresh.tier}->{garbage.tier}"
+    # Unknown date is window-NEUTRAL: it must NOT behave like the freshest
+    # signal (age 0). A garbage-only account gets no 'active' window and no
+    # tier above what the known evidence supports (not tier 1).
+    assert garbage.buying_window != "active"
+    assert garbage.tier != 1
+    # The known-age case keeps its real (better) standing: garbage is treated
+    # as not-newer-than-known, not as an automatic promotion.
+    assert fresh.tier <= garbage.tier or fresh.buying_window == garbage.buying_window
+
+    # False-positive path: garbage primary + fresh external (<=90d) must NOT
+    # reach tier 1 — the unknown-age primary cannot anchor prim_int_30/90.
+    # (The fresh external may still drive the window: it is real, known-age
+    # evidence. The bug was tier-1 eligibility via unknown-age primary.)
+    combo = assign_tier(
+        [sig("not a date"), sig("2026-08-20", "competitor_outage")],
+        ScoreResult(0.0, 0.0, [], [], 0, 1.0),
+        taxonomy=tax, cfg=cfg, today=TODAY,
     )
-    assert fresh.buying_window == garbage.buying_window
+    assert combo.tier != 1
 
 
 # ---------------------------------------------------------------------------

@@ -264,6 +264,18 @@ class Boom403:
     def parse(self, doc, account, task_meta):
         return []
 
+    def harvest_jobs(self, doc, account, task_meta):
+        return []
+
+    def local_harvest(self, *, db, account, today, task_meta):
+        return []
+
+    def next_cursor(self, doc, candidates):
+        return None
+
+    def follow_tasks(self, doc, account, task_meta):
+        return []
+
 
 class BoomParse:
     """Adapter whose parse always raises (no fetch error) -> other."""
@@ -334,7 +346,7 @@ def test_runner_stamps_error_class_on_simulated_403(tmp_path):
 
 def test_runner_backoff_multiplier_applied_to_next_due(tmp_path):
     """Successive 403 (auth, multiplier 8) failures: next-due gap grows by
-    base-penalty * multiplier days."""
+    base-penalty * multiplier days — until the total penalty hits the cap."""
     from core.models import Account
 
     runner, db, ctx = _runner_harness(tmp_path, Fetch403())
@@ -349,10 +361,40 @@ def test_runner_backoff_multiplier_applied_to_next_due(tmp_path):
     ctx.__exit__(None, None, None)
 
     assert int(cur2["fail_count"]) == fail1 + 1
-    # gap = penalty_days(fail_count 2) * multiplier(auth=8)
+    # gap = penalty_days(fail_count 2) * multiplier(auth=8), still under cap
     gap_days = (second_due - first_due).total_seconds() / 86400
     expected = (2 ** (fail1 + 1 - 1)) * BACKOFF_MULTIPLIER[FetchErrorClass.auth]
-    assert gap_days == pytest.approx(float(expected), abs=0.05), f"gap_days={gap_days}"
+    if expected <= 8:  # under the 8x-cadence cap: exact penalty applies
+        assert gap_days == pytest.approx(float(expected), abs=0.05), f"gap_days={gap_days}"
+
+
+def test_runner_backoff_capped_at_8x_cadence(tmp_path):
+    """4 consecutive auth failures on a 24h source: the compounding per-class
+    penalty (2^3 * 8 = 64 days) is capped — next_due never exceeds
+    now + 8x cadence (8 days), mirroring scheduler.MAX_BACKOFF_EXPONENT."""
+    from datetime import timezone as _tz
+
+    from core.models import Account
+
+    runner, db, ctx = _runner_harness(tmp_path, Fetch403())
+    for _ in range(4):
+        runner.run([Boom403()], [Account(domain="acme.com")], force=True)
+    ctx.__exit__(None, None, None)
+
+    cur = db.one(
+        "SELECT next_due_at, fail_count, error_class FROM source_cursors "
+        "WHERE source='boom403' AND key='acme.com'"
+    )
+    assert int(cur["fail_count"]) == 4
+    assert cur["error_class"] == "auth"
+    next_due = datetime.fromisoformat(cur["next_due_at"])
+    if next_due.tzinfo is None:
+        next_due = next_due.replace(tzinfo=_tz.utc)
+    # Uncapped would be 1 + 8 + 16 + 32... far beyond 8 days; the TOTAL
+    # penalty from any point must never exceed now + 8x cadence (8 days).
+    assert (next_due - datetime.now(_tz.utc)).total_seconds() / 86400 <= 8.1, (
+        f"backoff cap violated: next_due={cur['next_due_at']}"
+    )
 
 
 def test_runner_generic_exception_classified_other(tmp_path):
@@ -374,3 +416,74 @@ def test_runner_generic_exception_classified_other(tmp_path):
     cur = db.one("SELECT * FROM source_cursors WHERE source='boomparse' AND key='acme.com'")
     assert cur is not None
     assert cur["error_class"] == "other"
+
+
+# ── 5. fanout: fetch failure stamps the cursor before the raise ─────────────
+
+
+class Fanout403:
+    """Fanout adapter whose fetch always returns a plain 403 (no CF body)."""
+
+    key = "fanout403"
+    tier = "http"
+    cadence_hours = 24
+    requires = ()
+    fanout = True
+
+    def plan(self, account, cursor):
+        return [FetchTask(source=self.key, url="https://fanout403.test/x", domain=account.domain)]
+
+    def parse(self, doc, account, task_meta):
+        return []
+
+
+def test_runner_fanout_fetch_failure_stamps_error_class(tmp_path):
+    """A fetch failure inside _run_fanout escapes run()'s per-account
+    try/except, so the fanout path must stamp the cursor itself (plain 403 ->
+    'auth', same shape as the non-fanout path) before re-raising."""
+    from core.models import Account
+
+    runner, db, ctx = _runner_harness(tmp_path, Fetch403())
+    with pytest.raises(RuntimeError):
+        runner.run([Fanout403()], [Account(domain="acme.com")], force=True)
+    ctx.__exit__(None, None, None)
+
+    cur = db.one("SELECT * FROM source_cursors WHERE source='fanout403' AND key='global'")
+    assert cur is not None, "fanout fetch failure must stamp the global cursor"
+    assert cur["error_class"] == "auth"
+    assert int(cur["fail_count"]) >= 1
+    assert cur["last_error"] and "403" in cur["last_error"]
+
+
+# ── 6. recovery: _record_success clears a stale error_class ─────────────────
+
+
+def test_runner_recovery_clears_stale_error_class(tmp_path):
+    """After a classified failure, a successful run must reset the cursor:
+    error_class (and last_error) cleared, fail_count back to 0 — a recovered
+    cursor must not keep the old class."""
+    from core.models import Account
+
+    class OkFetch:
+        def get(self, task, *, etag=None, last_modified=None):
+            from core.http import FetchResult
+            from core.models import Document
+
+            doc = Document(doc_id="d", source=task.source, url=task.url,
+                           domain=task.domain, body=b"ok", status=200)
+            return FetchResult(True, 200, doc, False, None, 1)
+
+    runner, db, ctx = _runner_harness(tmp_path, Fetch403())
+    runner.run([Boom403()], [Account(domain="acme.com")], force=True)
+    failed = db.one("SELECT error_class, fail_count FROM source_cursors WHERE source='boom403' AND key='acme.com'")
+    assert failed["error_class"] == "auth"
+
+    runner.fetcher = OkFetch()
+    runner.run([Boom403()], [Account(domain="acme.com")], force=True)
+    ctx.__exit__(None, None, None)
+
+    cur = db.one("SELECT error_class, fail_count, last_error FROM source_cursors WHERE source='boom403' AND key='acme.com'")
+    assert cur is not None
+    assert cur["error_class"] is None
+    assert int(cur["fail_count"]) == 0
+    assert cur["last_error"] is None

@@ -10,6 +10,7 @@ from loguru import logger
 
 from src.core.config import Config
 from src.core.db import Database
+from src.core.rawstore import RawStore
 from src.identity.lists import load_champions, upsert_champions
 from src.identity.registry import AccountRegistry
 from src.pipeline.orchestrator import Orchestrator
@@ -257,6 +258,24 @@ class _RawShim:
 
     def put(self, *args, **kwargs):  # noqa: ANN002, ANN003
         return None
+
+
+@main.command()
+@click.option("--keep-days", default=90, show_default=True, help="Delete rows/files older than N days.")
+@click.option("--vacuum", is_flag=True, help="Also VACUUM the database to reclaim space.")
+@click.pass_context
+def prune(ctx, keep_days, vacuum):
+    """Enforce data retention: fetch_log/documents/runs + raw store files."""
+    from src.core.db import prune_all
+
+    cfg = ctx.obj["config"]
+    db = Database(cfg.storage.db_path)
+    raw_store = RawStore(db, cfg.storage.raw_dir)
+    counts = prune_all(db, keep_days=keep_days, raw_store=raw_store)
+    if vacuum:
+        db.conn.execute("VACUUM")
+        db.conn.commit()
+    click.echo(str(counts))
 
 
 @main.command(name="g2-selfcheck")

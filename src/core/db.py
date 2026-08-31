@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -610,3 +610,33 @@ class DataDomeCookieStore:
 
     def clear(self, domain: str) -> None:
         self.db.execute("DELETE FROM datadome_cookies WHERE domain=?", (domain,))
+
+
+def prune_all(db: Database, *, keep_days: int, raw_store=None) -> dict:
+    """Delete retention-expired rows + raw files, then checkpoint WAL and ANALYZE.
+
+    Timestamp columns per table (see SCHEMA_SQL):
+      fetch_log.at, documents.fetched_at, runs.started_at.
+    Returns {"fetch_log": n, "documents": n, "runs": n, "raw_files": n}.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat()
+    counts: dict = {"raw_files": 0}
+
+    if raw_store is not None:
+        # RawStore.prune removes expired files AND the matching documents rows.
+        n = raw_store.prune(keep_days)
+        counts["documents"] = n
+        counts["raw_files"] = n
+    else:
+        cur = db.execute("DELETE FROM documents WHERE fetched_at < ?", (cutoff,))
+        counts["documents"] = cur.rowcount
+
+    cur = db.execute("DELETE FROM fetch_log WHERE at < ?", (cutoff,))
+    counts["fetch_log"] = cur.rowcount
+    cur = db.execute("DELETE FROM runs WHERE started_at < ?", (cutoff,))
+    counts["runs"] = cur.rowcount
+
+    db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    db.conn.execute("ANALYZE")
+    db.conn.commit()
+    return counts

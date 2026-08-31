@@ -7,7 +7,7 @@ def test_browser_fetch_accepts_inject_turnstile_token():
     assert "inject_turnstile_token" in sig.parameters
 
 def test_solver_via_browser_passes_token():
-    """_solver_via_browser calls browser.fetch with inject_turnstile_token."""
+    """_solver_via_browser injects the solved token via inject_turnstile_token."""
     from unittest.mock import MagicMock, patch
     from types import SimpleNamespace
     from src.sources.techstack.cf_bypass import CloudflareBypass
@@ -25,6 +25,10 @@ def test_solver_via_browser_passes_token():
     browser = MagicMock()
     doc = Document(doc_id="b", source="techstack", url="https://example.com", body=b"<html>ok</html>")
     browser.fetch.return_value = FetchResult(True, 200, doc, False, None, 1, [])
+    browser._page.content.return_value = "<html>ok</html>"
+    browser._context.cookies.return_value = [
+        {"name": "cf_clearance", "value": "fake_token", "domain": ".example.com", "path": "/"},
+    ]
     http = MagicMock()
     cookie_store = MagicMock()
     cookie_store.get.return_value = None
@@ -36,8 +40,10 @@ def test_solver_via_browser_passes_token():
                     Document(doc_id="c", source="techstack", url="https://example.com",
                              body=b"<html><div class='cf-turnstile' data-sitekey='0x1234'></div></html>"),
                     False, None, 1, []),
-                FetchResult(True, 200, doc, False, None, 1, []),
             ]
             outcome = bypass.attempt(domain="example.com", url="https://example.com", user_agent="UA")
-    calls = browser.fetch.call_args_list
-    assert any("inject_turnstile_token" in str(c) for c in calls)
+    assert outcome.success is True
+    assert outcome.method == "solver"
+    assert outcome.result is not None and outcome.result.ok
+    names = {c["name"] for c in outcome.cookies}
+    assert "cf_clearance" in names

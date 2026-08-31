@@ -204,6 +204,34 @@ def g2_export(ctx, slugs, export_dir, fmt):
         click.echo(p)
 
 
+class _RawShim:
+    """No-op raw store for self-check fetches (self-check does not persist)."""
+
+    def put(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        return None
+
+
+@main.command(name="g2-selfcheck")
+@click.option("--slug", default="sierra", show_default=True, help="Known-good G2 product slug")
+@click.option("--headless/--headed", "headless", default=None, help="Override browser.headless (G2 needs headed)")
+@click.pass_context
+def g2_selfcheck(ctx, slug, headless):
+    """Live selector-drift self-check: fetch one G2 product and verify the parser still works."""
+    from src.core.patchright_browser import PatchrightBrowserFetcher
+    from src.sources.marketplace.selfcheck import run_selfcheck
+
+    cfg = ctx.obj["config"]
+    # G2/DataDome requires headed mode; force it unless explicitly overridden.
+    if headless is None:
+        headless = False
+    cfg.browser.headless = headless
+    fetcher = PatchrightBrowserFetcher(cfg, _RawShim())
+    r = run_selfcheck(fetcher, slug=slug, config=cfg)
+    click.echo(f"state={r.state} reviews={r.review_count} url={r.url} {r.detail}")
+    if r.state in ("drift", "challenge", "error"):
+        raise SystemExit(1)
+
+
 @main.group()
 @click.pass_context
 def funding(ctx):

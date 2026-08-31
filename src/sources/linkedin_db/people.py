@@ -102,20 +102,42 @@ def detect_role_changes(contacts: list[Contact], people_rows: list[dict], champi
                     )
                 )
         if lead and r.get("role_ended"):
+            iso, raw = to_iso_or_raw(r.get("role_ended"), today)
+            evidence = {"person_name": r.get("name")}
+            if iso:
+                observed = iso
+            else:
+                # Unparseable/absent role_ended: keep the candidate, carry the
+                # raw string when present; never fabricate today as the
+                # departure date (it would misstate recency/decay).
+                observed = ""
+                if raw:
+                    evidence["date_raw"] = raw
             out.append(
                 SignalCandidate(
                     signal_type="exec_departure",
-                    observed_at=to_iso_or_today(r.get("role_ended"), today),
+                    observed_at=observed,
                     natural_key=f"depart:{slug or title}",
                     title=title,
                     confidence=0.75,
                     person_key=slug,
-                    evidence_data={"person_name": r.get("name")},
+                    evidence_data=evidence,
                 )
             )
     return out
 
 
-def to_iso_or_today(value, today: date) -> str:
+def to_iso_or_raw(value, today: date) -> tuple[str | None, str | None]:
+    """Return ``(iso_date, raw)`` for a person-field date.
+
+    Parseable -> ``(iso, None)``. Present-but-unparseable -> ``(None, raw)``.
+    Absent -> ``(None, None)``. Never fabricates a today-substitute: callers
+    decide whether an unknown date still qualifies (they must not silently
+    treat unknown as "just happened").
+    """
     from src.core.textutil import to_iso_date
-    return to_iso_date(value) or today.isoformat()
+    iso = to_iso_date(value)
+    if iso:
+        return iso, None
+    raw = value.strip() if isinstance(value, str) and value.strip() else None
+    return None, raw

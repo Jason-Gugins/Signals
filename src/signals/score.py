@@ -48,10 +48,16 @@ class ScoreResult:
         )
 
 
-def decay_factor(observed_at: str, today: date, half_life_days: int, floor: float) -> float:
+def decay_factor(observed_at: str, today: date, half_life_days: int, floor: float) -> float | None:
+    """Decay multiplier for an observed date; ``None`` when the date is unknown.
+
+    An unparseable ``observed_at`` must NOT decay to the floor (that would
+    silently treat unknown as decades-old); callers decide how to weight an
+    unknown date explicitly.
+    """
     iso = to_iso_date(observed_at)
     if not iso:
-        return floor
+        return None
     observed = date.fromisoformat(iso)
     age = (today - observed).days
     if age <= 0:
@@ -109,6 +115,8 @@ def score_account(
         for extra in group[cap_n:]:
             spec = taxonomy.get(extra.signal_type)
             decay = decay_factor(extra.observed_at, today, spec.half_life_days, floor)
+            if decay is None:
+                decay = 1.0  # unknown date: neutral, not floor
             contribs.append(_zero(extra, spec.weight, decay, "per_type_cap"))
 
     # 3. values
@@ -116,6 +124,10 @@ def score_account(
     for sig in survivors:
         spec = taxonomy.get(sig.signal_type)
         decay = decay_factor(sig.observed_at, today, spec.half_life_days, floor)
+        # Unknown observed_at: neutral decay 1.0 (never silently floor-decay
+        # an unknown date to look decades-old).
+        if decay is None:
+            decay = 1.0
         # Calibration (P1 Task 6): blend confidence with observed per-source
         # hit rates when stats are supplied. None/empty stats -> no-op.
         confidence = blend_confidence(

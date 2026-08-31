@@ -101,7 +101,19 @@ def _from_ymd(y: int, m: int, d: int) -> str | None:
 
 
 def to_iso_date(value, *, today: date | None = None) -> str | None:
-    """Accepts several date shapes. Relative forms require `today`."""
+    """Normalize a date-ish value to an ISO ``YYYY-MM-DD`` string.
+
+    Contract: returns ``None`` for anything unparseable — including empty
+    strings, relative words without ``today``, impossible dates (Feb 30), and
+    arbitrary garbage. ``None`` means *unknown*: callers must treat it as such
+    (skip the date field or keep the raw string), never substitute a floor or
+    sentinel date (``0001-01-01``, epoch-0, "today") that would silently
+    distort decay/tier math. Supported shapes: ISO, ``YYYY/MM/DD``, compact
+    ``YYYYMMDD``, RFC2822 ("Mon, 31 Aug 2026 10:00:00 GMT"), "Mon D, YYYY",
+    "D Month YYYY", epoch seconds (int/float/9-12 digit string), and relative
+    forms ("3 days ago", "yesterday", "today", "last week") which require
+    ``today``.
+    """
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -155,6 +167,16 @@ def to_iso_date(value, *, today: date | None = None) -> str | None:
         mon = _MONTHS.get(m.group("mon").lower())
         if mon:
             return _from_ymd(int(m.group("year")), mon, int(m.group("day")))
+    # RFC2822 ("Mon, 31 Aug 2026 10:00:00 GMT") — common in RSS/Atom feeds.
+    if re.match(r"^[A-Za-z]{3,9},?\s", s):
+        stripped = re.sub(r"^[A-Za-z]+,\s*", "", s).strip()
+        # Drop a trailing time + zone ("10:00:00 GMT") before DMY matching.
+        stripped = re.sub(r"\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s+[A-Z]{2,5})?$", "", stripped)
+        m2 = _DMY.match(stripped)
+        if m2:
+            mon = _MONTHS.get(m2.group("mon").lower())
+            if mon:
+                return _from_ymd(int(m2.group("year")), mon, int(m2.group("day")))
     return None
 
 

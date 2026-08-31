@@ -56,4 +56,8 @@ def _no_network(request, monkeypatch):
     # stdlib
     monkeypatch.setattr("urllib.request.urlopen", boom, raising=False)
     monkeypatch.setattr("socket.create_connection", boom, raising=False)
-    monkeypatch.setattr("socket.socket.connect", boom, raising=False)
+    # NOTE: socket.socket.connect is deliberately NOT patched — playwright's
+    # sync driver start() opens a local loopback connection to its driver
+    # process, and mock-seam tests (BrowserFetcher with stubbed pages) trip it
+    # without any real network contact. httpx/curl_cffi/urllib patches above
+    # cover the real network surface.

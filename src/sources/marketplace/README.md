@@ -828,7 +828,9 @@ Options: `--slug` (default `sierra`), `--headless/--headed` (default: headed, wh
 | `test_runner_cf_g2.py` | 1 | Cloudflare bypass routes marketplace_g2 tasks |
 | `test_runner_g2.py` | 2 | runner `_fetch_g2_fragment` renders the reviews_and_filters fragment for G2 tasks |
 | `test_g2_e2e.py` | 1 | Full pipeline: plan -> parse -> harvest -> export -> idempotent upsert |
-| `test_capterra_parse.py` | — | `extract_capterra_reviews` on the live Capterra fixture (field mapping, pros/cons, dates) |
+| `test_capterra_parse.py` | 7 | `extract_capterra_reviews` on the live Capterra fixture — 25-card parity, field mapping, pros/cons, month-name dates, empty-HTML |
+| `test_capterra_adapter.py` | 14 | plan() multi-slug fan-out (`<id>/<Slug>` segments), parse/harvest on the fixture, follow_tasks pagination + cap, cookie headers |
+| `test_runner_capterra.py` | 4 | normal-fetch routing (no stealth browser), CF challenge → bypass fallback, follow-pass re-entry |
 | `test_capterra_db.py` | 5 | `source` column (NEW_COLUMNS migration), `upsert_capterra_reviews` round-trip + idempotency, G2 default source='g2' |
 | `test_g2_selfcheck.py` (capterra cases) | 5 | capterra self-check ok/empty/drift/challenge/error states with mocked fetchers |
 

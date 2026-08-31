@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -11,7 +12,10 @@ from pathlib import Path
 from src.core.models import Account
 from src.core.textutil import parse_count
 from src.identity.domains import root_domain
+from src.identity.icp import evaluate_icp
 from src.identity.registry import AccountRegistry
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -53,13 +57,34 @@ def _slug_from_linkedin_url(url: str | None) -> str | None:
     return m.group(1).strip("/") if m else None
 
 
-def _record(registry: AccountRegistry, account: Account, stats: SeedStats, source: str) -> None:
+def _record(
+    registry: AccountRegistry,
+    account: Account,
+    stats: SeedStats,
+    source: str,
+    *,
+    icp_rules: dict | None = None,
+) -> None:
     existing = registry.get(account.domain)
     if existing and existing.extra_data:
         merged = dict(existing.extra_data)
         merged.update(account.extra_data or {})
         account.extra_data = merged
     registry.upsert(account, source=source)
+    # Seed-time ICP scoring: apply config/icp.yaml rules once at insert so
+    # tier ordering is real from day one. icp_rules is passed in by the
+    # orchestrator ({} when config/icp.yaml is missing) — this module stays
+    # I/O-clean. A failure (e.g. unknown predicate) leaves the 1.0 default.
+    if icp_rules:
+        try:
+            result = evaluate_icp(account, icp_rules)
+            account.icp_fit = result.multiplier
+            account.icp_reasons = result.reasons
+            account.disqualified = result.disqualified
+            account.disqualify_reason = result.disqualify_reason
+            registry.upsert(account, source=source)
+        except Exception as exc:
+            logger.warning("seed icp evaluation failed for %s: %s", account.domain, exc)
     if existing:
         stats.updated += 1
     else:
@@ -71,6 +96,7 @@ def seed_from_csv(
     path: str | Path,
     *,
     cohort: str | None = None,
+    icp_rules: dict | None = None,
 ) -> SeedStats:
     stats = SeedStats()
     with open(path, encoding="utf-8", newline="") as fh:
@@ -96,7 +122,7 @@ def seed_from_csv(
                 careers_url=row.get("careers_url") or None,
                 cohort=cohort,
             )
-            _record(registry, account, stats, source="csv")
+            _record(registry, account, stats, source="csv", icp_rules=icp_rules)
     return stats
 
 
@@ -106,6 +132,7 @@ def seed_from_linkedin_db(
     *,
     cohort: str | None = None,
     limit: int | None = None,
+    icp_rules: dict | None = None,
 ) -> SeedStats:
     stats = SeedStats()
     conn = _open_ro(db_path)
@@ -141,7 +168,7 @@ def seed_from_linkedin_db(
             cohort=cohort or rec.get("cohort"),
             extra_data=extra,
         )
-        _record(registry, account, stats, source="linkedin_db")
+        _record(registry, account, stats, source="linkedin_db", icp_rules=icp_rules)
     return stats
 
 
@@ -151,6 +178,7 @@ def seed_from_repvue_db(
     *,
     cohort: str | None = None,
     limit: int | None = None,
+    icp_rules: dict | None = None,
 ) -> SeedStats:
     stats = SeedStats()
     conn = _open_ro(db_path)
@@ -186,5 +214,5 @@ def seed_from_repvue_db(
             cohort=cohort,
             extra_data=extra,
         )
-        _record(registry, account, stats, source="repvue_db")
+        _record(registry, account, stats, source="repvue_db", icp_rules=icp_rules)
     return stats

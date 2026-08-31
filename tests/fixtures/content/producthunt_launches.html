@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<!--
+  synthetic — live capture blocked (P2 spike 2026-08-31, see data/probe/P2_SOURCE_SPIKE.md)
+  Product Hunt returned a Cloudflare managed challenge (403) on the first
+  request to www.producthunt.com; the host was never touched again. This
+  fixture is hand-written from PH's known data-test attribute conventions
+  (div[data-test^="product-item"], title link a[href^="/products/"],
+  a[data-test="link-product-website"], tagline + votes test ids) and must be
+  re-validated against a real browser-tier capture before live use.
+-->
+<html lang="en-US">
+<head>
+  <title>Acme — Product Hunt launches</title>
+  <meta name="robots" content="noindex">
+</head>
+<body>
+  <div id="app">
+    <div data-test="products-list">
+
+      <!-- 1. Own-domain match: website == acme.com -> product_launch (ph:acme-launcher) -->
+      <div data-test="product-item">
+        <div data-test="product-item-rank">1</div>
+        <a href="/products/acme-launcher" data-test="product-item-name">
+          Acme Launcher
+          <span data-test="product-item-badge">Launch</span>
+        </a>
+        <p data-test="product-item-tagline">The fastest way to ship Acme workspaces to your team.</p>
+        <a href="https://acme.com?ref=producthunt" data-test="link-product-website">acme.com</a>
+        <div data-test="product-item-votes"> ▲ 248 </div>
+      </div>
+
+      <!-- 2. Alternatives mention: tagline names Acme -> intent_3rd_topic (phalt:zapforge) -->
+      <div data-test="product-item">
+        <div data-test="product-item-rank">2</div>
+        <a href="/products/zapforge" data-test="product-item-name">ZapForge</a>
+        <p data-test="product-item-tagline">A free alternative to Acme — automate without the busywork.</p>
+        <a href="https://zapforge.io?ref=producthunt" data-test="link-product-website">zapforge.io</a>
+        <div data-test="product-item-votes"> ▲ 96 </div>
+      </div>
+
+      <!-- 3. Unrelated: no own-domain/name/alternatives signal -> no candidate -->
+      <div data-test="product-item">
+        <div data-test="product-item-rank">3</div>
+        <a href="/products/quillpad" data-test="product-item-name">Quillpad</a>
+        <p data-test="product-item-tagline">Markdown notes that link themselves.</p>
+        <a href="https://quillpad.app?ref=producthunt" data-test="link-product-website">quillpad.app</a>
+        <div data-test="product-item-votes"> ▲ 41 </div>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

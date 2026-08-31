@@ -25,9 +25,17 @@ def _reference() -> dict:
 
 
 def _probe() -> dict:
+    """One live call with a single retry on timeout/connection error; skip
+    (never hard-fail) if the endpoint stays unreachable."""
     import signals_antibot
 
-    return json.loads(signals_antibot.probe_fingerprint("https://tls.peet.ws/api/all"))
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            return json.loads(signals_antibot.probe_fingerprint("https://tls.peet.ws/api/all"))
+        except (TimeoutError, ConnectionError, OSError) as exc:
+            last_exc = exc
+    pytest.skip(f"live endpoint unreachable: {last_exc}")
 
 
 def _ext_names(entry) -> str:

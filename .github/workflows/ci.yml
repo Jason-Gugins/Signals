@@ -41,7 +41,7 @@ jobs:
       # Offline lane: no network, no live antibot parity tests.
       # Engine not built here (optional at runtime; curl_cffi fallback covers it).
       - name: Run offline test suite
-        run: pytest -m "not antibot_live and not allow_network" --tb=short
+        run: pytest -m "not antibot_live and not allow_network and not live_fetch" --tb=short
 
   nightly-live:
     name: Nightly live suite

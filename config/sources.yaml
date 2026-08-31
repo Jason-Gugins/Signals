@@ -44,6 +44,10 @@ sources:
     enabled: true               # browser tier, opt-in. See config/marketplace.yaml for G2-specific options
     cadence_hours: 168
     rate_per_host: 0.5
+  marketplace_capterra:
+    enabled: false              # browser tier, opt-in. See config/marketplace.yaml for Capterra-specific options
+    cadence_hours: 168
+    rate_per_host: 0.5
   content_itunes: { enabled: true, cadence_hours: 168, rate_per_host: 1.0 }
   owned_intent:   { enabled: true, cadence_hours: 1 }      # local file drop
   linkedin_db:    { enabled: true, cadence_hours: 6 }

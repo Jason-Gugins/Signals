@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from src.core.config import Config
+from src.core.browser import inject_turnstile_token
 from src.core.db import CfCookieStore
 from src.core.http import FetchResult
 from src.sources.techstack.cf_solver import solve_cloudflare
@@ -164,18 +165,39 @@ class CloudflareBypass:
         return None
 
     def _solver_via_browser(self, url, domain, token, user_agent, source="techstack") -> FetchResult | None:
-        """Re-enter the browser to inject the Turnstile token into the callback,
-        let Cloudflare set the real cf_clearance cookie, then extract the jar.
-        Implementation: navigate to the challenge page, set the token via
-        page.evaluate("document.querySelector('[name=cf-turnstile-response]').value = token"
-        + dispatch the turnstile callback), wait for cf_clearance cookie, extract."""
+        """Re-enter the browser with the solved Turnstile token: navigate to
+        the challenge URL, set the token as a cf_clearance cookie on the
+        existing context, reload, and poll for challenge clearance. On
+        success, extract the first-party cookie jar and build a FetchResult.
+        Returns None on any failure so the caller falls through to tier 4."""
         try:
-            return self.browser.fetch(url, source=source, domain=domain,
-                                      capture_html=True, inject_turnstile_token=token)
-        except TypeError:
-            # BrowserFetcher doesn't yet support inject_turnstile_token — skip
-            logger.warning("BrowserFetcher lacks inject_turnstile_token; solver tier unavailable")
+            cleared = inject_turnstile_token(self.browser, url, token)
+        except Exception as e:
+            logger.warning("inject_turnstile_token error for {}: {}", url, e)
+            cleared = False
+        if not cleared:
             return None
+        try:
+            context = self.browser._context
+            page = self.browser._page
+            body = page.content().encode("utf-8")
+            jar = context.cookies(url)
+        except Exception as e:
+            logger.warning("cookie extraction after injection failed for {}: {}", url, e)
+            return None
+        root = (domain or "").casefold().lstrip(".")
+        cf_cookies = [
+            c for c in jar
+            if (cd := (c.get("domain", "") or "").casefold().lstrip("."))
+            and (cd == root or cd.endswith("." + root))
+        ]
+        if not any(c.get("name") == "cf_clearance" for c in cf_cookies):
+            logger.warning("no cf_clearance in jar after injection for {}", url)
+            return None
+        from src.core.models import Document
+
+        doc = Document(doc_id=f"solver-{url}", source=source, url=url, body=body)
+        return FetchResult(True, 200, doc, False, None, 0, cf_cookies)
 
     def _headed_solve(self, url, domain, user_agent, proxy) -> FetchResult | None:
         """Launch a visible browser, wait up to headed_solve_timeout_ms for a

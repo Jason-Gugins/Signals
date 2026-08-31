@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+from loguru import logger
+
 from src.core.config import Config
 from src.core.http import FetchResult
 from src.core.rawstore import RawStore
@@ -77,6 +79,44 @@ def _wait_for_real_content(page, *, timeout_ms: int = 10000, poll_ms: int = 500)
         except Exception:
             pass
         page.wait_for_timeout(poll_ms)
+
+
+def inject_turnstile_token(browser, url, token, *, timeout_ms: int = 20000, poll_ms: int = 500) -> bool:
+    """Inject a solved Turnstile token as a cf_clearance cookie and verify
+    challenge clearance.
+
+    Steps: navigate the existing browser context to ``url``, set
+    ``cf_clearance`` on the context via ``add_cookies`` (domain derived from
+    the URL host), reload, then poll challenge-cleared (title change +
+    real-content check) up to ``timeout_ms``. Returns True if cleared,
+    False otherwise. Never raises — any error yields False so the caller
+    can fall through to the next bypass tier.
+
+    ``browser`` is a BrowserFetcher (or duck-typed object exposing
+    ``_page`` and ``_context``).
+    """
+    try:
+        context = browser._context
+        page = browser._page
+        host = (urlsplit(url).hostname or "").casefold()
+        if not host or not token:
+            return False
+        page.goto(url, wait_until="domcontentloaded")
+        context.add_cookies([
+            {"name": "cf_clearance", "value": token, "domain": host, "path": "/"},
+        ])
+        page.reload(wait_until="domcontentloaded")
+        if not _challenge_cleared(page, context, domain=host,
+                                  timeout_ms=timeout_ms, poll_ms=poll_ms):
+            return False
+        try:
+            _wait_for_real_content(page, timeout_ms=5000, poll_ms=poll_ms)
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        logger.warning("inject_turnstile_token failed for %s: %s", url, e)
+        return False
 
 
 class BrowserFetcher:

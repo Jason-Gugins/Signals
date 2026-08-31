@@ -741,9 +741,33 @@ Options:
 
 # Run full suite
 .\.venv\Scripts\python.exe -m pytest -q
+
+# Selector-drift self-check (live, headed browser — one known-good slug)
+.\.venv\Scripts\python.exe -m src.cli g2-selfcheck --slug sierra
 ```
 
+### Self-check (`g2-selfcheck`)
+
+A live selector-drift alarm for the `elv-*` parser. The command fetches one
+known-good product's reviews_and_filters fragment through the stealth browser
+(headed — DataDome blocks headless) and verifies the parser still extracts
+reviews. **Run it after any G2 parser change, or if a collect returns 0 reviews
+unexpectedly.** Exit code is 0 only on `ok`/`empty`; 1 on any alarm state.
+
+Five states:
+
+| State | Meaning |
+|---|---|
+| `ok` | ≥1 review parsed — parser healthy |
+| `drift` | Page has review markup (`elv-stars` / `-review-` ids) but the parser extracted 0 — **THE alarm**: selectors are stale |
+| `empty` | No review markers at all — genuinely no reviews for this product (new/quiet product) |
+| `challenge` | DataDome interstitial — a network/anti-bot problem, not a parser problem |
+| `error` | Fetch failed |
+
+Options: `--slug` (default `sierra`), `--headless/--headed` (default: headed, which G2 requires).
+
 ### Test inventory
+
 
 | File | Tests | What it covers |
 |---|---|---|
@@ -913,8 +937,9 @@ roadmap item; see the commit references in the project history.
   more signal per review.
 - ~~**Multi-slug accounts**~~ — **Done.** `g2_slug` accepts comma-separated slugs; `plan()`
   fans out one FetchTask per G2 product (see Features).
-- **Selector-drift self-check** — a `--selfcheck` mode that fetches one known-good product and
-  asserts ≥1 review parses, alerting when live markup diverges from the frozen fixtures.
+- ~~**Selector-drift self-check**~~ — **Done.** `g2-selfcheck --slug <slug>` fetches one known-good
+  product headed and asserts ≥1 review parses; exits 1 with `state=drift` when live markup
+  diverges from what the parser selects (see Testing → Self-check).
 - **Wire the 2Captcha token-to-cookie browser injection** so the solver tier can produce a real
   `cf_clearance` cookie end-to-end (currently the API call succeeds but the injection is stubbed).
 - **"Empty since" bookkeeping** — persist empty-slug checks so cadence can back off products

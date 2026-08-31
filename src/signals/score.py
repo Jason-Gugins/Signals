@@ -9,6 +9,7 @@ from datetime import date
 
 from src.core.models import Account, Signal
 from src.core.textutil import to_iso_date
+from src.signals.calibration import blend_confidence
 from src.signals.taxonomy import Taxonomy, UnknownSignalType
 
 
@@ -69,6 +70,7 @@ def score_account(
     cfg: dict,
     today: date,
     combos: list[dict] | None = None,
+    calibration_stats: dict | None = None,
 ) -> ScoreResult:
     floor = float(cfg.get("decay", {}).get("floor", 0.02))
     cap_n = int(cfg.get("caps", {}).get("per_type_max_signals", 3))
@@ -114,7 +116,12 @@ def score_account(
     for sig in survivors:
         spec = taxonomy.get(sig.signal_type)
         decay = decay_factor(sig.observed_at, today, spec.half_life_days, floor)
-        value = spec.weight * decay * float(sig.confidence)
+        # Calibration (P1 Task 6): blend confidence with observed per-source
+        # hit rates when stats are supplied. None/empty stats -> no-op.
+        confidence = blend_confidence(
+            float(sig.confidence), sig.source, sig.signal_type, calibration_stats
+        )
+        value = spec.weight * decay * confidence
         pending.append(
             Contribution(
                 signal_id=sig.signal_id,
@@ -122,7 +129,7 @@ def score_account(
                 source=sig.source,
                 base=spec.weight,
                 decay=decay,
-                confidence=float(sig.confidence),
+                confidence=confidence,
                 value=value,
             )
         )

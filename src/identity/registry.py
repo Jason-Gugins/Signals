@@ -8,6 +8,7 @@ from src.core.db import Database
 from src.core.models import Account
 from src.identity.domains import root_domain
 from src.identity.names import name_similarity, normalize_name
+from src.identity.resolve import fuzzy_match, normalize_entity
 
 _ORDER_WHITELIST = {
     "score DESC": "score DESC",
@@ -129,7 +130,75 @@ class AccountRegistry:
             hit = self._by_alias(name, "name")
             if hit:
                 return hit
+            # Normalized entity-alias lookup (exact + normalize_entity
+            # equality) — strictly higher priority than fuzzy guessing.
+            hit = self._by_entity_alias(name)
+            if hit:
+                return hit
+            # Normalized match against known name-aliases before falling
+            # back to fuzzy similarity.
+            hit = self._normalized_name(name)
+            if hit:
+                return hit
             return self._fuzzy_name(name, min_similarity)
+        return None
+
+    def _normalized_name(self, name: str) -> Optional[Account]:
+        """Match a name against known name-aliases by normalize_entity equality."""
+        key = normalize_entity(name)
+        if not key:
+            return None
+        rows = self.db.query(
+            "SELECT alias, domain FROM account_aliases WHERE alias_kind = 'name'"
+        )
+        for row in rows:
+            if normalize_entity(row["alias"]) == key:
+                return self.get(row["domain"])
+        return None
+
+    def add_entity_alias(self, alias: str, domain: str) -> None:
+        """Manually map a company-name alias to a canonical account domain.
+
+        entity_aliases entries are ONLY written here (or via
+        load_entity_aliases_from_config) — never auto-derived from
+        scraping/discovery, because a bad alias silently re-points one
+        company's signals at another's account.
+        """
+        key = normalize_entity(alias)
+        if not key:
+            return
+        self.db.upsert(
+            "entity_aliases",
+            {"alias": key, "domain": domain},
+            pk="alias",
+        )
+
+    def load_entity_aliases_from_config(self, entries: dict[str, str]) -> None:
+        """Populate entity_aliases from a config mapping {alias: domain}.
+
+        Config-driven population path — the caller decides the mapping
+        (e.g. an `entity_aliases:` section in a config YAML). Never called
+        automatically by scraping code.
+        """
+        for alias, domain in entries.items():
+            self.add_entity_alias(alias, domain)
+
+    def _by_entity_alias(self, name: str) -> Optional[Account]:
+        """entity_aliases lookup: exact normalized key first, then a
+        full-table normalized-equality pass (handles legacy rows written
+        with a different normalization). Higher priority than fuzzy."""
+        key = normalize_entity(name)
+        if not key:
+            return None
+        row = self.db.one(
+            "SELECT domain FROM entity_aliases WHERE alias = ?", (key,)
+        )
+        if row:
+            return self.get(row["domain"])
+        rows = self.db.query("SELECT alias, domain FROM entity_aliases")
+        for r in rows:
+            if normalize_entity(r["alias"]) == key:
+                return self.get(r["domain"])
         return None
 
     def _fuzzy_name(self, name: str, min_similarity: float) -> Optional[Account]:

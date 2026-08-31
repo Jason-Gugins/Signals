@@ -372,10 +372,31 @@ def _add_fetch_log_error_class(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE fetch_log ADD COLUMN error_class TEXT")
 
 
+def _create_entity_aliases(conn: sqlite3.Connection) -> None:
+    """v4 (Task 14): entity_aliases table for cross-identity account mapping.
+
+    POLICY — NEVER auto-merge silently. This table is populated ONLY
+    manually or via config (see `entity_aliases` section in config YAMLs,
+    consumed by AccountRegistry.load_entity_aliases_from_config). There is
+    deliberately NO scraper/discovery code that writes here on its own:
+    a wrong alias silently re-points one company's signals at another's
+    account, so every entry is a deliberate human/config decision.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS entity_aliases (
+            alias  TEXT PRIMARY KEY,   -- normalized entity name (normalize_entity form)
+            domain TEXT NOT NULL       -- canonical account root domain
+        )
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (1, "additive NEW_COLUMNS pass (g2_slug, nps_score, helpful_votes, source, app_store_id, play_id, subreddit)", _add_missing_columns),
     (2, "create calibration table (per-source/per-signal-type hit rates)", _create_calibration),
     (3, "add fetch_log.error_class (fetch error taxonomy)", _add_fetch_log_error_class),
+    (4, "create entity_aliases table (manual/config-driven alias map, never auto-merged)", _create_entity_aliases),
 ]
 
 LATEST_VERSION: int = max(v for v, _, _ in MIGRATIONS)

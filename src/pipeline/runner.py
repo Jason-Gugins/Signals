@@ -189,6 +189,7 @@ class CollectorRunner:
             follow: list[FetchTask] = []
             tech_harvests: list = []
             review_harvests: dict[str, list] = {}  # slug -> page-1 reviews
+            job_harvests: dict[str, list] = {}  # domain -> final-page jobs
             for task, result in results:
                 if result is None:
                     continue
@@ -263,6 +264,12 @@ class CollectorRunner:
                 follow.extend(adapter.follow_tasks(result.doc, account, meta) or [])
                 jobs = adapter.harvest_jobs(result.doc, account, meta) or []
                 self._persist_jobs(adapter, account, jobs, now, more_pages=bool(follow))
+                # Track per-domain open-role counts for the hiring-velocity
+                # trend signal. More-page passes accumulate pages, so only
+                # the final (no further follow tasks) result has the full
+                # cycle snapshot; mid-paging diffs would be spurious.
+                if not follow and jobs:
+                    job_harvests.setdefault(account.domain, []).extend(jobs)
                 harvest = getattr(adapter, "harvest_tech", None)
                 if callable(harvest):
                     tech_harvests.append(harvest(result.doc, account, meta) or [])
@@ -333,6 +340,38 @@ class CollectorRunner:
                         today=now.date().isoformat(),
                         min_count_delta=int(rt_cfg.get("min_count_delta", 5)),
                         min_rating_delta=float(rt_cfg.get("min_rating_delta", 0.5)),
+                    )
+                    stats_state[key] = curr
+                    if cand is not None:
+                        all_cands.append(cand)
+                save_stats(stats_state)
+            # Hiring-velocity trend signals: diff this cycle's per-domain
+            # open-role count against the previous cycle's stored stats.
+            if job_harvests:
+                from src.sources.jobsignals.trend import (
+                    compute_stats,
+                    hiring_trend_signal,
+                    load_stats,
+                    save_stats,
+                    stats_key,
+                )
+
+                try:
+                    ht_cfg = (self.config.load_yaml("jobsignals") or {}).get(
+                        "hiring_trend", {}
+                    )
+                except Exception:  # pragma: no cover - defensive
+                    ht_cfg = {}
+                stats_state = load_stats()
+                for domain, jobs in job_harvests.items():
+                    curr = compute_stats(jobs)
+                    key = stats_key(domain)
+                    cand = hiring_trend_signal(
+                        domain,
+                        stats_state.get(key),
+                        curr,
+                        today=now.date().isoformat(),
+                        min_delta_pct=float(ht_cfg.get("min_delta_pct", 25.0)),
                     )
                     stats_state[key] = curr
                     if cand is not None:

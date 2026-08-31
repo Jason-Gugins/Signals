@@ -313,7 +313,11 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
     "accounts": {"g2_slug": "TEXT"},
     "signals": {},
     "documents": {},
-    "g2_reviews": {"nps_score": "INTEGER", "helpful_votes": "INTEGER"},
+    "g2_reviews": {
+        "nps_score": "INTEGER",
+        "helpful_votes": "INTEGER",
+        "source": "TEXT DEFAULT 'g2'",
+    },
 }
 
 

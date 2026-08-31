@@ -39,8 +39,15 @@ def _parse_g2_body(body: str, url: str, product_slug: str) -> list:
     return parse_g2_reviews(body, url)
 
 
-def upsert_g2_reviews(db, reviews: list, *, now: str, raw_ref: str | None = None) -> tuple[int, int]:
-    """Upsert G2Review objects into the g2_reviews table. Returns (new, updated)."""
+def upsert_g2_reviews(db, reviews: list, *, now: str, raw_ref: str | None = None,
+                      source: str = "g2") -> tuple[int, int]:
+    """Upsert review objects into the g2_reviews table. Returns (new, updated).
+
+    G2Review and CapterraReview share the same field shape, so one column
+    mapping serves both. ``source`` records provenance in the ``source``
+    column (TEXT DEFAULT 'g2', NEW_COLUMNS migration): 'g2' for G2 rows,
+    'capterra' via :func:`upsert_capterra_reviews`.
+    """
     new, updated = 0, 0
     for r in reviews:
         existing = db.one("SELECT first_seen_at FROM g2_reviews WHERE review_id=?", (r.review_id,))
@@ -63,11 +70,14 @@ def upsert_g2_reviews(db, reviews: list, *, now: str, raw_ref: str | None = None
                 "review_source": r.review_source,
                 "nps_score": r.nps_score,
                 "helpful_votes": r.helpful_votes,
+                "source": source,
                 "first_seen_at": existing["first_seen_at"] if existing else now,
                 "last_seen_at": now,
                 "raw_ref": raw_ref,
             },
             pk=("review_id",),
+            # ``source`` is deliberately NOT in overwrite: provenance is set at
+            # insert time and never mutated by later re-upserts.
             overwrite={"last_seen_at", "review_body", "pros", "cons", "rating",
                         "reviewer_title", "reviewer_company_size", "raw_ref"},
         )
@@ -76,6 +86,18 @@ def upsert_g2_reviews(db, reviews: list, *, now: str, raw_ref: str | None = None
         else:
             new += 1
     return new, updated
+
+
+def upsert_capterra_reviews(db, reviews: list, *, now: str,
+                            raw_ref: str | None = None) -> tuple[int, int]:
+    """Upsert CapterraReview objects into g2_reviews with source='capterra'.
+
+    Shares the table (and PK) with G2 reviews; the ``source`` column
+    distinguishes provenance. Capterra review ids are sha256 hashes of
+    (slug, reviewer, posted) while G2 ids are raw numeric survey ids, so the
+    two id spaces cannot collide.
+    """
+    return upsert_g2_reviews(db, reviews, now=now, raw_ref=raw_ref, source="capterra")
 
 
 @register

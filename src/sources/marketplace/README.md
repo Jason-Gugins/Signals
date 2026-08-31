@@ -734,6 +734,48 @@ Options:
 
 ---
 
+## Capterra
+
+Capterra (Gartner) reviews are scraped by `marketplace_capterra`, mirroring the
+G2 architecture. Built against the Task-1 discovery spike (Aug 2026).
+
+- **URL structure:** `https://www.capterra.com/p/<numeric-id>/<Slug>/reviews/`.
+  The numeric product id is part of the URL and **not derivable from the slug
+  alone**, so the account field stores the full segment, e.g. `19319/JIRA`
+  (Jira), `211559/Trello`, `56808/Basecamp`. Comma-separated multi-segments fan
+  out like G2 slugs; pagination is `?page=N` on the same URL (max 3 pages).
+- **Rendering model:** reviews are **server-rendered** (Next.js RSC HTML) —
+  unlike G2, no stealth browser is needed for parsing; the plain
+  `CurlCffiFetcher` TLS-impersonated fetch works against the rendered HTML.
+- **Anti-bot:** **Cloudflare Bot Management** (CF-only per the spike — no
+  DataDome observed). Datacenter IPs are blocked; the residential-IP + browser
+  UA path clears it. Challenge detection covers both DataDome bodies and CF
+  markers (`Just a moment`, `cf-chl`).
+- **Card DOM:** review cards sit in `div[data-test-id='review-cards-container']`;
+  the overall rating is `div[data-testid='Overall Rating-rating']`. The parser
+  (`extract_capterra_reviews`) is pure (deferred bs4, no I/O, no clock).
+- **Persistence:** reviews share the `g2_reviews` table with G2. A `source`
+  column (`TEXT DEFAULT 'g2'`, NEW_COLUMNS migration) records provenance:
+  `upsert_capterra_reviews` writes `source='capterra'` rows; G2 rows keep
+  `source='g2'`. Capterra `review_id` is a sha256 hash of
+  (slug, reviewer, posted) while G2 ids are raw numeric survey ids — no
+  collision risk. Natural keys use the `caprev:` prefix.
+- **Config:** `config/marketplace.yaml` → `sites.capterra`
+  (`enabled: false` by default, `max_review_pages: 3`,
+  `review_lookback_days: 90`).
+- **Self-check:** `.venv\Scripts\python.exe -m src.cli capterra-selfcheck
+  --slug 19319/JIRA` — same five states as `g2-selfcheck` (ok/drift/empty/
+  challenge/error), but via the plain HTTP fetcher (no browser window). Drift
+  = the review-cards container is present but the parser extracted 0. Exit 0
+  only on `ok`/`empty`.
+- **Pacing:** keep ≥4s between requests to capterra.com; the self-check makes
+  a single request.
+- **Legal & ethics:** same posture as G2 — Capterra (Gartner) ToS restrict
+  automated collection. The source is **disabled by default and opt-in**;
+  enable deliberately, pace requests, and only collect what the pipeline needs.
+
+---
+
 ## Testing
 
 ```powershell
@@ -786,6 +828,9 @@ Options: `--slug` (default `sierra`), `--headless/--headed` (default: headed, wh
 | `test_runner_cf_g2.py` | 1 | Cloudflare bypass routes marketplace_g2 tasks |
 | `test_runner_g2.py` | 2 | runner `_fetch_g2_fragment` renders the reviews_and_filters fragment for G2 tasks |
 | `test_g2_e2e.py` | 1 | Full pipeline: plan -> parse -> harvest -> export -> idempotent upsert |
+| `test_capterra_parse.py` | — | `extract_capterra_reviews` on the live Capterra fixture (field mapping, pros/cons, dates) |
+| `test_capterra_db.py` | 5 | `source` column (NEW_COLUMNS migration), `upsert_capterra_reviews` round-trip + idempotency, G2 default source='g2' |
+| `test_g2_selfcheck.py` (capterra cases) | 5 | capterra self-check ok/empty/drift/challenge/error states with mocked fetchers |
 
 ### Fixtures
 

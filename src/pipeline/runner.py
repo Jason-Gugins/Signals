@@ -233,10 +233,20 @@ class CollectorRunner:
                     tech_harvests.append(harvest(result.doc, account, meta) or [])
                 harvest_revs = getattr(adapter, "harvest_reviews", None)
                 if callable(harvest_revs):
-                    from src.sources.marketplace.collector import upsert_g2_reviews
+                    from src.sources.marketplace.collector import (
+                        upsert_capterra_reviews,
+                        upsert_g2_reviews,
+                    )
                     revs = harvest_revs(result.doc, account, meta) or []
                     if revs:
-                        upsert_g2_reviews(self.db, revs, now=_iso(now), raw_ref=result.doc.doc_id)
+                        # Dispatch per adapter: the shared g2_reviews table
+                        # stores provenance in its ``source`` column.
+                        if adapter.key == "marketplace_capterra":
+                            upsert_capterra_reviews(self.db, revs, now=_iso(now),
+                                                    raw_ref=result.doc.doc_id)
+                        else:
+                            upsert_g2_reviews(self.db, revs, now=_iso(now),
+                                              raw_ref=result.doc.doc_id)
             if tech_harvests:
                 from src.sources.techstack.collector import upsert_technologies
                 from src.sources.techstack.fingerprint import merge_matches

@@ -54,6 +54,8 @@ def upsert_g2_reviews(db, reviews: list, *, now: str, raw_ref: str | None = None
                 "review_url": r.review_url,
                 "verified_reviewer": int(r.verified_reviewer),
                 "review_source": r.review_source,
+                "nps_score": r.nps_score,
+                "helpful_votes": r.helpful_votes,
                 "first_seen_at": existing["first_seen_at"] if existing else now,
                 "last_seen_at": now,
                 "raw_ref": raw_ref,

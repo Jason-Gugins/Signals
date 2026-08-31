@@ -219,6 +219,8 @@ class G2Review:
     review_url: Optional[str]         # Source URL
     verified_reviewer: bool           # True if "Verified Reviewer" or "Verified Current User"
     review_source: Optional[str]      # "Organic" or "Invitation from G2 (Original )"
+    nps_score: Optional[int]          # None — no per-card markup in current DOM
+    helpful_votes: Optional[int]      # None — no per-card markup in current DOM
 ```
 
 ### DOM selectors (`extract_g2_reviews` — current elv-\* DOM)
@@ -377,6 +379,8 @@ CREATE TABLE g2_reviews (
     review_url           TEXT,
     verified_reviewer    INTEGER DEFAULT 0,
     review_source        TEXT,               -- "Organic" | "Invitation from G2"
+    nps_score            INTEGER,            -- None until real per-card markup exists
+    helpful_votes        INTEGER,            -- None until real per-card markup exists
     first_seen_at        TEXT NOT NULL,
     last_seen_at         TEXT NOT NULL,
     raw_ref              TEXT                -- documents.doc_id for provenance
@@ -771,13 +775,13 @@ Options: `--slug` (default `sierra`), `--headless/--headed` (default: headed, wh
 
 | File | Tests | What it covers |
 |---|---|---|
-| `test_g2_extract.py` | 14 | `extract_g2_reviews` on live `elv-*` fragments (counts, field mapping, rating scale, verified tokens) |
+| `test_g2_extract.py` | 16 | `extract_g2_reviews` on live `elv-*` fragments (counts, field mapping, rating scale, verified tokens, NPS/helpful fields) |
 | `test_g2_parse.py` | 5 | Parser extracts all fields, handles anonymous reviewers, empty HTML |
 | `test_g2_adapter.py` | 4 | plan() requires g2_slug, returns correct URL; parse() returns candidates, filters old reviews |
 | `test_g2_harvest.py` | 1 | upsert_g2_reviews persists, idempotent (no duplicates on re-run) |
 | `test_g2_export.py` | 2 | JSON export decodes pros/cons to lists; CSV export flattens to semicolon strings |
 | `test_g2_slug.py` | 4 | Account.g2_slug field, to_db_row, from_db_row |
-| `test_g2_reviews_db.py` | 2 | g2_reviews table exists with all columns; upsert round-trip |
+| `test_g2_reviews_db.py` | 5 | g2_reviews table exists with all columns (incl. nps_score/helpful_votes + migration); upsert round-trip incl. NPS/helpful |
 | `test_cli_g2.py` | 2 | g2-export command exists, creates JSON + CSV files |
 | `test_runner_cf_g2.py` | 1 | Cloudflare bypass routes marketplace_g2 tasks |
 | `test_runner_g2.py` | 2 | runner `_fetch_g2_fragment` renders the reviews_and_filters fragment for G2 tasks |
@@ -906,6 +910,12 @@ roadmap item; see the commit references in the project history.
 - **Multi-slug accounts** — `g2_slug` accepts comma-separated slugs; one collection task per
   G2 product.
 
+- **NPS score + helpful votes extracted where present on review cards (None otherwise)** —
+  `G2Review` / `g2_reviews` carry `nps_score` and `helpful_votes`. Step 0 discovery (Aug 2026,
+  live sierra/helcim/harmonic captures) found no identifiable per-card markup: "nps_score"
+  appears only in the star-filter widget, and the leading card metas are constant across all
+  cards, so no selector was invented — extraction returns `None` until real markup maps.
+
 ---
 
 ## Limitations & Roadmap
@@ -932,9 +942,9 @@ roadmap item; see the commit references in the project history.
 
 ### Roadmap
 
-- **Extra review fields** — G2 cards carry NPS score, helpful-vote counts, and reviewer
-  metadata beyond what `extract_g2_reviews` maps; the `g2_reviews` schema has room. Low effort,
-  more signal per review.
+- **Extra review fields** — `nps_score` and `helpful_votes` columns/fields now exist but
+  extraction yields `None` until identifiable per-card markup is captured (see Features);
+  reviewer metadata beyond what `extract_g2_reviews` maps remains open.
 - ~~**Multi-slug accounts**~~ — **Done.** `g2_slug` accepts comma-separated slugs; `plan()`
   fans out one FetchTask per G2 product (see Features).
 - ~~**Selector-drift self-check**~~ — **Done.** `g2-selfcheck --slug <slug>` fetches one known-good

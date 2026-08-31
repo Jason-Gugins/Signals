@@ -403,6 +403,12 @@ class CollectorRunner:
             if not result.ok or result.doc is None:
                 exc = RuntimeError(result.error or "fanout fetch failed")
                 _attach_fetch_context(exc, result)
+                # Stamp the cursor BEFORE the raise propagates: a fanout fetch
+                # failure escapes run()'s per-account try/except (watch.py's
+                # adapter-level catch handles it), so without this stamp the
+                # cursor would never record fail_count / error_class /
+                # backoff — the fanout analogue of the non-fanout path.
+                self._record_fail(adapter.key, "global", exc)
                 raise exc
             stats.fetched += 1
             last_doc = result.doc
@@ -699,16 +705,23 @@ class CollectorRunner:
                 "next_due_at": due,
                 "fail_count": 0,
                 "last_error": None,
+                # Explicit clear: a recovered cursor must not keep the stale
+                # error class of its previous failure state (COALESCE would
+                # otherwise preserve it forever).
+                "error_class": None,
             },
             pk=("source", "key"),
+            overwrite={"fail_count", "last_error", "error_class"},
         )
 
     def _record_fail(self, source, key, exc):
         """Stamp the failure on the cursor: fail_count, error_class, and a
         next-due penalty multiplied by the class's BACKOFF_MULTIPLIER.
 
-        The scheduler is untouched — the multiplier folds into the existing
-        exponential next-due computation (base penalty 2^fail, 1-day units).
+        The TOTAL next-due penalty is capped scheduler-style at 8x the adapter
+        cadence (mirrors scheduler.MAX_BACKOFF_EXPONENT = 3 → 2**3 == 8x), so
+        compounding per-class penalties can never push next_due arbitrarily
+        far out — and never double-book the scheduler's own capped backoff.
         """
         row = self._cursor(source, key) or {}
         n = int(row.get("fail_count") or 0) + 1
@@ -717,19 +730,20 @@ class CollectorRunner:
         body_hint = getattr(exc, "fetch_body_hint", None)
         error_class = classify_fetch_error(status, error, body_hint)
         multiplier = BACKOFF_MULTIPLIER.get(error_class, 1)
+        cadence_hours = int(getattr(self, "_default_cadence_hours", 24))
+        cap = timedelta(hours=8 * cadence_hours)
+        floor = _now()
         prev_due = row.get("next_due_at")
         if prev_due:
             penalty_days = (2 ** (n - 1)) * multiplier
-            due = _iso(
-                datetime.fromisoformat(prev_due).replace(
-                    tzinfo=timezone.utc if datetime.fromisoformat(prev_due).tzinfo is None
-                    else datetime.fromisoformat(prev_due).tzinfo
-                )
-                + timedelta(days=penalty_days)
-            )
+            prev_dt = datetime.fromisoformat(prev_due)
+            if prev_dt.tzinfo is None:
+                prev_dt = prev_dt.replace(tzinfo=timezone.utc)
+            due_dt = min(prev_dt + timedelta(days=penalty_days), floor + cap)
+            due = _iso(due_dt)
         else:
-            penalty_hours = int(getattr(self, "_default_cadence_hours", 24)) * multiplier
-            due = _iso(_now() + timedelta(hours=penalty_hours))
+            penalty_hours = cadence_hours * multiplier
+            due = _iso(min(floor + timedelta(hours=penalty_hours), floor + cap))
         self.db.upsert(
             "source_cursors",
             {

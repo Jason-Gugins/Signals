@@ -22,6 +22,10 @@ def _escape(request) -> bool:
         return True
     if request.node.get_closest_marker("live_fetch"):
         return True
+    # Dedicated escape for seam tests: the test exercises a network SEAM with
+    # fake engines/stubs and contacts no real host.
+    if request.node.get_closest_marker("fake_net_seam"):
+        return True
     if "respx_mock" in request.fixturenames:
         return True
     func = getattr(request.node, "obj", None)

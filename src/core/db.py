@@ -321,6 +321,10 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
         "helpful_votes": "INTEGER",
         "source": "TEXT DEFAULT 'g2'",
     },
+    # P2 Task 2: legacy DBs created before the fetch error taxonomy predate
+    # the source_cursors.error_class column in SCHEMA_SQL. The late-bound
+    # additive pass below backfills it idempotently on any upgrade path.
+    "source_cursors": {"error_class": "TEXT"},
 }
 
 

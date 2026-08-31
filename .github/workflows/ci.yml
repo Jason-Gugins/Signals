@@ -1,0 +1,64 @@
+# CI: lint (warn-only warm-up) + offline test suite on every push/PR.
+# NOTE: The antibot engine (src/antibot/engine) is NOT built in CI — it is optional
+# at runtime; SignalsTransport falls back to curl_cffi, so no BoringSSL build is needed.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # Nightly live lane at 04:00 UTC
+    - cron: '0 4 * * *'
+
+jobs:
+  test:
+    name: Offline suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install ruff
+        run: pip install ruff
+
+      # Warm-up lane: lint findings are reported but do not fail CI until the codebase is clean.
+      - name: Ruff check (warn-only)
+        continue-on-error: true
+        run: ruff check src/ tests/
+
+      # Offline lane: no network, no live antibot parity tests.
+      # Engine not built here (optional at runtime; curl_cffi fallback covers it).
+      - name: Run offline test suite
+        run: pytest -m "not antibot_live and not allow_network" --tb=short
+
+  nightly-live:
+    name: Nightly live suite
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Full suite including the live antibot parity lane; continue-on-error because
+      # live-network tests are inherently flaky.
+      - name: Run full suite (live)
+        continue-on-error: true
+        run: pytest -m antibot_live --tb=short

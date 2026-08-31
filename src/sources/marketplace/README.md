@@ -776,6 +776,48 @@ G2 architecture. Built against the Task-1 discovery spike (Aug 2026).
 
 ---
 
+## TrustRadius
+
+TrustRadius reviews are scraped by `marketplace_trustradius`, mirroring the
+G2/Capterra architecture. Built against a live capture (Aug 2026, one paced
+curl_cffi chrome-impersonation request to
+`https://www.trustradius.com/products/slack/reviews` — HTTP 200, no challenge).
+
+- **URL structure:** `https://www.trustradius.com/products/<slug>/reviews`.
+  Unlike Capterra, the slug alone is the URL key (no numeric id). Comma-separated
+  multi-slugs fan out like G2; `follow_tasks` paginates with the conventional
+  `?page=N` query param (the live page's pagination widget is client-side and
+  renders no `?page` links, but the query param is the standard contract; max
+  2 pages by default).
+- **Rendering model:** reviews are **server-rendered** (Next.js) — the plain
+  TLS-impersonated fetch works against the rendered HTML, like Capterra.
+- **Anti-bot:** Cloudflare-fronted (the probe reached the app server; no CF
+  challenge was served to the chrome-impersonated client). The source is in
+  `_CF_BYPASS_SOURCES`, so CF challenges fall to the bypass waterfall. Challenge
+  detection covers DataDome bodies plus CF markers (`Just a moment`, `cf-chl`).
+- **Card DOM:** review cards are `<article class="Review_review__5RC6b">`
+  elements (hash suffix NEVER selected) containing
+  `div[data-testid='stars-container']` + `div[data-testid='content']`. Rating
+  is `data-rating` on a **0–10 scale**, normalized to 0–5. Dates come from
+  `<time datetime>`; the per-review id is the `/reviews/<slug>` URL tail.
+  The parser (`extract_trustradius_reviews`) is pure (deferred bs4, no I/O,
+  no clock).
+- **Persistence:** reviews share the `g2_reviews` table; `upsert_trustradius_reviews`
+  writes `source='trustradius'` rows. Natural keys use the `trrev:` prefix
+  (`trrev:<slug>:<review-id>`). No NPS/helpful-vote markup exists in the
+  current card DOM — those fields are `None`.
+- **Config:** `config/marketplace.yaml` → `sites.trustradius` (`enabled: false`
+  by default, `max_review_pages: 2`, `review_lookback_days: 90`).
+- **Self-check:** `run_selfcheck(fetcher, slug='slack', source='trustradius')` —
+  same five states as capterra (ok/drift/empty/challenge/error) via the plain
+  HTTP fetcher. Drift = review-card markup present but 0 parsed.
+- **Pacing:** keep ≥4s between requests to trustradius.com; the self-check
+  makes a single request.
+- **Legal & ethics:** same posture as G2/Capterra — ToS restrict automated
+  collection. Disabled by default and opt-in.
+
+---
+
 ## Testing
 
 ```powershell
@@ -832,7 +874,11 @@ Options: `--slug` (default `sierra`), `--headless/--headed` (default: headed, wh
 | `test_capterra_adapter.py` | 14 | plan() multi-slug fan-out (`<id>/<Slug>` segments), parse/harvest on the fixture, follow_tasks pagination + cap, cookie headers |
 | `test_runner_capterra.py` | 4 | normal-fetch routing (no stealth browser), CF challenge → bypass fallback, follow-pass re-entry |
 | `test_capterra_db.py` | 5 | `source` column (NEW_COLUMNS migration), `upsert_capterra_reviews` round-trip + idempotency, G2 default source='g2' |
+| `test_trustradius_parse.py` | 7 | `extract_trustradius_reviews` on the live TrustRadius fixture — 3-card parity, 0-10→0-5 rating normalization, ISO dates, reviewer/company-size mapping, empty-HTML |
+| `test_trustradius_adapter.py` | 14 | plan() multi-slug fan-out, parse/harvest on the fixture, follow_tasks pagination + cap, cookie headers |
+| `test_trustradius_db.py` | 3 | `upsert_trustradius_reviews` source='trustradius' round-trip + idempotency, source isolation |
 | `test_g2_selfcheck.py` (capterra cases) | 5 | capterra self-check ok/empty/drift/challenge/error states with mocked fetchers |
+| `test_g2_selfcheck.py` (trustradius cases) | 5 | trustradius self-check ok/empty/drift/challenge/error states with mocked fetchers |
 
 ### Fixtures
 

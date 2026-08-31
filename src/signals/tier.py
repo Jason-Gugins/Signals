@@ -22,15 +22,23 @@ def _age(sig: Signal, today: date) -> int | None:
     iso = to_iso_date(sig.observed_at)
     if not iso:
         return None
-    return (today - date.fromisoformat(iso)).days
+    if len(iso) < 10:
+        return None
+    try:
+        observed = date.fromisoformat(iso[:10])
+    except ValueError:
+        return None
+    return (today - observed).days
+
+
+_TODAY_SENTINEL = date.max
 
 
 def newest_primary(signals: list[Signal], *, taxonomy: Taxonomy) -> Signal | None:
+    """Newest primary signal — an unparseable observed_at is unknown, which is
+    neutral-fresh (age 0), not oldest; it may still anchor the buying window."""
     primary = taxonomy.primary_types()
-    cands = []
-    for s in signals:
-        if s.signal_type in primary:
-            cands.append(s)
+    cands = [s for s in signals if s.signal_type in primary]
     if not cands:
         return None
     cands.sort(key=lambda s: s.observed_at, reverse=True)
@@ -45,9 +53,12 @@ def buying_window(signals: list[Signal], *, taxonomy: Taxonomy, cfg: dict, today
     prim = newest_primary(signals, taxonomy=taxonomy)
     if prim is not None:
         age = _age(prim, today)
-        if age is not None and age <= active_d:
+        if age is None:
+            # Unknown observed_at: neutral-fresh (age 0), mirroring score.py.
+            age = 0
+        if age <= active_d:
             return "active"
-        if age is not None and age <= opening_d:
+        if age <= opening_d:
             return "opening"
     ages = [a for a in (_age(s, today) for s in signals) if a is not None]
     if ages and min(ages) <= developing_d:
@@ -76,7 +87,10 @@ def assign_tier(
     for s in signals:
         a = _age(s, today)
         if a is None:
-            continue
+            # Unknown observed_at: neutral-fresh (age 0), mirroring score.py's
+            # "unknown = neutral decay 1.0". Never silently treat an unknown
+            # date as decades-old — that would demote accounts to dormant.
+            a = 0
         spec = None
         try:
             spec = taxonomy.get(s.signal_type)

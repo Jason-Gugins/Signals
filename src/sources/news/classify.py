@@ -244,9 +244,17 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
     if in_summary and not in_title:
         conf = min(conf, 0.6)
     vars_ = extract_vars(text, rule)
+    if published is None and item.published:
+        # Date present but unparseable (garbage / impossible): keep the
+        # candidate with the raw string — never fabricate a floor or
+        # today-substitute date that would distort decay math.
+        vars_["date_raw"] = item.published
+        observed_at = ""
+    else:
+        observed_at = published or today.isoformat()
     return SignalCandidate(
         signal_type=rule.signal_type,
-        observed_at=published or today.isoformat(),
+        observed_at=observed_at,
         natural_key=sha256_hex(_canon_link(item.link))[:16],
         title=item.title,
         url=item.link,

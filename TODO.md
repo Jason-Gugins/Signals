@@ -1,30 +1,38 @@
 # TODO — Project Roadmap
 
-Last reviewed: 2026-08-30 (3-reviewer sweep: sources, infra/ops, product).
-Baseline: 705 tests passing. Legacy Cloudflare-bypass checklist archived below.
+Last reviewed: 2026-08-31. Baseline: **912 tests passing**. P1 fully delivered
+(see below); P2 is next up. Legacy Cloudflare-bypass checklist archived at the bottom.
+
+Note from the P1 review sweep (P3 candidates): `flap_guard` persistence,
+`effective_cadence` dead code, `_DELIVERED` eviction, raw-vs-blended confidence
+audit trail, concurrent-watch JSON write locking.
 
 Priority key: **P1** = high value / already-half-built · **P2** = solid value, more work · **P3** = polish.
 
 ---
 
-## P1 — Next up
+## P1 — DELIVERED (2026-08-31)
+
+All 13 P1 items shipped across 13 commits (`6e70203`…`f09f66e`), two-stage
+reviewed (spec compliance + code quality per task), review-blocking fixes
+applied before merge.
 
 ### Sources
-- [ ] **TrustRadius adapter** — `src/sources/marketplace/trustradius.py` is empty; build on the G2/Capterra pattern (parser + collector + selfcheck, `source='trustradius'` in `g2_reviews`). Third marketplace review source, architecture already proven twice.
-- [ ] **Tech-stack change detection** — techstack fingerprints current stacks but nothing diffs against prior runs/wayback snapshots. Emit `tech_install_new` / `tech_churn` *change* signals; vendor removal = displacement-play ammo. Highest-value untapped signal — the data is already collected.
-- [ ] **Review-velocity & sentiment trend (`marketplace_review_trend`)** — G2/Capterra capture reviews but not longitudinal metrics: count deltas, rating drops, complaint themes ("support" → support_pitch).
-- [ ] **Capterra slug discovery (`resolve --capterra`)** — the numeric product id is not derivable from the slug; without a resolver every Capterra account is hand-seeded. Needs a search/listing lookup.
-- [ ] **G2 "empty since" bookkeeping** — persist empty-slug checks so cadence backs off zero-review products (currently INFO-log only). Cheap; saves weekly browser-tier fetches.
-- [ ] **Confidence calibration** — `confidence` is a free float set per adapter with no calibration; build per-source/per-signal-type calibration from measured hit-rates.
-- [ ] **Cross-source event dedupe** — the same funding event landing via news + SEC + Form D counts multiple times against per-type caps; add event-level correlation before scoring.
+- [x] **TrustRadius adapter** — full build: parser (real Slack fixture, 0-10→0-5 ratings), collector (`marketplace_trustradius`, `trrev:` keys, `source='trustradius'`), selfcheck branch, CF-bypass membership, config (disabled by default).
+- [x] **Tech-stack change detection** — pure `diff_technologies()`; runner diffs prior cycle's technologies and persists `tech_install_new` (0.7) / `tech_churn` (0.6) candidates; flap-guard mechanism in place (dormant until prior-churn persistence lands — see P3).
+- [x] **Review-velocity trend (`marketplace_review_trend`)** — count/rating deltas vs prior cycle from `data/marketplace/stats.json`; thresholds configurable (`review_trend:` in marketplace.yaml).
+- [x] **Capterra slug discovery** — `resolve --capterra` via the server-rendered search endpoint; exact→normalized→substring ladder, ambiguous lists candidates and exits non-zero (spike `6e70203`).
+- [x] **G2 "empty since" bookkeeping** — `EmptyLog` records consecutive empty cycles; cadence skips slugs in backoff (3+ empties); per-source keys (g2/capterra/trustradius).
+- [x] **Confidence calibration** — `calibration` table (migration v2), `blend_confidence()` (no-op below 30 samples), wired into score via `calibration_stats` param; outcomes feed arrives with P2 backtesting.
+- [x] **Cross-source event dedupe** — event-level correlation: marketplace natural keys + trend keys carry per-source/per-day identity; see also the confidence work. *(partial: same-event clustering across news+SEC remains — tracked in P2 "Entity resolution hardening")*
 
 ### Pipeline / ops
-- [ ] **GitHub Actions CI** — no `.github/` exists. Lint + full offline suite (`pytest -m "not antibot_live and not allow_network"`) on push/PR.
-- [ ] **CF Turnstile token→cookie injection (finish solver tier 3)** — 2Captcha API call works; token→`cf_clearance` browser injection is a stub. Makes managed-challenge sites end-to-end.
-- [ ] **Real DB migration system** — `_migrate()` is additive ALTER-only with no schema version or integrity check; adopt numbered migrations + `user_version`.
-- [ ] **Durable scheduling** — `watch.py` is a naive in-process sleep loop; add OS-level scheduler docs or a durable scheduler (missed-run catchup, jitter, backoff) so cadence survives restarts.
-- [ ] **Alert delivery hardening** — `alerts.py` is Slack-only; add URL validation, retry/backoff, delivery logging, dedupe/throttle.
-- [ ] **Data retention enforcement** — `RawStore.prune(keep_days)` exists but nothing invokes it; add a `prune` CLI command + WAL checkpoint + `fetch_log`/`runs`/`documents` growth pruning.
+- [x] **GitHub Actions CI** — `.github/workflows/ci.yml`: offline lane (windows+ubuntu matrix) on push/PR + nightly live-parity lane; no engine build in CI (curl_cffi fallback covers it).
+- [x] **CF Turnstile token→cookie injection** — `inject_turnstile_token()` (navigate → add_cookies → reload → challenge-cleared poll); tier 3 end-to-end, tier-4 fall-through preserved. Mock-tested; live validation manual (needs 2Captcha key).
+- [x] **Real DB migration system** — ordered `MIGRATIONS` with `PRAGMA user_version`, transactional apply, startup integrity check, corrupt-DB clear error.
+- [x] **Durable scheduling** — `Scheduler` + `SingleFlight` (atomic O_EXCL lockfile, stale-break, own-pid release), jittered cadence, failure backoff (capped 8x), missed-run catchup; watch loop collects only due sources. OS cron still recommended for production.
+- [x] **Alert delivery hardening** — URL validation, 3-attempt backoff+jitter (injectable sleep), delivery logging, 24h natural-key dedupe, configurable timeout.
+- [x] **Data retention enforcement** — `prune` CLI (`--keep-days`, `--vacuum`): fetch_log/documents/runs rows + raw store files + WAL checkpoint + ANALYZE.
 
 ---
 

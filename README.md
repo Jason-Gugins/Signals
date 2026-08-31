@@ -107,13 +107,14 @@ Enabled adapters live in `config/sources.yaml`:
 - Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db`, `content_itunes`
 
 Disabled by default: `community_reddit`. Marketplace collection
-(`marketplace_g2`, `marketplace_capterra`) is opt-in with a two-level gate —
-adapter in `config/sources.yaml` **and** site in `config/marketplace.yaml`
-(`sites.g2` / `sites.capterra`, plus a disabled `trustradius` stub). G2 is a
-browser-tier DataDome target (live runs need `DATADOME_SOLVER_PROVIDER` /
-`DATADOME_SOLVER_API_KEY` / `DATADOME_RESIDENTIAL_PROXY` — see `.env.example`);
-Capterra is server-rendered HTTP behind Cloudflare. ToS restricts automation —
-full notes for both in `src/sources/marketplace/README.md`.
+(`marketplace_g2`, `marketplace_capterra`, `marketplace_trustradius`) is
+opt-in with a two-level gate — adapter in `config/sources.yaml` **and** site
+in `config/marketplace.yaml` (`sites.g2` / `sites.capterra` /
+`sites.trustradius`). G2 is a browser-tier DataDome target (live runs need
+`DATADOME_SOLVER_PROVIDER` / `DATADOME_SOLVER_API_KEY` /
+`DATADOME_RESIDENTIAL_PROXY` — see `.env.example`); Capterra and TrustRadius
+are server-rendered HTTP behind Cloudflare. ToS restricts automation — full
+notes for all three in `src/sources/marketplace/README.md`.
 
 `techstack` indexes observed third-party hosts from HTML/HAR-lite; YAML only *names* common platforms (HubSpot, Webflow, GTM, …). Unknown SaaS still lands as `host:cdn.example` in `technologies`, not as `tech_install_new`. After seed: `.\.venv\Scripts\python.exe -m src.cli collect --source techstack --force`. Full notes: [`src/sources/techstack/README.md`](src/sources/techstack/README.md).
 

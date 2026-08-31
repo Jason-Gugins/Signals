@@ -60,4 +60,6 @@ def test_due_sources_and_loop(tmp_path):
         def collect(self, **kw):
             raise KeyboardInterrupt()
 
-    assert watch_loop(Stop(db), max_iterations=5, sleep=lambda s: None, now_fn=lambda: now) == 0
+    # fresh db: the loop above recorded 'ok' as run, so it would be skipped
+    stop_db = Database(tmp_path / "stop.db")
+    assert watch_loop(Stop(stop_db), max_iterations=5, sleep=lambda s: None, now_fn=lambda: now) == 0

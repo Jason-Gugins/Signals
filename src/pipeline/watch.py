@@ -1,11 +1,24 @@
-"""Watch scheduler for incremental collection."""
+"""Watch scheduler for incremental collection.
+
+The loop asks the durable :class:`~src.pipeline.scheduler.Scheduler` which
+sources are due (per-source cadence, last-success from the DB, jitter,
+failure backoff) and collects only those. A single-flight lockfile
+(``data/state/collect.lock``) prevents overlapping collects across
+processes; a stale lock is broken automatically.
+
+Note: calling ``collect`` per-source from OS cron remains the recommended
+production setup — this loop is the durable in-process alternative.
+"""
 
 from __future__ import annotations
 
 import time
 from datetime import datetime
+from pathlib import Path
 
 from loguru import logger
+
+from src.pipeline.scheduler import Scheduler, SingleFlight, cadences_from_config
 
 
 def due_sources(db, adapters, *, now: datetime) -> list[tuple]:
@@ -25,6 +38,21 @@ def due_sources(db, adapters, *, now: datetime) -> list[tuple]:
     return out
 
 
+def _record_outcomes(scheduler, due, stats, *, now: datetime) -> None:
+    """Translate per-source RunnerStats into scheduler success/failure."""
+    for adapter in due:
+        try:
+            src = None
+            if stats is not None and hasattr(stats, "_src"):
+                src = stats._src(adapter.key)
+            if src and src.get("failed") and not (src.get("fetched") or src.get("cached")):
+                scheduler.record_failure(adapter.key, now=now, error="collection failures")
+            else:
+                scheduler.record_success(adapter.key, now=now)
+        except Exception:
+            logger.exception("scheduler bookkeeping failed for {}", adapter.key)
+
+
 def watch_loop(
     orch,
     *,
@@ -33,15 +61,47 @@ def watch_loop(
     sleep=time.sleep,
     now_fn=datetime.now,
     max_iterations: int | None = None,
+    scheduler: Scheduler | None = None,
+    lock_path: str | Path | None = None,
+    pid_alive=None,
 ) -> int:
+    if scheduler is None:
+        config = getattr(orch, "config", None)
+        cadences = cadences_from_config(config) if config is not None else {}
+        scheduler = Scheduler(orch.db, cadences)
+    if lock_path is None:
+        config = getattr(orch, "config", None)
+        base = getattr(getattr(config, "storage", None), "session_dir", None) or "data/state"
+        lock_path = Path(base) / "collect.lock"
     n = 0
     while True:
         try:
             adapters = orch._pick_adapters(None)
-            due = due_sources(orch.db, adapters, now=now_fn())
-            domains = sorted({d for _, ds in due for d in ds})
-            orch.collect(domains=domains or None, force=False)
-            orch.score(domains=domains or None)
+            now = now_fn()
+            due = scheduler.decide_due(adapters, now=now)
+            if due:
+                domains = sorted({d for _, ds in due_sources(orch.db, due, now=now) for d in ds})
+                lock = SingleFlight(lock_path, pid_alive=pid_alive, time_fn=now.timestamp)
+                if not lock.acquire():
+                    logger.info("collect already running (single-flight lock held) — skipping tick")
+                else:
+                    try:
+                        try:
+                            stats = orch.collect(
+                                sources=[a.key for a in due], domains=domains or None, force=False
+                            )
+                        except Exception:
+                            logger.exception("collect failed for due sources {}", [a.key for a in due])
+                            for a in due:
+                                scheduler.record_failure(a.key, now=now_fn(), error="collect error")
+                            stats = None
+                        else:
+                            _record_outcomes(scheduler, due, stats, now=now_fn())
+                            orch.score(domains=domains or None)
+                    finally:
+                        lock.release()
+            else:
+                logger.debug("no sources due")
             try:
                 from src.pipeline.watchlist import check
                 from src.signals.taxonomy import Taxonomy

@@ -14,6 +14,7 @@ Any cycle that returns reviews resets the counter.
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -90,6 +91,8 @@ class EmptyLog:
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        tmp.write_text(
             json.dumps(self._entries, indent=2, sort_keys=True), encoding="utf-8"
         )
+        os.replace(tmp, self.path)

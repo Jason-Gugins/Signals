@@ -80,3 +80,11 @@ def test_state_persists_across_instances(tmp_path):
     log.record_empty("jira", "g2")
     again = make(tmp_path)
     assert again.is_in_backoff("jira", "g2")
+
+
+def test_save_is_atomic_no_tmp_left_behind(tmp_path):
+    log = make(tmp_path)
+    log.record_empty("jira", "g2")
+    data = json.loads((tmp_path / "empty_slugs.json").read_text(encoding="utf-8"))
+    assert data["g2:jira"]["cycles"] == 1
+    assert not (tmp_path / "empty_slugs.json.tmp").exists()

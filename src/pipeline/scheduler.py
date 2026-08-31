@@ -200,14 +200,30 @@ class SingleFlight:
     def acquire(self) -> bool:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            if self.path.exists():
-                if not self._is_stale():
-                    return False
-                logger.warning("breaking stale collect lock at {}", self.path)
-                self.path.unlink()
-            self.path.write_text(str(os.getpid()), encoding="utf-8")
-            self._acquired = True
-            return True
+            for attempt in (1, 2):
+                try:
+                    # Atomic exclusive create: no exists()->unlink()->write()
+                    # TOCTOU window between two racing acquirers.
+                    fd = os.open(
+                        str(self.path),
+                        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                    )
+                except FileExistsError:
+                    if not self._is_stale():
+                        return False
+                    logger.warning("breaking stale collect lock at {}", self.path)
+                    try:
+                        self.path.unlink()
+                    except OSError:
+                        return False  # someone else broke it first
+                    continue  # one retry after stale-break
+                try:
+                    os.write(fd, str(os.getpid()).encode("utf-8"))
+                finally:
+                    os.close(fd)
+                self._acquired = True
+                return True
+            return False  # still contested after one stale-break retry
         except OSError:
             logger.exception("single-flight lock failed at {}", self.path)
             return False
@@ -230,6 +246,13 @@ class SingleFlight:
         if not self._acquired:
             return
         self._acquired = False
+        try:
+            raw = self.path.read_text(encoding="utf-8").strip()
+            pid = int(raw) if raw else 0
+        except (OSError, ValueError):
+            return  # unreadable → don't guess; never unlink a lock we can't verify
+        if pid != os.getpid():
+            return  # foreign lock (stale-broken and re-acquired by another pid)
         try:
             self.path.unlink()
         except OSError:

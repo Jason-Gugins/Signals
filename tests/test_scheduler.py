@@ -3,6 +3,7 @@
 Injected clock everywhere — no sleeps, no real waits.
 """
 
+import os
 from datetime import datetime, timedelta
 
 from src.core.db import Database
@@ -211,6 +212,52 @@ def test_lock_context_manager(tmp_path):
 
 def test_lock_max_age_constant():
     assert LOCK_MAX_AGE_S == 24 * 3600
+
+
+def test_lock_concurrent_acquire_exclusive(tmp_path):
+    """Racing acquirers: exactly one wins, the rest get False (O_EXCL atomicity)."""
+    import threading
+
+    path = tmp_path / "collect.lock"
+    results = []
+    barrier = threading.Barrier(8)
+    locks = [
+        SingleFlight(path, pid_alive=lambda pid: True) for _ in range(8)
+    ]
+
+    def try_acquire(lock):
+        barrier.wait()
+        results.append(lock.acquire())
+
+    threads = [threading.Thread(target=try_acquire, args=(lk,)) for lk in locks]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results.count(True) == 1
+    assert results.count(False) == 7
+
+
+def test_lock_release_does_not_delete_foreign_lock(tmp_path):
+    """A stale-broken-and-reacquired lock must survive our release()."""
+    path = tmp_path / "collect.lock"
+    lock = SingleFlight(path, pid_alive=lambda pid: True)
+    assert lock.acquire() is True
+    # lock now belongs to a different (foreign) pid
+    path.write_text("424242")
+    lock.release()
+    assert path.exists()
+    assert path.read_text(encoding="utf-8").strip() == "424242"
+
+
+def test_lock_stale_break_retry_still_acquires(tmp_path):
+    """One stale-break retry: break + reacquire succeeds even under O_EXCL."""
+    path = tmp_path / "collect.lock"
+    path.write_text("999999")
+    lock = SingleFlight(path, pid_alive=lambda pid: False)
+    assert lock.acquire() is True
+    assert path.read_text(encoding="utf-8").strip() == str(os.getpid())
+    lock.release()
 
 
 # ── cadences from config ────────────────────────────────────────────────────

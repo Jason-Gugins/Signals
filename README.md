@@ -10,9 +10,11 @@ No paid APIs. No ZoomInfo, Apollo, Exa, BuiltWith, or Bombora.
 
 Public, business-relevant data only. Polite HTTP (`robots.txt` honored by
 default). A real contact address in the User-Agent. Rate limits are floors.
-Marketplace scraping is opt-in via a two-level gate: the adapter in
-`config/sources.yaml` *and* the site in `config/marketplace.yaml`
-(`sites.g2` / `sites.capterra` both default off there).
+Marketplace scraping is opt-in: the adapter's `enabled` flag in
+`config/sources.yaml` is the enforced gate (all `marketplace_*` adapters ship
+disabled). The `sites.*` blocks in `config/marketplace.yaml` hold per-site
+options (cookie file, page limits) — setting a site's `enabled` there is
+documentation of intent, not an additional code-enforced gate.
 
 ## Pipeline
 
@@ -28,6 +30,7 @@ cd Signals
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m playwright install chromium
+.\.venv\Scripts\python.exe -m patchright install chromium
 copy .env.example .env
 # set SIGNALS_CONTACT_EMAIL to a real address (SEC EDGAR 403s without it)
 ```
@@ -38,6 +41,10 @@ copy .env.example .env
 .\.venv\Scripts\python.exe -m src.cli doctor --no-network
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+CI runs the same suite on every push/PR (Ubuntu + Windows matrix, offline
+lane) plus a nightly live-parity lane — see
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Init and file drops
 
@@ -66,7 +73,8 @@ populate it (a human provides):
 .\.venv\Scripts\python.exe -m src.cli watch --once
 ```
 
-Also: `init`, `resolve`, `collect`, `reparse`, `score`, `status`, `doctor`,
+Also: `init`, `resolve` (`--g2`, `--capterra` — slug discovery via each
+marketplace's search), `collect`, `reparse`, `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
 `capterra-selfcheck`, `prune` (retention: delete old fetch_log/documents/runs
 rows + raw files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum`
@@ -108,9 +116,10 @@ Enabled adapters live in `config/sources.yaml`:
 
 Disabled by default: `community_reddit`. Marketplace collection
 (`marketplace_g2`, `marketplace_capterra`, `marketplace_trustradius`) is
-opt-in with a two-level gate — adapter in `config/sources.yaml` **and** site
-in `config/marketplace.yaml` (`sites.g2` / `sites.capterra` /
-`sites.trustradius`). G2 is a browser-tier DataDome target (live runs need
+opt-in — the adapter's `enabled` flag in `config/sources.yaml` is the enforced
+gate and all three ship `false`. The `sites.*` blocks in
+`config/marketplace.yaml` hold per-site options (cookie file, page limits).
+G2 is a browser-tier DataDome target (live runs need
 `DATADOME_SOLVER_PROVIDER` / `DATADOME_SOLVER_API_KEY` /
 `DATADOME_RESIDENTIAL_PROXY` — see `.env.example`); Capterra and TrustRadius
 are server-rendered HTTP behind Cloudflare. ToS restricts automation — full
@@ -120,7 +129,7 @@ notes for all three in `src/sources/marketplace/README.md`.
 
 ### Cloudflare bypass
 
-When `techstack` hits a Cloudflare challenge (403 or managed interstitial), a 5-tier bypass waterfall attempts to solve it: cached `cf_clearance` cookie reuse → headless Chromium JS solve → external solver (2Captcha Turnstile token, re-injected via browser) → headed manual fallback → honest hard stop (names `cloudflare`, invents nothing). Bypass is scoped to `techstack`, `marketplace_g2`, and `marketplace_capterra` (`_CF_BYPASS_SOURCES` in `src/pipeline/runner.py`); all other sources retain the 403 hard-stop. Cookies persist in `cloudflare_cookies` (UA + proxy bound). Enable the solver in `.env`:
+When `techstack` hits a Cloudflare challenge (403 or managed interstitial), a 5-tier bypass waterfall attempts to solve it: cached `cf_clearance` cookie reuse → headless Chromium JS solve → external solver (2Captcha Turnstile token, re-injected via browser as a `cf_clearance` cookie and polled for clearance) → headed manual fallback → honest hard stop (names `cloudflare`, invents nothing). Bypass is scoped to `techstack`, `marketplace_g2`, `marketplace_capterra`, and `marketplace_trustradius` (`_CF_BYPASS_SOURCES` in `src/pipeline/runner.py`); all other sources retain the 403 hard-stop. Cookies persist in `cloudflare_cookies` (UA + proxy bound). Enable the solver in `.env`:
 
 ```
 CLOUDFLARE_SOLVER_PROVIDER=2captcha
@@ -139,6 +148,24 @@ stealth (session resumption, pooling, 304 revalidation), and solve-and-bounce
 ghost orchestration with self-improving per-domain routing. Falls back to
 `curl_cffi` when the engine isn't built. No CAPTCHA solving, no login
 bypass — honest limits are documented. Full notes: [`src/antibot/README.md`](src/antibot/README.md).
+
+## Scheduling, retention, and calibration (ops)
+
+- **Durable scheduling** — `watch` runs on a `Scheduler` (`src/pipeline/scheduler.py`):
+  per-source cadence from `config/sources.yaml`, missed-run catchup, ±5%
+  jitter, failure backoff (cadence ×2 per consecutive failure, capped 8×), and
+  a single-flight lockfile (`data/state/collect.lock`, atomic create, stale
+  lock auto-break). OS cron invoking `collect` per source remains the
+  recommended production setup.
+- **Retention** — `prune --keep-days N` deletes expired `fetch_log` /
+  `documents` / `runs` rows and raw-store files, then WAL-checkpoints and
+  ANALYZEs. Add `--vacuum` to reclaim disk.
+- **Confidence calibration** — a `calibration` table (schema migration v2)
+  stores per-source/per-signal-type hit rates; `blend_confidence` adjusts
+  candidate confidence once ≥30 samples exist. The mechanism is a strict
+  no-op until the P2 backtesting loop populates outcomes.
+- **DB migrations** — schema changes run as ordered, transactional migrations
+  tracked by `PRAGMA user_version`, with a startup `integrity_check`.
 
 ## Add a source in 20 lines
 
@@ -159,11 +186,12 @@ substantially more involved — see `src/sources/marketplace/README.md`.
 - Identify yourself. Set `SIGNALS_CONTACT_EMAIL` — SEC 403s a missing contact.
 - No auth bypass, no paywall circumvention, no personal non-work data.
 - Cloudflare bot-challenge bypass is scoped to `techstack`, `marketplace_g2`,
-  and `marketplace_capterra` (public business/review pages). It solves
-  JS/managed challenges to read that content — it does not bypass
-  authentication, paywalls, or login-gated content.
-- G2 / Capterra / LinkedIn ToS restrict automation — those adapters stay
-  disabled by default (opt-in via the two-level gate above).
+  `marketplace_capterra`, and `marketplace_trustradius` (public
+  business/review pages). It solves JS/managed challenges to read that
+  content — it does not bypass authentication, paywalls, or login-gated
+  content.
+- G2 / Capterra / TrustRadius / LinkedIn ToS restrict automation — those
+  adapters stay disabled by default (opt-in via the `enabled` gate above).
 - Never resell raw content. The raw store is a local reproducibility cache.
 
 ## First-run checklist

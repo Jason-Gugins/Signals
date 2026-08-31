@@ -1,5 +1,10 @@
 own_product: acme
 competitors: [competitorx]
+# Review-velocity trend signal thresholds: emit marketplace_review_trend
+# when |count delta| or |avg rating delta| crosses these per cycle.
+review_trend:
+  min_count_delta: 5
+  min_rating_delta: 0.5
 sites:
   trustradius:
     enabled: false

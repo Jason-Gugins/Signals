@@ -232,6 +232,52 @@ def g2_selfcheck(ctx, slug, headless):
         raise SystemExit(1)
 
 
+@main.command(name="capterra-selfcheck")
+@click.option("--slug", default="19319/JIRA", show_default=True,
+              help="Capterra '<numeric-id>/<Slug>' segment (e.g. 19319/JIRA)")
+@click.pass_context
+def capterra_selfcheck(ctx, slug):
+    """Capterra selector-drift self-check.
+
+    Capterra's reviews pages are server-rendered, so this uses the plain
+    CurlCffi HTTP fetcher — no stealth browser window. One paced request
+    (~4s+ spacing recommended between live runs; Capterra is CF-fronted).
+    """
+    import time
+
+    from src.core.curl_fetcher import CurlCffiFetcher
+    from src.core.http import FetchResult
+    from src.core.models import Document
+    from src.sources.marketplace.selfcheck import run_selfcheck
+
+    cfg = ctx.obj["config"]
+
+    class _CurlShim:
+        """Adapts CurlCffiFetcher.get -> fetch(url) -> FetchResult(Document)."""
+
+        def __init__(self):
+            dd = getattr(cfg, "datadome", None)
+            self._curl = CurlCffiFetcher(
+                user_agent=cfg.browser.user_agent,
+                proxy=getattr(dd, "residential_proxy", None),
+            )
+
+        def fetch(self, url, **kwargs):
+            t0 = time.monotonic()
+            r = self._curl.get(url)
+            doc = Document(doc_id=f"capterra-selfcheck-{int(t0 * 1000)}",
+                           source="marketplace_capterra", url=url,
+                           body=r.body, status=r.status)
+            return FetchResult(ok=200 <= r.status < 400, status=r.status,
+                               doc=doc, cached=False, error=None,
+                               elapsed_ms=int((time.monotonic() - t0) * 1000))
+
+    r = run_selfcheck(_CurlShim(), slug=slug, config=cfg, source="capterra")
+    click.echo(f"state={r.state} reviews={r.review_count} url={r.url} {r.detail}")
+    if r.state in ("drift", "challenge", "error"):
+        raise SystemExit(1)
+
+
 @main.group()
 @click.pass_context
 def funding(ctx):

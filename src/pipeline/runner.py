@@ -41,7 +41,7 @@ def _iso(dt: datetime) -> str:
 
 
 class CollectorRunner:
-    def __init__(self, config, db, registry, store, fetcher, signal_store, taxonomy, ctx: RunContext, browser=None, cloudflare_bypass=None, datadome_bypass=None, stealth_browser=None):
+    def __init__(self, config, db, registry, store, fetcher, signal_store, taxonomy, ctx: RunContext, browser=None, cloudflare_bypass=None, datadome_bypass=None, stealth_browser=None, routing=None):
         self.config = config
         self.db = db
         self.registry = registry
@@ -53,6 +53,7 @@ class CollectorRunner:
         self.browser = browser
         self.cloudflare_bypass = cloudflare_bypass
         self.datadome_bypass = datadome_bypass
+        self.routing = routing
         self.stealth_browser = stealth_browser
 
     def run(
@@ -450,9 +451,20 @@ class CollectorRunner:
             page_num = int(page) if page else 1
         except (TypeError, ValueError):  # pragma: no cover - defensive
             page_num = 1
+        # RouteState: if the domain's cookies are known-stale, the browser run
+        # is still the solve for G2 — but skip the wasted warm-up latency.
+        skip_warmup = False
+        routing = getattr(self, "routing", None)
+        if routing is not None:
+            try:
+                if routing.decide("g2.com") == "SkipToSolve":
+                    skip_warmup = True
+                    logger.info("skipping warm-up (cookies known-stale) for {}", task.domain)
+            except Exception:  # pragma: no cover - defensive
+                pass
         warmup_kwargs = (
             {"warmup_url": "https://www.g2.com/", "warmup_ms": 4000}
-            if page_num <= 1
+            if page_num <= 1 and not skip_warmup
             else {}
         )
         try:
@@ -477,11 +489,21 @@ class CollectorRunner:
                     "logged-in browser",
                     task.domain, slug,
                 )
+                if routing is not None:
+                    try:
+                        routing.expire("g2.com")
+                    except Exception:  # pragma: no cover - defensive
+                        pass
                 return None  # fall back to the challenge->bypass->curl waterfall
             reviews_count = len(extract_g2_reviews(body.decode("utf-8", "replace"), slug))
             result.doc.g2_state = "ok" if reviews_count else "empty"
             if reviews_count == 0:
                 logger.info("g2 slug {} has zero reviews (new/quiet product) — not a block", slug)
+            if routing is not None:
+                try:
+                    routing.record_solve("g2.com", cookies=["datadome"])
+                except Exception:  # pragma: no cover - defensive
+                    pass
             return result
         return None
 

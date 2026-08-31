@@ -319,3 +319,62 @@ def test_g2_stale_cookies_warning_logged(tmp_path, caplog):
     warning_text = " ".join(r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING)
     assert "cookies" in warning_text.lower(), warning_text
     assert "re-export" in warning_text.lower() and "data/g2_cookies.json" in warning_text, warning_text
+
+
+def test_g2_fragment_records_routing_outcomes(tmp_path):
+    """Successful fragment fetches record_solve; challenge pages expire —
+    so RouteState's lifetime learning observes real cookie lifetimes."""
+    from src.antibot.python.routing import RouteState
+
+    routing = RouteState(path=str(tmp_path / "routing.json"))
+
+    ok_doc = Document(
+        doc_id="r1", source="marketplace_g2",
+        url="https://www.g2.com/products/sierra/reviews_and_filters",
+        body=b"<html><article id='sierra-review-1' ue='track-in-viewport'>x</article></html>",
+    )
+    stealth_browser = MagicMock()
+    stealth_browser.fetch.return_value = FetchResult(
+        ok=True, status=200, doc=ok_doc, cached=False, error=None, elapsed_ms=10)
+    datadome_bypass = MagicMock()
+    datadome_bypass.stealth = stealth_browser
+
+    runner = _make_runner(MagicMock(), datadome_bypass)
+    runner.routing = routing
+    task = FetchTask(source="marketplace_g2", url="https://www.g2.com/products/sierra/reviews",
+                     domain="g2.com", meta={"product_slug": "sierra", "page": 1})
+    runner._fetch_one(task, None, None)
+    assert routing.decide("g2.com") == "Warm"
+
+
+def test_g2_fragment_challenge_expires_routing(tmp_path):
+    """A challenge fragment expires the domain so decide() reports SkipToSolve."""
+    from src.antibot.python.routing import RouteState
+
+    routing = RouteState(path=str(tmp_path / "routing.json"))
+
+    ok_doc = Document(
+        doc_id="r1", source="marketplace_g2",
+        url="https://www.g2.com/products/sierra/reviews_and_filters",
+        body=b"<html><article id='sierra-review-1' ue='track-in-viewport'>x</article></html>",
+    )
+    challenge_doc = Document(
+        doc_id="c1", source="marketplace_g2",
+        url="https://www.g2.com/products/sierra/reviews_and_filters",
+        body=CHALLENGE,
+    )
+    stealth_browser = MagicMock()
+    stealth_browser.fetch.side_effect = [
+        FetchResult(ok=True, status=200, doc=ok_doc, cached=False, error=None, elapsed_ms=10),
+        FetchResult(ok=True, status=403, doc=challenge_doc, cached=False, error=None, elapsed_ms=10),
+    ]
+    datadome_bypass = MagicMock()
+    datadome_bypass.stealth = stealth_browser
+
+    runner = _make_runner(MagicMock(), datadome_bypass)
+    runner.routing = routing
+    task = FetchTask(source="marketplace_g2", url="https://www.g2.com/products/sierra/reviews",
+                     domain="g2.com", meta={"product_slug": "sierra", "page": 1})
+    runner._fetch_one(task, None, None)   # ok -> record_solve (Warm)
+    runner._fetch_one(task, None, None)   # challenge -> expire
+    assert routing.decide("g2.com") == "SkipToSolve"

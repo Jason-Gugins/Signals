@@ -464,6 +464,24 @@ class CollectorRunner:
             logger.warning("g2 fragment fetch failed for {}: {}", task.domain, exc)
             return None
         if result is not None and result.ok and result.doc is not None and result.doc.body:
+            # Classify the fragment: DataDome challenge / rendered reviews / empty page.
+            from src.sources.techstack.datadome import is_datadome_challenge
+            from src.sources.marketplace.g2 import extract_g2_reviews
+
+            body = result.doc.body
+            if is_datadome_challenge(status=result.status, body=body):
+                result.doc.g2_state = "challenge"
+                logger.warning(
+                    "g2 fragment for {} (slug={}) is a DataDome challenge — session "
+                    "cookies likely stale; re-export data/g2_cookies.json from a "
+                    "logged-in browser",
+                    task.domain, slug,
+                )
+                return None  # fall back to the challenge->bypass->curl waterfall
+            reviews_count = len(extract_g2_reviews(body.decode("utf-8", "replace"), slug))
+            result.doc.g2_state = "ok" if reviews_count else "empty"
+            if reviews_count == 0:
+                logger.info("g2 slug {} has zero reviews (new/quiet product) — not a block", slug)
             return result
         return None
 

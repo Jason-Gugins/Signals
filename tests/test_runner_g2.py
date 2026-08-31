@@ -10,11 +10,14 @@ in the Document body.
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import logging
+
 from src.core.http import FetchResult
 from src.core.models import Document
 from src.sources.base import FetchTask
 
 RENDERED = b"<html><body><article id='sierra-review-123' class='elv-stars elv-stars-9'>...review...</article></body></html>"
+CHALLENGE = b"<html><head><script>var dd={'rt':'ja'}</script><script src='https://geo.captcha-delivery.com/captcha/init.js'></script></head><body></body></html>"
 
 
 def _make_runner(stub_fetcher, datadome_bypass, browser=None):
@@ -228,3 +231,91 @@ def test_runner_closes_stealth_browser_even_when_collection_raises(tmp_path):
         pass
 
     stealth_browser.close.assert_called_once()
+
+
+def test_g2_fragment_empty_vs_challenge_metadata(tmp_path, caplog):
+    """The runner must distinguish three fragment outcomes on the Document:
+    'ok' (elv-* review cards parsed), 'empty' (200 but zero review cards —
+    a new/quiet product, not a block), and 'challenge' (DataDome interstitial,
+    which falls back to the bypass waterfall and returns None)."""
+    from src.pipeline.runner import CollectorRunner  # noqa: F401  (uses _make_runner)
+
+    def _runner(body):
+        doc = Document(doc_id="d", source="marketplace_g2",
+                       url="https://www.g2.com/products/sierra/reviews_and_filters",
+                       body=body)
+        browser = MagicMock()
+        browser.fetch.return_value = FetchResult(ok=True, status=200, doc=doc,
+                                                 cached=False, error=None, elapsed_ms=10)
+        datadome_bypass = MagicMock()
+        datadome_bypass.stealth = browser
+        return _make_runner(MagicMock(), datadome_bypass)
+
+    task = FetchTask(source="marketplace_g2", url="https://www.g2.com/products/sierra/reviews",
+                     domain="g2.com", meta={"product_slug": "sierra", "page": 1})
+
+    # ok: rendered review card present
+    result = _runner(RENDERED)._fetch_one(task, None, None)
+    assert result is not None and result.doc is not None
+    assert result.doc.g2_state == "ok"
+
+    # empty: 200 page but no elv-* review cards
+    empty_html = b"<html><body><div class='reviews-empty'>No reviews yet</div></body></html>"
+    result = _runner(empty_html)._fetch_one(task, None, None)
+    assert result is not None and result.doc is not None
+    assert result.doc.g2_state == "empty"
+
+    # challenge: DataDome interstitial -> falls back to bypass waterfall (None)
+    challenge_doc = Document(doc_id="c", source="marketplace_g2",
+                             url="https://www.g2.com/products/sierra/reviews_and_filters",
+                             body=CHALLENGE)
+    browser = MagicMock()
+    browser.fetch.return_value = FetchResult(ok=True, status=403, doc=challenge_doc,
+                                             cached=False, error=None, elapsed_ms=10)
+    datadome_bypass = MagicMock()
+    datadome_bypass.stealth = browser
+    stub_fetcher = MagicMock()
+    stub_fetcher.get.return_value = FetchResult(ok=False, status=403, doc=None,
+                                                cached=False, error="HTTP 403", elapsed_ms=1)
+    runner = _make_runner(stub_fetcher, datadome_bypass)
+    # challenge on the fragment -> the bypass waterfall fallback (fetcher path) runs
+    result = runner._fetch_one(task, None, None)
+    stub_fetcher.get.assert_called()
+    assert result.ok is False
+    assert challenge_doc.g2_state == "challenge"
+
+
+def test_g2_stale_cookies_warning_logged(tmp_path, caplog):
+    """A DataDome challenge on the stealth fragment most likely means stale
+    session cookies — the runner must log a clear WARNING telling the operator
+    to re-export data/g2_cookies.json from a logged-in browser."""
+    challenge_doc = Document(doc_id="c", source="marketplace_g2",
+                             url="https://www.g2.com/products/sierra/reviews_and_filters",
+                             body=CHALLENGE)
+    browser = MagicMock()
+    browser.fetch.return_value = FetchResult(ok=True, status=403, doc=challenge_doc,
+                                             cached=False, error=None, elapsed_ms=10)
+    datadome_bypass = MagicMock()
+    datadome_bypass.stealth = browser
+    runner = _make_runner(MagicMock(), datadome_bypass)
+
+    task = FetchTask(source="marketplace_g2", url="https://www.g2.com/products/sierra/reviews",
+                     domain="g2.com", meta={"product_slug": "sierra", "page": 1})
+
+    # loguru does not propagate to stdlib logging; bridge it so caplog sees it.
+    from loguru import logger as loguru_logger
+
+    class _PropagateHandler(logging.Handler):
+        def emit(self, record):
+            logging.getLogger("g2-caplog").handle(record)
+
+    handler_id = loguru_logger.add(_PropagateHandler(), level="WARNING")
+    try:
+        with caplog.at_level(logging.WARNING, logger="g2-caplog"):
+            runner._fetch_one(task, None, None)
+    finally:
+        loguru_logger.remove(handler_id)
+
+    warning_text = " ".join(r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING)
+    assert "cookies" in warning_text.lower(), warning_text
+    assert "re-export" in warning_text.lower() and "data/g2_cookies.json" in warning_text, warning_text

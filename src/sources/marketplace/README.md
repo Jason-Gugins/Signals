@@ -953,6 +953,15 @@ The adapter is disabled by default (`enabled: false` in `config/sources.yaml`). 
 The adapter implements the capabilities below. Each maps to a feature that was previously a
 roadmap item; see the commit references in the project history.
 
+- **Review-velocity trend signals** — each collect diffs the per-slug review count/avg-rating
+  against the prior cycle (`data/marketplace/stats.json`) and emits a `marketplace_review_trend`
+  signal when deltas cross the configured thresholds (`review_trend:` in
+  `config/marketplace.yaml`). Rating drops and review surges become triggers, not just raw rows.
+
+- **Empty-since bookkeeping with cadence backoff** — `EmptyLog` tracks consecutive empty cycles
+  per slug/source (atomic JSON, injectable clock); after 3 consecutive empties the planner skips
+  the slug ("empty since" date logged), and any cycle with reviews resets the counter.
+
 - **Multi-page pagination** — `follow_tasks()` plans the next review page (`?page=N`) up to
   `max_review_pages` (default 5). The runner fetches each page in turn so a single collect run
   sweeps multiple pages per account, not just the first.
@@ -1026,9 +1035,15 @@ roadmap item; see the commit references in the project history.
   BeautifulSoup4 softens this (CSS selectors, tolerant tree walking) but cannot eliminate it.
 
 - **Cloudflare Turnstile escalation**: G2 may escalate to managed/Turnstile challenges that the
-  browser-only JS solve (tier 2) cannot clear. The 2Captcha solver tier (tier 3) makes the API
-  call but the token-to-`cf_clearance` browser injection path is still a stub — see the Cloudflare
-  Bypass section. Headed fallback (tier 4) is available but needs manual intervention.
+  browser-only JS solve (tier 2) cannot clear. The 2Captcha solver tier (tier 3) now injects the
+  token as a `cf_clearance` cookie via the browser and polls for clearance (mock-tested; live
+  validation with a real 2Captcha key is a manual step). Headed fallback (tier 4) remains
+  available if injection doesn't clear.
+
+- **Marketplace trend/empty state is per-process+JSON**: review-velocity stats
+  (`data/marketplace/stats.json`) and empty-since bookkeeping (`EmptyLog`) are JSON files with
+  atomic writes but no cross-process lock — run a single collect process at a time (the
+  scheduler's `SingleFlight` lock enforces this for watch-mode runs).
 
 - **G2 ToS**: G2's Terms of Service restrict automated scraping. The adapter stays disabled by
   default and opt-in. Enable at your own risk (see Legal & Ethics).

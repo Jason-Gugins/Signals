@@ -10,7 +10,9 @@ No paid APIs. No ZoomInfo, Apollo, Exa, BuiltWith, or Bombora.
 
 Public, business-relevant data only. Polite HTTP (`robots.txt` honored by
 default). A real contact address in the User-Agent. Rate limits are floors.
-Marketplace / LinkedIn collection is opt-in and off by default.
+Marketplace scraping is opt-in via a two-level gate: the adapter in
+`config/sources.yaml` *and* the site in `config/marketplace.yaml`
+(`sites.g2` / `sites.capterra` both default off there).
 
 ## Pipeline
 
@@ -43,9 +45,11 @@ copy .env.example .env
 .\.venv\Scripts\python.exe -m src.cli init
 ```
 
-`config/lists/` is gitignored — create it locally. A human must provide:
+`config/lists/` is gitignored — `init` creates the directory, but you must
+populate it (a human provides):
 
-- `config/lists/champions.csv` — prior buyers (unlocks `champion_migration`)
+- `config/lists/champions.csv` — prior buyers (unlocks `champion_migration`;
+  load with `.\\.venv\\Scripts\\python.exe -m src.cli champions --load config/lists/champions.csv`)
 - `config/lists/exclusions.txt` — domains to skip
 - `config/lists/email_patterns.csv` — only if a pattern is *known*
 - `data/inbox/owned/*.csv|*.jsonl` — first-party intent (web/ESP export)
@@ -100,13 +104,20 @@ Enabled adapters live in `config/sources.yaml`:
 - Community: `community_hn`, `community_github`
 - Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db`, `content_itunes`
 
-Disabled by default: `community_reddit`. `marketplace_g2` is opt-in (browser tier, Cloudflare bypass, ToS restricts automation — see `src/sources/marketplace/README.md`).
+Disabled by default: `community_reddit`. Marketplace collection
+(`marketplace_g2`, `marketplace_capterra`) is opt-in with a two-level gate —
+adapter in `config/sources.yaml` **and** site in `config/marketplace.yaml`
+(`sites.g2` / `sites.capterra`, plus a disabled `trustradius` stub). G2 is a
+browser-tier DataDome target (live runs need `DATADOME_SOLVER_PROVIDER` /
+`DATADOME_SOLVER_API_KEY` / `DATADOME_RESIDENTIAL_PROXY` — see `.env.example`);
+Capterra is server-rendered HTTP behind Cloudflare. ToS restricts automation —
+full notes for both in `src/sources/marketplace/README.md`.
 
 `techstack` indexes observed third-party hosts from HTML/HAR-lite; YAML only *names* common platforms (HubSpot, Webflow, GTM, …). Unknown SaaS still lands as `host:cdn.example` in `technologies`, not as `tech_install_new`. After seed: `.\.venv\Scripts\python.exe -m src.cli collect --source techstack --force`. Full notes: [`src/sources/techstack/README.md`](src/sources/techstack/README.md).
 
 ### Cloudflare bypass
 
-When `techstack` hits a Cloudflare challenge (403 or managed interstitial), a 5-tier bypass waterfall attempts to solve it: cached `cf_clearance` cookie reuse → headless Chromium JS solve → external solver (2Captcha Turnstile token, re-injected via browser) → headed manual fallback → honest hard stop (names `cloudflare`, invents nothing). Bypass is scoped to `techstack` only; other sources retain the 403 hard-stop. Cookies persist in `cloudflare_cookies` (UA + proxy bound). Enable the solver in `.env`:
+When `techstack` hits a Cloudflare challenge (403 or managed interstitial), a 5-tier bypass waterfall attempts to solve it: cached `cf_clearance` cookie reuse → headless Chromium JS solve → external solver (2Captcha Turnstile token, re-injected via browser) → headed manual fallback → honest hard stop (names `cloudflare`, invents nothing). Bypass is scoped to `techstack`, `marketplace_g2`, and `marketplace_capterra` (`_CF_BYPASS_SOURCES` in `src/pipeline/runner.py`); all other sources retain the 403 hard-stop. Cookies persist in `cloudflare_cookies` (UA + proxy bound). Enable the solver in `.env`:
 
 ```
 CLOUDFLARE_SOLVER_PROVIDER=2captcha
@@ -130,16 +141,26 @@ bypass — honest limits are documented. Full notes: [`src/antibot/README.md`](s
 
 1. Write a pure `parse_*(body) -> list[SignalCandidate]` (no I/O, no clock).
 2. `@register` a `SourceAdapter` with `plan` + `parse`.
-3. Enable it in `config/sources.yaml`.
-4. Drop a fixture under `tests/fixtures/<source>/` and a test.
+3. Import the module in `src/sources/__init__.py` — `@register` only populates
+   `SOURCES` if the module is imported there (missing this = silent no-op).
+4. Enable it in `config/sources.yaml`.
+5. Drop a fixture under `tests/fixtures/<source>/` and a test.
+
+Marketplace-tier sources (browser/HTTP fetcher wiring, a
+`config/marketplace.yaml` site entry, a selector-drift selfcheck) are
+substantially more involved — see `src/sources/marketplace/README.md`.
 
 ## Legal / ethics
 
 - Respect `robots.txt` unless you deliberately turn it off for a run.
 - Identify yourself. Set `SIGNALS_CONTACT_EMAIL` — SEC 403s a missing contact.
 - No auth bypass, no paywall circumvention, no personal non-work data.
-- Cloudflare bot-challenge bypass is scoped to `techstack` only (public business homepages). It solves JS/managed challenges to read the tech stack — it does not bypass authentication, paywalls, or login-gated content.
-- G2 / Capterra / LinkedIn ToS restrict automation — those adapters stay disabled.
+- Cloudflare bot-challenge bypass is scoped to `techstack`, `marketplace_g2`,
+  and `marketplace_capterra` (public business/review pages). It solves
+  JS/managed challenges to read that content — it does not bypass
+  authentication, paywalls, or login-gated content.
+- G2 / Capterra / LinkedIn ToS restrict automation — those adapters stay
+  disabled by default (opt-in via the two-level gate above).
 - Never resell raw content. The raw store is a local reproducibility cache.
 
 ## First-run checklist

@@ -888,8 +888,8 @@ The adapter is disabled by default (`enabled: false` in `config/sources.yaml`). 
   "G2 / Capterra / LinkedIn ToS restrict automation — those adapters stay disabled."
 
 - **Cloudflare bypass**: The bypass solves JS/managed challenges to read public review pages. It
-  does not bypass authentication, paywalls, or login-gated content. It is scoped to `techstack`
-  and `marketplace_g2` only — other sources retain the 403 hard-stop.
+  does not bypass authentication, paywalls, or login-gated content. It is scoped to `techstack`,
+  `marketplace_g2`, and `marketplace_capterra` — other sources retain the 403 hard-stop.
 
 - **No auth bypass**: There is no automated login. Sign-in for full review text (if needed) is a
   manual, opt-in flow where the user provides a G2 session cookie. No password storage, no

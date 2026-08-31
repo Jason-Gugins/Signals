@@ -68,7 +68,9 @@ populate it (a human provides):
 
 Also: `init`, `resolve`, `collect`, `reparse`, `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
-`capterra-selfcheck`.
+`capterra-selfcheck`, `prune` (retention: delete old fetch_log/documents/runs
+rows + raw files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum`
+reclaims space).
 
 Outputs land in `data/exports/`, `data/briefs/`, and `data/alerts/`.
 Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).

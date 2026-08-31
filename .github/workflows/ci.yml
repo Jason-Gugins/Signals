@@ -58,7 +58,9 @@ jobs:
         run: pip install -r requirements.txt
 
       # Full suite including the live antibot parity lane; continue-on-error because
-      # live-network tests are inherently flaky.
-      - name: Run full suite (live)
+      # live-network tests are inherently flaky. Deliberately parity-only here —
+      # the offline suite runs on every push in the `test` job above, so the
+      # nightly adds the network-dependent lane without duplicating it.
+      - name: Run live parity suite
         continue-on-error: true
         run: pytest -m antibot_live --tb=short

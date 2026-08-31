@@ -45,8 +45,14 @@ def _fake_fetcher(html: str):
 
 class TestParseCards:
     def test_parses_product_card_anchors_only(self):
-        results = resolve_capterra_from_results("jira", _cards := [])
-        # not used here; see from_results tests below
+        from src.identity.capterra_resolve import parse_capterra_search_results
+
+        results = parse_capterra_search_results(SEARCH_HTML)
+        # Candidates must come from card anchors only: the fixture has exactly
+        # 3 cards; the embedded RSC payload must not leak extra segments.
+        segments = {r["segment"] for r in results}
+        assert segments == {"19319/JIRA", "10039800/Jira-Backup-and-Restore", "211559/Trello"}
+        assert all(r.get("name") for r in results)
 
     def test_segments_from_cards(self):
         from src.identity.capterra_resolve import parse_capterra_search_results

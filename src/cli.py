@@ -87,15 +87,63 @@ def seed(ctx, csv_path, linkedin, repvue, limit, cohort):
 @click.option("--feeds/--no-feeds", default=True)
 @click.option("--icp/--no-icp", default=True)
 @click.option("--g2/--no-g2", default=False)
+@click.option("--capterra/--no-capterra", default=False)
 @click.option("--limit", type=int, default=None)
 @click.pass_context
-def resolve(ctx, cik, ats, feeds, icp, g2, limit):
+def resolve(ctx, cik, ats, feeds, icp, g2, capterra, limit):
     orch: Orchestrator = ctx.obj["get_orch"]()
+    if capterra:
+        _resolve_capterra(orch, cohort=ctx.obj["cohort"], limit=limit)
+        return
     try:
         out = orch.resolve(cohort=ctx.obj["cohort"], limit=limit, ats=ats, cik=cik, feeds=feeds, icp=icp, g2=g2)
         click.echo(f"resolved accounts={out.get('accounts', 0)}")
     except Exception as exc:
         click.echo(f"resolve degraded: {exc}")
+
+
+def _append_segment(existing: str | None, segment: str) -> str:
+    """Append a Capterra segment to a comma-separated g2_slug value. PURE."""
+    parts = [p.strip() for p in (existing or "").split(",") if p.strip()]
+    if segment not in parts:
+        parts.append(segment)
+    return ",".join(parts)
+
+
+def _resolve_capterra(orch: Orchestrator, cohort=None, limit=None) -> None:
+    """Resolve Capterra segments for accounts and append them to g2_slug.
+
+    Ambiguous matches list candidates and exit non-zero without writing.
+    """
+    from src.identity import capterra_resolve
+
+    accounts = orch.registry.list_accounts(cohort=cohort, limit=limit, order_by="domain")
+    ambiguous: list[tuple[str, list[dict]]] = []
+    resolved = 0
+    for acct in accounts:
+        if not acct.name:
+            continue
+        result = capterra_resolve.resolve_capterra(acct.name)
+        if result.status == "resolved" and result.segment:
+            if result.segment in [p.strip() for p in (acct.g2_slug or "").split(",")]:
+                continue
+            acct.g2_slug = _append_segment(acct.g2_slug, result.segment)
+            orch.registry.upsert(acct, source="capterra_resolve")
+            click.echo(f"{acct.domain}: {result.segment}")
+            resolved += 1
+        elif result.status == "ambiguous":
+            names = ", ".join(f"{c.get('segment')} ({c.get('name')})" for c in result.candidates)
+            click.echo(f"{acct.domain}: ambiguous for {acct.name!r} — {names}", err=True)
+            ambiguous.append((acct.domain, result.candidates))
+        else:
+            click.echo(f"{acct.domain}: no Capterra match for {acct.name!r}", err=True)
+    click.echo(f"capterra resolved={resolved} ambiguous={len(ambiguous)}")
+    if ambiguous:
+        ctx_exit(1)
+
+
+def ctx_exit(code):  # indirection keeps tests patchable
+    sys.exit(code)
 
 
 @main.command()

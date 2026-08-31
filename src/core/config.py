@@ -134,6 +134,7 @@ class Config:
     contact_email: Optional[str] = None
     github_token: Optional[str] = None
     alert_webhook_url: Optional[str] = None
+    alert_webhook_timeout_s: float = 10.0
     config_dir: str = "config"
 
     _yaml_cache: dict[str, dict] = field(default_factory=dict, init=False, repr=False)
@@ -218,6 +219,12 @@ def _apply_env_overrides(config: Config) -> None:
     webhook = os.environ.get("ALERT_WEBHOOK_URL")
     if webhook:
         config.alert_webhook_url = webhook
+    webhook_timeout = os.environ.get("ALERT_WEBHOOK_TIMEOUT_S")
+    if webhook_timeout:
+        try:
+            config.alert_webhook_timeout_s = float(webhook_timeout)
+        except ValueError:
+            pass
     db_path = os.environ.get("SIGNALS_DB_PATH")
     if db_path:
         config.storage.db_path = db_path

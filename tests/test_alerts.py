@@ -50,7 +50,7 @@ def test_alerts_filters_jsonl_webhook(tmp_path):
     class Client:
         def __init__(self):
             self.n = 0
-        def post(self, url, json=None):
+        def post(self, url, json=None, timeout=None):
             self.n += 1
             return Resp()
         def close(self):

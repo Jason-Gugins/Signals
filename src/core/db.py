@@ -7,7 +7,9 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
+
+from loguru import logger
 
 
 SCHEMA_SQL = """
@@ -321,6 +323,27 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
 }
 
 
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    """Apply every NEW_COLUMNS entry idempotently (additive ALTER TABLE)."""
+    for table, cols in NEW_COLUMNS.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for col, col_type in cols.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+
+
+# Ordered migrations: (version, description, callable(conn)).
+# Version N migrates a DB at user_version == N-1 up to N. The initial
+# additive NEW_COLUMNS pass is folded in here (v1) so pre-existing DBs
+# (which were at user_version 0 with all columns already applied) upgrade
+# cleanly and idempotently.
+MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
+    (1, "additive NEW_COLUMNS pass (g2_slug, nps_score, helpful_votes, source)", _add_missing_columns),
+]
+
+LATEST_VERSION: int = max(v for v, _, _ in MIGRATIONS)
+
+
 class Database:
     def __init__(self, db_path: str | Path = "data/signals.db"):
         self.db_path = Path(db_path)
@@ -333,10 +356,31 @@ class Database:
     def _connect(self) -> None:
         # check_same_thread=False: HttpFetcher logs from the worker pool.
         # All public methods serialize on self._lock.
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        try:
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.DatabaseError as exc:
+            raise self._corrupt_error(exc) from exc
         self._conn.execute("PRAGMA foreign_keys=ON")
+
+    def _corrupt_error(self, exc: Exception) -> RuntimeError:
+        """Build a clear RuntimeError for unreadable/corrupt DB files."""
+        detail = str(exc)
+        try:
+            rows = self._conn.execute("PRAGMA integrity_check").fetchall()
+            detail = "; ".join(str(r[0]) for r in rows)
+        except Exception:
+            pass
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+        self._conn = None
+        return RuntimeError(
+            f"database file is corrupt or not a SQLite database: "
+            f"{self.db_path} ({detail})"
+        )
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -345,13 +389,36 @@ class Database:
         return self._conn
 
     def _migrate(self) -> None:
-        self.conn.executescript(SCHEMA_SQL)
-        for table, cols in NEW_COLUMNS.items():
-            existing = self.table_columns(table)
-            for col, col_type in cols.items():
-                if col not in existing:
-                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
-        self.conn.commit()
+        try:
+            ic = self.conn.execute("PRAGMA integrity_check").fetchall()
+            status = "; ".join(str(row[0]) for row in ic)
+            if status == "ok":
+                logger.info("DB integrity_check ok: {}", self.db_path)
+            else:
+                logger.error("DB integrity_check FAILED for {}: {}", self.db_path, status)
+                raise RuntimeError(f"database integrity check failed: {self.db_path} ({status})")
+
+            self.conn.executescript(SCHEMA_SQL)
+            version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+            for ver, desc, fn in MIGRATIONS:
+                if ver <= version:
+                    continue
+                logger.info("Applying DB migration v{}: {}", ver, desc)
+                # BEGIN/COMMIT: apply the step atomically alongside the version bump.
+                self.conn.execute("BEGIN")
+                try:
+                    fn(self.conn)
+                    self.conn.execute(f"PRAGMA user_version = {ver}")
+                except Exception:
+                    self.conn.execute("ROLLBACK")
+                    raise
+                self.conn.execute("COMMIT")
+            # Late-bound NEW_COLUMNS pass: stays idempotent and honors runtime
+            # monkeypatching of NEW_COLUMNS (existing tests depend on that hook).
+            _add_missing_columns(self.conn)
+            self.conn.commit()
+        except sqlite3.DatabaseError as exc:
+            raise self._corrupt_error(exc) from exc
 
     def query(self, sql: str, params: tuple | list = ()) -> list[dict]:
         with self._lock:

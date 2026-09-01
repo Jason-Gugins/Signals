@@ -1,7 +1,8 @@
 # TODO — Project Roadmap
 
-Last reviewed: 2026-08-31. Baseline: **912 tests passing**. P1 fully delivered
-(see below); P2 is next up. Legacy Cloudflare-bypass checklist archived at the bottom.
+Last reviewed: 2026-09-01. Baseline: **1,152 tests passing**. P1 fully delivered
+(2026-08-31); **P2 fully delivered (2026-09-01)** — see below. Legacy
+Cloudflare-bypass checklist archived at the bottom.
 
 Note from the P1 review sweep (P3 candidates): `flap_guard` persistence,
 `effective_cadence` dead code, `_DELIVERED` eviction, raw-vs-blended confidence
@@ -24,7 +25,7 @@ applied before merge.
 - [x] **Capterra slug discovery** — `resolve --capterra` via the server-rendered search endpoint; exact→normalized→substring ladder, ambiguous lists candidates and exits non-zero (spike `6e70203`).
 - [x] **G2 "empty since" bookkeeping** — `EmptyLog` records consecutive empty cycles; cadence skips slugs in backoff (3+ empties); per-source keys (g2/capterra/trustradius).
 - [x] **Confidence calibration** — `calibration` table (migration v2), `blend_confidence()` (no-op below 30 samples), wired into score via `calibration_stats` param; outcomes feed arrives with P2 backtesting.
-- [x] **Cross-source event dedupe** — event-level correlation: marketplace natural keys + trend keys carry per-source/per-day identity; see also the confidence work. *(partial: same-event clustering across news+SEC remains — tracked in P2 "Entity resolution hardening")*
+- [x] **Cross-source event dedupe** — event-level correlation: marketplace natural keys + trend keys carry per-source/per-day identity; see also the confidence work.
 
 ### Pipeline / ops
 - [x] **GitHub Actions CI** — `.github/workflows/ci.yml`: offline lane (windows+ubuntu matrix) on push/PR + nightly live-parity lane; no engine build in CI (curl_cffi fallback covers it).
@@ -36,43 +37,49 @@ applied before merge.
 
 ---
 
-## P2 — Then
+## P2 — DELIVERED (2026-08-31 → 2026-09-01)
+
+All 28 P2 tasks shipped in 7 batches (37 commits `e45e586`…`ff81420`), source
+spike first, two-stage reviewed per batch (spec + code quality), every review
+major fixed and re-tested before the next batch. Excluded per product decision:
+conference speaker/sponsor lists, CRM write-back.
 
 ### New sources (zero-cost ethos)
-- [ ] **Reddit enablement** (`community_reddit`, currently disabled) — r/sales, r/SaaS, company subreddits via public JSON; own rate budget + drift check first.
-- [ ] **App-store reviews (App Store / Google Play)** — public RSS/HTML feeds; mirrors marketplace architecture, no anti-bot. Product-led accounts.
-- [ ] **Product Hunt launches / "X alternative" lists** — strong second-degree intent for the G2 ICP space.
-- [ ] **YC company directory** — public batch lists give company→domain identity resolution + funded-this-batch timing; static HTML, trivially cheap.
-- [ ] **Hiring-velocity trend signals** — jobsignals captures postings; compute per-account open-role deltas so "hiring up 40% in 30d" becomes a primary trigger.
-- [ ] **Job-board coverage beyond the 7 ATS adapters** — Rippling/Jobvite/Breezy/Teamtailor; plus direct `/careers` page scraping fallback feeding existing `jobsignals` analysis.
-- [ ] **BBB profile scraping** — complaints/accreditation changes as churn/competitor signals.
-- [ ] **Conference speaker/sponsor lists** — "company attending/presenting" intent; same collector family as blogs/itunes.
+- [x] **Source-availability spike** (`4cd580d`) — paced live probes of 5 candidate hosts; verdicts re-scoped the batch (App Store + BBB GO; Reddit/YC/PH blocked → synthetic-fixture stubs with documented reasons).
+- [x] **App-store reviews** — `appstore_reviews` live via iTunes RSS (`9ba8532` wiring `34b33c1`); Play Store NO-GO (404+JS).
+- [x] **BBB profile scraping** — `bbb_profile` live via server-rendered profiles (`d7788b9`); cross-account alt-name resolution emits `intent_3rd_topic`.
+- [x] **Reddit / YC / Product Hunt** — parsers + collectors built against synthetic fixtures (`a2add32`, `66daf6c`, `6446c5c`); disabled by default with spike-referenced reasons (blocked / browser-tier / CF).
+- [x] **Hiring-velocity trend signals** (`758a4f0`) — `hiring_trend_signal` diffs per-domain open-role counts cycle-over-cycle; emits existing `hiring_surge`; min-delta + min-count floors; stats JSON atomic.
+- [x] **Job-board coverage beyond the 7 ATS adapters** (`22c7090`, wiring `b7a2bb6`) — `ats_rippling`/`ats_jobvite`/`ats_breezy`/`ats_teamtailor` + `ats_careers_page` fallback (fires only with no ATS vendor/token); breezy parser verified against a live probe.
+- [x] **Hiring-trend pagination integrity** (`410b2f2`) — full-cycle job accumulation (fixes total-minus-page-1 baseline) + end-of-cycle mark-closed with the complete key set.
 
 ### Scoring & quality
-- [ ] **Entity resolution hardening** — same-company variants across sources; registry covers names but not fuzzy/alias resolution.
-- [ ] **Play hit-rate backtesting** — log play assignments + outcomes; compute per-play conversion to tune weights (pairs with CRM write-back).
-- [ ] **Date normalization hardening** — audit every parser's `to_iso_date` handling; unparseable dates silently hit the decay floor and can flip tiers.
-- [ ] **ICP-fit pre-scoring at seed** — `icp_fit` defaults to 1.0 and multiplies everything; make seed-time ICP scoring real from `config/icp.yaml`.
-- [ ] **Pricing-page change detection** — wayback diff of /pricing; price/plan changes map to ROI/premium plays.
-- [ ] **Leadership news NLP deepening** — role-specific parsing (new CRO/CMO/CTO → persona plays) + funding stage/amount extraction into evidence_data.
-- [ ] **Combo coverage selfcheck** — any combo id without a COMBO_PLAY entry silently yields no play; add a config validator.
-- [ ] **Account health score** — aggregate positive/negative signal polarity; gate plays (don't pitch growth to a company with WARN + layoffs).
+- [x] **Entity resolution hardening** (`c6d98d8`, migration v4) — `normalize_entity`, difflib fuzzy match (0.87), `entity_aliases` table (manual/config only, never auto-merge); collision-tie fall-through.
+- [x] **Play hit-rate backtesting** (`d4cca31`, migration v5) — `play_outcomes` (local, no CRM), `plays --outcome`, `plays-report`, `plays-calibrate` feeding the P1 calibration table (≥30 samples); distinct-pair rate math.
+- [x] **Date normalization hardening** (`09230c1`) — to_iso_date strictness; unparseable dates keep raw strings instead of silent decay-floor flips.
+- [x] **ICP-fit pre-scoring at seed** (`24ca8f9`) — `config/icp.yaml` rules evaluated before the single upsert; re-seeds preserve computed fit.
+- [x] **Pricing-page change detection** (`5326439`, `410b2f2`) — pure `diff_pricing` on wayback snapshots; `pricing_change` signal; runner injects the prior pricing snapshot; conservative no-prev → no signal.
+- [x] **Leadership news NLP deepening** (`8c8eb65`) — role buckets (revenue/product/tech/exec) + funding `amount_usd`/`stage` in evidence_data, sourced from the attribution-stripped headline only.
+- [x] **Combo coverage selfcheck** (`4d837a5`) — `doctor` warns on emittable combos without COMBO_PLAY entries.
+- [x] **Account health score** (`34b9668`) — pure polarity aggregation (`config/health.yaml` weights), play gating below threshold (suppressed families default `growth_pitch`); combo plays gated too.
 
 ### Delivery & integration
-- [ ] **CRM write-back** (Deferred list) — HubSpot/Salesforce: push score/tier/next-play as account properties + tasks for play openers.
-- [ ] **Outbound webhook delivery** — generalize the Slack-only `ALERT_WEBHOOK_URL` to arbitrary JSON webhooks with signing + retry.
-- [ ] **Alert digests** — daily/weekly per-account digests with "why now" summarization across signals.
-- [ ] **Email delivery channel** — briefs/digests by SMTP/ESP, not just `data/briefs/` files.
-- [ ] **Selector-drift selfchecks for all scrapable sources** — only g2/capterra have them; generic per-source selfcheck (ok/drift/empty/challenge/error) for techstack/news/ATS catches silent parser rot repo-wide.
+- [x] **Outbound webhook delivery** (`ebb3052`) — `post_json_webhook` with the hardened skeleton, HMAC `X-Signature` signing (sign-what-you-send byte contract), `deliver_alerts` dispatcher, `ALERT_WEBHOOKS_JSON` config (secret_env names only).
+- [x] **Alert digests** (`db9e93e`, windowing `ee88519`) — daily/weekly per-account markdown with why-now lines from evidence_data; `digest --period` CLI to `data/digests/`.
+- [x] **Email delivery channel** (`ff81420`) — stdlib-SMTP `send_email` (TLS default, env-var-name credentials resolved at send time, failures logged not raised); `digest --email` / `brief --email`.
+- [x] **Selector-drift selfchecks for all scrapable sources** (`b44c221`) — generic five-state runner in `src/core/selfcheck.py`; `selfcheck --source techstack|news_rss|ats_greenhouse`; g2/capterra/trustradius wrappers byte-identical.
 
 ### Infra
-- [ ] **Packaging consolidation** — `requirements.txt` (pinned) and `pyproject.toml` (bare) drift; move deps to pyproject, add `[project.scripts]`, lockfile.
-- [ ] **Split live-network tests from the unit suite** — markers exist but no CI lane separation; offline-fast vs nightly-live jobs + conftest guard against unmarked network tests. Stabilize `antibot_live` (retries, local fingerprint fallback, nightly-only).
-- [ ] **Watch-loop per-source isolation** — one adapter exception can skip others in an iteration; wrap per-adapter collection.
-- [ ] **Observability: per-source health report** — `runlog.py` + `fetch_log` capture runs but nothing aggregates success/error rates per source per cycle; surface in `status`.
-- [ ] **Formal error taxonomy & retry policy** — http.py classifies 403s ad hoc; define an enum (challenge/timeout/dns/rate-limit/parse-drift) in `fetch_log` with per-class backoff.
-- [ ] **Cookie-jar rollout to all fetchers** — `PersistentCookieJar` is only merged in `SignalsTransport`; wire into `core/http.py` replay, curl_fetcher, and browser contexts.
-- [ ] **DB maintenance** — WAL checkpointing, `ANALYZE`, hot-query index review, cookie-table expiry cleanup.
+- [x] **Packaging consolidation** (`efe194d`) — single dependency truth in pyproject (`pip install -e .`), `signals` console script, requirements.txt as thin export, CI updated.
+- [x] **Split live-network tests from the unit suite** (`e45e586`) — conftest guard + `live_fetch`/`allow_network`/`antibot_live` markers + CI lanes.
+- [x] **Watch-loop per-source isolation** (`181e15f`) — one adapter's exception no longer skips the rest.
+- [x] **Observability: per-source health report** (`8f54279`) — `source_health()` aggregates fetch_log (fetched/cached/failed/error-class histogram/last success); surfaced in `status`.
+- [x] **Formal error taxonomy & retry policy** (`88d6511`) — classified error_class on fetch_log (migration v3), per-class backoff multipliers, capped at 8× cadence; fanout failures stamp too.
+- [x] **Cookie-jar rollout to all fetchers** (`05a7002`, persistence wiring `ee88519`) — core jar (per-scope files under `data/cookies/`) hooked into http/curl/browser fetchers behind `cookies.enabled` (default off); load-at-start/save-at-end.
+- [x] **DB maintenance** (`f04d218`, migration v6) — hot-path indexes (fetch_log source+at), cookie-table expiry cleanup in `prune_all` (`cookies` counts key), redundant PK-covered index deliberately skipped.
+
+### P2 review-fix ledger
+`4b3c707` (guard regression), `c1feff7` (B1: tier window-neutrality + backoff cap + stub completeness), `410b2f2` (B3: hiring-trend full-page stats, ATS vendor gate, seed ICP preservation), `a7057db` (B4: pricing prev-snapshot injection, sign-what-you-send HMAC, hit-rate dedupe, health.yaml wiring, plays-calibrate), `ee88519` (B5: cookie-jar persistence, digest period windows), `3de6356` (v6 test reconciliation).
 
 ---
 

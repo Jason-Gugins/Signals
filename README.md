@@ -28,7 +28,7 @@ Windows 10. Python 3.12.
 git clone https://github.com/Jason-Gugins/Signals.git
 cd Signals
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -e .
 .\.venv\Scripts\python.exe -m playwright install chromium
 .\.venv\Scripts\python.exe -m patchright install chromium
 copy .env.example .env
@@ -81,11 +81,31 @@ rows + raw files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum`
 reclaims space), `plays --outcome hit|miss --domain X --play Y` (record a
 local play outcome for backtesting), `plays-report` (per-play sent/hit/rate
 table), `plays-calibrate` (feed decided outcomes into the calibration table),
-`digest --period daily|weekly [--domain X]` (per-account markdown alert digest
-in `data/digests/`).
+`digest --period daily|weekly [--domain X] [--email]` (per-account markdown
+alert digest in `data/digests/`; `--email` sends it via SMTP), and
+`selfcheck --source techstack|news_rss|ats_greenhouse` (generic five-state
+selector-drift check; challenge/empty exit 0, drift/error exit 1).
 
-Outputs land in `data/exports/`, `data/briefs/`, and `data/alerts/`.
+Outputs land in `data/exports/`, `data/briefs/`, `data/digests/`, and
+`data/alerts/`.
 Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
+
+## Email delivery
+
+Briefs and digests can be emailed via stdlib SMTP (`digest --email`,
+`brief --email`). Configure in `.env`:
+
+```
+SIGNALS_SMTP_HOST=smtp.example.com
+SIGNALS_SMTP_PORT=587
+SIGNALS_SMTP_USER_ENV=SIGNALS_SMTP_USER   # env var NAMES, not credentials
+SIGNALS_SMTP_PASS_ENV=SIGNALS_SMTP_PASS
+SIGNALS_EMAIL_TO=you@example.com
+```
+
+The actual username/password live in the env vars those names point at and are
+resolved at send time — never stored in config. Send failures are logged and
+never crash the run (the digest/brief file is written either way).
 
 ## Form D funding
 
@@ -173,10 +193,19 @@ bypass — honest limits are documented. Full notes: [`src/antibot/README.md`](s
   ANALYZEs. Add `--vacuum` to reclaim disk.
 - **Confidence calibration** — a `calibration` table (schema migration v2)
   stores per-source/per-signal-type hit rates; `blend_confidence` adjusts
-  candidate confidence once ≥30 samples exist. The mechanism is a strict
-  no-op until the P2 backtesting loop populates outcomes.
+  candidate confidence once ≥30 samples exist. The loop is now closed: record
+  play outcomes with `plays --outcome`, then `plays-calibrate` feeds decided
+  outcomes into the table (P2 backtesting, migration v5).
 - **DB migrations** — schema changes run as ordered, transactional migrations
-  tracked by `PRAGMA user_version`, with a startup `integrity_check`.
+  tracked by `PRAGMA user_version` (currently v6), with a startup
+  `integrity_check`.
+- **Account health gate** — a pure polarity score (`src/signals/health.py`,
+  weights in `config/health.yaml`) suppresses growth-family plays for
+  negative-signal accounts (default threshold −0.5; `health_gate` in
+  `config/plays.yaml`).
+- **Signed webhooks** — beyond the Slack channel, `ALERT_WEBHOOKS_JSON`
+  configures generic JSON webhooks with optional HMAC `X-Signature` signing
+  (secret referenced by env-var name, resolved at send time).
 
 ## Add a source in 20 lines
 
@@ -211,6 +240,7 @@ substantially more involved — see `src/sources/marketplace/README.md`.
 - [ ] Which analytics/ESP? (owned-intent column mapping)
 - [ ] Geography focus? (WARN jurisdictions, regulators)
 - [ ] Champions list?
-- [ ] Alert destination? Slack webhook (`ALERT_WEBHOOK_URL`) or file-only.
+- [ ] Alert destination? Slack webhook (`ALERT_WEBHOOK_URL`), signed JSON
+  webhooks (`ALERT_WEBHOOKS_JSON`), email (`SIGNALS_SMTP_*`), or file-only.
 
 Deferred: Google Trends, ASN IP→org, CRM write-back, multi-user server.

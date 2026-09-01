@@ -390,6 +390,94 @@ def capterra_selfcheck(ctx, slug):
         raise SystemExit(1)
 
 
+def _selfcheck_source(source: str, *, domain: str | None = None,
+                      token: str | None = None, url: str | None = None):
+    """Map a generic selfcheck source -> (url, fetch_source, fetch_domain,
+    extract, markup_hints), building the sample URL from the account fields.
+
+    techstack      — homepage of ``domain``, fingerprint match over the HTML
+    news_rss       — the account's blog/feed URL (or explicit ``--url``)
+    ats_greenhouse — Greenhouse board JSON for the account's ATS token
+
+    Returns ``(url, fetch_source, fetch_domain, extract, markup_hints,
+    detect_challenge)``.
+    """
+    if source == "techstack":
+        from src.sources.techstack.fingerprint import classify_cloudflare_challenge
+
+        d = domain or (url and url.split("/")[2]) or "example.com"
+        sample = url or f"https://{d}/"
+
+        def extract(html: str, _u: str = sample):
+            from src.sources.techstack.fingerprint import (
+                extract_http_evidence,
+                load_fingerprint_rules,
+                match_fingerprints,
+            )
+            ev = extract_http_evidence(html.encode("utf-8", "replace"), {}, _u)
+            return match_fingerprints(ev, load_fingerprint_rules())
+
+        detect = lambda status, body: (  # noqa: E731
+            classify_cloudflare_challenge(status=status, body=body) is not None)
+        return sample, "techstack", d, extract, [b"technologies", b"__NEXT_DATA__"], detect
+
+    if source == "news_rss":
+        if not url:
+            raise click.UsageError("--url (or the account's blog_feed_url) is required for news_rss")
+        from src.sources.news.feeds import parse_feed
+
+        detect = lambda status, body: (  # noqa: E731
+            b"Just a moment" in body or b"cf-chl" in body)
+        return (url, "news_rss", url.split("/")[2],
+                lambda html: parse_feed(html.encode("utf-8", "replace")),
+                [b"<item", b"<entry"], detect)
+
+    if source == "ats_greenhouse":
+        if not token:
+            raise click.UsageError("--token (the account's ats_token) is required for ats_greenhouse")
+        from src.sources.ats.greenhouse import parse_greenhouse
+
+        sample = (f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs"
+                  f"?content=true")
+        detect = lambda status, body: (  # noqa: E731
+            b'"maintenance"' in body or b"Just a moment" in body)
+        return (sample, "ats_greenhouse", "boards-api.greenhouse.io",
+                lambda html: parse_greenhouse(html.encode("utf-8", "replace")),
+                [b"jobs"], detect)
+
+    raise click.UsageError(f"unknown selfcheck source: {source}")
+
+
+@main.command(name="selfcheck")
+@click.option("--source", "source", required=True,
+              type=click.Choice(["techstack", "news_rss", "ats_greenhouse"]),
+              help="Which source parser to self-check.")
+@click.option("--domain", default=None, help="Account domain (techstack sample URL).")
+@click.option("--token", default=None, help="Account ATS token (ats_greenhouse).")
+@click.option("--url", default=None, help="Explicit sample URL (news_rss feed URL, etc.).")
+@click.pass_context
+def selfcheck(ctx, source, domain, token, url):
+    """Generic selector-drift self-check for non-marketplace sources.
+
+    Fetches one sample document and verifies the source parser still extracts
+    items: ok / drift (markup present, 0 parsed) / empty / challenge / error.
+    Uses the stealth-browser fetcher (same as g2-selfcheck).
+    """
+    from src.core.patchright_browser import PatchrightBrowserFetcher
+    from src.core.selfcheck import run_source_selfcheck
+
+    cfg = ctx.obj["config"]
+    sample_url, fetch_source, fetch_domain, extract, hints, detect = (
+        _selfcheck_source(source, domain=domain, token=token, url=url))
+    fetcher = PatchrightBrowserFetcher(cfg, _RawShim())
+    r = run_source_selfcheck(fetcher, url=sample_url, source=fetch_source,
+                             domain=fetch_domain, extract=extract,
+                             markup_hints=hints, detect_challenge=detect)
+    click.echo(f"state={r.state} items={r.review_count} url={r.url} {r.detail}")
+    if r.state in ("drift", "error"):
+        raise SystemExit(1)
+
+
 @main.group()
 @click.pass_context
 def funding(ctx):

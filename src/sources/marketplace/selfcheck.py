@@ -13,24 +13,22 @@ extracts reviews. States:
   capterra — server-rendered reviews page, ``<id>/<Slug>`` URL segment,
              container-marker drift detection. Capterra is fronted by
              Cloudflare, so challenge detection also covers CF bodies.
+
+The five-state logic lives in :mod:`src.core.selfcheck`
+(:func:`run_source_selfcheck`); ``_run_selfcheck_*`` are thin wrappers that
+supply each source's URL, extractor, challenge detector and drift hints.
+``SelfcheckResult`` moved to ``src.core.selfcheck`` and is re-exported here
+so existing imports keep working.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from src.core.selfcheck import SelfcheckResult, run_source_selfcheck  # noqa: F401
 
 _CAPTERRA_CHALLENGE_MARKERS = (b"cf-chl", b"Just a moment")
 
 # TrustRadius is CF-fronted too (Next.js server-rendered pages behind
 # Cloudflare) — same challenge markers as Capterra.
 _TRUSTRADIUS_CHALLENGE_MARKERS = _CAPTERRA_CHALLENGE_MARKERS
-
-
-@dataclass
-class SelfcheckResult:
-    state: str
-    review_count: int
-    url: str
-    detail: str = ""
 
 
 def capterra_reviews_url(segment: str, *, page: int | None = None) -> str:
@@ -73,26 +71,19 @@ def _run_selfcheck_g2(fetcher, *, slug: str) -> SelfcheckResult:
     from src.sources.techstack.datadome import is_datadome_challenge
 
     url = g2_reviews_fragment_url(slug, page=None)
-    try:
-        result = fetcher.fetch(url, source="marketplace_g2", domain="g2.com",
-                               wait_ms=4000, scroll=True,
-                               warmup_url="https://www.g2.com/", warmup_ms=4000)
-    except Exception as e:  # noqa: BLE001 — any fetch failure is the 'error' state
-        return SelfcheckResult("error", 0, url, detail=str(e))
-    if result is None or not result.ok or result.doc is None:
-        return SelfcheckResult("error", 0, url, detail="fetch returned no document")
-    body = result.doc.body or b""
-    if is_datadome_challenge(status=result.status, body=body):
-        return SelfcheckResult("challenge", 0, url)
-    html = body.decode("utf-8", "replace")
-    reviews = extract_g2_reviews(html, slug)
-    if reviews:
-        return SelfcheckResult("ok", len(reviews), url)
-    has_markers = (b"elv-stars" in body) or (b"-review-" in body)
-    if has_markers:
-        return SelfcheckResult("drift", 0, url,
-                               detail="review markup present but parser extracted 0 — selectors stale")
-    return SelfcheckResult("empty", 0, url)
+    return run_source_selfcheck(
+        fetcher,
+        url=url,
+        source="marketplace_g2",
+        domain="g2.com",
+        extract=lambda html: extract_g2_reviews(html, slug),
+        markup_hints=[b"elv-stars", b"-review-"],
+        detect_challenge=lambda status, body: is_datadome_challenge(
+            status=status, body=body),
+        fetch_kwargs=dict(wait_ms=4000, scroll=True,
+                          warmup_url="https://www.g2.com/", warmup_ms=4000),
+        drift_detail="review markup present but parser extracted 0 — selectors stale",
+    )
 
 
 def _run_selfcheck_capterra(fetcher, *, slug: str) -> SelfcheckResult:
@@ -100,30 +91,21 @@ def _run_selfcheck_capterra(fetcher, *, slug: str) -> SelfcheckResult:
     from src.sources.techstack.datadome import is_datadome_challenge
 
     url = capterra_reviews_url(slug)
-    try:
-        # Capterra is server-rendered, so the plain fetcher is used — no
-        # browser needed. The fetcher may be a CurlCffiFetcher shim or any
-        # object exposing fetch(url, ...) -> FetchResult-like with .doc.
-        result = fetcher.fetch(url, source="marketplace_capterra",
-                               domain="capterra.com")
-    except Exception as e:  # noqa: BLE001
-        return SelfcheckResult("error", 0, url, detail=str(e))
-    if result is None or not result.ok or result.doc is None:
-        return SelfcheckResult("error", 0, url, detail="fetch returned no document")
-    body = result.doc.body or b""
-    if (is_datadome_challenge(status=result.status, body=body)
-            or any(m in body for m in _CAPTERRA_CHALLENGE_MARKERS)):
-        return SelfcheckResult("challenge", 0, url)
-    html = body.decode("utf-8", "replace")
-    reviews = extract_capterra_reviews(html, slug)
-    if reviews:
-        return SelfcheckResult("ok", len(reviews), url)
-    # Drift marker: the review-cards container is present but nothing parsed.
-    has_markers = (b"review-cards-container" in body)
-    if has_markers:
-        return SelfcheckResult("drift", 0, url,
-                               detail="review-cards-container present but parser extracted 0 — selectors stale")
-    return SelfcheckResult("empty", 0, url)
+
+    def _challenge(status, body):
+        return (is_datadome_challenge(status=status, body=body)
+                or any(m in body for m in _CAPTERRA_CHALLENGE_MARKERS))
+
+    return run_source_selfcheck(
+        fetcher,
+        url=url,
+        source="marketplace_capterra",
+        domain="capterra.com",
+        extract=lambda html: extract_capterra_reviews(html, slug),
+        markup_hints=[b"review-cards-container"],
+        detect_challenge=_challenge,
+        drift_detail="review-cards-container present but parser extracted 0 — selectors stale",
+    )
 
 
 def _run_selfcheck_trustradius(fetcher, *, slug: str) -> SelfcheckResult:
@@ -131,29 +113,20 @@ def _run_selfcheck_trustradius(fetcher, *, slug: str) -> SelfcheckResult:
     from src.sources.techstack.datadome import is_datadome_challenge
 
     url = trustradius_reviews_url(slug)
-    try:
-        # TrustRadius is server-rendered (Next.js), so the plain fetcher is
-        # used — no stealth browser needed for parsing.
-        result = fetcher.fetch(url, source="marketplace_trustradius",
-                               domain="trustradius.com")
-    except Exception as e:  # noqa: BLE001
-        return SelfcheckResult("error", 0, url, detail=str(e))
-    if result is None or not result.ok or result.doc is None:
-        return SelfcheckResult("error", 0, url, detail="fetch returned no document")
-    body = result.doc.body or b""
-    if (is_datadome_challenge(status=result.status, body=body)
-            or any(m in body for m in _TRUSTRADIUS_CHALLENGE_MARKERS)):
-        return SelfcheckResult("challenge", 0, url)
-    html = body.decode("utf-8", "replace")
-    reviews = extract_trustradius_reviews(html, slug)
-    if reviews:
-        return SelfcheckResult("ok", len(reviews), url)
-    # Drift marker: review-card markup (Review article + stars-container
-    # test id) is present but nothing parsed.
-    has_markers = (b"data-testid='stars-container'" in body
-                   or b'data-testid="stars-container"' in body
-                   or b"Review_review" in body)
-    if has_markers:
-        return SelfcheckResult("drift", 0, url,
-                               detail="review-card markup present but parser extracted 0 — selectors stale")
-    return SelfcheckResult("empty", 0, url)
+
+    def _challenge(status, body):
+        return (is_datadome_challenge(status=status, body=body)
+                or any(m in body for m in _TRUSTRADIUS_CHALLENGE_MARKERS))
+
+    return run_source_selfcheck(
+        fetcher,
+        url=url,
+        source="marketplace_trustradius",
+        domain="trustradius.com",
+        extract=lambda html: extract_trustradius_reviews(html, slug),
+        markup_hints=[b"data-testid='stars-container'",
+                      b'data-testid="stars-container"',
+                      b"Review_review"],
+        detect_challenge=_challenge,
+        drift_detail="review-card markup present but parser extracted 0 — selectors stale",
+    )

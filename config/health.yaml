@@ -1,0 +1,27 @@
+# Account health score weights (optional).
+#
+# Consumed by src/signals/health.py: each contributing signal's polarity
+# (positive/negative, per the built-in type mapping) is multiplied by the
+# weight below, summed, and normalized to a -1.0..1.0 float. The score gates
+# outbound plays in assign_plays (src/signals/plays.py): below the health
+# gate threshold, suppressed play families are skipped.
+#
+# If this file is missing or empty, built-in defaults apply (weight 1.0 per
+# positive signal, 1.5 for negative types — bad news weighs heavier).
+# Any type listed here overrides the default for that type only.
+
+weights:
+  # Negative signals (heavier by default)
+  layoff: 1.5
+  earnings_warning: 1.5
+  exec_departure: 1.5
+  competitor_outage: 1.5
+  # Positive signals (weight 1.0 by default)
+  funding_round: 1.0
+  exec_hire: 1.0
+  product_launch: 1.0
+  hiring_surge: 1.0
+  ma_acquirer: 1.0
+  award: 1.0
+  ipo_filing: 1.0
+  ipo_pricing: 1.0

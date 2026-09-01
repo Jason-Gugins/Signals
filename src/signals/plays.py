@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from src.core.config import Config
 from src.core.models import Account, Contact, Signal
 from src.signals.evidence import SafeDict
+from src.signals.health import health_score
 from src.signals.score import ScoreResult
 from src.signals.taxonomy import Taxonomy
 from src.signals.tier import TierResult
@@ -146,8 +147,23 @@ def assign_plays(
     chosen: list[PlayAssignment] = []
     seen: set[str] = set()
 
+    # Health gate: when the account's aggregate signal polarity (health score,
+    # -1.0..1.0 from src/signals/health.py) falls below the threshold, plays in
+    # the suppress list are skipped — e.g. don't pitch growth to a company that
+    # just announced layoffs. Threshold and suppressed families are
+    # config-overridable via plays_cfg["health_gate"]
+    # (config/plays.yaml health_gate: {threshold: <float>, suppress_plays:
+    # [<play_id>...]}). Defaults: threshold -0.5, suppress growth_pitch.
+    gate_cfg = plays_cfg.get("health_gate") or {}
+    threshold = float(gate_cfg.get("threshold", -0.5))
+    suppressed = set(gate_cfg.get("suppress_plays") or ["growth_pitch"])
+    health, _reasons = health_score(signals)
+    gated = health < threshold
+
     def add(play_id: str, signal: Signal | None, urgency: int) -> None:
         if play_id in seen or len(chosen) >= max_plays:
+            return
+        if gated and play_id in suppressed:
             return
         contact = contacts[0] if contacts else None
         variables = build_variables(account, signal, contact)

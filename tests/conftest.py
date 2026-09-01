@@ -22,6 +22,11 @@ def _escape(request) -> bool:
         return True
     if request.node.get_closest_marker("live_fetch"):
         return True
+    # rerank_live: opt-in ONNX reranker test — downloads the model from
+    # huggingface.co and runs a local inference; needs the network escape
+    # (skipped by default unless signals[rerank] is installed).
+    if request.node.get_closest_marker("rerank_live"):
+        return True
     # Dedicated escape for seam tests: the test exercises a network SEAM with
     # fake engines/stubs and contacts no real host.
     if request.node.get_closest_marker("fake_net_seam"):

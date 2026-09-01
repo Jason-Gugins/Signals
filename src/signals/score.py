@@ -110,7 +110,16 @@ def score_account(
         by_type.setdefault(sig.signal_type, []).append(sig)
     survivors: list[Signal] = []
     for typ, group in by_type.items():
-        group.sort(key=lambda s: s.observed_at, reverse=True)
+        # Rerank-aware cap ordering: ties on observed_at are broken by
+        # evidence_data["relevance"] (absent -> 0.0, so ordering is unchanged
+        # for pre-rerank signals). Descending + stable.
+        group.sort(
+            key=lambda s: (
+                s.observed_at,
+                float((s.evidence_data or {}).get("relevance") or 0.0),
+            ),
+            reverse=True,
+        )
         survivors.extend(group[:cap_n])
         for extra in group[cap_n:]:
             spec = taxonomy.get(extra.signal_type)

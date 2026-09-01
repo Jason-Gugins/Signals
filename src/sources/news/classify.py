@@ -41,7 +41,7 @@ NEWS_RULES: list[NewsRule] = [
     NewsRule("office_open", [r"\bopens? (?:a |its )?(?:new )?(?:office|hq|headquarters)\b", r"\bopening our .{0,20}office\b"], [], 0.7, {}),
     NewsRule("award", [r"\bnamed .{0,40}\b(best|winner|award)", r"\bwins?\b.{0,20}\baward\b"], [], 0.55, {}),
     NewsRule("certification", [r"\bsoc\s*2\b", r"\biso ?27001\b", r"\bcertified\b"], [], 0.6, {}),
-    NewsRule("exec_hire", [r"\bappoints?\b", r"\bhire[sd]\b.{0,20}\b(ceo|cto|cfo|cro|coo|cio)\b", r"\bnames?\b.{0,20}\bas (ceo|cto|cfo|cro)\b"], [], 0.7, {}),
+    NewsRule("exec_hire", [r"\bappoints?\b", r"\bhire[sd]\b.{0,20}\b(ceo|cto|cfo|cro|coo|cio)\b", r"\bnames?\b.{0,20}\bas (ceo|cto|cfo|cro)\b", r"\b(?:hires?|names?)\b.{0,40}\b(chief (?:revenue|product|technology) officer|vp (?:sales|product|engineering)|head of sales|c[tf]o|cro|cpo)\b"], [], 0.7, {}),
     NewsRule("exec_departure", [r"\bresigns?\b", r"\bsteps? down\b", r"\bdeparts?\b as\b"], [], 0.7, {}),
     NewsRule("market_consolidation", [r"\bconsolidat\w+\b", r"\bmerger of equals\b"], [], 0.5, {}),
     NewsRule("competitor_outage", [r"\boutage\b", r"\bdown for .{0,10}hours\b", r"\bservice disruption\b"], [], 0.6, {}),
@@ -50,6 +50,52 @@ NEWS_RULES: list[NewsRule] = [
 
 _ACQ = re.compile(r"(.+?)\s+(?:acquires?|to acquire|buys?)\s+(.+)", re.I)
 
+# Task 18: leadership role buckets — canonical title → bucket.
+_ROLE_BUCKETS: list[tuple[str, str, str]] = [
+    # (role display, regex fragment, bucket)
+    ("CRO", r"\bCRO\b", "revenue"),
+    ("Chief Revenue Officer", r"\bChief Revenue Officer\b", "revenue"),
+    ("VP Sales", r"\bVP Sales\b", "revenue"),
+    ("Head of Sales", r"\bHead of Sales\b", "revenue"),
+    ("CPO", r"\bCPO\b", "product"),
+    ("Chief Product Officer", r"\bChief Product Officer\b", "product"),
+    ("VP Product", r"\bVP Product\b", "product"),
+    ("CTO", r"\bCTO\b", "tech"),
+    ("CIO", r"\bCIO\b", "tech"),
+    ("Chief Technology Officer", r"\bChief Technology Officer\b", "tech"),
+    ("VP Engineering", r"\bVP Engineering\b", "tech"),
+    ("CEO", r"\bCEO\b", "exec"),
+    ("CFO", r"\bCFO\b", "exec"),
+    ("COO", r"\bCOO\b", "exec"),
+    ("President", r"\bPresident\b", "exec"),
+]
+_ROLE_RE = [re.compile(p, re.I) for _, p, _ in _ROLE_BUCKETS]
+
+# Task 18: funding amount parsing — "$12M", "$12 million", "$1.2B".
+_AMOUNT_RE = re.compile(r"\$\s?([\d,]+(?:\.\d+)?)\s?(million|billion|[mMbB])\b")
+# Task 18: funding stage — "Series A".."Series E", "seed", "angel".
+_STAGE_RE = re.compile(r"\b(Series [A-E]|seed|angel)\b", re.I)
+
+
+def parse_funding_amount(text: str) -> Optional[int]:
+    """Parse a funding amount like '$12M' / '$12 million' / '$1.2B' into USD int."""
+    m = _AMOUNT_RE.search(text or "")
+    if not m:
+        return None
+    num = float(m.group(1).replace(",", ""))
+    unit = m.group(2).lower()
+    mult = 1_000_000_000 if unit == "billion" or unit == "b" else 1_000_000
+    return int(round(num * mult))
+
+
+def extract_role_bucket(text: str) -> Optional[tuple[str, str]]:
+    """Return (role, bucket) for the first leadership title found, else None."""
+    t = text or ""
+    for (role, _pat, bucket), rx in zip(_ROLE_BUCKETS, _ROLE_RE):
+        if rx.search(t):
+            return (role, bucket)
+    return None
+
 
 def extract_vars(text: str, rule: NewsRule) -> dict:
     out = {}
@@ -57,6 +103,17 @@ def extract_vars(text: str, rule: NewsRule) -> dict:
         m = re.search(pat, text, re.I)
         if m:
             out[key] = m.group(1)
+    if rule.signal_type == "exec_hire":
+        rb = extract_role_bucket(text)
+        if rb:
+            out["role"], out["role_bucket"] = rb
+    elif rule.signal_type == "funding_round":
+        amt = parse_funding_amount(text)
+        if amt is not None:
+            out["amount_usd"] = amt
+        m = _STAGE_RE.search(text)
+        if m:
+            out["stage"] = m.group(1).lower().replace(" ", "_")
     return out
 
 
@@ -244,6 +301,14 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
     if in_summary and not in_title:
         conf = min(conf, 0.6)
     vars_ = extract_vars(text, rule)
+    if rule.signal_type in ("exec_hire", "funding_round"):
+        # Task 18: structured evidence (role bucket / amount / stage) is
+        # extracted from the attribution-stripped headline only, so a
+        # publisher byline can never contribute role or amount data.
+        hvars = extract_vars(headline, rule)
+        for k in ("role", "role_bucket", "amount_usd", "stage"):
+            if k in hvars:
+                vars_[k] = hvars[k]
     if published is None and item.published:
         # Date present but unparseable (garbage / impossible): keep the
         # candidate with the raw string — never fabricate a floor or

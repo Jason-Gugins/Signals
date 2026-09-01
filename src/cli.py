@@ -492,8 +492,15 @@ def watch(ctx, interval_minutes, once):
 @click.pass_context
 def status(ctx):
     from src.pipeline.health import render_status, status_report
+    from src.pipeline.health_report import source_health
 
-    click.echo(render_status(status_report(Database(ctx.obj["config"].storage.db_path), taxonomy=None)))
+    db = Database(ctx.obj["config"].storage.db_path)
+    click.echo(render_status(status_report(db, taxonomy=None)))
+    # Per-source health table (read-only, from fetch_log).
+    click.echo("source\tfetched\tfailed\trate\ttop_error_class")
+    for r in source_health(db):
+        top = max(r["error_class"].items(), key=lambda kv: kv[1])[0] if r["error_class"] else ""
+        click.echo(f"{r['source']}\t{r['fetched']}\t{r['failed']}\t{r['success_rate']:.2f}\t{top}")
 
 
 @main.command(name="plays")

@@ -6,6 +6,16 @@ The **index is what the wire shows**, not a global software catalog. Every disti
 
 Weekly collect fingerprints `GET https://{domain}/` HTML. When `browser.enabled` is true, a second task captures Playwright **network hosts** (HAR-lite: host + path, query stripped, no response bodies). HTML stays the default; the network task is skipped (not failed) if the browser is off.
 
+> Part of the [Signals](../../README.md) package — the root README covers clone/install (`pip install -e .`), `seed`, and the full CLI.
+
+## Verify / troubleshoot
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli selfcheck --source techstack --domain acme.com
+```
+
+Five states: `ok` / `drift` (homepage has vendor markup but 0 parsed — selectors stale) / `empty` / `challenge` / `error`. Challenge and empty exit 0; drift and error exit 1. Run it after fingerprint changes or if a collect records only `cloudflare`.
+
 ## Run
 
 Account must be seeded first.
@@ -66,12 +76,19 @@ When the HTTP fetch hits a Cloudflare challenge (403 or `challenges.cloudflare.c
 The runner stores 403 response bodies in a doc (http.py) so `classify_cloudflare_challenge` can inspect them. On a challenge, it invokes `CloudflareBypass.attempt()` and sets a `cloudflare_unsolved` meta flag. The collector gates stripping on this flag — if unsolved, only `cloudflare` is recorded (no techstack invented).
 
 1. **Cookie reuse** — a previously-solved full Cloudflare cookie set (`cf_clearance` + `__cf_bm`), bound to the User-Agent and egress IP, is replayed via httpx. Cheapest repeat path.
-2. **Browser solve** — `BrowserFetcher` creates a **fresh browser context** (no `storage_state`, so stale `session.json` cookies can't poison the solve) with the stealth init script, navigates to the URL, and polls for the page title to change from the challenge title to real content. When the title clears, it captures the full cookie jar and the real HTML.
-3. **External solver** — for managed/Turnstile challenges, an optional 2Captcha/anti-captcha adapter returns a Turnstile token. `inject_turnstile_token` (`src/core/browser.py`) then navigates the existing browser context to the target URL, sets the `cf_clearance` cookie (domain derived from the URL host, path `/`), reloads, and polls `_challenge_cleared`-style up to `timeout_ms` — returning `True` only when the challenge actually clears. On success tier 3 extracts the full first-party cookie jar and builds the result; on failure it returns `None` and the waterfall falls through to tier 4 exactly as before. (Mock-tested end-to-end; live validation with a real 2Captcha key is a manual step.)
-4. **Headed fallback** — if `cloudflare.headed_fallback` is true, a visible browser launches and runs the same auto-solve path (no manual interaction required). Note: the `headed_solve_timeout_ms` config field exists but is not yet consumed — the effective bound is `solve_timeout_ms`.
-5. **Hard stop** — if all tiers fail, `cloudflare` is recorded as a named observation and a `cloudflare_block_unsolved` note is logged. No techstack is invented.
+2. **SignalsShadow tier** (optional, antibot module) — when `antibot.enabled` and the native engine is built, a real-Chrome-TLS request (byte-exact h2, not an impersonation library) runs between cookie reuse and the browser solve. Degrades silently when the engine isn't built.
+3. **Browser solve** — `BrowserFetcher` creates a **fresh browser context** (no `storage_state`, so stale `session.json` cookies can't poison the solve) with the stealth init script, navigates to the URL, and polls for the page title to change from the challenge title to real content. When the title clears, it captures the full cookie jar and the real HTML.
+4. **External solver** — for managed/Turnstile challenges, an optional 2Captcha/anti-captcha adapter returns a Turnstile token. `inject_turnstile_token` (`src/core/browser.py`) then navigates the existing browser context to the target URL, sets the `cf_clearance` cookie (domain derived from the URL host, path `/`), reloads, and polls `_challenge_cleared`-style up to `timeout_ms` — returning `True` only when the challenge actually clears. On success tier 3 extracts the full first-party cookie jar and builds the result; on failure it returns `None` and the waterfall falls through to tier 4 exactly as before. (Mock-tested end-to-end; live validation with a real 2Captcha key is a manual step.)
+5. **Headed fallback** — if `cloudflare.headed_fallback` is true, a visible browser launches and runs the same auto-solve path (no manual interaction required), bounded by `headed_solve_timeout_ms`.
+6. **Hard stop** — if all tiers fail, `cloudflare` is recorded as a named observation and a `cloudflare_block_unsolved` note is logged. No techstack is invented.
 
 On a successful solve, the **full** `promote_or_observe` pipeline runs — all named + observed vendors are recorded, not just Cloudflare. Cookies persist in the `cloudflare_cookies` SQLite table (UA + proxy bound, real expiry from Playwright cookie `expires`), reused on the next weekly collect.
+
+> **Scope note:** Cloudflare/Turnstile bypass is scoped to `techstack` + the three
+> marketplace adapters (`_CF_BYPASS_SOURCES` in `src/pipeline/runner.py`) and
+> solves challenges only to read public pages — no auth/paywall/login bypass.
+> **DataDome** (G2's interstitial) is marketplace-scoped and does not apply to
+> techstack runs — see the marketplace README.
 
 Enable the solver in `.env`:
 ```
@@ -82,7 +99,10 @@ CLOUDFLARE_BYPASS_STRATEGY=browser_first
 
 ### CloudflareConfig reference
 
-All fields live in `config/default.yaml` under `cloudflare:`. Env overrides: `CLOUDFLARE_SOLVER_API_KEY`, `CLOUDFLARE_SOLVER_PROVIDER`, `CLOUDFLARE_BYPASS_STRATEGY`, `CLOUDFLARE_HEADED_FALLBACK`.
+All fields live in `config/default.yaml` under `cloudflare:` (except
+`min_retry_delay_s` / `max_retry_delay_s`, which are code defaults in
+`src/core/config.py` — add the keys to default.yaml only if you need
+non-default backoff). Env overrides: `CLOUDFLARE_SOLVER_API_KEY`, `CLOUDFLARE_SOLVER_PROVIDER`, `CLOUDFLARE_BYPASS_STRATEGY`, `CLOUDFLARE_HEADED_FALLBACK`.
 
 | Field | Default | Description |
 |---|---|---|
@@ -91,7 +111,7 @@ All fields live in `config/default.yaml` under `cloudflare:`. Env overrides: `CL
 | `solve_timeout_ms` | `20000` | Max wait for a JS challenge to auto-solve |
 | `cookie_ttl_hours` | `24` | Ceiling for stored cookie expiry (real `expires` is authoritative) |
 | `headed_fallback` | `false` | Launch a visible browser if headless solve fails |
-| `headed_solve_timeout_ms` | `120000` | Declared cap for headed fallback (not yet consumed — effective bound is `solve_timeout_ms`) |
+| `headed_solve_timeout_ms` | `120000` | Cap for the headed fallback solve (consumed by `_headed_solve` in `cf_bypass.py`) |
 | `solver_provider` | `null` | `2captcha` \| `anticaptcha` \| `null` |
 | `solver_api_key` | `null` | API key for the solver provider |
 | `min_retry_delay_s` | `2.0` | Min backoff between bypass retries |
@@ -139,6 +159,7 @@ Unknown hosts persist via `harvest_tech` → `technologies` as `host:…`.
 | `fingerprint.py` | evidence, `observed_hosts`, `dynamic_matches`, `promote_or_observe`, `classify_cloudflare_challenge` |
 | `cf_bypass.py` | `CloudflareBypass` — 5-tier bypass waterfall (`attempt()`) |
 | `cf_solver.py` | 2Captcha/anti-captcha adapter — returns Turnstile token (not a cookie) |
+| `datadome.py` / `datadome_bypass.py` / `datadome_solver.py` | DataDome challenge detection, bypass waterfall, and 2Captcha solver (marketplace_g2-scoped — see the marketplace README) |
 | `dns_probe.py` | MX / SPF / CNAME |
 | `http_probe.py` | re-export of HTTP extract |
 | `../../../src/core/browser.py` | `fetch(..., capture_network=True)` HAR-lite; `fetch(..., capture_html=True)` challenge-aware solve with fresh context |

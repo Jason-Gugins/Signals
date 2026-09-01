@@ -4,6 +4,8 @@ Company-news signal engine. One Signals package (`src/sources/news`) behind thre
 
 The signal layer is a **rule-based classifier** (`classify.py`) with **attribution guards** that reject false positives where a company name appears as the publisher/author rather than the subject.
 
+> Part of the [Signals](../../README.md) package — see the root README for install, seed, and the full CLI.
+
 ## Quickstart
 
 Prereqs: Python 3.11+, a `Signals` checkout with `.venv` created (`python -m venv .venv` + `pip install -r requirements.txt`), and an account seeded (`python -m src.cli seed ...`). Run from the repo root. **Enable the sources + set `blog_feed_url` for `company_feed` in `config/sources.yaml`**, then:
@@ -71,6 +73,21 @@ Beyond the plain `"CompanyName"` query, `google_news` runs one **keyword-augment
    - **Self-published research guard** — when the RSS `<source>` (publisher) equals the account, drops research/commentary headlines (predicts/forecasts/reports) that aren't events *happening to* the company.
 2. **Rule matching** against `NEWS_RULES` pattern sets.
 3. Emits a `SignalCandidate` with a confidence, amount/round-stage extraction where relevant, and a `natural_key`.
+4. **Summary-only confidence floor** — a candidate that matched only in the summary (not the title) is capped at confidence 0.6.
+
+### Structured evidence_data (Task 18)
+
+Beyond the regex `extract` vars (`amount`, `round_stage`), `classify.py` adds
+**structured** fields, sourced from the **attribution-stripped headline only**
+so a publisher byline can never contribute them:
+
+- `exec_hire` → `role` (matched title, e.g. `CRO`) + `role_bucket`
+  (`revenue` / `product` / `tech` / `exec`) via `extract_role_bucket()`
+- `funding_round` → `amount_usd` (int, `$12M` → `12000000`) via
+  `parse_funding_amount()` + `stage` (`series_b`, `seed`, `angel`)
+
+Downstream, `src/export/digest.py` renders these in digest why-now lines
+("raised $40M at series_b", "hiring for revenue roles").
 
 ### Signal types emitted
 

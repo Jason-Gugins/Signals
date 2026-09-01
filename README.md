@@ -190,6 +190,28 @@ fire). Entity resolution (`normalize_entity` + fuzzy match, `config`
 and `config/icp.yaml` scores accounts at seed time so tiering is real from
 day one.
 
+### Relevance reranking (optional)
+
+Google News matches on company name are surface-level: an `"Acme" CEO` SERP
+query returns tangential coverage that keyword guards can't fully judge. The
+optional cross-encoder reranker scores every SERP candidate for true semantic
+relevance, drops below-floor matches before classification, and stamps
+survivors with `evidence_data["relevance"]` (which then decides which same-day
+candidates survive the per-type cap). It's **off by default** and fully
+optional — the whole pipeline runs unchanged without it:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[rerank]"
+# then in config/default.yaml:  rerank: { enabled: true, floor: 0.35 }
+```
+
+Implementation: `ms-marco-MiniLM-L-6-v2` cross-encoder (22M params, Apache-2.0)
+via ONNX Runtime on CPU (~1-4ms/pair; a full SERP pool costs ~0.1-0.3s per
+account), model revision pinned in `src/signals/rerank.py`, session memoized
+per process. If the model can't download or inference fails, that feed falls
+back to unranked with a logged warning — reranking is an enhancement, never a
+dependency.
+
 The play-outcome loop closes the calibration circuit:
 
 ```powershell

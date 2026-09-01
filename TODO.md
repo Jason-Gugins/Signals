@@ -81,6 +81,17 @@ conference speaker/sponsor lists, CRM write-back.
 ### P2 review-fix ledger
 `4b3c707` (guard regression), `c1feff7` (B1: tier window-neutrality + backoff cap + stub completeness), `410b2f2` (B3: hiring-trend full-page stats, ATS vendor gate, seed ICP preservation), `a7057db` (B4: pricing prev-snapshot injection, sign-what-you-send HMAC, hit-rate dedupe, health.yaml wiring, plays-calibrate), `ee88519` (B5: cookie-jar persistence, digest period windows), `3de6356` (v6 test reconciliation).
 
+### Post-P2 addition: news relevance reranking (2026-09-01)
+
+Inspired by donsetch's cross-encoder reranker (`ms-marco-MiniLM-L-6-v2` via
+ONNX), adapted to Signals' single-SERP-query-per-account reality. Commits:
+`ae38bd2` (signals[rerank] optional extra), `dd86f16` (rerank module —
+NullScorer fallback, lazy OnnxScorer, pinned model revision), `22ddf82`
+(rerank-aware candidate cap), `aa9a5b2` (news collector relevance floor +
+evidence), `ad9573b`-series (review fixes: memoized scorer singleton, stable
+sigmoid, loud degradation, rerank_live network-guard escape). Off by default;
+enable via `signals[rerank]` extra + `rerank.enabled: true`.
+
 ---
 
 ## P3 — Polish

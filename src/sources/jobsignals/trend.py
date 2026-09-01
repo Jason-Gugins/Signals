@@ -25,6 +25,7 @@ from src.sources.base import SignalCandidate
 
 DEFAULT_STATS_PATH = "data/jobsignals/stats.json"
 DEFAULT_MIN_DELTA_PCT = 25.0
+DEFAULT_MIN_COUNT = 5.0
 
 
 def stats_key(domain: str) -> str:
@@ -70,14 +71,16 @@ def hiring_trend_signal(
     *,
     today: date | str,
     min_delta_pct: float = DEFAULT_MIN_DELTA_PCT,
+    min_count: float = DEFAULT_MIN_COUNT,
 ) -> SignalCandidate | None:
     """Emit a ``hiring_surge`` candidate when open roles grow past threshold.
 
     ``prev``/``curr`` are ``{"count": int}`` stat dicts (``prev`` is ``None``
     on the first observed cycle -> no signal — a baseline must exist before
     a velocity delta is meaningful). Emits only on *increases*:
-    ``delta_pct >= min_delta_pct`` where ``delta_pct`` is the cycle-over-cycle
-    percentage growth in open roles. Otherwise ``None``.
+    ``delta_pct >= min_delta_pct`` AND ``count_delta >= min_count`` — the
+    absolute floor stops tiny boards (3 -> 4 = +33%) from firing on noise.
+    Otherwise ``None``.
     """
     if not prev:
         return None
@@ -90,6 +93,8 @@ def hiring_trend_signal(
     delta_pct = (count_delta / prev_count) * 100.0
     if delta_pct < min_delta_pct:
         return None
+    if count_delta < min_count:
+        return None  # below the absolute-count floor — not meaningful volume
     return SignalCandidate(
         signal_type="hiring_surge",
         observed_at=today_str,
@@ -106,6 +111,6 @@ def hiring_trend_signal(
             "current": dict(curr),
             "count_delta": count_delta,
             "delta_pct": round(delta_pct, 2),
-            "thresholds": {"min_delta_pct": min_delta_pct},
+            "thresholds": {"min_delta_pct": min_delta_pct, "min_count": min_count},
         },
     )

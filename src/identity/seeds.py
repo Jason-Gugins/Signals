@@ -70,21 +70,26 @@ def _record(
         merged = dict(existing.extra_data)
         merged.update(account.extra_data or {})
         account.extra_data = merged
-    registry.upsert(account, source=source)
-    # Seed-time ICP scoring: apply config/icp.yaml rules once at insert so
-    # tier ordering is real from day one. icp_rules is passed in by the
-    # orchestrator ({} when config/icp.yaml is missing) — this module stays
-    # I/O-clean. A failure (e.g. unknown predicate) leaves the 1.0 default.
     if icp_rules:
+        # Evaluate BEFORE the single upsert: icp_fit etc. land with the
+        # first write — no double-write, no window where defaults clobber.
         try:
             result = evaluate_icp(account, icp_rules)
             account.icp_fit = result.multiplier
             account.icp_reasons = result.reasons
             account.disqualified = result.disqualified
             account.disqualify_reason = result.disqualify_reason
-            registry.upsert(account, source=source)
         except Exception as exc:
             logger.warning("seed icp evaluation failed for %s: %s", account.domain, exc)
+    elif existing is not None:
+        # Re-seed without rules: Account defaults would write icp_fit=1.0
+        # (NOT NULL, so COALESCE cannot save it) and silently reset any
+        # previously computed fit. Carry the stored values forward.
+        account.icp_fit = existing.icp_fit
+        account.icp_reasons = existing.icp_reasons
+        account.disqualified = existing.disqualified
+        account.disqualify_reason = existing.disqualify_reason
+    registry.upsert(account, source=source)
     if existing:
         stats.updated += 1
     else:

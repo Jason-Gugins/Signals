@@ -189,3 +189,71 @@ def test_careers_source_plan_prefers_careers_url():
     assert src.plan(fallback_acct, None)[0].url == "https://acme.com/careers"
     assert src.key == "ats_careers_page"
     assert src.requires == ()  # fires for accounts without ats_token (gate at vendor check)
+
+
+# ── vendor gate: the four new adapters must be reachable ─────────────────
+
+def _gate_keys(account):
+    """Which of the four new adapters + careers fallback pass the gate."""
+    from src.pipeline.runner import _requires_met
+    from src.sources.ats.careers_page import CareersPageSource
+
+    candidates = [RipplingSource(), JobviteSource(), BreezySource(),
+                  TeamtailorSource(), CareersPageSource()]
+    return {a.key for a in candidates if _requires_met(a, account)}
+
+
+def test_gate_rippling_account_fires_rippling_only():
+    """MAJOR regression: ats_vendor=rippling was rejected — rippling was not
+    in COLLECTED_VENDORS, making the adapter unreachable end-to-end."""
+    acct = Account(domain="acme.com", ats_vendor="rippling", ats_token="tok")
+    assert _gate_keys(acct) == {"ats_rippling"}
+
+
+def test_gate_jobvite_breezy_teamtailor_reachable():
+    for vendor in ("jobvite", "breezy", "teamtailor"):
+        acct = Account(domain="acme.com", ats_vendor=vendor, ats_token="tok")
+        assert _gate_keys(acct) == {f"ats_{vendor}"}, vendor
+
+
+def test_gate_no_ats_fires_careers_fallback():
+    """MAJOR regression: an account with no ATS (vendor='' token='') never
+    fired ats_careers_page because '' was not in COLLECTED_VENDORS."""
+    acct = Account(domain="acme.com", careers_url="https://acme.com/careers")
+    assert _gate_keys(acct) == {"ats_careers_page"}
+
+
+def test_gate_token_without_vendor_no_careers_fallback():
+    """An account with an ats_token but unknown vendor gets neither a vendor
+    board nor the careers fallback (token implies a real ATS exists)."""
+    acct = Account(domain="acme.com", ats_token="tok")
+    assert _gate_keys(acct) == set()
+
+
+def test_gate_careers_fallback_mutually_exclusive_with_real_ats():
+    """The careers fallback must never double-fire alongside a vendor board —
+    avoids duplicate job rows for the same open roles."""
+    from src.pipeline.runner import _requires_met
+    from src.sources.ats.careers_page import CareersPageSource
+
+    acct = Account(domain="acme.com", ats_vendor="greenhouse", ats_token="tok")
+    assert _requires_met(CareersPageSource(), acct) is False
+    # and sources_for_account (registry mirror) agrees:
+    from src.sources.ats.collector import GreenhouseSource
+    from src.sources.registry import sources_for_account
+
+    ready = sources_for_account(acct, [GreenhouseSource(), CareersPageSource()])
+    assert [a.key for a in ready] == ["ats_greenhouse"]
+
+
+def test_parse_careers_page_drops_self_referential_nav():
+    html = (
+        '<a href="/careers/">Careers home</a> '
+        '<a href="/careers">Careers index</a> '
+        '<a href="/careers/senior-account-executive">Senior Account Executive</a>'
+    )
+    jobs = parse_careers_page(html, "https://acme.com/careers")
+    slugs = {j.external_id for j in jobs}
+    # nav links back to the index itself must not become open roles
+    assert "careers" not in slugs
+    assert slugs == {"senior-account-executive"}

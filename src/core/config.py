@@ -97,6 +97,7 @@ class StorageConfig:
     export_dir: str = "data/exports"
     briefs_dir: str = "data/briefs"
     alerts_dir: str = "data/alerts"
+    digests_dir: str = "data/digests"
     recon_dir: str = "data/recon"
     keep_raw_days: int = 400
 

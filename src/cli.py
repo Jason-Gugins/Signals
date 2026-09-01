@@ -206,6 +206,51 @@ def score(ctx, domains):
     click.echo(f"scored={out.get('scored', 0)}")
 
 
+def write_digest(path: str, text: str) -> str:
+    """Write a digest doc, creating the parent directory if needed."""
+    from pathlib import Path as _Path
+
+    p = _Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding="utf-8")
+    return str(p)
+
+
+@main.command()
+@click.option("--period", type=click.Choice(["daily", "weekly"]), default="daily")
+@click.option("--domain", "domains", multiple=True)
+@click.pass_context
+def digest(ctx, period, domains):
+    """Per-account alert digest (markdown) written to data/digests/."""
+    from src.export.digest import build_digest
+    from src.pipeline.orchestrator import _today
+    from src.signals.calibration import load_stats
+    from src.signals.combos import evaluate_combos
+    from src.signals.plays import assign_plays
+    from src.signals.score import score_account
+    from src.signals.tier import assign_tier
+
+    orch = ctx.obj["get_orch"]()
+    cfg = ctx.obj["config"]
+    scoring = cfg.load_yaml("scoring")
+    plays_cfg = cfg.load_yaml("plays")
+    calibration_stats = load_stats(orch.db)
+    today = _today()
+    digests_dir = getattr(cfg.storage, "digests_dir", "data/digests")
+    paths = []
+    for acct in orch._accounts(domains=list(domains) or None, cohort=ctx.obj["cohort"]):
+        signals = orch.signal_store.for_account(acct.domain)
+        combos = evaluate_combos(signals, scoring.get("combos") or [], today=today)
+        result = score_account(acct, signals, taxonomy=orch.taxonomy, cfg=scoring, today=today, combos=combos, calibration_stats=calibration_stats)
+        tier = assign_tier(signals, result, taxonomy=orch.taxonomy, cfg=scoring, today=today)
+        contacts = orch._contacts(acct.domain)
+        plays = assign_plays(acct, signals, result, tier, taxonomy=orch.taxonomy, plays_cfg=plays_cfg, contacts=contacts)
+        text = build_digest(acct.domain, signals, plays, period=period, taxonomy=orch.taxonomy)
+        paths.append(write_digest(str(Path(digests_dir) / f"{acct.domain}.md"), text))
+    for p in paths:
+        click.echo(p)
+
+
 @main.command()
 @click.option("--domain", "domains", multiple=True)
 @click.option("--tier-max", type=int, default=2)

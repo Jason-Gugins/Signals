@@ -54,6 +54,7 @@ storage:
   export_dir: "data/exports"
   briefs_dir: "data/briefs"
   alerts_dir: "data/alerts"
+  digests_dir: "data/digests"
   recon_dir: "data/recon"
   keep_raw_days: 400
 

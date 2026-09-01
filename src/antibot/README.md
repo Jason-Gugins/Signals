@@ -34,7 +34,7 @@ ALPS `application_settings` codepoint 17513 → 17613, auto-applied by
 | **Happy Eyeballs** | IPv6/IPv4 address-family split with a 250ms staggered dial race (`eyeballs.rs`; `split_families` / `connect_eyeballs_timing` PyO3 exports) | Slow or broken IPv6 paths never stall the fetch — real browsers race families, most clients don't |
 | **Solve-and-bounce** | A **headed** browser (Patchright) only solves JS challenges and harvests clearance cookies; the TLS tier then fetches the content. Forced headed — DataDome flags headless Chromium (`ghost.py` overrides the config) | Browser minutes are expensive and slow; the fast tier does the bulk fetching |
 | **Self-improving routing** | Per-domain state machine `Warm / Cold / SkipToSolve / RecheckCold`; learns each domain's clearance-cookie lifetime and skips re-solving while cookies live | Fewer solves over time; state persists in `data/antibot/routing.json` |
-| **Persistent cookie jar** | `PersistentCookieJar` accumulates `Set-Cookie` state across fetches (caller-wins merge), persisted to `data/antibot/cookies.json` | Browsers keep cookies across requests; per-fetch cookie dropping is another tell |
+| **Persistent cookie jar** | `PersistentCookieJar` accumulates `Set-Cookie` state across fetches (caller-wins merge), persisted to `data/antibot/cookies.json`. **Core reuse (P2):** `src/core/cookiejar.py` subclasses this jar per-transport (`data/cookies/<scope>.json`), gated by `cookies.enabled` in config (default off) — see the root README | Browsers keep cookies across requests; per-fetch cookie dropping is another tell |
 
 ## Layout
 
@@ -54,6 +54,7 @@ src/antibot/
     ├── routing.py           # RouteState: Warm/Cold/SkipToSolve/RecheckCold + lifetime learning
     ├── temporal.py          # RevalidationCache (validators, 304 serving)
     ├── cookies.py           # PersistentCookieJar — persists to data/antibot/cookies.json
+                             # (P2: src/core/cookiejar.py subclasses this per-transport → data/cookies/<scope>.json)
     └── fingerprints.py      # Chrome data table — config-of-record
 ```
 

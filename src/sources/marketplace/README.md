@@ -142,6 +142,12 @@ src/sources/marketplace/
                        parse_g2_reviews (legacy itemprop fallback), g2_reviews_url /
                        g2_reviews_fragment_url URL builders
     collector.py       MarketplaceG2Source adapter: plan/parse/harvest_reviews + upsert_g2_reviews
+    capterra.py        Capterra parser (server-rendered cards; g2_reviews rows with source='capterra')
+    trustradius.py     TrustRadius parser (0-10 → 0-5 rating normalization; source='trustradius')
+    trend.py           marketplace_review_trend — review count/rating deltas vs prior cycle
+    empty_log.py       EmptyLog — per-slug consecutive-empty-cycle bookkeeping (drives backoff)
+    selfcheck.py       Thin per-vendor wrappers over the shared five-state runner
+                       (src/core/selfcheck.py owns run_source_selfcheck since the T25 extraction)
     __init__.py         Exports MarketplaceG2Source
     README.md           This file
 
@@ -585,7 +591,9 @@ sites:
     sign_in_required: false    # full review text requires G2 sign-in (manual cookie)
     max_review_pages: 5        # cap pagination via follow_tasks
     review_lookback_days: 90   # drop reviews older than this (config-driven)
-    session_cookie_file: null  # path to a JSON cookie file for G2 sign-in (no automated login); may hold a real path
+    session_cookie_file: null  # path to a JSON cookie file for G2 sign-in (no automated login)
+                               # NOTE: the committed config/marketplace.yaml ships `session_cookie_file: data/g2_cookies.json`
+                               # for the g2 site — the shipped file may hold a real path; annotate, don't paste yours here
 ```
 
 ### Environment variables
@@ -817,6 +825,8 @@ curl_cffi chrome-impersonation request to
   item); the fetcher needs a small shim — copy the `_CurlShim` adapter from
   the `capterra-selfcheck` command in `src/cli.py` and pass
   `run_selfcheck(shim, slug="slack", source="trustradius", config=cfg)`.
+  (The underlying five-state runner is the shared `src/core/selfcheck.py`
+  implementation since the T25 extraction.)
 - **Pacing:** keep ≥4s between requests to trustradius.com; the self-check
   makes a single request.
 - **Legal & ethics:** same posture as G2/Capterra — ToS restrict automated
@@ -841,6 +851,14 @@ curl_cffi chrome-impersonation request to
 ```
 
 ### Self-check (`g2-selfcheck`)
+
+> **Post-P2 note:** the five-state runner now lives in
+> `src/core/selfcheck.py` (`run_source_selfcheck`) and is shared across
+> sources; `marketplace/selfcheck.py` keeps thin per-vendor wrappers, so the
+> states/URLs/extractors below are unchanged. A generic CLI
+> (`selfcheck --source techstack|news_rss|ats_greenhouse`) covers
+> *non-marketplace* sources only — marketplace keeps its dedicated
+> `g2-selfcheck` / `capterra-selfcheck` commands (browser tier + DataDome).
 
 A live selector-drift alarm for the `elv-*` parser. The command fetches one
 known-good product's reviews_and_filters fragment through the stealth browser
@@ -987,9 +1005,10 @@ roadmap item; see the commit references in the project history.
   and nested structure.
 
 - **2Captcha solver wiring** — the Cloudflare bypass waterfall's tier 3 (`_solver_via_browser`)
-  calls the 2Captcha/anti-captcha Turnstile API and attempts to inject the token via
-  `inject_turnstile_token`. The API call is wired; the token-to-cookie browser injection path
-  remains a stub (see Cloudflare Bypass / Limitations).
+  calls the 2Captcha/anti-captcha Turnstile API and injects the token via
+  `inject_turnstile_token` (browser navigation → `add_cookies` → reload →
+  challenge-cleared poll). Both the API call and the token-to-cookie browser
+  injection are wired (see Cloudflare Bypass / Limitations).
 
 - **Auto-resolve g2_slug** — `python -m src.cli resolve --g2` resolves a product slug from the
   company name via G2 search (`src/identity/g2_resolve.py`) and writes it back to the account,
@@ -1065,7 +1084,9 @@ roadmap item; see the commit references in the project history.
 - ~~**Selector-drift self-check**~~ — **Done.** `g2-selfcheck --slug <slug>` fetches one known-good
   product headed and asserts ≥1 review parses; exits 1 with `state=drift` when live markup
   diverges from what the parser selects (see Testing → Self-check).
-- **Wire the 2Captcha token-to-cookie browser injection** so the solver tier can produce a real
-  `cf_clearance` cookie end-to-end (currently the API call succeeds but the injection is stubbed).
-- **"Empty since" bookkeeping** — persist empty-slug checks so cadence can back off products
-  that have had zero reviews across multiple cycles (currently INFO-logged only).
+- ~~**Wire the 2Captcha token-to-cookie browser injection**~~ — **Done.** Tier 3 now injects the
+  token as a `cf_clearance` cookie via the browser (`inject_turnstile_token`: navigate →
+  add_cookies → reload → challenge-cleared poll) and polls for clearance (see Limitations).
+- ~~**"Empty since" bookkeeping**~~ — **Done.** `EmptyLog` (`src/sources/marketplace/empty_log.py`)
+  persists empty-slug checks; the runner backs off products with 3+ consecutive empty cycles
+  and records empties per cycle (see runner.py record_empty).

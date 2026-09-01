@@ -10,11 +10,8 @@ No paid APIs. No ZoomInfo, Apollo, Exa, BuiltWith, or Bombora.
 
 Public, business-relevant data only. Polite HTTP (`robots.txt` honored by
 default). A real contact address in the User-Agent. Rate limits are floors.
-Marketplace scraping is opt-in: the adapter's `enabled` flag in
-`config/sources.yaml` is the enforced gate (all `marketplace_*` adapters ship
-disabled). The `sites.*` blocks in `config/marketplace.yaml` hold per-site
-options (cookie file, page limits) — setting a site's `enabled` there is
-documentation of intent, not an additional code-enforced gate.
+Marketplace scraping is opt-in — see the *Sources* section below for the full
+gate and per-site options.
 
 ## Pipeline
 
@@ -134,6 +131,12 @@ Enabled adapters live in `config/sources.yaml`:
 - SEC: `sec_edgar`, `sec_formd`
 - ATS: `ats_greenhouse`, `ats_lever`, `ats_ashby`, `ats_smartrecruiters`, `ats_workable`, `ats_recruitee`, `ats_workday`
 - ATS (P2): `ats_rippling`, `ats_jobvite`, `ats_breezy`, `ats_teamtailor` (same `ats_vendor`+`ats_token` contract), plus `ats_careers_page` — a conservative `/careers` HTML fallback that fires ONLY for accounts with no ATS vendor/token
+
+**Making an ATS source fire:** set the account's `ats_vendor` and `ats_token`
+(Feed Me CSV columns at seed time, or `deepen` for per-account updates);
+`ats_careers_page` then stays quiet for that account (no duplicate job rows)
+and covers accounts with neither field set.
+
 - News / regulators: `news_rss`, `google_news`, `company_feed`, `federal_register`, `warn_notices`
 
 `google_news` fetches keyword search RSS (per-account name) plus named section feeds (TECHNOLOGY, BUSINESS). Same `classify_news` pipeline — funding, exec hires, M&A, product launches. Configurable topics in `config/sources.yaml`. SERP manipulation: the account query is also run augmented with signal keywords (fundraising, new leadership, new GTM product, acquisition) for higher recall — see `serp_keywords` in `config/sources.yaml`.
@@ -141,7 +144,8 @@ Enabled adapters live in `config/sources.yaml`:
 - Footprint: `techstack`, `wayback`, `crtsh`, `jobsignals`
 - Community: `community_hn`, `community_github`
 - App stores / registry: `appstore_reviews` (live iTunes RSS reviews; set the
-  account's `app_store_id`), `bbb_profile` (live BBB business profiles; seed
+  account's `app_store_id` — a seed CSV column or `deepen` update),
+  `bbb_profile` (live BBB business profiles; seed
   `extra_data.bbb_url` per account — URLs are not derivable from name+domain)
 - Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db`, `content_itunes`
 
@@ -152,7 +156,9 @@ upgrade), `content_producthunt` (Cloudflare-blocked). Marketplace collection
 (`marketplace_g2`, `marketplace_capterra`, `marketplace_trustradius`) is
 opt-in — the adapter's `enabled` flag in `config/sources.yaml` is the enforced
 gate and all three ship `false`. The `sites.*` blocks in
-`config/marketplace.yaml` hold per-site options (cookie file, page limits).
+`config/marketplace.yaml` hold per-site options (cookie file, page limits) —
+setting a site's `enabled` there is documentation of intent, not an additional
+code-enforced gate.
 G2 is a browser-tier DataDome target (live runs need
 `DATADOME_SOLVER_PROVIDER` / `DATADOME_SOLVER_API_KEY` /
 `DATADOME_RESIDENTIAL_PROXY` — see `.env.example`); Capterra and TrustRadius
@@ -210,7 +216,8 @@ code defaults: threshold −0.5, suppressed family `growth_pitch`).
 fingerprint is emergent from Chrome's own engine — "Chrome TLS, not
 Chrome-like" — plus an in-house HTTP/2 stack (Akamai h2 byte-exact), temporal
 stealth (session resumption, pooling, 304 revalidation), and solve-and-bounce
-ghost orchestration with self-improving per-domain routing. Falls back to
+ghost orchestration with per-domain routing that learns clearance-cookie
+lifetimes (RouteState, `data/antibot/routing.json`). Falls back to
 `curl_cffi` when the engine isn't built. No CAPTCHA solving, no login
 bypass — honest limits are documented. Full notes: [`src/antibot/README.md`](src/antibot/README.md).
 

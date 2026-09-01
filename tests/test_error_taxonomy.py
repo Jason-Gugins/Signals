@@ -91,11 +91,13 @@ def test_migration_v3_fetch_log_error_class_column(tmp_path):
     from core import db as db_mod
     from core.db import Database
 
-    assert max(v for v, _, _ in db_mod.MIGRATIONS) == 3
+    # v3 is the error-class migration; LATEST may exceed it (v4 added later)
+    assert max(v for v, _, _ in db_mod.MIGRATIONS) >= 3
+    assert any(v == 3 for v, _, _ in db_mod.MIGRATIONS)
     db = Database(tmp_path / "v3.db")
     try:
         assert "error_class" in db.table_columns("fetch_log")
-        assert db.one("PRAGMA user_version")["user_version"] == 3
+        assert db.one("PRAGMA user_version")["user_version"] >= 3
     finally:
         db.close()
 
@@ -138,7 +140,7 @@ def test_migration_v3_upgrades_old_v2_db(tmp_path):
     db2 = Database(path)
     try:
         assert "error_class" in db2.table_columns("fetch_log")
-        assert db2.one("PRAGMA user_version")["user_version"] == 3
+        assert db2.one("PRAGMA user_version")["user_version"] >= 3
     finally:
         db2.close()
 

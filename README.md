@@ -42,8 +42,8 @@ copy .env.example .env
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-`pip install -e .` also installs a `signals` console script — `signals doctor`
-is shorthand for `python -m src.cli doctor` everywhere below.
+`pip install -e .` also installs a `signals` console script — a shorthand for
+the `python -m src.cli` invocations shown throughout this README.
 
 CI runs the same suite on every push/PR (Ubuntu + Windows matrix, offline
 lane) plus a nightly live-parity lane — see

@@ -425,9 +425,10 @@ def _add_maintenance_indexes(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_fetchlog_source_at ON fetch_log(source, at)"
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_playassignments_domain ON play_assignments(domain)"
-    )
+    # NOTE: no index on play_assignments(domain) — its PK (domain, play_id,
+    # signal_id) already has a covering autoindex for domain-prefix lookups
+    # (EXPLAIN QUERY PLAN confirms "SEARCH ... USING PRIMARY KEY"); a named
+    # index would be pure dead weight.
 
 
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
@@ -715,7 +716,16 @@ def prune_all(db: Database, *, keep_days: int, raw_store=None) -> dict:
 
     Timestamp columns per table (see SCHEMA_SQL):
       fetch_log.at, documents.fetched_at, runs.started_at.
-    Returns {"fetch_log": n, "documents": n, "runs": n, "raw_files": n}.
+    Returns {"fetch_log": n, "documents": n, "runs": n, "raw_files": n,
+    "cookies": n}.
+
+    Format note: fetch_log.at / runs.started_at use SQLite's space-separated
+    UTC (``datetime('now')`` default), while the cutoff is isoformat — the
+    two differ in the 'T'/space separator but compare correctly for
+    keep_days >> 1 day granularity (same-day rows may prune a few hours
+    early; accepted for a retention job). Cookie expires_at columns ARE
+    isoformat-written (datetime.now(timezone.utc).isoformat(), see
+    CfCookieStore/DataDomeCookieStore), so their comparison is exact.
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat()
     counts: dict = {"raw_files": 0}

@@ -162,7 +162,14 @@ class Orchestrator:
         with RunContext(self.db, "collect") as ctx:
             accounts = self._accounts(cohort=cohort, domains=domains, limit=limit)
             adapters = self._pick_adapters(sources)
+            cookie_jar = self._cookie_jar("http")
             fetcher = self.fetcher or self._http_fetcher(ctx)
+            if cookie_jar is not None and getattr(fetcher, "cookie_jar", "missing") == "missing":
+                try:
+                    fetcher.cookie_jar = cookie_jar
+                except Exception:
+                    pass
+            jars = [cookie_jar]
             stats = RunnerStats()
             formd = [a for a in adapters if a.key == "sec_formd"]
             if formd:
@@ -303,6 +310,7 @@ class Orchestrator:
             finally:
                 if browser is not None:
                     browser.close()
+                self._save_cookie_jars(jars)
             stats.fetched += rest.fetched
             stats.signals_new += rest.signals_new
             stats.failed += rest.failed
@@ -562,3 +570,32 @@ class Orchestrator:
         from src.core.http import HttpFetcher
 
         return HttpFetcher(self.config, self.raw, RateLimiter(self.config.http.default_rate_per_host), ctx=ctx)
+
+    def _cookie_jar(self, scope: str):
+        """Optional core cookie jar for the given transport scope, or None.
+
+        Disabled by default: only constructed when ``config.cookies.enabled``
+        is true (nothing sets it today, so behavior is unchanged). When
+        enabled, the jar is loaded from its per-scope file up front so
+        cookies survive across runs, and the caller saves it after collect.
+        """
+        if not getattr(getattr(self.config, "cookies", None), "enabled", False):
+            return None
+        try:
+            from src.core.cookiejar import PersistentCookieJar
+
+            jar = PersistentCookieJar(scope=scope)
+            jar.load()
+            return jar
+        except Exception:
+            return None
+
+    def _save_cookie_jars(self, jars) -> None:
+        """Best-effort persistence of any cookie jars created for this run."""
+        for jar in jars:
+            if jar is None:
+                continue
+            try:
+                jar.save()
+            except Exception:
+                logger.exception("cookie jar save failed for scope={}", getattr(jar, "scope", "?"))

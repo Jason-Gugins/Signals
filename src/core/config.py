@@ -91,6 +91,19 @@ class AntibotConfig:
 
 
 @dataclass
+class CookiesConfig:
+    """Persistent cookie jars for the core fetchers (Task 23).
+
+    Disabled by default — nothing changes until config/default.yaml sets
+    cookies.enabled: true. When enabled, http/curl/browser fetchers load a
+    per-scope jar from data/cookies/<scope>.json at collect start and save
+    it back at collect end.
+    """
+
+    enabled: bool = False
+
+
+@dataclass
 class StorageConfig:
     db_path: str = "data/signals.db"
     raw_dir: str = "data/raw"
@@ -142,6 +155,7 @@ class Config:
     # secret_env is the NAME of an env var holding the signing secret (resolved at
     # send time) — never the secret itself. Populated from ALERT_WEBHOOKS_JSON.
     alert_webhooks: list = field(default_factory=list)
+    cookies: "CookiesConfig" = field(default_factory=lambda: CookiesConfig())
     config_dir: str = "config"
 
     _yaml_cache: dict[str, dict] = field(default_factory=dict, init=False, repr=False)

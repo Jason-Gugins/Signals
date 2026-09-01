@@ -236,6 +236,12 @@ def digest(ctx, period, domains):
     plays_cfg = cfg.load_yaml("plays")
     calibration_stats = load_stats(orch.db)
     today = _today()
+    # Window the digest: daily = last 1 day, weekly = last 7 (inclusive of
+    # today). Signals observed before the cutoff are excluded by build_digest.
+    from datetime import timedelta
+
+    days = {"daily": 1, "weekly": 7}.get(period)
+    since = (today - timedelta(days=days)).isoformat() if days else None
     digests_dir = getattr(cfg.storage, "digests_dir", "data/digests")
     paths = []
     for acct in orch._accounts(domains=list(domains) or None, cohort=ctx.obj["cohort"]):
@@ -245,7 +251,7 @@ def digest(ctx, period, domains):
         tier = assign_tier(signals, result, taxonomy=orch.taxonomy, cfg=scoring, today=today)
         contacts = orch._contacts(acct.domain)
         plays = assign_plays(acct, signals, result, tier, taxonomy=orch.taxonomy, plays_cfg=plays_cfg, contacts=contacts)
-        text = build_digest(acct.domain, signals, plays, period=period, taxonomy=orch.taxonomy)
+        text = build_digest(acct.domain, signals, plays, period=period, taxonomy=orch.taxonomy, since=since)
         paths.append(write_digest(str(Path(digests_dir) / f"{acct.domain}.md"), text))
     for p in paths:
         click.echo(p)

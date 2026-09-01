@@ -1,0 +1,31 @@
+{
+ "jobs": [
+  {
+   "id": "r1",
+   "title": "Account Executive",
+   "url": "https://jobs.rippling.com/acme/jobs/r1",
+   "posted_at": "2026-08-20",
+   "department": "Sales",
+   "location": {
+    "name": "New York, NY"
+   },
+   "is_remote": false,
+   "employment_type": "full-time",
+   "description": "<p>Close deals.</p>",
+   "salary_min": 90000,
+   "salary_max": 130000,
+   "salary_currency": "USD"
+  },
+  {
+   "id": "r2",
+   "title": "Backend Engineer",
+   "url": "https://jobs.rippling.com/acme/jobs/r2",
+   "created_at": "2026-08-25",
+   "team": "Engineering",
+   "location": "Remote",
+   "is_remote": true,
+   "type": "full-time",
+   "description": "Build APIs."
+  }
+ ]
+}

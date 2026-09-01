@@ -1,0 +1,27 @@
+{
+ "jobs": [
+  {
+   "id": "jv1",
+   "title": "Sales Development Rep",
+   "url": "https://jobs.jobvite.com/acme/jobs/jv1",
+   "publishedDate": "2026-08-18",
+   "category": "Sales",
+   "location": {
+    "name": "Austin, TX"
+   },
+   "remote": false,
+   "type": "Full-Time",
+   "description": "<p>Prospect.</p>"
+  },
+  {
+   "jobId": "jv2",
+   "name": "Platform Engineer",
+   "jobUrl": "https://jobs.jobvite.com/acme/jobs/jv2",
+   "publishedAt": "2026-08-22",
+   "department": "Platform",
+   "location": "Remote",
+   "jobType": "Contract",
+   "descriptionPlain": "Ship infra."
+  }
+ ]
+}

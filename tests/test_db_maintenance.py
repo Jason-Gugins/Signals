@@ -38,15 +38,19 @@ class TestMigrationV6Indexes:
         ]
         assert cols == ["source", "at"]
 
-    def test_playassignments_domain_index_exists(self, db):
-        assert "idx_playassignments_domain" in _index_names(db.conn)
-        cols = [
-            r[2]
+    def test_playassignments_domain_covered_by_pk(self, db):
+        # The v6 review noted a named domain index would be dead weight: the
+        # PK (domain, play_id, signal_id) autoindex already covers domain
+        # lookups. Assert the PK route is what SQLite actually uses.
+        plan = " ".join(
+            str(r[3])
             for r in db.conn.execute(
-                "PRAGMA index_info(idx_playassignments_domain)"
+                "EXPLAIN QUERY PLAN SELECT play_id FROM play_assignments WHERE domain=?",
+                ("acme.com",),
             ).fetchall()
-        ]
-        assert cols == ["domain"]
+        )
+        assert "PRIMARY KEY" in plan or "sqlite_autoindex" in plan
+        assert "idx_playassignments_domain" not in _index_names(db.conn)
 
     def test_query_plans_use_the_indexes(self, db):
         plan = " ".join(

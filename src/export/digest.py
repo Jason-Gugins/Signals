@@ -56,7 +56,8 @@ def _why_now(signal: Signal) -> Optional[str]:
     if parts:
         return "Why now: " + "; ".join(parts) + "."
     if signal.evidence:
-        return f"Why now: {signal.evidence}"
+        ev = signal.evidence if len(signal.evidence) <= 200 else signal.evidence[:197] + "..."
+        return f"Why now: {ev}"
     return None
 
 
@@ -75,9 +76,18 @@ def build_digest(
     *,
     period: str,
     taxonomy: Optional[Taxonomy] = None,
+    since: Optional[str] = None,
 ) -> str:
-    """Render a markdown alert digest for one account."""
+    """Render a markdown alert digest for one account.
+
+    ``since`` (inclusive ISO date or datetime string) bounds the window:
+    signals observed before it are excluded, so a daily digest is actually
+    about the last day rather than full history. ``None`` keeps every
+    signal (used by tests and callers that pre-filter).
+    """
     tax = taxonomy or Taxonomy.load()
+    if since:
+        signals = [s for s in signals if (s.observed_at or "") >= since]
     lines: list[str] = [f"# {domain} — {period} digest ({_date_range(signals)})"]
     if not signals:
         lines.append("")

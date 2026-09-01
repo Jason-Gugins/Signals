@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 MODEL_REPO = "Xenova/ms-marco-MiniLM-L-6-v2"
 MODEL_FILE = "onnx/model_quantized.onnx"
 TOKENIZER_FILE = "tokenizer.json"
-MODEL_REVISION: Optional[str] = None  # pin a revision for reproducibility
+# Pinned repo revision (supply-chain: matches donsetch's SHA256-pinning practice).
+# Verify before bumping: both files exist at this revision (checked 2026-09-01).
+MODEL_REVISION: Optional[str] = "a09144355adeed5f58c8ed011d209bf8ee5a1fec"
 DEFAULT_FLOOR = 0.35
 MAX_SEQ_LEN = 256
 
@@ -96,16 +98,45 @@ class OnnxScorer:
         ]}
         logits = self._session.run(output_names, run_keys)[0].reshape(-1)
         # Cross-encoder logits over CLS -> sigmoid to a 0..1 relevance score.
-        return [1.0 / (1.0 + math.exp(-float(x))) for x in logits]
+        # Numerically stable sigmoid: plain 1/(1+exp(-x)) overflows for x < -709.
+        out = []
+        for x in logits:
+            x = float(x)
+            if x >= 0:
+                out.append(1.0 / (1.0 + math.exp(-x)))
+            else:
+                e = math.exp(x)
+                out.append(e / (1.0 + e))
+        return out
+
+
+# Module-level memoized scorer: constructing OnnxScorer is cheap, but the
+# underlying _ensure_loaded pays a hf_hub round-trip + session build — pay
+# that ONCE per process, not once per parse. Double-checked locking (the
+# collector thread and the watch loop can both reach get_scorer()).
+_scorer_lock = __import__("threading").Lock()
+_scorer_instance: Optional[RelevanceScorer] = None
 
 
 def get_scorer() -> RelevanceScorer:
-    """Return the best available scorer; NullScorer when deps/model absent."""
-    try:
-        import onnxruntime  # noqa: F401
-    except ImportError:
-        return NullScorer()
-    return OnnxScorer()
+    """Return the best available scorer; NullScorer when deps/model absent.
+
+    Memoized: one scorer instance per process (the ONNX session and tokenizer
+    load once, then every parse reuses them).
+    """
+    global _scorer_instance
+    if _scorer_instance is not None:
+        return _scorer_instance
+    with _scorer_lock:
+        if _scorer_instance is not None:
+            return _scorer_instance
+        try:
+            import onnxruntime  # noqa: F401
+        except ImportError:
+            _scorer_instance = NullScorer()
+            return _scorer_instance
+        _scorer_instance = OnnxScorer()
+        return _scorer_instance
 
 
 def apply_relevance_floor(

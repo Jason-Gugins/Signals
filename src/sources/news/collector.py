@@ -2,6 +2,8 @@ from dataclasses import asdict
 from datetime import date
 from typing import Optional
 
+from loguru import logger
+
 from src.core.models import Account, Document
 from src.signals.rerank import NullScorer, get_scorer  # noqa: F401  (lazy use; import-safe without ML deps)
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
@@ -46,7 +48,10 @@ def _rerank_cfg(task_meta: dict):
         try:
             from src.core.config import Config
             _RERANK_CFG_CACHE = Config.load().rerank
-        except Exception:
+        except Exception as exc:
+            # Warn (don't silent-cache a typo): a config problem that
+            # permanently disables reranking must be visible to the operator.
+            logger.warning("rerank config load failed, rerank disabled: %s", exc)
             from src.core.config import RerankConfig
             _RERANK_CFG_CACHE = RerankConfig()  # conservatively disabled
     return _RERANK_CFG_CACHE if getattr(_RERANK_CFG_CACHE, "enabled", False) else None
@@ -92,7 +97,10 @@ def _rerank_items(
         }
         fields = NewsItem.__dataclass_fields__
         return [NewsItem(**{k: d[k] for k in fields}) for d in kept], relevance
-    except Exception:
+    except Exception as exc:
+        # Degrade loudly: a persistent model/tokenizer error must not be
+        # silent forever — the operator needs to know reranking is off.
+        logger.warning("rerank skipped, falling back to unranked items: %s", exc)
         return items, {}
 
 

@@ -78,7 +78,9 @@ marketplace's search), `collect`, `reparse`, `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
 `capterra-selfcheck`, `prune` (retention: delete old fetch_log/documents/runs
 rows + raw files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum`
-reclaims space).
+reclaims space), `plays --outcome hit|miss --domain X --play Y` (record a
+local play outcome for backtesting), `plays-report` (per-play sent/hit/rate
+table).
 
 Outputs land in `data/exports/`, `data/briefs/`, and `data/alerts/`.
 Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).

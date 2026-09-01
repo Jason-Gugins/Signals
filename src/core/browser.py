@@ -120,10 +120,17 @@ def inject_turnstile_token(browser, url, token, *, timeout_ms: int = 20000, poll
 
 
 class BrowserFetcher:
-    def __init__(self, config: Config, store: RawStore, ctx: RunContext | None = None):
+    def __init__(
+        self,
+        config: Config,
+        store: RawStore,
+        ctx: RunContext | None = None,
+        cookie_jar=None,
+    ):
         self.config = config
         self.store = store
         self.ctx = ctx
+        self.cookie_jar = cookie_jar
         self._playwright = None
         self._browser = None
         self._context = None
@@ -173,6 +180,25 @@ class BrowserFetcher:
         ctx = self._browser.new_context(
             **self._build_context_args(self.config, skip_storage_state=True)
         )
+        # Cookie-jar hook (Task 23): seed the fresh context with jar cookies
+        # for this URL so challenge solves start from accumulated state.
+        if self.cookie_jar is not None and getattr(self, "_jar_seed_url", None):
+            try:
+                seed = self.cookie_jar.cookies_for(self._jar_seed_url)
+                if seed:
+                    ctx.add_cookies(
+                        [
+                            {
+                                "name": c["name"],
+                                "value": c["value"],
+                                "domain": c["domain"],
+                                "path": "/",
+                            }
+                            for c in seed
+                        ]
+                    )
+            except Exception:
+                pass
         ctx.add_init_script(STEALTH_INIT_SCRIPT)
         page = ctx.new_page()
         return ctx, page
@@ -268,7 +294,11 @@ class BrowserFetcher:
                 solve_page = self._page
                 solve_context = self._context
                 if self._browser is not None:
+                    # Cookie-jar hook (Task 23): remember the URL so
+                    # _new_solve_context can seed the fresh context from the jar.
+                    self._jar_seed_url = url
                     solve_ctx, solve_page = self._new_solve_context()
+                    self._jar_seed_url = None
                     solve_context = solve_ctx
                     solve_page.goto(url, wait_until="domcontentloaded")
                 try:
@@ -297,6 +327,18 @@ class BrowserFetcher:
                             cd = (c.get("domain", "") or "").casefold().lstrip(".")
                             if cd == root or cd.endswith("." + root) or root in (c.get("domain", "") or ""):
                                 cf_cookies.append(c)
+                                # Cookie-jar hook (Task 23): accumulate the
+                                # solve context's cookies into the persistent jar.
+                                if self.cookie_jar is not None:
+                                    try:
+                                        self.cookie_jar.update(
+                                            c.get("name", ""),
+                                            c.get("value", ""),
+                                            c.get("domain", "") or (domain or ""),
+                                            expires=c.get("expires"),
+                                        )
+                                    except Exception:
+                                        pass
                     except Exception:
                         pass
                 finally:

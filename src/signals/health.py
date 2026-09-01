@@ -88,7 +88,10 @@ def health_score(
         weight = float(wmap.get(stype, FALLBACK_WEIGHT))
         total += sign * weight
         reasons.append(f"{stype}: {sign * weight:+.1f}")
-    # Normalize to -1.0..1.0: 3.0 is the largest possible |sum| (two weighted
-    # signals); scale so any single heavyweight signal maps near the extreme.
+    # Normalize to -1.0..1.0. The raw sum is unbounded (one row per signal),
+    # so scale by a fixed divisor: 3.0 ≈ two heavyweight (negative) signals —
+    # the smallest stack that should reach the extremes. Large positive stacks
+    # saturate at +1.0; that loss of resolution above the clamp is accepted
+    # because the score only feeds a threshold gate (healthy vs gated).
     score = max(-1.0, min(1.0, total / 3.0))
     return score, reasons

@@ -288,6 +288,115 @@ def test_regression_levitate_funding_kept():
     assert c.signal_type == "funding_round"
 
 
+# --- Task 18: role buckets + funding amount/stage in evidence_data ---
+
+EXEC_HIRE_CASES = [
+    ("acme names Jane Doe CRO", "CRO", "revenue"),
+    ("acme appoints Jane Doe Chief Revenue Officer", "Chief Revenue Officer", "revenue"),
+    ("acme hires Bob as VP Sales", "VP Sales", "revenue"),
+    ("acme names Bob Head of Sales", "Head of Sales", "revenue"),
+    ("acme hires Bob as CTO", "CTO", "tech"),
+    ("acme appoints Jane Doe CIO", "CIO", "tech"),
+    ("acme names Sue Chief Technology Officer", "Chief Technology Officer", "tech"),
+    ("acme hires Bob as VP Engineering", "VP Engineering", "tech"),
+    ("acme appoints Jane Doe CPO", "CPO", "product"),
+    ("acme names Sue Chief Product Officer", "Chief Product Officer", "product"),
+    ("acme hires Bob as VP Product", "VP Product", "product"),
+    ("acme appoints Jane Doe CEO", "CEO", "exec"),
+    ("acme hires Bob as CFO", "CFO", "exec"),
+    ("acme names Sue COO", "COO", "exec"),
+    ("acme appoints Jane Doe President", "President", "exec"),
+]
+
+
+def test_extract_role_bucket_table():
+    from src.sources.news.classify import extract_role_bucket
+    for text, role, bucket in EXEC_HIRE_CASES:
+        got = extract_role_bucket(text)
+        assert got is not None, text
+        assert got == (role, bucket), (text, got)
+
+
+def test_extract_role_bucket_none():
+    from src.sources.news.classify import extract_role_bucket
+    assert extract_role_bucket("acme raised funding") is None
+
+
+def test_parse_funding_amount_table():
+    from src.sources.news.classify import parse_funding_amount
+    assert parse_funding_amount("acme raised $12M") == 12000000
+    assert parse_funding_amount("acme raised $12 million") == 12000000
+    assert parse_funding_amount("acme raised $12.5M") == 12500000
+    assert parse_funding_amount("acme raised $1.2B") == 1200000000
+    assert parse_funding_amount("acme raised $1.2 billion") == 1200000000
+    assert parse_funding_amount("acme raised funding") is None
+
+
+def test_exec_hire_evidence_data_role_bucket():
+    rule = next(r for r in NEWS_RULES if r.signal_type == "exec_hire")
+    vars_ = extract_vars("acme names Jane Doe CRO", rule)
+    assert vars_["role"] == "CRO"
+    assert vars_["role_bucket"] == "revenue"
+
+
+def test_funding_evidence_data_amount_and_stage():
+    rule = next(r for r in NEWS_RULES if r.signal_type == "funding_round")
+    vars_ = extract_vars("acme raised $12M Series B", rule)
+    assert vars_["amount_usd"] == 12000000
+    assert vars_["stage"] == "series_b"
+    vars_ = extract_vars("acme raised $1.2B Series E", rule)
+    assert vars_["amount_usd"] == 1200000000
+    assert vars_["stage"] == "series_e"
+    vars_ = extract_vars("acme raised seed funding", rule)
+    assert vars_["stage"] == "seed"
+
+
+def test_classify_carries_structured_evidence():
+    c = classify_news(_item("Acme names Jane Doe CRO"), ACME, today=TODAY)
+    assert c is not None and c.signal_type == "exec_hire"
+    assert c.evidence_data["role"] == "CRO"
+    assert c.evidence_data["role_bucket"] == "revenue"
+    c2 = classify_news(_item("Acme raised $12M Series B"), ACME, today=TODAY)
+    assert c2 is not None and c2.signal_type == "funding_round"
+    assert c2.evidence_data["amount_usd"] == 12000000
+    assert c2.evidence_data["stage"] == "series_b"
+
+
+def test_attribution_stripped_still_extracts_role():
+    c = classify_news(_item("Acme names Jane Doe CRO - TechCrunch"), ACME, today=TODAY)
+    assert c is not None and c.signal_type == "exec_hire"
+    assert c.evidence_data["role_bucket"] == "revenue"
+
+
+def test_attribution_stripped_still_extracts_funding():
+    c = classify_news(_item("Acme raised $12M Series B - TechCrunch"), ACME, today=TODAY)
+    assert c is not None and c.signal_type == "funding_round"
+    assert c.evidence_data["amount_usd"] == 12000000
+    assert c.evidence_data["stage"] == "series_b"
+
+
+def test_research_style_headline_gains_no_role_or_amount():
+    """Publisher-attributed / research-style headlines must not gain new
+    evidence fields (attribution guards hold for the new patterns)."""
+    gartner = Account(domain="gartner.com", name="Gartner")
+    item = NewsItem(
+        title="AI Isn't Reducing Workforce Costs - Gartner",
+        link="https://ex.com/r1", published="2026-08-01", summary="", source_name="Gartner",
+    )
+    assert classify_news(item, gartner, today=TODAY) is None
+    item2 = NewsItem(
+        title="Gartner survey finds CRO hiring is up - Gartner",
+        link="https://ex.com/r2", published="2026-08-01", summary="", source_name="Gartner",
+    )
+    c = classify_news(item2, gartner, today=TODAY)
+    assert c is None or ("role" not in c.evidence_data and "role_bucket" not in c.evidence_data)
+
+
+def test_customer_funding_negative_grants_nothing():
+    c = classify_news(_item("acme customer raised funding"), ACME, today=TODAY)
+    assert c is None
+
+
 def test_regression_gartner_acquisition_kept():
     """If Gartner genuinely acquires a company, that signal must still fire."""
     gartner = Account(domain="gartner.com", name="Gartner")

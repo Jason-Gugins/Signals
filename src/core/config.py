@@ -119,6 +119,19 @@ class CookiesConfig:
 
 
 @dataclass
+class RerankConfig:
+    """Optional cross-encoder relevance reranking of SERP candidates.
+
+    Disabled by default — zero behavior change until enabled in
+    config/default.yaml. `floor` is the minimum relevance score (0..1)
+    a news item must score to survive into classification.
+    """
+
+    enabled: bool = False
+    floor: float = 0.35
+
+
+@dataclass
 class StorageConfig:
     db_path: str = "data/signals.db"
     raw_dir: str = "data/raw"
@@ -172,6 +185,7 @@ class Config:
     alert_webhooks: list = field(default_factory=list)
     cookies: "CookiesConfig" = field(default_factory=lambda: CookiesConfig())
     smtp: SmtpConfig = field(default_factory=SmtpConfig)
+    rerank: "RerankConfig" = field(default_factory=lambda: RerankConfig())
     config_dir: str = "config"
 
     _yaml_cache: dict[str, dict] = field(default_factory=dict, init=False, repr=False)

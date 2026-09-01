@@ -3,6 +3,11 @@
 import src.sources.sec.collector  # noqa: F401
 import src.sources.sec.formd_source  # noqa: F401
 import src.sources.ats.collector  # noqa: F401
+import src.sources.ats.rippling  # noqa: F401  (ats_rippling)
+import src.sources.ats.jobvite  # noqa: F401  (ats_jobvite)
+import src.sources.ats.breezy  # noqa: F401  (ats_breezy)
+import src.sources.ats.teamtailor  # noqa: F401  (ats_teamtailor)
+import src.sources.ats.careers_page  # noqa: F401  (ats_careers_page — no-ATS fallback)
 import src.sources.jobsignals.collector  # noqa: F401
 import src.sources.news.collector  # noqa: F401
 import src.sources.regulatory.collector  # noqa: F401

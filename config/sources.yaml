@@ -44,6 +44,11 @@ sources:
   content_producthunt: { enabled: false, cadence_hours: 168, rate_per_host: 0.2 } # stub — CF-blocked per P2 spike
   appstore_reviews: { enabled: true, cadence_hours: 168, rate_per_host: 1.0 }    # live iTunes RSS (GO per P2 spike)
   bbb_profile:     { enabled: true, cadence_hours: 720, rate_per_host: 0.2 }     # live SSR (GO per P2 spike); needs extra_data.bbb_url
+  ats_rippling:    { enabled: true, cadence_hours: 12, rate_per_host: 1.0 }   # P2 Task 13; requires ats_vendor=rippling + ats_token
+  ats_jobvite:     { enabled: true, cadence_hours: 12, rate_per_host: 1.0 }   # P2 Task 13; requires ats_vendor=jobvite + ats_token
+  ats_breezy:      { enabled: true, cadence_hours: 12, rate_per_host: 1.0 }   # P2 Task 13; requires ats_vendor=breezy + ats_token (live-probed shape)
+  ats_teamtailor:  { enabled: true, cadence_hours: 12, rate_per_host: 1.0 }   # P2 Task 13; requires ats_vendor=teamtailor + ats_token
+  ats_careers_page: { enabled: true, cadence_hours: 168, rate_per_host: 0.5 } # P2 Task 13; fires ONLY for accounts with no ats_vendor AND no ats_token
   marketplace_g2:
     enabled: false              # browser tier, opt-in. See config/marketplace.yaml for G2-specific options
     cadence_hours: 168

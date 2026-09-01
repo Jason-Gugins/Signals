@@ -411,12 +411,32 @@ def _create_play_outcomes(conn: sqlite3.Connection) -> None:
     )
 
 
+def _add_maintenance_indexes(conn: sqlite3.Connection) -> None:
+    """v6 (Task 24): hot-path indexes found by EXPLAIN QUERY PLAN review.
+
+    - fetch_log is queried by (source, at) for health reporting / per-source
+      cursor+backoff lookups and pruned by `at`; only run_id was indexed before.
+    - play_assignments is probed by domain in export/alerts.py:74, export/csvout
+      per-account rollups, and the cli.py assigned-play check — all single-domain
+      point lookups on an otherwise unindexed table.
+    Tables that are always full-scanned by design (accounts, entity_aliases,
+    calibration) get no index here.
+    """
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fetchlog_source_at ON fetch_log(source, at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_playassignments_domain ON play_assignments(domain)"
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (1, "additive NEW_COLUMNS pass (g2_slug, nps_score, helpful_votes, source, app_store_id, play_id, subreddit)", _add_missing_columns),
     (2, "create calibration table (per-source/per-signal-type hit rates)", _create_calibration),
     (3, "add fetch_log.error_class (fetch error taxonomy)", _add_fetch_log_error_class),
     (4, "create entity_aliases table (manual/config-driven alias map, never auto-merged)", _create_entity_aliases),
     (5, "create play_outcomes table (local play outcome backtesting)", _create_play_outcomes),
+    (6, "maintenance indexes + hot-path review", _add_maintenance_indexes),
 ]
 
 LATEST_VERSION: int = max(v for v, _, _ in MIGRATIONS)
@@ -713,6 +733,12 @@ def prune_all(db: Database, *, keep_days: int, raw_store=None) -> dict:
     counts["fetch_log"] = cur.rowcount
     cur = db.execute("DELETE FROM runs WHERE started_at < ?", (cutoff,))
     counts["runs"] = cur.rowcount
+
+    # Cookie tables: expire rows whose real cookie expiry has passed so stale
+    # challenge jars don't accumulate (Task 24).
+    cf = db.execute("DELETE FROM cloudflare_cookies WHERE expires_at < ?", (cutoff,))
+    dd = db.execute("DELETE FROM datadome_cookies WHERE expires_at < ?", (cutoff,))
+    counts["cookies"] = cf.rowcount + dd.rowcount
 
     db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     db.conn.execute("ANALYZE")

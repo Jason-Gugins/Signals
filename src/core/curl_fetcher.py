@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import urlsplit
 
 
 def curl_cffi_get(url: str, **kwargs):
@@ -36,16 +37,31 @@ class CurlCffiResponse:
 
 
 class CurlCffiFetcher:
-    def __init__(self, user_agent: str, impersonate: str = "chrome", proxy: str | None = None):
+    def __init__(
+        self,
+        user_agent: str,
+        impersonate: str = "chrome",
+        proxy: str | None = None,
+        cookie_jar=None,
+    ):
         self.user_agent = user_agent
         self.impersonate = impersonate
         self.proxy = proxy
+        self.cookie_jar = cookie_jar
 
     def get(self, url: str, *, cookies: list[dict] | None = None, headers: dict | None = None) -> CurlCffiResponse:
         all_headers = {"User-Agent": self.user_agent}
         if cookies:
             cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
             all_headers["Cookie"] = cookie_str
+        elif self.cookie_jar is not None:
+            # Cookie-jar hook (Task 23): emit stored cookies unless the caller
+            # passed explicit cookies — caller wins.
+            jar_cookies = self.cookie_jar.cookies_for(url)
+            if jar_cookies:
+                all_headers["Cookie"] = "; ".join(
+                    f"{c['name']}={c['value']}" for c in jar_cookies
+                )
         if headers:
             all_headers.update(headers)
 
@@ -62,6 +78,15 @@ class CurlCffiFetcher:
         cookie_dict = {}
         for name, value in r.cookies.items():
             cookie_dict[name] = value
+
+        # Cookie-jar hook (Task 23): feed response cookies into the jar.
+        if self.cookie_jar is not None and cookie_dict:
+            host = (urlsplit(url).hostname or "").lower()
+            for name, value in cookie_dict.items():
+                try:
+                    self.cookie_jar.update(name, value, host)
+                except Exception:
+                    pass
 
         return CurlCffiResponse(
             status=r.status_code,

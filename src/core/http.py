@@ -87,11 +87,13 @@ class HttpFetcher:
         client: httpx.Client | None = None,
         sleep=time.sleep,
         rng=random.uniform,
+        cookie_jar=None,
     ):
         self.config = config
         self.store = store
         self.limiter = limiter
         self.ctx = ctx
+        self.cookie_jar = cookie_jar
         self._owns_client = client is None
         if client is not None:
             self.client = client
@@ -183,6 +185,14 @@ class HttpFetcher:
         }
         extra = getattr(task, "headers", None) or {}
         headers.update(extra)
+        # Cookie-jar hook (Task 23): emit stored cookies for this URL unless the
+        # caller explicitly supplied a Cookie header — caller wins.
+        if self.cookie_jar is not None and "Cookie" not in headers:
+            jar_cookies = self.cookie_jar.cookies_for(url)
+            if jar_cookies:
+                headers["Cookie"] = "; ".join(
+                    f"{c['name']}={c['value']}" for c in jar_cookies
+                )
         if etag:
             headers["If-None-Match"] = etag
         if last_modified:
@@ -214,6 +224,13 @@ class HttpFetcher:
                     self._log(task, result, attempts=attempts)
                     return result
                 if 200 <= status < 300:
+                    # Cookie-jar hook (Task 23): accumulate Set-Cookies from
+                    # this successful response for subsequent requests.
+                    if self.cookie_jar is not None:
+                        try:
+                            self.cookie_jar.set_from_response(url, dict(response.headers))
+                        except Exception:
+                            pass
                     doc = self.store.put(
                         source=getattr(task, "source", "http"),
                         url=url,

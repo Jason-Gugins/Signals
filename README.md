@@ -42,6 +42,9 @@ copy .env.example .env
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
+`pip install -e .` also installs a `signals` console script — `signals doctor`
+is shorthand for `python -m src.cli doctor` everywhere below.
+
 CI runs the same suite on every push/PR (Ubuntu + Windows matrix, offline
 lane) plus a nightly live-parity lane — see
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
@@ -169,6 +172,37 @@ CLOUDFLARE_BYPASS_STRATEGY=browser_first
 ```
 
 See [`src/sources/techstack/README.md`](src/sources/techstack/README.md) for the full waterfall and [`src/sources/techstack/cf_bypass.py`](src/sources/techstack/cf_bypass.py) for the implementation.
+
+## Signals and the backtesting loop
+
+P2 added signal families beyond news: `pricing_change` (wayback snapshots of
+`/pricing` diffed each cycle — a plan/price change means budget is moving) and
+`hiring_surge` (open-role deltas from the ATS/job-board sources, with both a
+minimum percentage delta and an absolute-count floor so tiny boards don't
+fire). Entity resolution (`normalize_entity` + fuzzy match, `config`
+`entity_aliases`) ties same-company variants across sources to one account,
+and `config/icp.yaml` scores accounts at seed time so tiering is real from
+day one.
+
+The play-outcome loop closes the calibration circuit:
+
+```powershell
+# after runs, record what happened to the plays you worked:
+.\.venv\Scripts\python.exe -m src.cli plays --outcome hit --domain acme.com --play growth_pitch
+.\.venv\Scripts\python.exe -m src.cli plays-report       # per-play sent/hit/rate
+.\.venv\Scripts\python.exe -m src.cli plays-calibrate    # feed decided outcomes into calibration
+```
+
+Once ≥30 decided outcomes exist for a (source, signal_type), `blend_confidence`
+starts adjusting candidate confidence from real hit rates. Digests are the
+read-side: `digest --period daily` writes per-account markdown (grouped by
+signal type with why-now lines) to `data/digests/`; add `--email` to send it.
+
+An account health score (polarity of its signals — a WARN + layoffs account
+scores negative) gates growth-family plays automatically, so you don't pitch
+growth into a layoff. Defaults are fine; tune via `config/health.yaml` and the
+`health_gate` block in `config/plays.yaml` (add the key to override the
+code defaults: threshold −0.5, suppressed family `growth_pitch`).
 
 ## Anti-Bot Evasion
 

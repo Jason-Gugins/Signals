@@ -28,7 +28,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -e .
 
       - name: Install ruff
         run: pip install ruff
@@ -55,7 +55,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -e .
 
       # Full suite including the live antibot parity lane; continue-on-error because
       # live-network tests are inherently flaky. Deliberately parity-only here —

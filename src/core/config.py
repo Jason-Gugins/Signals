@@ -91,6 +91,21 @@ class AntibotConfig:
 
 
 @dataclass
+class SmtpConfig:
+    """Outbound SMTP for brief/digest email delivery (Task 27).
+
+    user_env / pass_env hold the NAMES of env vars whose values are the
+    credentials (resolved at send time) — never the credentials themselves.
+    """
+
+    host: Optional[str] = None
+    port: int = 587
+    user_env: str = "SIGNALS_SMTP_USER"
+    pass_env: str = "SIGNALS_SMTP_PASS"
+    use_tls: bool = True
+
+
+@dataclass
 class CookiesConfig:
     """Persistent cookie jars for the core fetchers (Task 23).
 
@@ -156,6 +171,7 @@ class Config:
     # send time) — never the secret itself. Populated from ALERT_WEBHOOKS_JSON.
     alert_webhooks: list = field(default_factory=list)
     cookies: "CookiesConfig" = field(default_factory=lambda: CookiesConfig())
+    smtp: SmtpConfig = field(default_factory=SmtpConfig)
     config_dir: str = "config"
 
     _yaml_cache: dict[str, dict] = field(default_factory=dict, init=False, repr=False)
@@ -294,3 +310,18 @@ def _apply_env_overrides(config: Config) -> None:
     dd_proxy = os.environ.get("DATADOME_RESIDENTIAL_PROXY")
     if dd_proxy:
         config.datadome.residential_proxy = dd_proxy
+    smtp_host = os.environ.get("SIGNALS_SMTP_HOST")
+    if smtp_host:
+        config.smtp.host = smtp_host
+    smtp_port = os.environ.get("SIGNALS_SMTP_PORT")
+    if smtp_port:
+        try:
+            config.smtp.port = int(smtp_port)
+        except ValueError:
+            pass
+    smtp_user_env = os.environ.get("SIGNALS_SMTP_USER_ENV")
+    if smtp_user_env:
+        config.smtp.user_env = smtp_user_env
+    smtp_pass_env = os.environ.get("SIGNALS_SMTP_PASS_ENV")
+    if smtp_pass_env:
+        config.smtp.pass_env = smtp_pass_env

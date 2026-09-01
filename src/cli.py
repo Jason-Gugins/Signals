@@ -216,12 +216,47 @@ def write_digest(path: str, text: str) -> str:
     return str(p)
 
 
-@main.command()
-@click.option("--period", type=click.Choice(["daily", "weekly"]), default="daily")
-@click.option("--domain", "domains", multiple=True)
-@click.pass_context
-def digest(ctx, period, domains):
-    """Per-account alert digest (markdown) written to data/digests/."""
+def _email_files(paths, cfg: Config, kind: str, period: str, to: str) -> None:
+    """Email written brief/digest files. Send failures log and continue —
+    the files are already written either way."""
+    import os
+
+    from src.export.email import send_email
+
+    smtp = getattr(cfg, "smtp", None)
+    if not smtp or not smtp.host:
+        logger.warning("--email requested but SMTP not configured (set SIGNALS_SMTP_HOST); skipping email")
+        return
+    if not to:
+        to = os.environ.get("SIGNALS_EMAIL_TO", "")
+    if not to:
+        logger.warning("--email requested but no recipient (use --to or SIGNALS_EMAIL_TO); skipping email")
+        return
+    for p in paths:
+        path = Path(p)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.warning("email skipped: cannot read {}: {}", p, exc)
+            continue
+        name = path.stem
+        subject = f"Signals {period} {kind} — {name}" if period else f"Signals {kind} — {name}"
+        ok = send_email(
+            subject,
+            text,
+            to=to,
+            host=smtp.host,
+            port=smtp.port,
+            user_env=smtp.user_env,
+            pass_env=smtp.pass_env,
+            use_tls=smtp.use_tls,
+        )
+        if ok:
+            click.echo(f"emailed {kind}: {p} -> {to}")
+
+
+def _digest_paths(ctx, period, domains) -> list[str]:
+    """Build and write per-account digests; returns the written paths."""
     from src.export.digest import build_digest
     from src.pipeline.orchestrator import _today
     from src.signals.calibration import load_stats
@@ -253,21 +288,46 @@ def digest(ctx, period, domains):
         plays = assign_plays(acct, signals, result, tier, taxonomy=orch.taxonomy, plays_cfg=plays_cfg, contacts=contacts)
         text = build_digest(acct.domain, signals, plays, period=period, taxonomy=orch.taxonomy, since=since)
         paths.append(write_digest(str(Path(digests_dir) / f"{acct.domain}.md"), text))
+    return paths
+
+
+@main.command()
+@click.option("--period", type=click.Choice(["daily", "weekly"]), default="daily")
+@click.option("--domain", "domains", multiple=True)
+@click.option("--email", "email_flag", is_flag=True, help="Email the digest(s) via SMTP (SIGNALS_SMTP_HOST).")
+@click.option("--to", "to_addr", default=None, help="Email recipient (default: SIGNALS_EMAIL_TO).")
+@click.pass_context
+def digest(ctx, period, domains, email_flag, to_addr):
+    """Per-account alert digest (markdown) written to data/digests/."""
+    cfg = ctx.obj["config"]
+    paths = _digest_paths(ctx, period, domains)
     for p in paths:
         click.echo(p)
+    if email_flag:
+        _email_files(paths, cfg, kind="digest", period=period, to=to_addr or "")
 
 
 @main.command()
 @click.option("--domain", "domains", multiple=True)
 @click.option("--tier-max", type=int, default=2)
 @click.option("--open", "open_files", is_flag=True)
+@click.option("--email", "email_flag", is_flag=True, help="Email the brief(s) via SMTP (SIGNALS_SMTP_HOST).")
+@click.option("--to", "to_addr", default=None, help="Email recipient (default: SIGNALS_EMAIL_TO).")
 @click.pass_context
-def brief(ctx, domains, tier_max, open_files):
-    paths = ctx.obj["get_orch"]().brief(domains=list(domains) or None, cohort=ctx.obj["cohort"], tier_max=tier_max)
+def brief(ctx, domains, tier_max, open_files, email_flag, to_addr):
+    paths = _brief_paths(ctx, domains, tier_max)
     for p in paths:
         click.echo(p)
     if open_files:
         click.echo("(open skipped)")
+    if email_flag:
+        _email_files(paths, ctx.obj["config"], kind="brief", period="", to=to_addr or "")
+
+
+def _brief_paths(ctx, domains, tier_max) -> list[str]:
+    return ctx.obj["get_orch"]().brief(
+        domains=list(domains) or None, cohort=ctx.obj["cohort"], tier_max=tier_max
+    )
 
 
 @main.command(name="export")

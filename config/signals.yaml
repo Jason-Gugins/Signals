@@ -45,6 +45,16 @@ types:
     half_life_days: 180
     play: compliance_predictability
     label: "IPO priced"
+  pricing_change:
+    category: financial
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 20
+    half_life_days: 90
+    play: growth_pitch
+    label: "Pricing page changed"
   ma_acquirer:
     category: financial
     origin: internal

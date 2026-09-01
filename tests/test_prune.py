@@ -75,7 +75,9 @@ def test_prune_all_is_idempotent(db):
     _seed(db)
     prune_all(db, keep_days=30)
     again = prune_all(db, keep_days=30)
-    assert again == {"fetch_log": 0, "documents": 0, "runs": 0, "raw_files": 0}
+    # v6 added the 'cookies' key (combined cloudflare+datadome expiry deletes).
+    expected = {"fetch_log": 0, "documents": 0, "runs": 0, "raw_files": 0, "cookies": 0}
+    assert {k: again[k] for k in expected} == expected
 
 
 def test_prune_all_uses_real_timestamp_columns(db):

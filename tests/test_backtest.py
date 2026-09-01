@@ -190,7 +190,7 @@ def test_migration_v5_play_outcomes_table(tmp_path: Path) -> None:
     try:
         version = db.one("PRAGMA user_version")["user_version"]
         assert version == LATEST_VERSION
-        assert version == 5
+        assert version >= 5  # v5 created play_outcomes; later migrations may follow
         cols = db.table_columns("play_outcomes")
         assert {"domain", "play_id", "outcome", "decided_at"} <= cols
         # PK is (domain, play_id) — inserting the same pair twice must conflict.

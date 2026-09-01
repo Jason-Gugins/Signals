@@ -25,6 +25,13 @@ dependencies = [
     "curl_cffi>=0.7",
 ]
 
+[project.optional-dependencies]
+rerank = [
+    "onnxruntime>=1.19",
+    "tokenizers>=0.20",
+    "huggingface_hub>=0.24",
+]
+
 [project.scripts]
 signals = "src.cli:main"
 
@@ -41,6 +48,7 @@ markers = [
     "allow_network: test is allowed to make real network calls",
     "live_fetch: hits a real network host; requires explicit opt-in",
     "fake_net_seam: test exercises a network SEAM with fake engines; no real host contacted",
+    "rerank_live: requires signals[rerank] extra + model download",
 ]
 
 [tool.ruff]

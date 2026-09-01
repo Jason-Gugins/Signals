@@ -506,6 +506,15 @@ def plays(ctx, outcome, domain, play_id):
     from src.signals.backtest import record_outcome
 
     db = Database(ctx.obj["config"].storage.db_path)
+    known = db.one(
+        "SELECT 1 AS x FROM play_assignments WHERE domain=? AND play_id=? LIMIT 1",
+        (domain, play_id),
+    )
+    if not known:
+        click.echo(
+            f"warn: no play_assignments row for domain={domain} play={play_id} "
+            "(typo? run plays-report to list known plays) — recording anyway"
+        )
     record_outcome(db, domain, play_id, outcome)
     click.echo(f"recorded outcome={outcome} domain={domain} play={play_id}")
 
@@ -522,6 +531,26 @@ def plays_report(ctx):
     for play_id in sorted(rates):
         r = rates[play_id]
         click.echo(f"{play_id}\t{r['sent']}\t{r['hit']}\t{r['rate']:.3f}")
+
+
+@main.command(name="plays-calibrate")
+@click.option("--min-samples", type=int, default=None, help="Override the 30-sample feed threshold.")
+@click.pass_context
+def plays_calibrate(ctx, min_samples):
+    """Feed decided play outcomes into the calibration table (per source+signal_type).
+
+    Rows below the sample threshold are skipped (calibration blending ignores
+    them anyway). Re-running refreshes counts on the same PK.
+    """
+    from src.signals.backtest import feed_calibration
+
+    db = Database(ctx.obj["config"].storage.db_path)
+    kw = {"min_samples": min_samples} if min_samples is not None else {}
+    feed_calibration(db, **kw)
+    rows = db.query("SELECT source, signal_type, samples, hits FROM calibration ORDER BY source")
+    click.echo("source\tsignal_type\tsamples\thits")
+    for r in rows:
+        click.echo(f"{r['source']}\t{r['signal_type']}\t{r['samples']}\t{r['hits']}")
 
 
 @main.command()

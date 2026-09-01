@@ -11,6 +11,8 @@ from urllib.error import URLError
 import pytest
 from loguru import logger as loguru_logger
 
+_json_dumps = json.dumps  # module-level alias — ``json`` is shadowed in CapturingClient.post
+
 from src.core.config import Config
 from src.export.alerts import Alert, format_slack_text, post_json_webhook, post_webhook
 
@@ -24,15 +26,24 @@ def _alert(domain="acme.com", typ="funding_round", at="2026-08-30"):
 
 
 class CapturingClient:
-    """Fake HTTP client: records posts (url/json/timeout/headers), scripted statuses."""
+    """Fake HTTP client: records posts (url/json/content/timeout/headers), scripted statuses.
+
+    Mimics httpx's dual API: accepts either ``json=`` (re-serialized) or
+    ``content=`` (raw bytes) so tests can assert on the EXACT wire bytes."""
 
     def __init__(self, statuses):
         self.statuses = list(statuses)
         self.calls = []
         self.closed = False
 
-    def post(self, url, json=None, timeout=None, headers=None):
-        self.calls.append({"url": url, "json": json, "timeout": timeout, "headers": headers or {}})
+    def post(self, url, json=None, content=None, timeout=None, headers=None):
+        self.calls.append({
+            "url": url, "json": json, "content": content,
+            "timeout": timeout, "headers": headers or {},
+            "body": content if content is not None else (
+                _json_dumps(json).encode("utf-8") if json is not None else None
+            ),
+        })
         status = self.statuses.pop(0) if self.statuses else 500
         return type("Resp", (), {"status_code": status})()
 
@@ -84,8 +95,8 @@ def _reset_dedupe():
     alerts_mod._DELIVERED.clear()
 
 
-def _expected_signature(secret: str, payload: dict) -> str:
-    body = json.dumps(payload).encode("utf-8")
+def _expected_signature(secret: str, body: bytes) -> str:
+    """HMAC over the EXACT wire body bytes (not a re-serialized payload)."""
     digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     return "sha256=" + digest
 
@@ -135,8 +146,15 @@ def test_hmac_signature_correctness():
         [_alert()], "https://hooks.example/json", signing_secret=secret, client=c, sleep=NoSleep()
     )
     assert sent == 1
-    payload = c.calls[0]["json"]
-    assert c.calls[0]["headers"]["X-Signature"] == _expected_signature(secret, payload)
+    # Sign-what-you-send: the signature must verify against the EXACT body
+    # bytes that went on the wire (call["body"]), not a re-serialization of
+    # the payload dict — different json encoders would otherwise break it.
+    wire_body = c.calls[0]["body"]
+    assert wire_body is not None
+    expected = "sha256=" + hmac.new(
+        secret.encode("utf-8"), wire_body, hashlib.sha256
+    ).hexdigest()
+    assert c.calls[0]["headers"]["X-Signature"] == expected
 
 
 def test_hmac_signature_lowercase_hex():
@@ -164,8 +182,9 @@ def test_signature_is_deterministic_per_body():
     post_json_webhook([a1, a2], "https://hooks.example/json", signing_secret=secret, client=c, sleep=NoSleep())
     sig1 = c.calls[0]["headers"]["X-Signature"]
     sig2 = c.calls[1]["headers"]["X-Signature"]
-    assert sig1 == _expected_signature(secret, c.calls[0]["json"])
-    assert sig2 == _expected_signature(secret, c.calls[1]["json"])
+    # Verify against the EXACT wire bytes, not a re-serialized payload.
+    assert sig1 == _expected_signature(secret, c.calls[0]["body"])
+    assert sig2 == _expected_signature(secret, c.calls[1]["body"])
     assert sig1 != sig2  # different bodies -> different signatures
 
 
@@ -271,7 +290,9 @@ def test_deliver_alerts_routes_by_format(monkeypatch):
                            client=json_c, sleep=NoSleep())
     assert sent == 2
     assert set(slack_c.calls[0]["json"].keys()) == {"text"}
-    assert set(json_c.calls[0]["json"].keys()) == {"type", "account", "signal", "why_now"}
+    # Signed JSON path sends pre-serialized body bytes (sign-what-you-send);
+    # the parsed payload is recorded in "body" by the fake client.
+    assert set(json.loads(json_c.calls[0]["body"]).keys()) == {"type", "account", "signal", "why_now"}
     assert "X-Signature" in json_c.calls[0]["headers"]
 
 

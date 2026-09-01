@@ -109,14 +109,20 @@ def _natural_key(alert: Alert) -> tuple:
     return (alert.domain, alert.signal_type, alert.at)
 
 
-def _deliver_once(client, url: str, payload: dict, timeout: float, headers: dict | None = None) -> bool:
+def _deliver_once(client, url: str, payload: dict, timeout: float, headers: dict | None = None, body: bytes | None = None) -> bool:
     """Single POST attempt. Returns True on 2xx, False otherwise.
 
     ``headers`` carries extra headers (e.g. X-Signature). When empty, the call
     signature is identical to the legacy Slack path (fake clients in existing
-    tests accept post(url, json=, timeout=) only)."""
+    tests accept post(url, json=, timeout=) only).
+    ``body`` is the pre-serialized request body — REQUIRED whenever headers
+    carries an X-Signature, so the signature is computed over the exact bytes
+    that go on the wire (serializing twice risks different json.dumps output
+    across httpx versions)."""
     if client is not None:
-        if headers:
+        if body is not None:
+            resp = client.post(url, content=body, timeout=timeout, headers=headers)
+        elif headers:
             resp = client.post(url, json=payload, timeout=timeout,
                                headers={"Content-Type": "application/json", **headers})
         else:
@@ -129,8 +135,8 @@ def _deliver_once(client, url: str, payload: dict, timeout: float, headers: dict
     extra = {"Content-Type": "application/json"}
     if headers:
         extra.update(headers)
-    req = Request(url, data=json.dumps(payload).encode("utf-8"),
-                  headers=extra, method="POST")
+    data = body if body is not None else json.dumps(payload).encode("utf-8")
+    req = Request(url, data=data, headers=extra, method="POST")
     try:
         with _urlopen(req, timeout=timeout) as resp:
             return getattr(resp, "status", 200) < 400
@@ -158,16 +164,22 @@ def _json_payload(alert: Alert) -> dict:
     }
 
 
-def _sign_body(signing_secret: str | None, payload: dict) -> dict:
-    """Optional HMAC-SHA256 request signing: X-Signature: sha256=<lowercase hex>."""
+def _sign_body(signing_secret: str | None, payload: dict) -> tuple[bytes, dict]:
+    """Serialize the payload ONCE and sign those exact bytes.
+
+    Returns (body, headers): the caller must send ``body`` verbatim when
+    ``headers`` is non-empty, so X-Signature always matches the wire bytes.
+    (Signing a re-serialization of the payload would break verification
+    whenever the HTTP client's JSON encoder differs from this one.)
+    """
     if not signing_secret:
-        return {}
+        return b"", {}
     import hashlib
     import hmac as hmac_mod
 
     body = json.dumps(payload).encode("utf-8")
     digest = hmac_mod.new(signing_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-    return {"X-Signature": "sha256=" + digest}
+    return body, {"X-Signature": "sha256=" + digest}
 
 
 # Sentinel distinguishing "no client passed" from "client=None means urllib".
@@ -295,10 +307,10 @@ def post_json_webhook(
             for a in chunk:
                 key = _natural_key(a)
                 payload = _json_payload(a)
-                headers = _sign_body(signing_secret, payload)
+                body, headers = _sign_body(signing_secret, payload)
                 for attempt in range(1, WEBHOOK_ATTEMPTS + 1):
                     try:
-                        if _deliver_once(http_client, url, payload, timeout, headers=headers):
+                        if _deliver_once(http_client, url, payload, timeout, headers=headers, body=body or None):
                             sent += 1
                             _DELIVERED[(url,) + key] = time.time()
                             logger.info("webhook delivered: {} (attempt {})", key, attempt)

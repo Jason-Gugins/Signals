@@ -80,7 +80,7 @@ marketplace's search), `collect`, `reparse`, `score`, `status`, `doctor`,
 rows + raw files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum`
 reclaims space), `plays --outcome hit|miss --domain X --play Y` (record a
 local play outcome for backtesting), `plays-report` (per-play sent/hit/rate
-table).
+table), `plays-calibrate` (feed decided outcomes into the calibration table).
 
 Outputs land in `data/exports/`, `data/briefs/`, and `data/alerts/`.
 Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).

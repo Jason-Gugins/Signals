@@ -32,25 +32,26 @@ def record_outcome(db: "Database", domain: str, play_id: str, outcome: str) -> N
 def play_hit_rates(db: "Database") -> dict[str, dict]:
     """Per-play hit rates: {play_id: {sent, hit, rate}}.
 
-    sent = number of play_assignments rows for the play;
-    hit  = number of play_outcomes rows with outcome == 'hit';
-    rate = hit / sent (0.0 when sent == 0).
+    ``sent`` = number of DISTINCT (domain, play_id) pairs ever assigned the
+    play (a domain re-assigned with a new signal_id is still ONE play, not a
+    new trial — play_outcomes is PK (domain, play_id), so the outcome
+    denominator must match that granularity or rates can exceed 1.0).
+    ``hit`` = distinct (domain, play_id) pairs whose recorded outcome is
+    'hit'. ``rate`` = hit / sent (0.0 when sent == 0).
     """
     sent_rows = db.query(
         """
-        SELECT play_id, COUNT(*) AS sent
+        SELECT play_id, COUNT(DISTINCT domain) AS sent
         FROM play_assignments
         GROUP BY play_id
         """
     )
     hit_rows = db.query(
         """
-        SELECT pa.play_id AS play_id, COUNT(*) AS hit
+        SELECT po.play_id AS play_id, COUNT(*) AS hit
         FROM play_outcomes po
-        JOIN play_assignments pa
-          ON pa.domain = po.domain AND pa.play_id = po.play_id
         WHERE po.outcome = 'hit'
-        GROUP BY pa.play_id
+        GROUP BY po.play_id
         """
     )
     sent = {r["play_id"]: r["sent"] for r in sent_rows}
@@ -70,21 +71,27 @@ def feed_calibration(db: "Database", *, min_samples: int = MIN_SAMPLES) -> None:
     """Write (source, signal_type) samples/hits into the calibration table.
 
     For each (source, signal_type) pair derivable by joining
-    play_assignments.signal_id -> signals, aggregate decided outcomes.
+    play_assignments.signal_id -> signals, aggregate DECIDED outcomes (rows
+    with a recorded play_outcomes outcome — undecided assignments are
+    neither samples nor hits). Deduped to one sample per (domain, play_id):
+    a domain re-assigned via a fresh signal_id is still the same play trial.
     Only writes when samples >= min_samples (below that: no-op —
     `blend_confidence` won't use the row anyway). Upserts on the
     (source, signal_type) PK, so re-running the feed refreshes counts.
     """
     rows = db.query(
         """
-        SELECT s.source   AS source,
-               s.signal_type AS signal_type,
-               COUNT(*)   AS samples,
+        SELECT s.source          AS source,
+               s.signal_type     AS signal_type,
+               COUNT(*)          AS samples,
                SUM(CASE WHEN po.outcome = 'hit' THEN 1 ELSE 0 END) AS hits
-        FROM play_assignments pa
-        JOIN signals s         ON s.signal_id = pa.signal_id
-        LEFT JOIN play_outcomes po
-               ON po.domain = pa.domain AND po.play_id = pa.play_id
+        FROM play_outcomes po
+        JOIN (
+            SELECT DISTINCT domain, play_id, signal_id
+            FROM play_assignments
+        ) pa ON pa.domain = po.domain AND pa.play_id = po.play_id
+        JOIN signals s ON s.signal_id = pa.signal_id
+        WHERE po.outcome IN ('hit', 'miss')
         GROUP BY s.source, s.signal_type
         HAVING COUNT(*) >= ?
         """,

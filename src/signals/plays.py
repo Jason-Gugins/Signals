@@ -154,10 +154,16 @@ def assign_plays(
     # config-overridable via plays_cfg["health_gate"]
     # (config/plays.yaml health_gate: {threshold: <float>, suppress_plays:
     # [<play_id>...]}). Defaults: threshold -0.5, suppress growth_pitch.
+    # Per-type weights come from config/health.yaml (top-level "weights" map);
+    # missing file/section → health_score's built-in defaults.
     gate_cfg = plays_cfg.get("health_gate") or {}
     threshold = float(gate_cfg.get("threshold", -0.5))
     suppressed = set(gate_cfg.get("suppress_plays") or ["growth_pitch"])
-    health, _reasons = health_score(signals)
+    try:
+        weights = (Config.load().load_yaml("health") or {}).get("weights") or None
+    except Exception:
+        weights = None
+    health, _reasons = health_score(signals, weights=weights)
     gated = health < threshold
 
     def add(play_id: str, signal: Signal | None, urgency: int) -> None:

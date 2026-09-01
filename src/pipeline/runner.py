@@ -256,6 +256,20 @@ class CollectorRunner:
                         meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
                     except Exception:
                         meta["watches"] = []
+                if adapter.key == "wayback" and (task.meta or {}).get("kind") == "pricing":
+                    # Pricing change detection needs the PREVIOUS pricing
+                    # snapshot for this domain (different doc_id, earlier
+                    # fetch) to diff against. The adapter surface cannot
+                    # reach the rawstore, so the runner injects it here —
+                    # mirrors the federal_register watches pattern. No prior
+                    # snapshot -> meta stays absent -> adapter conservatively
+                    # emits nothing.
+                    try:
+                        meta["prev_pricing_html"] = self._prev_pricing_html(
+                            task.domain, exclude_doc_id=result.doc.doc_id
+                        )
+                    except Exception:
+                        logger.exception("prev pricing lookup failed for {}", task.domain)
                 # Meta defaults are per marketplace site. The Capterra adapter
                 # injects its own defaults (review_lookback_days=90,
                 # max_review_pages=3) in plan(), so setdefault never overrides
@@ -729,6 +743,32 @@ class CollectorRunner:
                     pass
             return result
         return None
+
+    def _prev_pricing_html(self, domain: str, *, exclude_doc_id: str) -> Optional[str]:
+        """Most recent wayback pricing snapshot body for this domain, EXCLUDING
+        the doc currently being parsed (that's the 'current' side of the diff).
+
+        Looks up prior pricing docs in the documents table (kind='pricing'
+        tasks fetch a /pricing snapshot URL) and reads the body through the
+        rawstore. Returns None when no prior snapshot exists — the caller
+        then skips the diff (never fabricate a comparison).
+        """
+        rows = self.db.query(
+            """
+            SELECT doc_id, url FROM documents
+            WHERE source = 'wayback' AND domain = ? AND doc_id != ?
+              AND url LIKE '%/pricing%'
+            ORDER BY fetched_at DESC
+            LIMIT 1
+            """,
+            (domain, exclude_doc_id),
+        )
+        if not rows:
+            return None
+        doc = self.store.get(rows[0]["doc_id"])
+        if doc is None or not doc.body:
+            return None
+        return doc.body.decode("utf-8", "replace")
 
     def _persist(self, account, source, cands, doc) -> int:
         if not cands:

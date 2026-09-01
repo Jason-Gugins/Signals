@@ -496,6 +496,34 @@ def status(ctx):
     click.echo(render_status(status_report(Database(ctx.obj["config"].storage.db_path), taxonomy=None)))
 
 
+@main.command(name="plays")
+@click.option("--outcome", "outcome", type=click.Choice(["hit", "miss"]), required=True)
+@click.option("--domain", required=True)
+@click.option("--play", "play_id", required=True)
+@click.pass_context
+def plays(ctx, outcome, domain, play_id):
+    """Record a local play outcome (hit|miss) for backtesting."""
+    from src.signals.backtest import record_outcome
+
+    db = Database(ctx.obj["config"].storage.db_path)
+    record_outcome(db, domain, play_id, outcome)
+    click.echo(f"recorded outcome={outcome} domain={domain} play={play_id}")
+
+
+@main.command(name="plays-report")
+@click.pass_context
+def plays_report(ctx):
+    """Print per-play hit rates (read-only)."""
+    from src.signals.backtest import play_hit_rates
+
+    db = Database(ctx.obj["config"].storage.db_path)
+    rates = play_hit_rates(db)
+    click.echo("play_id\tsent\thit\trate")
+    for play_id in sorted(rates):
+        r = rates[play_id]
+        click.echo(f"{play_id}\t{r['sent']}\t{r['hit']}\t{r['rate']:.3f}")
+
+
 @main.command()
 @click.option("--no-network", is_flag=True)
 @click.pass_context

@@ -392,11 +392,31 @@ def _create_entity_aliases(conn: sqlite3.Connection) -> None:
     )
 
 
+def _create_play_outcomes(conn: sqlite3.Connection) -> None:
+    """v5 (Task 16): play_outcomes — local outcome log per assigned play.
+
+    PK (domain, play_id): re-recording the same play for the same domain
+    upserts, so the latest decision wins.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS play_outcomes (
+            domain     TEXT NOT NULL,
+            play_id    TEXT NOT NULL,
+            outcome    TEXT NOT NULL,     -- hit|miss
+            decided_at TEXT,
+            PRIMARY KEY (domain, play_id)
+        )
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (1, "additive NEW_COLUMNS pass (g2_slug, nps_score, helpful_votes, source, app_store_id, play_id, subreddit)", _add_missing_columns),
     (2, "create calibration table (per-source/per-signal-type hit rates)", _create_calibration),
     (3, "add fetch_log.error_class (fetch error taxonomy)", _add_fetch_log_error_class),
     (4, "create entity_aliases table (manual/config-driven alias map, never auto-merged)", _create_entity_aliases),
+    (5, "create play_outcomes table (local play outcome backtesting)", _create_play_outcomes),
 ]
 
 LATEST_VERSION: int = max(v for v, _, _ in MIGRATIONS)

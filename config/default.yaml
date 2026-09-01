@@ -72,3 +72,7 @@ pipeline:
   default_lookback_days: 365
   score_on_collect: true
   alert_on_new_primary: true
+
+rerank:
+  enabled: false               # optional cross-encoder rerank (ms-marco-MiniLM); requires signals[rerank] extra
+  floor: 0.35                  # drop news items scoring below this relevance (0..1)

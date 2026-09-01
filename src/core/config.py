@@ -6,6 +6,8 @@ Dataclass-based config with nested sections matching config/default.yaml.
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -135,6 +137,10 @@ class Config:
     github_token: Optional[str] = None
     alert_webhook_url: Optional[str] = None
     alert_webhook_timeout_s: float = 10.0
+    # Outbound alert webhooks: list of {url, format: "slack"|"json", secret_env?}.
+    # secret_env is the NAME of an env var holding the signing secret (resolved at
+    # send time) — never the secret itself. Populated from ALERT_WEBHOOKS_JSON.
+    alert_webhooks: list = field(default_factory=list)
     config_dir: str = "config"
 
     _yaml_cache: dict[str, dict] = field(default_factory=dict, init=False, repr=False)
@@ -209,6 +215,27 @@ def _is_dataclass_instance(obj) -> bool:
     return hasattr(obj, "__dataclass_fields__")
 
 
+def _parse_alert_webhooks_json(raw: str) -> list:
+    """Parse ALERT_WEBHOOKS_JSON: a JSON array of {url, format, secret_env?}.
+    Anything invalid (bad JSON, not an array, non-dict entries) -> [] + warning."""
+    logger = logging.getLogger(__name__)
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning("ALERT_WEBHOOKS_JSON ignored: invalid JSON (%s)", exc)
+        return []
+    if not isinstance(parsed, list):
+        logger.warning("ALERT_WEBHOOKS_JSON ignored: expected a JSON array of objects")
+        return []
+    out = []
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            logger.warning("ALERT_WEBHOOKS_JSON entry ignored: expected an object, got %r", entry)
+            continue
+        out.append(entry)
+    return out
+
+
 def _apply_env_overrides(config: Config) -> None:
     email = os.environ.get("SIGNALS_CONTACT_EMAIL")
     if email:
@@ -219,6 +246,9 @@ def _apply_env_overrides(config: Config) -> None:
     webhook = os.environ.get("ALERT_WEBHOOK_URL")
     if webhook:
         config.alert_webhook_url = webhook
+    webhooks_raw = os.environ.get("ALERT_WEBHOOKS_JSON")
+    if webhooks_raw:
+        config.alert_webhooks = _parse_alert_webhooks_json(webhooks_raw)
     webhook_timeout = os.environ.get("ALERT_WEBHOOK_TIMEOUT_S")
     if webhook_timeout:
         try:

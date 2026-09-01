@@ -43,6 +43,11 @@ def enabled_sources(config: Config) -> list[SourceAdapter]:
 
 
 ATS_PREFIX = "ats_"
+# Careers-page fallback adapter: fires ONLY for accounts with no real ATS
+# (both ats_vendor and ats_token empty) — mutually exclusive with the
+# vendor-matched boards below, so the same open roles are never harvested
+# twice (no duplicate job rows).
+_CAREERS_FALLBACK_KEY = "ats_careers_page"
 COLLECTED_VENDORS = {
     "greenhouse",
     "lever",
@@ -51,12 +56,22 @@ COLLECTED_VENDORS = {
     "workable",
     "recruitee",
     "workday",
+    "rippling",
+    "jobvite",
+    "breezy",
+    "teamtailor",
 }
 
 
 def _ats_vendor_ok(adapter: SourceAdapter, account: Account) -> bool:
     if not adapter.key.startswith(ATS_PREFIX):
         return True
+    if adapter.key == _CAREERS_FALLBACK_KEY:
+        # Special case: the generic careers scrape runs only when the
+        # account has NO ATS at all (no vendor, no token).
+        return not (account.ats_vendor or "").strip() and not (
+            account.ats_token or ""
+        ).strip()
     vendor = (account.ats_vendor or "").casefold()
     if vendor not in COLLECTED_VENDORS:
         return False

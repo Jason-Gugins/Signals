@@ -158,6 +158,19 @@ class CollectorRunner:
         cursor_row = self._cursor(adapter.key, key) or {}
         cursor = cursor_row.get("cursor")
         pending_follow: list[FetchTask] = []
+        # Per-domain open-role counts for the hiring-velocity trend signal,
+        # accumulated across ALL pagination passes: every page's jobs land
+        # here unconditionally so the final snapshot is the FULL cycle
+        # count, not total-minus-page-1. The trend COMPUTE step below is
+        # gated on no-follow-remaining instead of the accumulation.
+        job_harvests: dict[str, list] = {}
+        # ALL jobs harvested this cycle (every pass, every task). ATS
+        # persistence (upsert + mark_closed + snapshot) is deferred to ONE
+        # call after the pass loop using this complete set: marking closed
+        # per page/task would close earlier pages' jobs (each call only
+        # knows its own keys) — a pre-existing paginated-ATS bug that this
+        # accumulation also fixes.
+        cycle_jobs: list = []
         # Per-source pagination budget: sites.<site>.max_review_pages drives
         # how many follow passes the runner allows for this marketplace source
         # (g2 default 5, capterra default 3 -> max_passes = pages + 1).
@@ -189,7 +202,6 @@ class CollectorRunner:
             follow: list[FetchTask] = []
             tech_harvests: list = []
             review_harvests: dict[str, list] = {}  # slug -> page-1 reviews
-            job_harvests: dict[str, list] = {}  # domain -> final-page jobs
             for task, result in results:
                 if result is None:
                     continue
@@ -263,13 +275,14 @@ class CollectorRunner:
                 all_cands.extend(cands)
                 follow.extend(adapter.follow_tasks(result.doc, account, meta) or [])
                 jobs = adapter.harvest_jobs(result.doc, account, meta) or []
-                self._persist_jobs(adapter, account, jobs, now, more_pages=bool(follow))
-                # Track per-domain open-role counts for the hiring-velocity
-                # trend signal. More-page passes accumulate pages, so only
-                # the final (no further follow tasks) result has the full
-                # cycle snapshot; mid-paging diffs would be spurious.
-                if not follow and jobs:
+                # Accumulate EVERY page's jobs for the hiring-velocity trend
+                # signal — pagination passes are additive, so the snapshot
+                # after the final pass is the full open-role count. ATS
+                # persistence is deferred to the single end-of-cycle call
+                # below (mark_closed must see the complete key set).
+                if jobs:
                     job_harvests.setdefault(account.domain, []).extend(jobs)
+                    cycle_jobs.extend(jobs)
                 harvest = getattr(adapter, "harvest_tech", None)
                 if callable(harvest):
                     tech_harvests.append(harvest(result.doc, account, meta) or [])
@@ -347,7 +360,10 @@ class CollectorRunner:
                 save_stats(stats_state)
             # Hiring-velocity trend signals: diff this cycle's per-domain
             # open-role count against the previous cycle's stored stats.
-            if job_harvests:
+            # Only compute when pagination is FINISHED (no follow tasks
+            # remain) — mid-paging snapshots would under-count, but the
+            # accumulation above already captured every page's jobs.
+            if job_harvests and not follow:
                 from src.sources.jobsignals.trend import (
                     compute_stats,
                     hiring_trend_signal,
@@ -372,6 +388,7 @@ class CollectorRunner:
                         curr,
                         today=now.date().isoformat(),
                         min_delta_pct=float(ht_cfg.get("min_delta_pct", 25.0)),
+                        min_count=int(ht_cfg.get("min_count", DEFAULT_MIN_HIRING_COUNT)),
                     )
                     stats_state[key] = curr
                     if cand is not None:
@@ -424,6 +441,11 @@ class CollectorRunner:
             if pass_i + 1 < max_passes and cursor and last_doc is not None:
                 continue
             break
+        # End-of-cycle ATS persistence: ONE upsert with the COMPLETE cycle
+        # job set, then mark_closed + snapshot. Doing this per page/task
+        # would close earlier pages' jobs (each call only sees its own keys).
+        if cycle_jobs:
+            self._persist_jobs(adapter, account, cycle_jobs, now, more_pages=False)
         extra = adapter.local_harvest(
             db=self.db, account=account, today=now.date(),
             task_meta={"today": now.date().isoformat(), "registry": self.registry},
@@ -836,25 +858,19 @@ def _attach_fetch_context(exc: BaseException, result) -> None:
 
 
 ATS_PREFIX = "ats_"
+# Hiring-trend minimum absolute open-role count (MINOR b): a 3->4 jump is
+# +33% but noise; below this floor no hiring_surge fires (config-overridable
+# via jobsignals.hiring_trend.min_count).
+DEFAULT_MIN_HIRING_COUNT = 5
 _CF_BYPASS_SOURCES = {"techstack", "marketplace_g2", "marketplace_capterra", "marketplace_trustradius"}
-COLLECTED_VENDORS = {
-    "greenhouse",
-    "lever",
-    "ashby",
-    "smartrecruiters",
-    "workable",
-    "recruitee",
-    "workday",
-}
 
 
 def _ats_vendor_ok(adapter, account) -> bool:
-    if not str(getattr(adapter, "key", "")).startswith(ATS_PREFIX):
-        return True
-    vendor = (getattr(account, "ats_vendor", None) or "").casefold()
-    if vendor not in COLLECTED_VENDORS:
-        return False
-    return adapter.key == f"{ATS_PREFIX}{vendor}"
+    # Single source of truth: src/sources/registry.py owns the vendor gate
+    # (COLLECTED_VENDORS + the ats_careers_page no-ATS special case).
+    from src.sources.registry import _ats_vendor_ok as _registry_vendor_ok
+
+    return _registry_vendor_ok(adapter, account)
 
 
 def _requires_met(adapter, account) -> bool:

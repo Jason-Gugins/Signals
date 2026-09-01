@@ -175,3 +175,25 @@ def test_normalized_match_before_fuzzy(tmp_path: Path) -> None:
 def test_resolve_still_misses_unknown_name(tmp_path: Path) -> None:
     reg = _registry(tmp_path)
     assert reg.resolve(name="Totally Unrelated Widgets LLC") is None
+
+
+def test_normalized_name_collision_falls_through(tmp_path):
+    """Two name-alias rows that normalize_entity to the same key but point at
+    DIFFERENT accounts are ambiguous: _normalized_name must return None (the
+    caller falls through to fuzzy) instead of whichever row comes first."""
+    from src.core.db import Database
+    from src.core.models import Account
+    from src.identity.registry import AccountRegistry
+
+    db = Database(tmp_path / "r.db")
+    reg = AccountRegistry(db)
+    reg.upsert(Account(domain="acme.com", name="Acme Corp"))
+    reg.upsert(Account(domain="acme-2.com", name="Acme Co"))
+    # 'acme' -> acme-2.com (last-write on equal normalize_name) and
+    # 'acme incorporated' -> acme.com; BOTH normalize_entity to 'acme'.
+    reg.add_alias("Acme Incorporated", "name", "acme.com", source="test")
+    assert reg._normalized_name("Acme Holdings") is None  # ambiguous tie
+    # An alias that normalizes to a key matching only ONE account resolves.
+    # 'Inc/Corp/Co' all collapse to 'acme', so use a distinct token:
+    reg.add_alias("Zeta Analytics", "name", "acme.com", source="test")
+    assert reg._normalized_name("Zeta Analytics Ltd").domain == "acme.com"

@@ -190,6 +190,33 @@ def test_seed_disqualifier_persists_zero_multiplier(tmp_path):
     assert row.disqualify_reason == "Competitor"
 
 
+def test_reseed_without_rules_preserves_computed_icp_fit(tmp_path):
+    """MAJOR regression: the first registry.upsert wrote Account's 1.0 default
+    icp_fit with COALESCE, so re-seeding the same domain clobbered a
+    previously computed ICP fit (1.375 -> 1.0) on every re-seed."""
+    reg = _registry(tmp_path)
+    csv_path = tmp_path / "seeds.csv"
+    csv_path.write_text(SEED_CSV, encoding="utf-8")
+
+    stats = seed_from_csv(reg, csv_path, icp_rules=RULES)
+    assert stats.created == 1
+    row = reg.get("gong.io")
+    assert row.icp_fit == pytest.approx(1.375)
+    assert sorted(row.icp_reasons) == ["Headcount in ICP band", "Serviceable geography"]
+
+    # Re-seed WITHOUT rules: the computed fit must survive untouched.
+    stats2 = seed_from_csv(reg, csv_path)
+    assert stats2.updated == 1
+    row2 = reg.get("gong.io")
+    assert row2.icp_fit == pytest.approx(1.375)
+    assert sorted(row2.icp_reasons) == ["Headcount in ICP band", "Serviceable geography"]
+
+    # And with empty rules dict — same guarantee.
+    seed_from_csv(reg, csv_path, icp_rules={})
+    row3 = reg.get("gong.io")
+    assert row3.icp_fit == pytest.approx(1.375)
+
+
 def test_score_path_uses_stored_icp_fit(tmp_path):
     orch = _orch(tmp_path, with_icp=True)
     csv_path = tmp_path / "seeds.csv"

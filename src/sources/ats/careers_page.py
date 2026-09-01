@@ -1,17 +1,12 @@
 """Generic /careers HTML scrape fallback — last resort when no ATS matches.
 
-**Gating contract (how the runner knows to fire this only without an ATS):**
-every real ATS adapter declares ``requires = ("ats_token",)`` and the runner's
-``_requires_met`` (mirrored by ``sources_for_account`` in
-``src/sources/registry.py``) skips any adapter whose ``requires`` fields are
-missing on the account. This adapter flips that around: ``requires = ()`` —
-its ``plan()`` returns a task for any account — but it is only *enabled* for
-accounts with no ``ats_token``/``ats_vendor`` because the parent wiring
-(config/sources.yaml ⚙-B) lists it after the ATS adapters and the vendor gate
-(``_ats_vendor_ok``) rejects it the same way it accepts vendor-matched ones.
-Until that wiring lands, tests here pin the gate semantics:
-``plan()`` always returns the careers URL; the caller's ``requires``/vendor
-gate decides whether this source runs.
+**Gating contract (enforced in ``src/sources/registry.py``):**
+``_ats_vendor_ok`` special-cases the ``ats_careers_page`` key — it passes the
+vendor gate ONLY when the account's ``ats_vendor`` AND ``ats_token`` are both
+empty, i.e. no real ATS board applies. This makes the fallback mutually
+exclusive with every ``ats_*`` adapter (no duplicate job rows). Its
+``requires = ()`` means ``plan()`` itself imposes no field gate; the vendor
+special case is the gate.
 
 ``plan()`` uses ``account.careers_url`` when set, else ``https://{domain}/careers``.
 """
@@ -80,6 +75,12 @@ def parse_careers_page(html: str, base_url: str) -> list[JobPost]:
         # Conservative: stay on the careers-page host — offsite job boards
         # (ATS-hosted widgets etc.) are other sources' job.
         if urlparse(url).hostname != urlparse(base_url).hostname:
+            continue
+        # Self-referential nav: '/careers/' and '/careers' links on the
+        # careers index are navigation, not open roles.
+        u_path = urlparse(url).path.rstrip("/")
+        b_path = urlparse(base_url).path.rstrip("/")
+        if not u_path or u_path == b_path:
             continue
         slug = _slug_from_href(url)
         if not slug:

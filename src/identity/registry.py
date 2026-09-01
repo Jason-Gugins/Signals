@@ -144,16 +144,25 @@ class AccountRegistry:
         return None
 
     def _normalized_name(self, name: str) -> Optional[Account]:
-        """Match a name against known name-aliases by normalize_entity equality."""
+        """Match a name against known name-aliases by normalize_entity equality.
+
+        Ties are ambiguous: two accounts whose aliases normalize identically
+        ('Acme Co' vs 'Acme Corp' -> 'acme') must NOT resolve to whichever
+        row comes first — return None so the caller falls through to fuzzy
+        disambiguation instead of a nondeterministic merge.
+        """
         key = normalize_entity(name)
         if not key:
             return None
         rows = self.db.query(
             "SELECT alias, domain FROM account_aliases WHERE alias_kind = 'name'"
         )
+        hits: list[str] = []
         for row in rows:
-            if normalize_entity(row["alias"]) == key:
-                return self.get(row["domain"])
+            if normalize_entity(row["alias"]) == key and row["domain"] not in hits:
+                hits.append(row["domain"])
+        if len(hits) == 1:
+            return self.get(hits[0])
         return None
 
     def add_entity_alias(self, alias: str, domain: str) -> None:

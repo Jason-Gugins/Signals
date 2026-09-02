@@ -87,7 +87,8 @@ def test_file_destination_writes_digest_text(tmp_path):
     cfg = _config(tmp_path)
     dest = FileDestination(filename="digest.txt")
     out = dest.deliver("DIGEST BODY", cfg)
-    assert (tmp_path / "alerts" / "digest.txt").read_text(encoding="utf-8") == "DIGEST BODY"
+    # Append semantics (P3 review fix): a trailing newline is normalized in.
+    assert (tmp_path / "alerts" / "digest.txt").read_text(encoding="utf-8") == "DIGEST BODY\n"
     assert out.endswith("digest.txt")
 
 

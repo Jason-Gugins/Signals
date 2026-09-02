@@ -141,6 +141,7 @@ class StorageConfig:
     digests_dir: str = "data/digests"
     recon_dir: str = "data/recon"
     keep_raw_days: int = 400
+    raw_quota_mb: float | None = None  # null = disabled
 
 
 @dataclass

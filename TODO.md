@@ -96,37 +96,58 @@ enable via `signals[rerank]` extra + `rerank.enabled: true`.
 
 ## P3 — Polish
 
-- [ ] **G2 NPS/helpful-votes markup discovery** — fields exist, return None (no per-card markup found Aug 2026); periodic re-probe to map selectors when G2 ships them.
-- [ ] **G2 deep-reviews strategy** — `deep_reviews: true` is slow browser-tier; consider bounding (only ≥4/≤2-star reviews expanded).
-- [ ] **"Empty since" persistence** — bookkeeping table (companion to the P1 cadence-backoff item) for multi-cycle empty products.
-- [ ] **Capterra consent-gate handling** — OneTrust banner is EU-geo only today; tolerate `#onetrust-accept-btn-handler` + add a `consent` state to the selfcheck contract.
-- [ ] **Capterra review-id stability** — ids hash (slug, reviewer, posted); pin date-normalization parity so re-renders don't churn natural keys into duplicate "new" rows.
-- [ ] **TrustRadius/other-marketplace schema unification** — common `MarketplaceReview` base once TrustRadius lands.
-- [ ] **WARN notices state coverage** — 5 state parsers (ca/il/ny/tx/wa); add fl, oh, mi, nj… (pure parsing work).
-- [ ] **crt.sh / wayback cadence tuning** — longest cadences; add jitter + last-success backoff so slow public mirrors don't pin runs.
-- [ ] **Reddit mirror fallbacks** — old.reddit .json mirrors if JSON endpoints block.
-- [ ] **`sources.yaml` config lint** — validator warning on keys adapters don't consume (e.g. undocumented `serp_keywords`, `jobsignals` thresholds).
-- [ ] **Per-source `resolve` commands** — `resolve --g2` exists; Capterra resolver is the P1 item; keep others config-manual.
-- [ ] **ML-DSA sig-alg support** — track BoringSSL upstream; enable Chrome's post-quantum sig-algs when supported (non-PQ fallback currently in `tls.rs`).
-- [ ] **Happy Eyeballs live validation** — `eyeballs.rs` races v6/v4 but has no live dual-stack end-to-end test.
-- [ ] **Headed-fallback unattended path** — DataDome tier 4 needs manual intervention; bounded auto-retry with session capture so scheduled runs don't hang.
-- [ ] **Startup config validation** — `doctor` validates env; extend to config keys, engine availability, browser install, DB integrity.
-- [ ] **`data/raw` disk-usage guard** — size/quota alerting alongside keep-days pruning.
-- [ ] **Release/versioning process** — changelog, tags, CI smoke of `pip install -e .` + `init`.
-- [ ] **Test date determinism** — `orchestrator._today()` hardcodes `date(2026, 8, 16)`; inject clock.
-- [ ] **Logging file sink** — rotating run-scoped log files matching `runlog.py` run IDs.
-- [ ] **Alert routing rules** — per-cohort/per-tier routing (tier 1 → immediate, tier 3 → digest) instead of one global webhook.
-- [ ] **Brief personalization per persona** — variant briefs (CRO vs CTO) from existing plays.yaml personas.
-- [ ] **Export destination plugins** — destination interface (file, S3, Sheets, webhook) so new sinks are config-only.
-- [ ] **Multi-user server / web UI** (Deferred) — thin read-only API + dashboard over SQLite.
-- [ ] **Bi-directional CRM sync** — read dispositions back to feed play-hit-rate backtesting.
-- [ ] **Superseded-signal lifecycle** — per-signal-type expiry so stale signals re-validate or drop.
-- [ ] **Tier-4 nurture digest** — dormant-account cadence instead of one-off plays.
-- [ ] **Google Trends interest signal** (Deferred) — category demand timing.
-- [ ] **ASN IP→org enrichment** (Deferred) — hosting/CDN vendor resolution from IP ranges.
-- [ ] **Legal/regulatory exposure scoring** — derive account-level compliance-risk summaries from federal_register/WARN.
-- [ ] **2Captcha provider setup checklist** — create account, key in `.env`, verify `TurnstileTaskProxyless` vs `AntiCloudflareTaskProxyless` against a real managed challenge, test headed fallback (`CLOUDFLARE_HEADED_FALLBACK=true`).
-- [ ] **Cloudflare config checklist** — `browser.enabled`, `cloudflare.enabled`, `bypass_strategy: browser_first`, proxy consistency; `rm data/state/session.json` no longer required (fixed: fresh browser contexts).
+**Status: DELIVERED (2026-09-02)** — 16 items in 5 batches, two-stage reviewed
+per batch, review majors fixed before the next batch. Commits `8834511`…`8404701`
+(release: v0.2.0).
+
+- [x] **Test date determinism** (`8834511`) — injectable orchestrator clock (`set_today`), hardcoded `_today` removed; autouse reset fixture (`fb549bf`).
+- [x] **`sources.yaml` config lint** (`0c4ac05`) — `doctor` warns on keys no adapter consumes; shipped config lints clean.
+- [x] **Logging file sink** (`f1fc52c`, `28221d8`) — run-scoped rotating files matching run IDs.
+- [x] **WARN notices state coverage** (`6e6f7e0`, hardening `84f4a31`) — FL (reactwarn table, concatenated-cell split), NJ (XLSX archive), OH (listing-only, PDF details deferred); MI deferred (JS-rendered). 8 jurisdictions registered.
+- [x] **crt.sh / wayback cadence tuning** (`1524e1a`) — jitter + backoff parity proven for both; wayback cadence 336h.
+- [x] **`data/raw` disk-usage guard** (`1524e1a`) — `raw_quota_mb` (default off) surfaced in status + doctor.
+- [x] **Capterra consent-gate + review-id stability** (`cf476e3`, `84f4a31`) — OneTrust tolerated; review-id hashes the normalized date with legacy-row adoption on scheme change.
+- [x] **Marketplace schema unification + deep-reviews bounding** (`fc405d3`, `8404701`) — `MarketplaceReview` normalizing base; `deep_reviews_bound: extreme` default (null = legacy).
+- [x] **Startup config validation** (`e37f9f9`) — doctor validates config keys, engine availability, browser install; never raises.
+- [x] **`data/raw` disk-usage guard** — see above (`1524e1a`).
+- [x] **Alert routing rules** (`4ab9211`) — per-tier routes (`ALERT_ROUTES_JSON`), legacy single-webhook unchanged.
+- [x] **Brief personalization per persona** (`3c5c170`, persona regex fix `f1f9175`) — revenue/tech/exec framing from contact titles.
+- [x] **Export destination plugins** (`4ab9211`, wiring `f1f9175`) — config-driven sinks reusing the signed delivery path.
+- [x] **Superseded-signal lifecycle + tier-4 nurture digest** (`09efe64`, digest wiring `f1f9175`) — per-type `supersede_days` soft-expiry at scoring; `digest --tier-4` includes dormant accounts with no plays.
+- [x] **Release/versioning process** (`f1f9175`…`8404701`) — CHANGELOG.md, v0.2.0 tag, CI install-smoke job.
+- [x] **G2 NPS/helpful-votes markup discovery** — probe outcome (2026-09-02): no public selectors exist for the elv-* DOM (searched gists/actors/tutorials/design-system repo); re-probe requires live authenticated capture on a logged-in machine. Tracked below as a manual item.
+- [x] **G2 deep-reviews strategy** — delivered as the extreme-rating bound above.
+
+### Post-P2 feature (pre-P3): news relevance reranking
+`ae38bd2`…`29ecfcd` — optional `ms-marco-MiniLM-L-6-v2` cross-encoder via `signals[rerank]`; off by default.
+
+### P3 review-fix ledger
+`fb549bf` (B1: adhoc funding clock bypass + autouse reset fixture), `84f4a31` (B2: review-id adoption, FL right-anchored split, quota in status, warn hardening), `f1f9175`/`8404701` (B3+4: tier-4 flag wiring, supersede-aware digests, destinations wiring, deep-reviews null contract, persona regex, defensive parsing).
+
+---
+
+## Deferred — not scheduled
+
+- **Multi-user server / web UI** — thin read-only API + dashboard over SQLite.
+- **Google Trends interest signal** — category demand timing.
+- **ASN IP→org enrichment** — hosting/CDN vendor resolution from IP ranges.
+- **Bi-directional CRM sync** — read dispositions back to feed play-hit-rate backtesting.
+- **Legal/regulatory exposure scoring** — account-level compliance-risk summaries from federal_register/WARN.
+- **Reddit mirror fallbacks** — old.reddit .json mirrors if JSON endpoints block (blocked until `community_reddit` is enabled).
+- **Per-source `resolve` commands** — `resolve --g2`/`--capterra` exist; others stay config-manual.
+- **Headed-fallback unattended path** — DataDome tier 4 auto-retry with session capture.
+- **ML-DSA sig-alg support** — track BoringSSL upstream; post-quantum sig-algs when supported.
+
+## Manual checklists (human setup, not code)
+
+- **2Captcha provider setup** — create account, key in `.env`, verify `TurnstileTaskProxyless` vs `AntiCloudflareTaskProxyless` against a real managed challenge, test headed fallback (`CLOUDFLARE_HEADED_FALLBACK=true`).
+- **Cloudflare config checklist** — `browser.enabled`, `cloudflare.enabled`, `bypass_strategy: browser_first`, proxy consistency.
+- **G2 NPS/helpful-votes markup capture** — live authenticated capture of a G2 reviews page to hunt per-card NPS/helpful-vote selectors (2026-09-02 research found no public selectors; elv-* classes are hashed per deploy).
+
+## P3 remainder (needs engine or manual validation)
+
+- **Happy Eyeballs live validation** — `eyeballs.rs` races v6/v4 but has no live dual-stack end-to-end test.
+- **Capterra consent-gate EU verification** — OneTrust tolerance shipped (`cf476e3`); live EU-geo verification manual.
 
 ---
 

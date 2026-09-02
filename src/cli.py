@@ -269,6 +269,14 @@ def _digest_paths(ctx, period, domains, include_tier4=False) -> list[str]:
     cfg = ctx.obj["config"]
     scoring = cfg.load_yaml("scoring")
     plays_cfg = cfg.load_yaml("plays")
+    # Supersede-aware (parity with the score path in orchestrator.score):
+    # expired signals must not inflate tier/score/signal groups in digests.
+    from src.signals.lifecycle import load_supersede_map, partition_signals
+
+    try:
+        supersede_map = load_supersede_map(cfg.load_yaml("signals"))
+    except FileNotFoundError:
+        supersede_map = {}
     calibration_stats = load_stats(orch.db)
     today = _today()
     # Window the digest: daily = last 1 day, weekly = last 7 (inclusive of
@@ -281,6 +289,9 @@ def _digest_paths(ctx, period, domains, include_tier4=False) -> list[str]:
     paths = []
     for acct in orch._accounts(domains=list(domains) or None, cohort=ctx.obj["cohort"]):
         signals = orch.signal_store.for_account(acct.domain)
+        signals, _expired = partition_signals(
+            signals, today=today, supersede_days_by_type=supersede_map
+        )
         combos = evaluate_combos(signals, scoring.get("combos") or [], today=today)
         result = score_account(acct, signals, taxonomy=orch.taxonomy, cfg=scoring, today=today, combos=combos, calibration_stats=calibration_stats)
         tier = assign_tier(signals, result, taxonomy=orch.taxonomy, cfg=scoring, today=today)
@@ -307,9 +318,10 @@ def digest(ctx, period, domains, email_flag, to_addr, include_tier4):
     cfg = ctx.obj["config"]
     if include_tier4:
         ctx.obj["include_tier4"] = True
-    # Flag is passed via ctx.obj (not a kwarg) so callers/tests that
-    # monkeypatch _digest_paths(ctx, period, domains) keep working.
-    paths = _digest_paths(ctx, period, domains)
+    # Flag reaches _digest_paths via ctx.obj (callers/tests that monkeypatch
+    # _digest_paths(ctx, period, domains) keep working; the kwarg is read
+    # from ctx.obj here so the flag is never dropped on the floor).
+    paths = _digest_paths(ctx, period, domains, include_tier4=ctx.obj.get("include_tier4", False))
     for p in paths:
         click.echo(p)
     if email_flag:
@@ -339,6 +351,56 @@ def _brief_paths(ctx, domains, tier_max) -> list[str]:
     )
 
 
+def _deliver_alert_destinations(ctx) -> list[str]:
+    """Plan Task 14 wiring: deliver new alerts through every configured destination.
+
+    Reads ``exports.destinations`` via load_destinations (default resolves to a
+    single file destination appending to alerts.jsonl — the pre-plugin file
+    convention — so the default adds no double-write). Webhook destinations
+    delegate to the existing signed deliver_alerts path. Alerts whose natural
+    key is already present in alerts.jsonl are skipped so repeated same-day
+    exports do not duplicate file rows.
+
+    Returns per-destination outcome strings.
+    """
+    from src.export.alerts import _natural_key, build_alerts
+    from src.export.destinations import load_destinations
+    from src.pipeline.orchestrator import _today
+
+    cfg = ctx.obj["config"]
+    alerts = build_alerts(ctx.obj["get_orch"]().db, since=_today().isoformat(), min_tier=1)
+    if not alerts:
+        return []
+    # File-side dedupe: drop alerts already recorded in alerts.jsonl.
+    try:
+        alerts_path = Path(getattr(cfg.storage, "alerts_dir", "data/alerts")) / "alerts.jsonl"
+        seen: set[tuple] = set()
+        if alerts_path.exists():
+            import json as _json
+
+            for line in alerts_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = _json.loads(line)
+                    seen.add((row.get("domain"), row.get("signal_type"), row.get("at")))
+                except ValueError:
+                    continue
+        alerts = [a for a in alerts if _natural_key(a) not in seen]
+    except Exception:
+        logger.exception("alerts.jsonl dedupe read failed; delivering all")
+    if not alerts:
+        return []
+    results = []
+    for dest in load_destinations(cfg):
+        try:
+            results.append(dest.deliver(alerts, cfg))
+        except Exception:
+            logger.exception("destination {} failed", type(dest).__name__)
+    return results
+
+
 @main.command(name="export")
 @click.option("--format", "fmt", type=click.Choice(["csv", "json"]), default="csv")
 @click.option("--what", default="all")
@@ -347,6 +409,10 @@ def export_cmd(ctx, fmt, what):
     paths = ctx.obj["get_orch"]().export(cohort=ctx.obj["cohort"], fmt=fmt, what=what)
     for p in paths:
         click.echo(p)
+    # Config-driven destination delivery (Plan Task 14): no-op unless alerts
+    # exist; default config resolves to the plain alerts.jsonl file sink.
+    for r in _deliver_alert_destinations(ctx):
+        click.echo(r)
 
 
 @main.command(name="g2-export")

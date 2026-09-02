@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from src.sources.marketplace.base import coerce_rating
+from src.sources.marketplace.deep_reviews import normalize_bound, should_expand
 
 
 _SLUG_RE = re.compile(r"/products/([^/]+)/reviews")
@@ -112,6 +113,22 @@ class G2Review:
     # against live captures), so extraction yields None until real markup maps.
     nps_score: Optional[int] = None
     helpful_votes: Optional[int] = None
+
+
+def filter_deep_reviews(reviews: list, bound) -> list:
+    """Apply the deep-reviews bound to parsed G2 reviews. Pure.
+
+    Wiring note: G2's Show More / next-page expansion is page-count-based
+    (``follow_tasks`` follows pages while reviews exist), not per-review — so
+    the bound is enforced at the review-filter level in the G2 adapter
+    (``MarketplaceG2Source.parse``) instead of a per-review click decision.
+    ``normalize_bound`` maps the config value; ``bound=None`` (explicit
+    ``deep_reviews_bound: null``) keeps every review (legacy behavior).
+    """
+    b = normalize_bound(bound)
+    if b is None:
+        return list(reviews)
+    return [r for r in reviews if should_expand(r.rating, b)]
 
 
 def parse_g2_reviews(html: str, url: str) -> list[G2Review]:

@@ -283,6 +283,12 @@ class CollectorRunner:
                         meta.setdefault("review_lookback_days", site_cfg.get("review_lookback_days", lookback_d))
                         meta.setdefault("max_review_pages", site_cfg.get("max_review_pages", pages_d))
                         meta.setdefault("click_show_more", site_cfg.get("deep_reviews", False))
+                        # Deep-reviews bound: only injected when Show More
+                        # expansion is on, so parse() can apply the extreme-
+                        # rating filter at the review-filter level. Explicit
+                        # null config value is preserved (legacy bound-free).
+                        if site_cfg.get("deep_reviews", False):
+                            meta.setdefault("deep_reviews_bound", site_cfg.get("deep_reviews_bound", "extreme"))
                     except Exception:
                         meta.setdefault("review_lookback_days", lookback_d)
                 cands = adapter.parse(result.doc, account, meta)

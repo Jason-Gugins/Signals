@@ -176,6 +176,15 @@ class MarketplaceG2Source(SourceAdapter):
         reviews = _parse_g2_body(body, doc.url or "", product_slug)
         if not reviews:
             return []
+        # Deep-reviews bound (Plan Task 9 wiring): G2's Show More expansion is
+        # page-count-based, so the bound is enforced at this review-filter
+        # level — only when expansion (click_show_more) is enabled. Config
+        # ``deep_reviews_bound`` flows in via meta (runner injects it from
+        # sites.g2); explicit None = legacy bound-free behavior.
+        if (task_meta or {}).get("click_show_more") and "deep_reviews_bound" in (task_meta or {}):
+            from src.sources.marketplace.g2 import filter_deep_reviews
+
+            reviews = filter_deep_reviews(reviews, task_meta["deep_reviews_bound"])
         today_str = (task_meta or {}).get("today", "")
         if not today_str:
             return []

@@ -497,7 +497,7 @@ class Orchestrator:
         )
         return tracker.run(
             mode,
-            today=date.today(),
+            today=_today(),
             q=q,
             cik=cik,
             domain=domain,

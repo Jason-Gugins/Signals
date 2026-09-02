@@ -173,6 +173,28 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
         add("config_lint", "OK", "sources.yaml absent")
     except Exception as exc:
         add("config_lint", "WARN", f"lint skipped: {exc}")
+    # Optional native antibot engine: WARN (never FAIL) when absent —
+    # curl_cffi covers the runtime need; consistent with the
+    # pytest.importorskip pattern in tests/test_antibot_engine.py.
+    try:
+        import signals_antibot  # noqa: F401
+
+        add("antibot_engine", "OK", "native engine available")
+    except Exception:
+        add("antibot_engine", "WARN", "signals_antibot not built — curl_cffi fallback")
+    # Playwright chromium install: WARN with remedy when the browser
+    # binary is missing or playwright itself is not installed.
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            exe = p.chromium.executable_path
+            if exe and Path(exe).exists():
+                add("browser", "OK", str(exe))
+            else:
+                add("browser", "WARN", "chromium executable not found — run playwright install chromium")
+    except Exception:
+        add("browser", "WARN", "playwright unavailable — run playwright install chromium")
     if not getattr(config, "contact_email", None):
         add("contact_email", "FAIL", "SIGNALS_CONTACT_EMAIL unset — SEC will 403")
     else:

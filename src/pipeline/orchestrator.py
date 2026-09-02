@@ -19,6 +19,7 @@ from src.identity.registry import AccountRegistry
 from src.identity.seeds import SeedStats, seed_from_csv, seed_from_linkedin_db, seed_from_repvue_db
 from src.pipeline.runner import CollectorRunner, RunnerStats
 from src.signals.combos import evaluate_combos
+from src.signals.lifecycle import load_supersede_map, partition_signals
 from src.signals.normalize import normalize_batch
 from src.signals.plays import assign_plays
 from src.signals.calibration import load_stats
@@ -60,6 +61,13 @@ class Orchestrator:
         self.signal_store = SignalStore(self.db, self.taxonomy)
         self.fetcher = fetcher
         self._adapters = adapters
+
+    def _signals_yaml(self) -> dict:
+        """Load config/signals.yaml if present; missing file = no supersede windows."""
+        try:
+            return self.config.load_yaml("signals") or {}
+        except FileNotFoundError:
+            return {}
 
     def seed(self, *, csv: str | None = None, linkedin: bool = False, repvue: bool = False, cohort: str | None = None, limit: int | None = None) -> SeedStats:
         with RunContext(self.db, "seed") as ctx:
@@ -400,11 +408,17 @@ class Orchestrator:
         with RunContext(self.db, "score") as ctx:
             scoring = self.config.load_yaml("scoring")
             plays_cfg = self.config.load_yaml("plays")
+            supersede_map = load_supersede_map(self._signals_yaml())
             calibration_stats = load_stats(self.db)
             today = _today()
             n = 0
             for acct in self._accounts(cohort=cohort, domains=domains):
                 signals = self.signal_store.for_account(acct.domain)
+                # Soft-filter superseded signals: expired ones stay in the DB untouched,
+                # but only active signals contribute to combos/score/tier/plays.
+                signals, _expired = partition_signals(
+                    signals, today=today, supersede_days_by_type=supersede_map
+                )
                 combos = evaluate_combos(signals, scoring.get("combos") or [], today=today)
                 result = score_account(acct, signals, taxonomy=self.taxonomy, cfg=scoring, today=today, combos=combos, calibration_stats=calibration_stats)
                 tier = assign_tier(signals, result, taxonomy=self.taxonomy, cfg=scoring, today=today)

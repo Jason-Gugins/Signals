@@ -163,6 +163,8 @@ types:
     degree: 0
     weight: 24
     half_life_days: 90
+    # Optional per-type expiry window (days). Absent = no expiry. Tunable.
+    supersede_days: 30  # example value — tune per data quality
     play: scaling_pitch
     label: "Hiring surge"
   department_expansion:
@@ -253,6 +255,8 @@ types:
     degree: 0
     weight: 22
     half_life_days: 90
+    # Optional per-type expiry window (days). Absent = no expiry. Tunable.
+    supersede_days: 60  # example value — tune per data quality
     play: support_pitch
     label: "Product launch"
   office_open:
@@ -333,6 +337,8 @@ types:
     degree: 0
     weight: 28
     half_life_days: 90
+    # Optional per-type expiry window (days). Absent = no expiry. Tunable.
+    supersede_days: 90  # example value — tune per data quality
     play: automation_pitch
     label: "Layoff"
   stagnation:

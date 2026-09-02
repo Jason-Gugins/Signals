@@ -216,10 +216,16 @@ def extract_capterra_reviews(html: str, product_slug: str) -> list[CapterraRevie
         # review_id inputs (pinned by tests/test_capterra_reviewid.py):
         # sha256(f"{product_slug}|{reviewer_name}|{posted_iso}")[:16] where
         # posted_iso is the ISO-normalized date, NOT the raw rendered string,
-        # so re-renders with different date formats keep the same key.
+        # so re-renders with different date formats keep the same key. When
+        # the date is unparseable (posted_iso is None) the RAW rendered date
+        # string is used instead so distinct unknown-date reviews never
+        # collapse onto the literal 'None' sentinel.
         posted_iso = to_iso_date(posted_at) if posted_at else None
+        id_date = posted_iso if posted_iso is not None else (
+            date_div.get_text(strip=True) if date_div else ""
+        )
         review_id = hashlib.sha256(
-            f"{product_slug}|{reviewer_name}|{posted_iso}".encode()
+            f"{product_slug}|{reviewer_name}|{id_date}".encode()
         ).hexdigest()[:16]
 
         reviews.append(

@@ -149,7 +149,9 @@ and covers accounts with neither field set.
   account's `app_store_id` — a seed CSV column or `deepen` update),
   `bbb_profile` (live BBB business profiles; seed
   `extra_data.bbb_url` per account — URLs are not derivable from name+domain)
-- Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db`, `content_itunes`
+- Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db`, `content_itunes`.
+  `linkedin_db` reads the companion LinkedIn scraper's local DB (read-only; live
+  collection is manual via `deepen` — see `src/sources/linkedin_db/README.md`).
 
 Disabled by default: `community_reddit` (live fetching blocked — www 403 block
 page + old.reddit login wall, P2 spike 2026-08-31), `yc_batch` (Y Combinator

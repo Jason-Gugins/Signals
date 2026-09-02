@@ -75,6 +75,10 @@ pipeline:
   score_on_collect: true
   alert_on_new_primary: true
 
+exports:
+  destinations:
+    - { type: file }   # add - { type: webhook } to also fan out via alert_webhooks
+
 rerank:
   enabled: false               # optional cross-encoder rerank (ms-marco-MiniLM); requires signals[rerank] extra
   floor: 0.35                  # drop news items scoring below this relevance (0..1)

@@ -17,6 +17,15 @@ import inspect
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_injected_today():
+    """Keep orchestrator clock injections from leaking between tests."""
+    from src.pipeline import orchestrator
+
+    yield
+    orchestrator.set_today(None)
+
+
 def _escape(request) -> bool:
     if request.node.get_closest_marker("allow_network"):
         return True

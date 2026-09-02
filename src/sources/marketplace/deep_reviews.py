@@ -14,11 +14,16 @@ _VALID_BOUNDS = {"extreme"}
 
 
 def normalize_bound(value) -> Optional[str]:
-    """Normalize a config bound value; absent/invalid -> 'extreme' default.
+    """Normalize a config bound value; explicit ``None`` = legacy bound-free
+    behavior (returns ``None``); absent/invalid -> 'extreme' default.
 
-    The config key ``deep_reviews_bound`` is new: an absent or invalid value
-    normalizes to ``'extreme'`` (bounding is the new default).
+    The config key ``deep_reviews_bound`` is new: bounding is the default.
+    Read it with a non-None default (``cfg.get("deep_reviews_bound", "extreme")``)
+    so "absent" and "explicit null" stay distinguishable: a missing key keeps
+    the new default, an explicit ``null`` restores the old bound-free behavior.
     """
+    if value is None:
+        return None
     if value in _VALID_BOUNDS:
         return value
     return DEFAULT_BOUND

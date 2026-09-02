@@ -8,7 +8,7 @@ The signal layer is a **rule-based classifier** (`classify.py`) with **attributi
 
 ## Quickstart
 
-Prereqs: Python 3.11+, a `Signals` checkout with `.venv` created (`python -m venv .venv` + `pip install -r requirements.txt`), and an account seeded (`python -m src.cli seed ...`). Run from the repo root. **Enable the sources + set `blog_feed_url` for `company_feed` in `config/sources.yaml`**, then:
+Prereqs: Python 3.11+, a `Signals` checkout with `.venv` created (see the [root README](../../README.md) — install is `pip install -e .`), and an account seeded (`python -m src.cli seed ...`). Run from the repo root. **Enable the sources + set `blog_feed_url` for `company_feed` in `config/sources.yaml`**, then:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli collect --source news_rss --force
@@ -88,6 +88,28 @@ so a publisher byline can never contribute them:
 
 Downstream, `src/export/digest.py` renders these in digest why-now lines
 ("raised $40M at series_b", "hiring for revenue roles").
+
+### Relevance reranking (optional)
+
+Keyword-augmented SERP queries are noisy: `"Acme" CEO` returns tangential
+coverage that the attribution guards can't fully judge. The optional
+cross-encoder reranker (`ms-marco-MiniLM-L-6-v2` via ONNX — see the root
+README's *Relevance reranking* section) scores every parsed candidate for true
+semantic relevance, **drops below-floor matches before `classify_news` runs**,
+and stamps survivors with `evidence_data["relevance"]` (which then breaks ties
+in the per-type candidate cap).
+
+```yaml
+# config/default.yaml
+rerank:
+  enabled: false   # flip to true after: pip install -e ".[rerank]"
+  floor: 0.35
+```
+
+Off by default and fully optional: with the gate off, parse output is
+byte-identical to the pre-rerank behavior; with it on, a model/download
+failure degrades that feed to unranked with a logged warning — never a parse
+failure.
 
 ### Signal types emitted
 

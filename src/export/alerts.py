@@ -344,6 +344,15 @@ def _resolve_secret(secret_env: str | None) -> str | None:
     return val
 
 
+def _coerce_route_int(value, *, context: str):
+    """Defensively coerce a route/alert tier to int; None (skip) on failure."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        logger.warning("malformed {} ({!r}) — skipping", context, value)
+        return None
+
+
 def deliver_alerts(
     alerts: list[Alert],
     webhooks: list[dict],
@@ -371,9 +380,19 @@ def deliver_alerts(
     if routes:
         sent = 0
         for route in routes:
-            lo = int(route.get("min_tier", 1))
-            hi = int(route.get("max_tier", 4))
-            matching = [a for a in alerts if lo <= int(a.tier) <= hi]
+            lo = _coerce_route_int(route.get("min_tier", 1), context="route min_tier")
+            hi = _coerce_route_int(route.get("max_tier", 4), context="route max_tier")
+            if lo is None or hi is None:
+                # Malformed route: skip it (with a warning) instead of raising.
+                continue
+            matching = []
+            for a in alerts:
+                tier = _coerce_route_int(a.tier, context=f"alert {a.domain} tier")
+                if tier is None:
+                    # Malformed alert tier: skip that alert, keep the rest.
+                    continue
+                if lo <= tier <= hi:
+                    matching.append(a)
             if not matching:
                 continue
             sent += _deliver_to_webhooks(

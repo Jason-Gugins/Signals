@@ -32,7 +32,13 @@ class Destination(Protocol):
 
 
 class FileDestination:
-    """Writes alerts as JSONL (or a digest string as text) under storage dirs."""
+    """Writes alerts as JSONL (or a digest string as text) under storage dirs.
+
+    APPEND semantics throughout (unified with the alerts path — see
+    ``write_jsonl``): both the digest-text branch and the plain-records branch
+    append to the existing file rather than overwriting it, so repeated
+    deliveries accumulate instead of clobbering history.
+    """
 
     def __init__(self, *, filename: str = "alerts.jsonl"):
         self.filename = filename
@@ -42,7 +48,9 @@ class FileDestination:
         base.mkdir(parents=True, exist_ok=True)
         path = base / self.filename
         if isinstance(items, str):
-            path.write_text(items, encoding="utf-8")
+            # Append (was: overwrite) so digest re-runs keep prior content.
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(items if items.endswith("\n") else items + "\n")
         elif items and isinstance(items[0], Alert):
             write_jsonl(list(items), str(path))
         else:
@@ -101,6 +109,11 @@ def load_destinations(config) -> list[Destination]:
     for spec in specs:
         if isinstance(spec, str):
             spec = {"type": spec}
+        if not isinstance(spec, dict):
+            # Defensive: malformed spec (number, list, None ...) is skipped,
+            # never a crash.
+            logger.warning("export destination skipped: non-dict spec {!r}", spec)
+            continue
         dtype = (spec or {}).get("type")
         if dtype == "file":
             kwargs = {k: v for k, v in spec.items() if k in ("filename",)}

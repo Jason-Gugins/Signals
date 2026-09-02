@@ -255,7 +255,7 @@ def test_digest_email_sends_digest_text(tmp_path, monkeypatch):
     digest_path = tmp_path / "acme.com.md"
     digest_path.write_text("# Digest for acme.com\nbody", encoding="utf-8")
     monkeypatch.setattr(
-        "src.cli._digest_paths", lambda ctx, period, domains: [str(digest_path)]
+        "src.cli._digest_paths", lambda ctx, period, domains, **kw: [str(digest_path)]
     )
 
     log: list = []
@@ -283,7 +283,7 @@ def test_digest_email_to_option_overrides_env(tmp_path, monkeypatch):
     digest_path = tmp_path / "acme.com.md"
     digest_path.write_text("# d", encoding="utf-8")
     monkeypatch.setattr(
-        "src.cli._digest_paths", lambda ctx, period, domains: [str(digest_path)]
+        "src.cli._digest_paths", lambda ctx, period, domains, **kw: [str(digest_path)]
     )
     log: list = []
     monkeypatch.setattr("src.export.email.smtplib.SMTP", _factory(log))
@@ -298,7 +298,7 @@ def test_digest_email_not_configured_warns_and_skips(tmp_path, monkeypatch, warn
     digest_path = tmp_path / "acme.com.md"
     digest_path.write_text("# d", encoding="utf-8")
     monkeypatch.setattr(
-        "src.cli._digest_paths", lambda ctx, period, domains: [str(digest_path)]
+        "src.cli._digest_paths", lambda ctx, period, domains, **kw: [str(digest_path)]
     )
     log: list = []
     monkeypatch.setattr("src.export.email.smtplib.SMTP", _factory(log))
@@ -318,7 +318,7 @@ def test_digest_send_failure_still_writes_file(tmp_path, monkeypatch, warn_log):
     digest_path = tmp_path / "acme.com.md"
     digest_path.write_text("# d", encoding="utf-8")
     monkeypatch.setattr(
-        "src.cli._digest_paths", lambda ctx, period, domains: [str(digest_path)]
+        "src.cli._digest_paths", lambda ctx, period, domains, **kw: [str(digest_path)]
     )
 
     def make(host, port, timeout=None):

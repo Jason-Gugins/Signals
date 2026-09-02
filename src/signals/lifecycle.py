@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from datetime import date
 
+from loguru import logger
+
 from src.core.models import Signal
 
 
@@ -56,10 +58,21 @@ def partition_signals(
 
 
 def load_supersede_map(signals_cfg: dict) -> dict[str, int]:
-    """Extract the per-type supersede_days map from a parsed config/signals.yaml dict."""
+    """Extract the per-type supersede_days map from a parsed config/signals.yaml dict.
+
+    Non-numeric ``supersede_days`` values are skipped with a warning instead
+    of raising — a malformed entry only means that type never expires.
+    """
     types = (signals_cfg or {}).get("types") or {}
-    return {
-        name: int(spec["supersede_days"])
-        for name, spec in types.items()
-        if isinstance(spec, dict) and spec.get("supersede_days") is not None
-    }
+    out: dict[str, int] = {}
+    for name, spec in types.items():
+        if not isinstance(spec, dict) or spec.get("supersede_days") is None:
+            continue
+        try:
+            out[name] = int(spec["supersede_days"])
+        except (TypeError, ValueError):
+            logger.warning(
+                "signals.types.{}.supersede_days={!r} is not numeric — skipping",
+                name, spec["supersede_days"],
+            )
+    return out

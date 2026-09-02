@@ -133,3 +133,65 @@ def test_config_invalid_routes_json_warns_and_empties(monkeypatch, caplog):
         cfg = Config.load(yaml_path=None)
     assert cfg.alert_routes == []
     assert any("ALERT_ROUTES_JSON" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# P3 Batch 3+4 review fixes: MINOR D (defensive route/tier parsing),
+# MINOR B (load_destinations non-dict spec), MINOR G (append semantics).
+# ---------------------------------------------------------------------------
+
+
+def test_deliver_alerts_skips_malformed_route_tiers():
+    """MINOR D: a route with non-numeric min/max tier is skipped, not raised."""
+    client = RecordingClient()
+    routes = [
+        {"min_tier": "high", "max_tier": 2, "webhooks": WEBHOOKS},  # malformed -> skip
+        {"min_tier": 1, "max_tier": 4, "webhooks": WEBHOOKS},       # valid
+    ]
+    sent = deliver_alerts([_alert(tier=1)], WEBHOOKS, routes=routes, client=client)
+    assert sent > 0
+    assert len(client.posts) == sent
+
+
+def test_deliver_alerts_skips_malformed_alert_tier():
+    """MINOR D: an alert with a non-numeric tier is skipped, others still deliver."""
+    client = RecordingClient()
+    routes = [{"min_tier": 1, "max_tier": 1, "webhooks": WEBHOOKS}]
+    bad = _alert(tier=1)
+    object.__setattr__(bad, "tier", "high")  # dataclass tier must stay int elsewhere
+    sent = deliver_alerts([bad, _alert(tier=1, domain="globex.com")], WEBHOOKS,
+                          routes=routes, client=client)
+    assert sent == 2  # only the good alert, to both webhooks
+
+
+def _cfg_for(tmp_path, destinations=None):
+    """Build a Config for destination tests (test_alert_routing has no _config helper)."""
+    from src.core.config import Config
+
+    cfg = Config.load(yaml_path=None)
+    cfg.storage.alerts_dir = str(tmp_path / "alerts")
+    if destinations is not None:
+        cfg.exports.destinations = destinations
+    return cfg
+
+
+def test_load_destinations_skips_non_dict_spec(tmp_path):
+    """MINOR B: malformed (non-dict, non-str) specs are warned and skipped."""
+    from src.export.destinations import FileDestination, load_destinations
+
+    cfg = _cfg_for(tmp_path, destinations=[{"type": "file"}, 42, None, ["file"]])
+    dests = load_destinations(cfg)
+    assert len(dests) == 1
+    assert isinstance(dests[0], FileDestination)
+
+
+def test_file_destination_str_items_append(tmp_path):
+    """MINOR G: digest-string delivery appends (never overwrites) prior content."""
+    from src.export.destinations import FileDestination
+
+    cfg = _cfg_for(tmp_path)
+    dest = FileDestination(filename="digest.txt")
+    dest.deliver("day one\n", cfg)
+    dest.deliver("day two\n", cfg)
+    out = tmp_path / "alerts" / "digest.txt"
+    assert out.read_text(encoding="utf-8") == "day one\nday two\n"

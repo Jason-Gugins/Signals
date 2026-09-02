@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -33,12 +34,20 @@ _PERSONA_KEYWORDS = {
 }
 
 
+# Word-boundary compiled per keyword so substring hits like 'chief' inside
+# 'subchief' don't match; whole-word matches still do.
+_PERSONA_KEYWORD_RE = {
+    bucket: [re.compile(rf"\b{re.escape(w)}\b") for w in words]
+    for bucket, words in _PERSONA_KEYWORDS.items()
+}
+
+
 def _persona_bucket(contact: Contact) -> str | None:
     text = " ".join(filter(None, [(contact.persona or ""), (contact.title or "")])).lower()
     if not text:
         return None
-    for bucket, words in _PERSONA_KEYWORDS.items():
-        if any(w in text for w in words):
+    for bucket, patterns in _PERSONA_KEYWORD_RE.items():
+        if any(p.search(text) for p in patterns):
             return bucket
     return None
 
@@ -68,11 +77,15 @@ def render_brief(
     today: date,
 ) -> str:
     company = account.name or account.domain
+    # Evaluate once: select_persona_framing is deterministic per (contacts,
+    # plays) — binding to a local avoids the double call and any drift if the
+    # helper ever becomes expensive or non-deterministic.
+    persona_framing = select_persona_framing(contacts, plays)
     lines = [
         f"# {company}  ·  Tier {tier.tier}  ·  Score {score.score}  ·  Window: {tier.buying_window}",
         f"{account.domain} · {account.industry or '—'} · {account.employee_count or '—'} employees · {_hq(account)}",
         f"_Rationale: {tier.rationale}_",
-        *([f"_Persona framing: {select_persona_framing(contacts, plays)}_"] if select_persona_framing(contacts, plays) else []),
+        *([f"_Persona framing: {persona_framing}_"] if persona_framing else []),
         "",
         "## Why now (top signals)",
         "| When | Signal | Evidence | Source | Conf |",

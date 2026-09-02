@@ -154,6 +154,7 @@ class ExternalDbConfig:
 class LoggingConfig:
     level: str = "INFO"
     file: str = "data/logs/signals.log"
+    logs_dir: str = "data/logs"
     rotation: str = "10 MB"
 
 

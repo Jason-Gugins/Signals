@@ -98,7 +98,8 @@ Notes:
 ```powershell
 # Always-on suites (engine config, HPACK round-trip, cookies, routing, ghost, integration):
 .\.venv\Scripts\python.exe -m pytest tests/test_antibot_engine.py tests/test_antibot_cookies.py tests/test_antibot_transport.py tests/test_antibot_ghost.py tests/test_antibot_routing.py tests/test_antibot_integration.py -q
-# (the engine file's 3 live tests auto-skip without -m antibot_live; expect ~65 passing)
+# (engine-file tests auto-skip via importorskip when the native engine isn't
+#  built — that's the expected healthy-unbuilt state; expect ~62 passing)
 
 # Live parity (opt-in, needs network — hits tls.peet.ws):
 .\.venv\Scripts\python.exe -m pytest tests/test_antibot_parity.py -v -m antibot_live
@@ -160,10 +161,14 @@ The `antibot:` block in `config/default.yaml` gates the module:
 
 ```yaml
 antibot:
-  enabled: true          # wire SignalsShadow into the bypass waterfalls
-  fallback: curl_cffi    # tier used when the engine isn't built
-  recheck_after_hours: 24
+  enabled: true                 # opt-in — SignalsShadow tier-1 (real Chrome TLS) in bypass waterfalls
+  fallback: curl_cffi           # tier used when the shadow tier can't clear (curl_cffi | browser)
+  recheck_after_hours: 24       # periodic cold recheck window for warm domains
 ```
+
+Verification tip: `python -m src.cli doctor --no-network` reports
+`antibot_engine` **WARN** (not FAIL) when the native engine isn't built —
+that's the expected healthy-unbuilt state (curl_cffi covers runtime).
 
 `config.antibot.enabled=true` makes the orchestrator construct a
 `SignalsTransport` and hand it to `DataDomeBypass`/`CloudflareBypass` as the

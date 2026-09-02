@@ -140,9 +140,16 @@ sorting are plain `?page=N` and `?sort=...` query parameters that work on **both
 src/sources/marketplace/
     g2.py              Pure parser: G2Review dataclass + extract_g2_reviews (current elv-* DOM),
                        parse_g2_reviews (legacy itemprop fallback), g2_reviews_url /
-                       g2_reviews_fragment_url URL builders
+                       g2_reviews_fragment_url URL builders, filter_deep_reviews
+                       (P3 deep-reviews extreme-rating bound)
+    base.py            MarketplaceReview normalizing base — safe rating coercion
+                       (str/int/None/junk -> float, never raises) shared by the parsers
+    deep_reviews.py    Deep-reviews bounding helpers: should_expand / normalize_bound
+                       ('extreme' default; explicit null = legacy bound-free)
     collector.py       MarketplaceG2Source adapter: plan/parse/harvest_reviews + upsert_g2_reviews
-    capterra.py        Capterra parser (server-rendered cards; g2_reviews rows with source='capterra')
+                       (adopts legacy capterra rows on the natural key since the P3 id change)
+    capterra.py        Capterra parser (server-rendered cards; g2_reviews rows with source='capterra';
+                       review_id hashes the ISO-normalized posted date, OneTrust consent tolerant)
     trustradius.py     TrustRadius parser (0-10 → 0-5 rating normalization; source='trustradius')
     trend.py           marketplace_review_trend — review count/rating deltas vs prior cycle
     empty_log.py       EmptyLog — per-slug consecutive-empty-cycle bookkeeping (drives backoff)
@@ -265,11 +272,18 @@ from the "Verified Reviewer"/"Verified Current User" text, and `review_source` f
 ### review_id generation
 
 ```python
-review_id = hashlib.sha256(f"{product_slug}|{reviewer_name}|{posted_at}".encode()).hexdigest()[:16]
+# posted_at is ISO-normalized before hashing (capterra.py): month-name parser
+# first, to_iso_date fallback, raw rendered string only when unparseable — so
+# the same review rendered with different date formats keeps the same id.
+review_id = hashlib.sha256(f"{product_slug}|{reviewer_name}|{posted_iso}".encode()).hexdigest()[:16]
 ```
 
 This is the natural key for the `g2_reviews` SQLite table. It deduplicates across collection runs —
-the same review fetched twice upserts (updates `last_seen_at`), it doesn't duplicate.
+the same review fetched twice upserts (updates `last_seen_at`), it doesn't duplicate. Since the P3
+normalization change, `upsert_g2_reviews` also **adopts legacy rows**: if no row matches the new
+id but a capterra row with the same (product_slug, reviewer_name, posted_at) exists under the old
+raw-date id scheme, it is updated in place (id rewritten, `first_seen_at` preserved) instead of
+duplicating.
 
 ### Reverse-engineered data path (recorded for cheap rebuilds)
 
@@ -588,6 +602,7 @@ sites:
   g2:
     enabled: false
     deep_reviews: false        # click "Show More" on each review (slow, browser tier)
+    deep_reviews_bound: extreme  # P3: expand only ratings >=4.0 or <=2.0; explicit null = legacy bound-free
     sign_in_required: false    # full review text requires G2 sign-in (manual cookie)
     max_review_pages: 5        # cap pagination via follow_tasks
     review_lookback_days: 90   # drop reviews older than this (config-driven)
@@ -777,7 +792,9 @@ G2 architecture. Built against the Task-1 discovery spike (Aug 2026).
   --slug 19319/JIRA` — same five states as `g2-selfcheck` (ok/drift/empty/
   challenge/error), but via the plain HTTP fetcher (no browser window). Drift
   = the review-cards container is present but the parser extracted 0. Exit 0
-  only on `ok`/`empty`.
+  only on `ok`/`empty`. A OneTrust consent banner alongside valid cards is
+  **not** drift — the result detail notes "consent-banner present" and the
+  state stays `ok`.
 - **Pacing:** keep ≥4s between requests to capterra.com; the self-check makes
   a single request.
 - **Legal & ethics:** same posture as G2 — Capterra (Gartner) ToS restrict
@@ -993,7 +1010,9 @@ roadmap item; see the commit references in the project history.
 
 - **Show More expansion** — when `deep_reviews: true` is set in `config/marketplace.yaml`, the
   runner requests "Show More" clicks on each review card to expand truncated bodies before
-  parsing (browser tier).
+  parsing (browser tier). **Bounded by `deep_reviews_bound`** (default `extreme`: only ratings
+  >=4.0 or <=2.0 are expanded — unknown ratings expand conservatively; explicit `null` restores
+  legacy bound-free expansion), enforced via `filter_deep_reviews` in `g2.py`.
 
 - **Session cookie support** — set `session_cookie_file` to a JSON cookie file (Playwright/
   browser export format) to attach a G2 sign-in session. This unlocks full review text that G2

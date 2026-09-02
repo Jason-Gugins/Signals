@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from src.sources.marketplace.base import coerce_rating
+
 
 _SLUG_RE = re.compile(r"/products/([^/]+)/reviews")
 _STARS_RE = re.compile(r"stars-(\d+)")
@@ -220,6 +222,10 @@ def extract_g2_reviews(html: str, product_slug: str) -> list[G2Review]:
             stars = card.select_one(".elv-stars")
             if stars:
                 rating = _parse_rating(" ".join(stars.get("class", [])))
+
+        # Base-normalized rating coercion at the extraction edge: any
+        # rating-shaped value becomes a float or 0.0; never raises.
+        rating = coerce_rating(rating)
 
         # --- title -------------------------------------------------------------
         title_el = card.select_one("div.elv-text-lg.elv-font-bold") or card.select_one("div.elv-text-lg")

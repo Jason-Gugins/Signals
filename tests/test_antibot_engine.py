@@ -26,10 +26,12 @@ def _engine_module():
 
 
 def test_native_engine_importable():
-    import signals_antibot
+    # This IS the importability test: when the engine isn't built (CI), the
+    # correct outcome is a SKIP, not a pass — so importorskip here too.
+    m = _engine_module()  # skip on CI (engine not built)
 
-    assert hasattr(signals_antibot, "engine_version")
-    assert isinstance(signals_antibot.engine_version(), str)
+    assert hasattr(m, "engine_version")
+    assert isinstance(m.engine_version(), str)
 
 
 def test_native_engine_tls_sha256():

@@ -1,8 +1,9 @@
 # linkedin_db — read-only adapter over the companion LinkedIn scraper
 
 This adapter consumes the output of the companion LinkedIn scraper
-(`../Linkedin`, sibling checkout) **read-only**. It never writes the scraper's
-database and never touches LinkedIn itself.
+(**github.com/Jason-Gugins/linkedin-scraper**, private; local checkout
+`../Linkedin`) **read-only**. It never writes the scraper's database and never
+touches LinkedIn itself.
 
 ## What runs when
 

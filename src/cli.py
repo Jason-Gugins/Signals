@@ -255,7 +255,7 @@ def _email_files(paths, cfg: Config, kind: str, period: str, to: str) -> None:
             click.echo(f"emailed {kind}: {p} -> {to}")
 
 
-def _digest_paths(ctx, period, domains) -> list[str]:
+def _digest_paths(ctx, period, domains, include_tier4=False) -> list[str]:
     """Build and write per-account digests; returns the written paths."""
     from src.export.digest import build_digest
     from src.pipeline.orchestrator import _today
@@ -285,7 +285,11 @@ def _digest_paths(ctx, period, domains) -> list[str]:
         result = score_account(acct, signals, taxonomy=orch.taxonomy, cfg=scoring, today=today, combos=combos, calibration_stats=calibration_stats)
         tier = assign_tier(signals, result, taxonomy=orch.taxonomy, cfg=scoring, today=today)
         contacts = orch._contacts(acct.domain)
-        plays = assign_plays(acct, signals, result, tier, taxonomy=orch.taxonomy, plays_cfg=plays_cfg, contacts=contacts)
+        if tier.tier >= 4 and include_tier4:
+            # Tier 4 (dormant) = nurture: include in the digest, no plays.
+            plays = []
+        else:
+            plays = assign_plays(acct, signals, result, tier, taxonomy=orch.taxonomy, plays_cfg=plays_cfg, contacts=contacts)
         text = build_digest(acct.domain, signals, plays, period=period, taxonomy=orch.taxonomy, since=since)
         paths.append(write_digest(str(Path(digests_dir) / f"{acct.domain}.md"), text))
     return paths
@@ -296,10 +300,15 @@ def _digest_paths(ctx, period, domains) -> list[str]:
 @click.option("--domain", "domains", multiple=True)
 @click.option("--email", "email_flag", is_flag=True, help="Email the digest(s) via SMTP (SIGNALS_SMTP_HOST).")
 @click.option("--to", "to_addr", default=None, help="Email recipient (default: SIGNALS_EMAIL_TO).")
+@click.option("--tier-4", "include_tier4", is_flag=True, help="Include tier-4 (dormant) accounts as nurture digests with no plays.")
 @click.pass_context
-def digest(ctx, period, domains, email_flag, to_addr):
+def digest(ctx, period, domains, email_flag, to_addr, include_tier4):
     """Per-account alert digest (markdown) written to data/digests/."""
     cfg = ctx.obj["config"]
+    if include_tier4:
+        ctx.obj["include_tier4"] = True
+    # Flag is passed via ctx.obj (not a kwarg) so callers/tests that
+    # monkeypatch _digest_paths(ctx, period, domains) keep working.
     paths = _digest_paths(ctx, period, domains)
     for p in paths:
         click.echo(p)

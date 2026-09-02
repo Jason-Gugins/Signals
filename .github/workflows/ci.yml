@@ -43,6 +43,30 @@ jobs:
       - name: Run offline test suite
         run: pytest -m "not antibot_live and not allow_network and not live_fetch" --tb=short
 
+  install-smoke:
+    name: Install smoke (fresh venv)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Task 16 (P3): a fresh editable install + CLI + init smoke — catches
+      # packaging breakage (dependency drift, scripts entry, src-layout) before
+      # it can land, without needing browser/engine binaries.
+      - name: Install (editable)
+        run: pip install -e .
+
+      - name: CLI help
+        run: python -m src.cli --help
+
+      - name: Init in a temp dir
+        run: |
+          mkdir -p /tmp/smoke && cd /tmp/smoke
+          python -m src.cli init
+
   nightly-live:
     name: Nightly live suite
     runs-on: ubuntu-latest

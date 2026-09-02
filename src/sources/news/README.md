@@ -94,10 +94,14 @@ Downstream, `src/export/digest.py` renders these in digest why-now lines
 Keyword-augmented SERP queries are noisy: `"Acme" CEO` returns tangential
 coverage that the attribution guards can't fully judge. The optional
 cross-encoder reranker (`ms-marco-MiniLM-L-6-v2` via ONNX — see the root
-README's *Relevance reranking* section) scores every parsed candidate for true
-semantic relevance, **drops below-floor matches before `classify_news` runs**,
-and stamps survivors with `evidence_data["relevance"]` (which then breaks ties
-in the per-type candidate cap).
+README's *Relevance reranking* section) scores every parsed item pre-classify
+for true semantic relevance via `get_scorer().score_pairs`, **drops
+below-floor matches via `apply_relevance_floor` before `classify_news` runs**,
+and `parse()` maps each surviving item's score back into
+`candidate.evidence_data["relevance"]` by link — which then breaks ties in the
+per-type candidate cap (`src/signals/score.py`, observed_at first, relevance
+second). `task_meta["rerank"]` (`{enabled, floor}`) can override
+`config/default.yaml` per run.
 
 ```yaml
 # config/default.yaml
@@ -109,7 +113,10 @@ rerank:
 Off by default and fully optional: with the gate off, parse output is
 byte-identical to the pre-rerank behavior; with it on, a model/download
 failure degrades that feed to unranked with a logged warning — never a parse
-failure.
+failure. Troubleshooting: `enabled: true` without the `signals[rerank]` extra
+installed silently yields `NullScorer` (log line: "rerank model unavailable,
+reranking disabled: ...") — check for that line if you expect ranking and see
+none.
 
 ### Signal types emitted
 

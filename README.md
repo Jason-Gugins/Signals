@@ -1,7 +1,7 @@
 # Signals
 
 Sales signal enrichment engine. Continuously collects buying signals about
-target accounts from ~20 self-built, **zero-cost** sources, resolves them to a
+target accounts from ~30 self-built, **zero-cost** sources, resolves them to a
 single account identity graph, scores and tiers them per High Probability
 Prospecting (HPP), maps each signal to a sales play, and exports ranked
 account briefs.
@@ -81,13 +81,15 @@ rows + raw files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum`
 reclaims space), `plays --outcome hit|miss --domain X --play Y` (record a
 local play outcome for backtesting), `plays-report` (per-play sent/hit/rate
 table), `plays-calibrate` (feed decided outcomes into the calibration table),
-`digest --period daily|weekly [--domain X] [--email]` (per-account markdown
-alert digest in `data/digests/`; `--email` sends it via SMTP), and
+`digest --period daily|weekly [--domain X] [--tier-4] [--email]` (per-account
+markdown alert digest in `data/digests/`; `--tier-4` includes dormant tier-4
+accounts as nurture digests with no plays; `--email` sends it via SMTP), and
 `selfcheck --source techstack|news_rss|ats_greenhouse` (generic five-state
 selector-drift check; challenge/empty exit 0, drift/error exit 1).
 
 Outputs land in `data/exports/`, `data/briefs/`, `data/digests/`, and
-`data/alerts/`.
+`data/alerts/`. Run logs rotate in `data/logs/` keyed by run ID (10 MB
+rotation, configured via `logging.logs_dir`).
 Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
 
 ## Email delivery
@@ -202,8 +204,14 @@ optional — the whole pipeline runs unchanged without it:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[rerank]"
-# then in config/default.yaml:  rerank: { enabled: true, floor: 0.35 }
+# then flip rerank.enabled to true in the existing config/default.yaml block
+# (floor defaults to 0.35)
 ```
+
+Enablement note: with `enabled: true` but the extra not installed, the reranker
+degrades silently to `NullScorer` (log line: "rerank model unavailable,
+reranking disabled: ...") — the pipeline never fails, but check the log line
+if you expect ranking and see none.
 
 Implementation: `ms-marco-MiniLM-L-6-v2` cross-encoder (22M params, Apache-2.0)
 via ONNX Runtime on CPU (~1-4ms/pair; a full SERP pool costs ~0.1-0.3s per
@@ -269,6 +277,14 @@ bypass — honest limits are documented. Full notes: [`src/antibot/README.md`](s
 - **Signed webhooks** — beyond the Slack channel, `ALERT_WEBHOOKS_JSON`
   configures generic JSON webhooks with optional HMAC `X-Signature` signing
   (secret referenced by env-var name, resolved at send time).
+- **Per-tier routing** — `ALERT_ROUTES_JSON` (a JSON array of
+  `{min_tier, max_tier, webhooks, digest?}`) routes alerts by account tier to
+  specific webhooks or digest-only; absent = all alerts to all webhooks.
+- **Export destinations** — `exports.destinations` in `config/default.yaml`
+  (default `[{type: file}]`) configures the fan-out; add
+  `{type: webhook, ...}` for signed alert-webhook delivery via the same path.
+- **Raw-store quota** — set `storage.raw_quota_mb` in `config/default.yaml` to
+  cap `data/raw` disk usage (doctor/status WARN when exceeded; off by default).
 
 ## Add a source in 20 lines
 
@@ -301,9 +317,14 @@ substantially more involved — see `src/sources/marketplace/README.md`.
 
 - [ ] What do you sell? (ICP, competitors, play `{your_product}`)
 - [ ] Which analytics/ESP? (owned-intent column mapping)
-- [ ] Geography focus? (WARN jurisdictions, regulators)
+- [ ] Geography focus? (8 WARN state parsers ship — NY/CA/WA/TX/IL/NJ/FL/OH;
+  MI deferred, needs a browser tier)
 - [ ] Champions list?
 - [ ] Alert destination? Slack webhook (`ALERT_WEBHOOK_URL`), signed JSON
-  webhooks (`ALERT_WEBHOOKS_JSON`), email (`SIGNALS_SMTP_*`), or file-only.
+  webhooks (`ALERT_WEBHOOKS_JSON`), per-tier routes (`ALERT_ROUTES_JSON`),
+  email (`SIGNALS_SMTP_*`), or file-only (fan-out via `exports.destinations`).
 
-Deferred: Google Trends, ASN IP→org, CRM write-back, multi-user server.
+Deferred: see the **Deferred — not scheduled** section in `TODO.md`
+(Google Trends, ASN IP→org, CRM write-back, multi-user server, and others).
+
+Release history: see [CHANGELOG.md](CHANGELOG.md) — current release **v0.2.0**.

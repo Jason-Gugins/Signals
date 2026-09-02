@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -49,13 +49,15 @@ class EmptyLog:
         key = self._key(slug, source)
         now = self.clock()
         entry = self._entries.get(key) or {}
+        # UTC, not local time: dates must be deterministic regardless of the
+        # machine's timezone (CI runners are UTC; dev boxes often are not).
         first_empty = entry.get("first_empty") or datetime.fromtimestamp(
-            now
+            now, tz=timezone.utc
         ).date().isoformat()
         self._entries[key] = {
             "first_empty": first_empty,
             "cycles": int(entry.get("cycles", 0)) + 1,
-            "last_empty": datetime.fromtimestamp(now).date().isoformat(),
+            "last_empty": datetime.fromtimestamp(now, tz=timezone.utc).date().isoformat(),
         }
         self._save()
 

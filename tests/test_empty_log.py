@@ -70,7 +70,13 @@ def test_clock_injection_sets_first_empty(tmp_path):
     log = EmptyLog(tmp_path / "e.json", clock=lambda: 1756600000.0)
     log.record_empty("jira", "g2")
     data = json.loads((tmp_path / "e.json").read_text(encoding="utf-8"))
-    assert data["g2:jira"]["first_empty"] == "2025-08-30"
+    # Expected date is derived from the injected clock in UTC — the same
+    # conversion record_empty uses — so the test is timezone-independent
+    # (a hardcoded local-date string failed on UTC CI runners).
+    from datetime import datetime, timezone
+
+    expected = datetime.fromtimestamp(1756600000.0, tz=timezone.utc).date().isoformat()
+    assert data["g2:jira"]["first_empty"] == expected
 
 
 def test_state_persists_across_instances(tmp_path):

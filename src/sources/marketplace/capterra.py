@@ -28,6 +28,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from src.core.textutil import to_iso_date
 # Keep the TrustRadius-era parser importable from this module for backward
 # compatibility: tests/test_marketplace.py imports parse_capterra_reviews from
 # src.sources.marketplace.capterra and asserts it parses the TrustRadius
@@ -147,10 +148,14 @@ def extract_capterra_reviews(html: str, product_slug: str) -> list[CapterraRevie
         rating = _card_rating(overall_div)
 
         # --- date ----------------------------------------------------------
+        # Normalized via _month_name_to_iso (month-name form) with a
+        # to_iso_date fallback (ISO/other shapes) so the same review rendered
+        # with a different date format normalizes to the same ISO day.
         posted_at = None
         date_div = card.select_one("div.typo-0.text-neutral-90")
         if date_div:
-            posted_at = _month_name_to_iso(date_div.get_text(strip=True))
+            raw_date = date_div.get_text(strip=True)
+            posted_at = _month_name_to_iso(raw_date) or to_iso_date(raw_date)
 
         # --- reviewer identity ----------------------------------------------
         reviewer_name = None
@@ -208,8 +213,13 @@ def extract_capterra_reviews(html: str, product_slug: str) -> list[CapterraRevie
                 review_url = href
                 break
 
+        # review_id inputs (pinned by tests/test_capterra_reviewid.py):
+        # sha256(f"{product_slug}|{reviewer_name}|{posted_iso}")[:16] where
+        # posted_iso is the ISO-normalized date, NOT the raw rendered string,
+        # so re-renders with different date formats keep the same key.
+        posted_iso = to_iso_date(posted_at) if posted_at else None
         review_id = hashlib.sha256(
-            f"{product_slug}|{reviewer_name}|{posted_at}".encode()
+            f"{product_slug}|{reviewer_name}|{posted_iso}".encode()
         ).hexdigest()[:16]
 
         reviews.append(

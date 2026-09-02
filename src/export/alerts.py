@@ -348,6 +348,7 @@ def deliver_alerts(
     alerts: list[Alert],
     webhooks: list[dict],
     *,
+    routes: list[dict] | None = None,
     client=_NO_CLIENT,
     batch: int = 10,
     timeout: float = DEFAULT_WEBHOOK_TIMEOUT_S,
@@ -357,9 +358,47 @@ def deliver_alerts(
     """Dispatch alerts to every configured webhook (config.alert_webhooks shape:
     list of {url, format: 'slack'|'json', secret_env?}).
 
+    Optional per-tier routing (Task 12): ``routes`` is a list of
+    {min_tier, max_tier, webhooks: [...], digest?: bool}. An alert is delivered
+    to a route's webhook set when ``min_tier <= tier <= max_tier``; routes with
+    no webhooks (e.g. digest-only tiers) deliver nothing here. When ``routes``
+    is absent or empty, the legacy behavior applies: every alert goes to every
+    configured webhook.
+
     Secret resolution happens at SEND time: ``secret_env`` is an ENV VAR NAME,
     resolved via os.environ; missing env → that webhook is skipped with a warning.
     """
+    if routes:
+        sent = 0
+        for route in routes:
+            lo = int(route.get("min_tier", 1))
+            hi = int(route.get("max_tier", 4))
+            matching = [a for a in alerts if lo <= int(a.tier) <= hi]
+            if not matching:
+                continue
+            sent += _deliver_to_webhooks(
+                matching, route.get("webhooks") or [], client=client,
+                batch=batch, timeout=timeout, sleep=sleep,
+                dedupe_window_h=dedupe_window_h,
+            )
+        return sent
+    return _deliver_to_webhooks(
+        alerts, webhooks, client=client, batch=batch, timeout=timeout,
+        sleep=sleep, dedupe_window_h=dedupe_window_h,
+    )
+
+
+def _deliver_to_webhooks(
+    alerts: list[Alert],
+    webhooks: list[dict],
+    *,
+    client,
+    batch: int,
+    timeout: float,
+    sleep,
+    dedupe_window_h: float,
+) -> int:
+    """Legacy fan-out: every alert to every webhook in ``webhooks``."""
     sent = 0
     for wh in webhooks:
         url = wh.get("url")

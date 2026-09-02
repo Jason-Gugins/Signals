@@ -167,6 +167,19 @@ class PipelineConfig:
 
 
 @dataclass
+class ExportsConfig:
+    """Export destination plugins (Task 14).
+
+    destinations: list of {type: "file"|"webhook", ...}. Default [{type: file}]
+    preserves the pre-plugin behavior. Webhook destinations reuse the existing
+    signed webhook delivery path (deliver_alerts/post_json_webhook) — no
+    parallel delivery system.
+    """
+
+    destinations: list = field(default_factory=lambda: [{"type": "file"}])
+
+
+@dataclass
 class Config:
     http: HttpConfig = field(default_factory=HttpConfig)
     browser: BrowserConfig = field(default_factory=BrowserConfig)
@@ -185,6 +198,11 @@ class Config:
     # secret_env is the NAME of an env var holding the signing secret (resolved at
     # send time) — never the secret itself. Populated from ALERT_WEBHOOKS_JSON.
     alert_webhooks: list = field(default_factory=list)
+    # Per-tier alert routing (Task 12): [{min_tier, max_tier, webhooks, digest?}].
+    # Empty = legacy behavior (all alerts to all configured webhooks).
+    # Populated from ALERT_ROUTES_JSON.
+    alert_routes: list = field(default_factory=list)
+    exports: "ExportsConfig" = field(default_factory=lambda: ExportsConfig())
     cookies: "CookiesConfig" = field(default_factory=lambda: CookiesConfig())
     smtp: SmtpConfig = field(default_factory=SmtpConfig)
     rerank: "RerankConfig" = field(default_factory=lambda: RerankConfig())
@@ -283,6 +301,27 @@ def _parse_alert_webhooks_json(raw: str) -> list:
     return out
 
 
+def _parse_alert_routes_json(raw: str) -> list:
+    """Parse ALERT_ROUTES_JSON: a JSON array of {min_tier, max_tier, webhooks, digest?}.
+    Anything invalid (bad JSON, not an array, non-dict entries) -> [] + warning."""
+    logger = logging.getLogger(__name__)
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning("ALERT_ROUTES_JSON ignored: invalid JSON (%s)", exc)
+        return []
+    if not isinstance(parsed, list):
+        logger.warning("ALERT_ROUTES_JSON ignored: expected a JSON array of objects")
+        return []
+    out = []
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            logger.warning("ALERT_ROUTES_JSON entry ignored: expected an object, got %r", entry)
+            continue
+        out.append(entry)
+    return out
+
+
 def _apply_env_overrides(config: Config) -> None:
     email = os.environ.get("SIGNALS_CONTACT_EMAIL")
     if email:
@@ -296,6 +335,9 @@ def _apply_env_overrides(config: Config) -> None:
     webhooks_raw = os.environ.get("ALERT_WEBHOOKS_JSON")
     if webhooks_raw:
         config.alert_webhooks = _parse_alert_webhooks_json(webhooks_raw)
+    routes_raw = os.environ.get("ALERT_ROUTES_JSON")
+    if routes_raw:
+        config.alert_routes = _parse_alert_routes_json(routes_raw)
     webhook_timeout = os.environ.get("ALERT_WEBHOOK_TIMEOUT_S")
     if webhook_timeout:
         try:

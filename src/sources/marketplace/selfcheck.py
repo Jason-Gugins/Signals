@@ -96,8 +96,24 @@ def _run_selfcheck_capterra(fetcher, *, slug: str) -> SelfcheckResult:
         return (is_datadome_challenge(status=status, body=body)
                 or any(m in body for m in _CAPTERRA_CHALLENGE_MARKERS))
 
-    return run_source_selfcheck(
-        fetcher,
+    # Capture the fetched body so the consent-banner note can be attached to
+    # the result detail without breaking run_source_selfcheck's contract.
+    captured: dict = {}
+
+    class _RecordingFetcher:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def fetch(self, u, **kwargs):
+            r = self._inner.fetch(u, **kwargs)
+            try:
+                captured["body"] = (r.doc.body or b"") if r.doc else b""
+            except Exception:  # noqa: BLE001 — body capture must never break the selfcheck
+                captured["body"] = b""
+            return r
+
+    result = run_source_selfcheck(
+        _RecordingFetcher(fetcher),
         url=url,
         source="marketplace_capterra",
         domain="capterra.com",
@@ -106,6 +122,12 @@ def _run_selfcheck_capterra(fetcher, *, slug: str) -> SelfcheckResult:
         detect_challenge=_challenge,
         drift_detail="review-cards-container present but parser extracted 0 — selectors stale",
     )
+
+    # Consent-gate tolerance: a OneTrust banner alongside valid cards is not
+    # drift — note its presence in the detail when detected.
+    if result.state == "ok" and b"onetrust" in captured.get("body", b"").lower():
+        result.detail = "consent-banner present"
+    return result
 
 
 def _run_selfcheck_trustradius(fetcher, *, slug: str) -> SelfcheckResult:

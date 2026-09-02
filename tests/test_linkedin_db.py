@@ -62,7 +62,7 @@ def test_deepen_failure_path(monkeypatch):
 
 def test_deepen_invokes_extract_not_enrich(monkeypatch):
     """The scraper's `enrich` command needs prior pipeline state; `extract` is
-    the single-company entry point. argv must use extract + --company-url."""
+    the single-company entry point. argv must use extract + --url."""
     calls = {}
 
     class P:
@@ -81,11 +81,13 @@ def test_deepen_invokes_extract_not_enrich(monkeypatch):
     request_linkedin_deepen(cfg, "acme-corp", max_people=12, timeout=60)
     argv = calls["argv"]
     assert "extract" in argv, argv
-    assert "--company-url" in argv and "https://www.linkedin.com/company/acme-corp/" in " ".join(argv)
+    assert "--url" in argv and "https://www.linkedin.com/company/acme-corp/" in " ".join(argv)
     assert Path(calls["cwd"]) == Path("../Linkedin")
 
 
-def test_deepen_forwards_max_people(monkeypatch):
+def test_deepen_max_people_not_sent_to_extract(monkeypatch):
+    """`extract` has no --max-people option (only `employees` does) — passing it
+    would exit 2. The kwarg is accepted for signature stability but not sent."""
     captured = {}
 
     class P:
@@ -100,8 +102,7 @@ def test_deepen_forwards_max_people(monkeypatch):
     monkeypatch.setattr("src.sources.linkedin_db.collector.subprocess.run", fake_run)
     cfg = Config()
     request_linkedin_deepen(cfg, "acme-corp", max_people=5)
-    assert "--max-people" in captured["argv"]
-    assert str(5) in captured["argv"]
+    assert "--max-people" not in captured["argv"]
 
 
 def test_deepen_missing_checkout_returns_none(caplog):

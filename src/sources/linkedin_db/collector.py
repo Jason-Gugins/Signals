@@ -87,10 +87,12 @@ def request_linkedin_deepen(config: Config, slug: str, **kw):
         url = f"https://www.linkedin.com/company/{slug}/"
         log = Path("data/logs") / f"deepen_{slug}.log"
         log.parent.mkdir(parents=True, exist_ok=True)
-        argv = [str(exe), "-m", "src.cli", "extract", "--company-url", url]
+        argv = [str(exe), "-m", "src.cli", "extract", "--url", url]
         max_people = kw.get("max_people")
         if max_people:
-            argv += ["--max-people", str(max_people)]
+            # extract has no --max-people; employees does (post-extract roster cap
+            # is owned by the scraper's own config). Kept for signature stability.
+            pass
         proc = subprocess.run(
             argv,
             cwd=str(cwd),

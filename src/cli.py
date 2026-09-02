@@ -720,11 +720,13 @@ def signals_cmd(ctx, domain, since, typ):
 @main.command()
 @click.option("--domain", required=True)
 @click.option("--max-people", type=int, default=8)
+@click.option("--timeout", type=int, default=900)
 @click.pass_context
-def deepen(ctx, domain, max_people):
+def deepen(ctx, domain, max_people, timeout):
+    """Trigger the companion LinkedIn scraper for one company (manual, gated)."""
     from src.sources.linkedin_db.collector import request_linkedin_deepen
 
-    request_linkedin_deepen(ctx.obj["config"], domain)
+    request_linkedin_deepen(ctx.obj["config"], domain, max_people=max_people, timeout=timeout)
     click.echo(f"deepen requested for {domain}")
 
 

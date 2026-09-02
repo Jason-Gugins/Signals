@@ -29,8 +29,17 @@ from src.signals.tier import assign_tier
 from src.sources.registry import SOURCES, enabled_sources
 
 
+_INJECTED_TODAY: date | None = None
+
+
+def set_today(d: date | None) -> None:
+    """Inject a fixed 'today' for tests/reproducibility; None = real clock."""
+    global _INJECTED_TODAY
+    _INJECTED_TODAY = d
+
+
 def _today() -> date:
-    return date(2026, 8, 16)
+    return _INJECTED_TODAY or date.today()
 
 
 def _now() -> str:

@@ -1,8 +1,10 @@
 from datetime import date
+from pathlib import Path
 from src.core.models import Contact
 from src.sources.linkedin_db.jobs import linkedin_jobs_to_candidates
 from src.sources.linkedin_db.people import detect_role_changes, people_to_contacts
 from src.sources.linkedin_db.posts import posts_to_candidates
+from src.core.config import Config
 from src.sources.linkedin_db.collector import request_linkedin_deepen
 
 
@@ -56,3 +58,55 @@ def test_deepen_failure_path(monkeypatch):
     monkeypatch.setattr("src.sources.linkedin_db.collector.subprocess.run", boom)
     assert request_linkedin_deepen(Config(), "acme") is None
     assert called
+
+
+def test_deepen_invokes_extract_not_enrich(monkeypatch):
+    """The scraper's `enrich` command needs prior pipeline state; `extract` is
+    the single-company entry point. argv must use extract + --company-url."""
+    calls = {}
+
+    class P:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(argv, **kw):
+        calls["argv"] = argv
+        calls["cwd"] = kw.get("cwd")
+        return P()
+
+    monkeypatch.setattr("src.sources.linkedin_db.collector.subprocess.run", fake_run)
+    cfg = Config()
+    cfg.external_dbs.linkedin_cli_cwd = "../Linkedin"
+    request_linkedin_deepen(cfg, "acme-corp", max_people=12, timeout=60)
+    argv = calls["argv"]
+    assert "extract" in argv, argv
+    assert "--company-url" in argv and "https://www.linkedin.com/company/acme-corp/" in " ".join(argv)
+    assert Path(calls["cwd"]) == Path("../Linkedin")
+
+
+def test_deepen_forwards_max_people(monkeypatch):
+    captured = {}
+
+    class P:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(argv, **kw):
+        captured["argv"] = argv
+        return P()
+
+    monkeypatch.setattr("src.sources.linkedin_db.collector.subprocess.run", fake_run)
+    cfg = Config()
+    request_linkedin_deepen(cfg, "acme-corp", max_people=5)
+    assert "--max-people" in captured["argv"]
+    assert str(5) in captured["argv"]
+
+
+def test_deepen_missing_checkout_returns_none(caplog):
+    """Absent scraper checkout -> clean None + warning, never a crash."""
+    cfg = Config()
+    cfg.external_dbs.linkedin_cli_cwd = "Z:/definitely/not/here"
+    result = request_linkedin_deepen(cfg, "acme-corp", timeout=5)
+    assert result is None

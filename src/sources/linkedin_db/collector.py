@@ -67,19 +67,41 @@ class LinkedinDbSource(SourceAdapter):
 
 
 def request_linkedin_deepen(config: Config, slug: str, **kw):
+    """Run the scraper's single-company extract as a subprocess.
+
+    Uses `extract` (not `enrich`): enrich assumes prior discover/extract
+    pipeline state; extract takes a bare --company-url. Forwards max_people.
+    Exception-safe: any failure logs a warning and returns None.
+    """
     try:
-        exe = Path(config.external_dbs.linkedin_cli_cwd) / ".venv" / "Scripts" / "python.exe"
+        cwd = Path(config.external_dbs.linkedin_cli_cwd)
+        if not cwd.exists():
+            from loguru import logger
+            logger.warning("linkedin scraper checkout not found at {} — deepen skipped", cwd)
+            return None
+        exe = cwd / ".venv" / "Scripts" / "python.exe"
+        if not exe.exists():
+            from loguru import logger
+            logger.warning("scraper venv python missing at {} — deepen skipped", exe)
+            return None
         url = f"https://www.linkedin.com/company/{slug}/"
         log = Path("data/logs") / f"deepen_{slug}.log"
         log.parent.mkdir(parents=True, exist_ok=True)
+        argv = [str(exe), "-m", "src.cli", "extract", "--company-url", url]
+        max_people = kw.get("max_people")
+        if max_people:
+            argv += ["--max-people", str(max_people)]
         proc = subprocess.run(
-            [str(exe), "-m", "src.cli", "enrich", "--company-url", url],
-            cwd=config.external_dbs.linkedin_cli_cwd,
+            argv,
+            cwd=str(cwd),
             timeout=kw.get("timeout", 900),
             capture_output=True,
             text=True,
         )
         log.write_text((proc.stdout or "") + (proc.stderr or ""), encoding="utf-8")
+        if proc.returncode != 0:
+            from loguru import logger
+            logger.warning("linkedin deepen exited {} for {} — see {}", proc.returncode, slug, log)
         return proc
     except Exception as exc:
         from loguru import logger

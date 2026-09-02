@@ -51,6 +51,27 @@ def upsert_g2_reviews(db, reviews: list, *, now: str, raw_ref: str | None = None
     new, updated = 0, 0
     for r in reviews:
         existing = db.one("SELECT first_seen_at FROM g2_reviews WHERE review_id=?", (r.review_id,))
+        # Dual-key dedupe (capterra only): the review_id scheme changed at
+        # least once, so pre-existing rows carry old-scheme ids that can never
+        # match a new-scheme candidate. The old id hashed the raw string, so it
+        # is unrecoverable — instead, adopt a legacy row on the natural key
+        # (product_slug, reviewer_name, posted_at): update its review_id to the
+        # new id in place rather than inserting a duplicate.
+        if existing is None and source == "capterra":
+            adopted = db.one(
+                "SELECT first_seen_at FROM g2_reviews "
+                "WHERE source='capterra' AND product_slug=? AND "
+                "reviewer_name IS ? AND posted_at IS ? LIMIT 1",
+                (r.product_slug, r.reviewer_name, r.posted_at),
+            )
+            if adopted is not None:
+                db.execute(
+                    "UPDATE g2_reviews SET review_id=? WHERE "
+                    "source='capterra' AND product_slug=? AND "
+                    "reviewer_name IS ? AND posted_at IS ?",
+                    (r.review_id, r.product_slug, r.reviewer_name, r.posted_at),
+                )
+                existing = adopted
         db.upsert(
             "g2_reviews",
             {

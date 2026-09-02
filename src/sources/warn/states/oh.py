@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 
+from urllib.parse import urljoin
+
 from lxml import html
 
 from src.sources.warn import WarnNotice
@@ -48,7 +50,7 @@ class OhWarn:
                     effective_date=None,
                     affected=None,
                     location=county,
-                    url=href,
+                    url=urljoin(self.index_url, href),
                     reason=None,
                 )
             )

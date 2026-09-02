@@ -694,7 +694,11 @@ def status(ctx):
     from src.pipeline.health_report import source_health
 
     db = Database(ctx.obj["config"].storage.db_path)
-    click.echo(render_status(status_report(db, taxonomy=None)))
+    click.echo(render_status(status_report(
+        db,
+        taxonomy=None,
+        raw_quota_mb=ctx.obj["config"].storage.raw_quota_mb,
+    )))
     # Per-source health table (read-only, from fetch_log).
     click.echo("source\tfetched\tfailed\trate\ttop_error_class")
     for r in source_health(db):

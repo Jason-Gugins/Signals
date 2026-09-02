@@ -16,10 +16,12 @@ from lxml import html
 from src.core.textutil import to_iso_date
 from src.sources.warn import WarnNotice, parse_affected
 
-# company, street, city -> capture company (front) and city (after last " St|Ave|Blvd|Rd|Dr|Ln|Way|Pkwy|Hwy|Ct| Blvd...,")
-_ADDR_TAIL = re.compile(
-    r"^(?P<company>.+?),\s*(?P<street>[^,]+),\s*(?P<city>.+)$"
-)
+# Company cell is "Company, Street, City" (concatenated). The split is
+# RIGHT-ANCHORED: the last two comma segments are street and city, everything
+# before them is the company — so company names containing commas ('Acme, Inc,
+# 123 Main St, Columbus') survive intact. Leading suite/unit segments in the
+# city tail ('Suite 200, Tampa') are stripped.
+_SUITE_RE = re.compile(r"^(?:suite|ste|unit)\.?\s*\d+\s*,?\s*", re.IGNORECASE)
 _MDY = re.compile(r"^(?P<m>\d{1,2})/(?P<d>\d{1,2})/(?P<y>\d{4})$")
 
 
@@ -43,13 +45,15 @@ class FlWarn:
 
     @staticmethod
     def _split_company(cell: str) -> tuple[str, str | None]:
-        m = _ADDR_TAIL.match(cell)
-        if not m:
+        parts = [p.strip() for p in cell.rsplit(",", 2)]
+        if len(parts) == 3 and all(parts):
+            company, _street, city = parts
+        else:
             company = cell.strip()
             city = None
-        else:
-            company = m.group("company").strip()
-            city = m.group("city").strip() or None
+        if city:
+            stripped = _SUITE_RE.sub("", city, count=1).strip()
+            city = stripped or None
         if not re.match(r"[A-Za-z0-9]", company or ""):
             return "", None  # no actual company name in cell
         return company, city

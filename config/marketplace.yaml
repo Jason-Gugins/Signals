@@ -14,6 +14,10 @@ sites:
   g2:
     enabled: false
     deep_reviews: false
+    # Deep-review ("Show More") expansion bounding — the default is 'extreme':
+    # expand only for reviews rated >= 4.0 or <= 2.0 (unknown ratings expand).
+    # Set to null for the old bound-free behavior. Invalid values -> 'extreme'.
+    deep_reviews_bound: extreme
     sign_in_required: false
     max_review_pages: 5
     review_lookback_days: 90

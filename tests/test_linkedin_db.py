@@ -110,3 +110,21 @@ def test_deepen_missing_checkout_returns_none(caplog):
     cfg.external_dbs.linkedin_cli_cwd = "Z:/definitely/not/here"
     result = request_linkedin_deepen(cfg, "acme-corp", timeout=5)
     assert result is None
+
+
+def test_deepen_cli_forwards_options(monkeypatch):
+    """deepen --domain X --max-people N must forward both to request_linkedin_deepen."""
+    import src.cli as cli
+    seen = {}
+
+    def fake_deepen(config, slug, **kw):
+        seen.update(kw)
+        seen["slug"] = slug
+
+    monkeypatch.setattr("src.sources.linkedin_db.collector.request_linkedin_deepen", fake_deepen)
+    from click.testing import CliRunner
+    runner = CliRunner()
+    res = runner.invoke(cli.main, ["deepen", "--domain", "acme-corp", "--max-people", "9"])
+    assert res.exit_code == 0, res.output
+    assert seen["slug"] == "acme-corp"
+    assert seen.get("max_people") == 9

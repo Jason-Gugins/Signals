@@ -18,6 +18,45 @@ def _hq(account: Account) -> str:
     return ", ".join(parts) or "—"
 
 
+# Task 13: persona buckets → framing sentences (checked in priority order,
+# before generic "chief" so "Chief Revenue Officer" lands on revenue).
+_PERSONA_FRAMING = {
+    "revenue": "Frame this as a revenue conversation: tie timing to pipeline and quota impact.",
+    "tech": "Frame this for an engineering audience: lead with architecture fit and integration cost.",
+    "exec": "Frame this at the executive level: risk, cost of inaction, and competitive timing.",
+}
+
+_PERSONA_KEYWORDS = {
+    "revenue": ("revenue", "cro", "sales", "chief commercial", "go-to-market", "gtm"),
+    "tech": ("cto", "ciso", "cio", "engineer", "engineering", "architect", "technology", "technical"),
+    "exec": ("ceo", "coo", "cfo", "chief", "founder", "president", "general manager", "managing director"),
+}
+
+
+def _persona_bucket(contact: Contact) -> str | None:
+    text = " ".join(filter(None, [(contact.persona or ""), (contact.title or "")])).lower()
+    if not text:
+        return None
+    for bucket, words in _PERSONA_KEYWORDS.items():
+        if any(w in text for w in words):
+            return bucket
+    return None
+
+
+def select_persona_framing(contacts: list[Contact] | None, plays: list) -> str | None:
+    """Pure helper: persona-specific framing sentence for the brief.
+
+    Returns the framing line for the first contact with a recognizable
+    function bucket (revenue/tech/exec), or None when no persona is known —
+    callers must keep output byte-identical in the None case.
+    """
+    for contact in contacts or []:
+        bucket = _persona_bucket(contact)
+        if bucket:
+            return _PERSONA_FRAMING[bucket]
+    return None
+
+
 def render_brief(
     account: Account,
     signals: list[Signal],
@@ -33,6 +72,7 @@ def render_brief(
         f"# {company}  ·  Tier {tier.tier}  ·  Score {score.score}  ·  Window: {tier.buying_window}",
         f"{account.domain} · {account.industry or '—'} · {account.employee_count or '—'} employees · {_hq(account)}",
         f"_Rationale: {tier.rationale}_",
+        *([f"_Persona framing: {select_persona_framing(contacts, plays)}_"] if select_persona_framing(contacts, plays) else []),
         "",
         "## Why now (top signals)",
         "| When | Signal | Evidence | Source | Conf |",

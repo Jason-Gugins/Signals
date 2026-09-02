@@ -190,6 +190,10 @@ def test_capture_html_uses_fresh_context_when_browser_running(tmp_path):
 
     fetcher._new_solve_context = mock_new_solve_context
     fetcher._browser = object()  # truthy — simulates real browser running
+    # Prevent fetch() from calling self.start() -> a REAL Playwright launch
+    # (CI runners have no chromium binary installed). Same stub as the
+    # sibling test_capture_html_does_not_pollute_session_json.
+    fetcher._page = _DummyPage(fired=[])
 
     result = fetcher.fetch(
         "https://acme.com/", source="techstack", domain="acme.com",

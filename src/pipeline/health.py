@@ -6,7 +6,24 @@ import sys
 from pathlib import Path
 
 
-def status_report(db, *, taxonomy) -> dict:
+MB = 1024 * 1024
+
+
+def raw_quota_check(raw_mb: float, quota_mb: float | None) -> dict | None:
+    """Storage-quota check for the raw document store.
+
+    Returns None when disabled (quota_mb is None/0), otherwise
+    {"status": "OK"|"WARN", "used_mb", "quota_mb"} — WARN when the raw
+    byte total exceeds the configured quota.
+    """
+    if not quota_mb or quota_mb <= 0:
+        return None
+    quota_mb = float(quota_mb)
+    status = "WARN" if raw_mb > quota_mb else "OK"
+    return {"status": status, "used_mb": round(raw_mb, 1), "quota_mb": quota_mb}
+
+
+def status_report(db, *, taxonomy, raw_quota_mb: float | None = None) -> dict:
     accounts = db.query("SELECT tier, disqualified FROM accounts")
     by_tier = {}
     dq = 0
@@ -31,12 +48,17 @@ def status_report(db, *, taxonomy) -> dict:
         slot["next_due"] = row.get("next_due_at")
     runs = db.query("SELECT run_id, stage, status, started_at FROM runs ORDER BY started_at DESC LIMIT 5")
     docs = db.one("SELECT COUNT(*) AS n, COALESCE(SUM(byte_size),0) AS b FROM documents") or {"n": 0, "b": 0}
+    raw_mb = (docs["b"] or 0) / MB
+    storage = {"db_mb": 0.0, "raw_mb": round(raw_mb, 1), "docs": docs["n"]}
+    quota = raw_quota_check(raw_mb, raw_quota_mb)
+    if quota is not None:
+        storage["raw_quota"] = quota
     return {
         "accounts": {"total": len(accounts), "by_tier": by_tier, "disqualified": dq},
         "signals": {"total": len(sigs), "by_category": by_cat, "newest": newest},
         "sources": sources,
         "runs": {"last_5": [dict(r) for r in runs]},
-        "storage": {"db_mb": 0.0, "raw_mb": 0.0, "docs": docs["n"]},
+        "storage": storage,
     }
 
 
@@ -182,6 +204,17 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
         except Exception as exc:
             add("network", "WARN", str(exc))
     add("disk", "OK", "raw store")
+    try:
+        raw_mb = (db.one("SELECT COALESCE(SUM(byte_size), 0) AS b FROM documents") or {"b": 0})["b"] / MB
+        quota = raw_quota_check(raw_mb, getattr(config.storage, "raw_quota_mb", None))
+        if quota is not None:
+            add(
+                "raw_quota",
+                quota["status"],
+                f"raw {quota['used_mb']}MB / quota {quota['quota_mb']}MB",
+            )
+    except Exception as exc:
+        add("raw_quota", "WARN", f"quota check skipped: {exc}")
     for _, status, _ in out:
         assert status in {"OK", "WARN", "FAIL"}
     return out

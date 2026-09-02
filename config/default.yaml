@@ -57,6 +57,7 @@ storage:
   digests_dir: "data/digests"
   recon_dir: "data/recon"
   keep_raw_days: 400
+  raw_quota_mb: null          # data/raw byte_size quota in MB; null = disabled
 
 external_dbs:
   linkedin_db: "../Linkedin/data/linkedin.db"

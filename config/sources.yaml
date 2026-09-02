@@ -35,7 +35,7 @@ sources:
   federal_register: { enabled: true, cadence_hours: 24, rate_per_host: 2.0 }
   warn_notices:   { enabled: true, cadence_hours: 24, rate_per_host: 0.5 }
   techstack:      { enabled: true, cadence_hours: 168, rate_per_host: 1.0 }
-  wayback:        { enabled: true, cadence_hours: 168, rate_per_host: 0.5 }
+  wayback:        { enabled: true, cadence_hours: 336, rate_per_host: 0.5 }  # longest cadence band (P3 Task 5)
   crtsh:          { enabled: true, cadence_hours: 336, rate_per_host: 0.2 }
   community_hn:   { enabled: true, cadence_hours: 24, rate_per_host: 1.0 }
   community_github: { enabled: true, cadence_hours: 48, rate_per_host: 1.0 }

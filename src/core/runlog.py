@@ -4,8 +4,39 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+
+from loguru import logger
 
 from src.core.db import Database
+
+_LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {message}"
+
+
+def attach_file_sink(run_id: str, log_dir: str | Path, rotation: str = "10 MB") -> int:
+    """Attach a rotating loguru file sink named for the run; return its sink id.
+
+    Callers should ``logger.remove(sink_id)`` when the run ends.
+    """
+    path = Path(log_dir) / f"{run_id}.log"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return logger.add(str(path), level="INFO", format=_LOG_FORMAT, rotation=rotation)
+
+
+def _resolve_logs_dir() -> str:
+    """Best-effort logs dir from config/default.yaml; falls back to data/logs."""
+    try:
+        import yaml  # local import: logging must never crash a run
+
+        cfg_path = Path("config/default.yaml")
+        if cfg_path.exists():
+            data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            logs_dir = (data.get("logging") or {}).get("logs_dir")
+            if logs_dir:
+                return str(logs_dir)
+    except Exception:
+        pass
+    return "data/logs"
 
 
 def _now() -> str:
@@ -21,6 +52,7 @@ class RunContext:
         self.documents = 0
         self.signals_new = 0
         self.errors = 0
+        self._sink_id: int | None = None
 
     def __enter__(self) -> "RunContext":
         self.db.execute(
@@ -31,9 +63,22 @@ class RunContext:
             """,
             (self.run_id, self.stage, _now()),
         )
+        # Fail-safe: attach the run-scoped rotating file sink; logging must
+        # never crash a run.
+        try:
+            self._sink_id = attach_file_sink(self.run_id, _resolve_logs_dir())
+        except Exception:
+            self._sink_id = None
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        # Fail-safe: detach the run's file sink before recording the outcome.
+        if self._sink_id is not None:
+            try:
+                logger.remove(self._sink_id)
+            except Exception:
+                pass
+            self._sink_id = None
         status = "failed" if exc_type is not None else "completed"
         self.db.execute(
             """

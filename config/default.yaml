@@ -66,6 +66,7 @@ external_dbs:
 logging:
   level: INFO
   file: "data/logs/signals.log"
+  logs_dir: "data/logs"
   rotation: "10 MB"
 
 pipeline:

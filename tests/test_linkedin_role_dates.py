@@ -83,9 +83,18 @@ def test_detect_role_changes_old_roles_still_ignored():
 
 def test_live_scraper_db_role_dates():
     """Integration: against the real scraper DB, at least one profiled person
-    yields a resolvable role start (no longer the universal None)."""
+    yields a resolvable role start (no longer the universal None).
+
+    Skipped when the companion scraper checkout is absent (CI, fresh clones) —
+    the DB belongs to the private linkedin-scraper repo."""
+    import os
+
+    import pytest
+
     cfg = Config()
     path = cfg.external_dbs.linkedin_db
+    if not os.path.exists(path):
+        pytest.skip(f"companion scraper DB not present: {path}")
     conn = _open_ro(path)
     rows = [
         dict(r)

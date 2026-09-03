@@ -80,7 +80,9 @@ class OnnxScorer:
             return None
         if not docs:
             return []
-        enc = self._tokenizer.encode_batch([(query, d) for d in docs])
+        # docs are (title, summary) pairs — join into one text per doc so the
+        # pair fed to the tokenizer is (query, doc_text) with plain strings.
+        enc = self._tokenizer.encode_batch([(query, f"{t} — {s}" if s else t) for t, s in docs])
         input_ids = [e.ids for e in enc]
         attention_mask = [e.attention_mask for e in enc]
         type_ids = [e.type_ids for e in enc]

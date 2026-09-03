@@ -156,6 +156,7 @@ _COMMON_WORD_NAMES = frozenset({
     "loom",
     "notion",
     "roku",
+    "glow",   # Glow Security vs "Dolce Glow", "Dior Glow-Up" — beauty-brand collisions
 })
 
 
@@ -241,6 +242,10 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
         _NON_COMPANY_CONTEXTS = (
             "music festival", "music & arts", "art festival",
             "#", "live session", "backyard",
+            # beauty/cosmetics/consumer-lifestyle uses of the word
+            # (e.g. Glow Security vs "Dior Glow-Up skin tint", "K-beauty Glow")
+            "beauty", "skincare", "skin tint", "k-beauty", "cosmetics",
+            "makeup", "lipstick", "mascara", "festival by", "wellness",
         )
         name_lower = (account.name or "").casefold()
         for ctx in _NON_COMPANY_CONTEXTS:
@@ -250,6 +255,32 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
             needle2 = name_lower + ctx  # e.g. "levitate#9"
             if needle2 in headline.casefold() or needle2 in summary.casefold():
                 return None
+        # Beauty/lifestyle collisions put the context BEFORE or distant from the
+        # name ("Dior Glow-Up", "Glow Festival by Prudential") — the positional
+        # needle above misses those. For common-word names, ALSO reject when a
+        # context marker appears anywhere near the mention in the headline.
+        _ANYWHERE_CONTEXTS = ("skin tint", "k-beauty", "skincare", "cosmetics",
+                              "makeup", "lipstick", "mascara", "beauty launches",
+                              "glow-up", "glow up", "monsoon", "festival",
+                              # other-brand name collisions: "Dolce Glow",
+                              # "Glow Recipe", "Glow Festival" — a different
+                              # company whose name merely contains ours
+                              "dolce glow", "glow recipe", "glow festival")
+        head_l = headline.casefold()
+        summ_l = summary.casefold()
+        for ctx in _ANYWHERE_CONTEXTS:
+            if ctx in head_l or ctx in summ_l:
+                return None
+        # Cosmetics-brand launches mention the name as a PRODUCT qualifier
+        # ("Luminous Even Glow range") with no security context at all.
+        # For common-word names, require the headline to carry at least one
+        # B2B/security-ish context token, else treat as brand noise.
+        _SECURITY_CONTEXT = ("security", "endpoint", "cyber", "ai ", " ai",
+                             "series", "funding", "raises", "acquires",
+                             "acquisition", "launches its", "unveils its",
+                             "app", "platform", " raises")
+        if not any(k in head_l or k in summ_l for k in _SECURITY_CONTEXT):
+            return None
     # If the publisher (source_name) matches the account name, this is
     # likely self-published content. Only keep signal types that are
     # legitimate self-announcements (funding, product launches, etc.).

@@ -47,8 +47,15 @@ def test_job_window_and_posts():
     assert "department_expansion" in types
 
 
-def test_deepen_failure_path(monkeypatch):
+def test_deepen_failure_path(monkeypatch, tmp_path):
+    """subprocess.run raising -> clean None (never crashes the caller).
+    Requires a checkout+venv that exist so the pre-run guards pass — both are
+    faked with tmp_path."""
     from src.core.config import Config
+    cfg = Config()
+    cfg.external_dbs.linkedin_cli_cwd = str(tmp_path / "Linkedin")
+    (tmp_path / "Linkedin" / ".venv" / "Scripts").mkdir(parents=True)
+    (tmp_path / "Linkedin" / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
     called = {}
 
     def boom(*a, **k):
@@ -56,14 +63,18 @@ def test_deepen_failure_path(monkeypatch):
         raise RuntimeError("nope")
 
     monkeypatch.setattr("src.sources.linkedin_db.collector.subprocess.run", boom)
-    assert request_linkedin_deepen(Config(), "acme") is None
+    monkeypatch.chdir(tmp_path)
+    assert request_linkedin_deepen(cfg, "acme") is None
     assert called
 
 
-def test_deepen_invokes_extract_not_enrich(monkeypatch):
+def test_deepen_invokes_extract_not_enrich(monkeypatch, tmp_path):
     """The scraper's `enrich` command needs prior pipeline state; `extract` is
     the single-company entry point. argv must use extract + --url."""
     calls = {}
+    fake_root = tmp_path / "Linkedin"
+    (fake_root / ".venv" / "Scripts").mkdir(parents=True)
+    (fake_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
 
     class P:
         returncode = 0
@@ -77,18 +88,22 @@ def test_deepen_invokes_extract_not_enrich(monkeypatch):
 
     monkeypatch.setattr("src.sources.linkedin_db.collector.subprocess.run", fake_run)
     cfg = Config()
-    cfg.external_dbs.linkedin_cli_cwd = "../Linkedin"
+    cfg.external_dbs.linkedin_cli_cwd = str(fake_root)
+    monkeypatch.chdir(tmp_path)
     request_linkedin_deepen(cfg, "acme-corp", max_people=12, timeout=60)
     argv = calls["argv"]
     assert "extract" in argv, argv
     assert "--url" in argv and "https://www.linkedin.com/company/acme-corp/" in " ".join(argv)
-    assert Path(calls["cwd"]) == Path("../Linkedin")
+    assert Path(calls["cwd"]) == fake_root
 
 
-def test_deepen_max_people_not_sent_to_extract(monkeypatch):
+def test_deepen_max_people_not_sent_to_extract(monkeypatch, tmp_path):
     """`extract` has no --max-people option (only `employees` does) — passing it
     would exit 2. The kwarg is accepted for signature stability but not sent."""
     captured = {}
+    fake_root = tmp_path / "Linkedin"
+    (fake_root / ".venv" / "Scripts").mkdir(parents=True)
+    (fake_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
 
     class P:
         returncode = 0
@@ -101,6 +116,8 @@ def test_deepen_max_people_not_sent_to_extract(monkeypatch):
 
     monkeypatch.setattr("src.sources.linkedin_db.collector.subprocess.run", fake_run)
     cfg = Config()
+    cfg.external_dbs.linkedin_cli_cwd = str(fake_root)
+    monkeypatch.chdir(tmp_path)
     request_linkedin_deepen(cfg, "acme-corp", max_people=5)
     assert "--max-people" not in captured["argv"]
 

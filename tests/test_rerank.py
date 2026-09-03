@@ -6,12 +6,26 @@ import pytest
 
 def test_noop_scorer_is_default_when_deps_missing():
     """Without onnxruntime installed, get_scorer() returns a no-op that
-    scores everything None — callers must treat None as 'no adjustment'."""
+    scores everything None — callers must treat None as 'no adjustment'.
+    (When the [rerank] extra IS installed, get_scorer() returns OnnxScorer —
+    that path is covered by the rerank_live test.)"""
     from src.signals import rerank
 
     scorer = rerank.get_scorer()
-    # In the test env (no [rerank] extra installed), the scorer is the no-op.
-    assert isinstance(scorer, rerank.NullScorer)
+    has_deps = rerank.OnnxScorer is not None and _onnxruntime_installed()
+    if has_deps:
+        assert isinstance(scorer, rerank.OnnxScorer)
+    else:
+        assert isinstance(scorer, rerank.NullScorer)
+
+
+def _onnxruntime_installed() -> bool:
+    try:
+        import onnxruntime  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
 
 
 def test_null_scorer_returns_none_for_every_pair():

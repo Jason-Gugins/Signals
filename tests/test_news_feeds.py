@@ -103,3 +103,90 @@ def test_serp_config_reads_custom(tmp_path, monkeypatch):
     monkeypatch.setattr(sc, "SOURCES_YAML_PATH", str(fake))
     cfg = load_google_news_cfg()
     assert cfg["serp_keywords"] == ["fundraising", "acquisition"]
+
+
+# ---- publisher_domain attribution (Part A, plan Tasks 1-2) ------------------
+
+def test_newsitem_publisher_domain_defaults_to_none():
+    """Existing NewsItem constructions (no kwarg) keep working."""
+    from src.sources.news.feeds import NewsItem
+    it = NewsItem(title="T", link="https://ex/a", published=None, summary=None, source_name=None)
+    assert it.publisher_domain is None
+
+
+def test_parse_feed_resolves_publisher_domain_from_url_param():
+    """A Google News link with ?url= resolves to the direct publisher domain."""
+    xml = (
+        "<rss><channel><item>"
+        "<title>T</title>"
+        "<link>https://news.google.com/rss/articles/abc?url=https%3A%2F%2Ftechcrunch.com%2Facme</link>"
+        "<pubDate>Wed, 02 Sep 2026 10:00:00 GMT</pubDate>"
+        "</item></channel></rss>"
+    )
+    items = parse_feed(xml.encode())
+    assert items and items[0].publisher_domain == "techcrunch.com"
+
+
+def test_parse_feed_direct_link_resolves_to_its_own_domain():
+    xml = (
+        "<rss><channel><item>"
+        "<title>T2</title>"
+        "<link>https://www.pymnts.com/story/x</link>"
+        "</item></channel></rss>"
+    )
+    items = parse_feed(xml.encode())
+    assert items and items[0].publisher_domain == "pymnts.com"
+
+
+def test_parse_feed_publisher_failure_is_none_not_crash(monkeypatch):
+    """Resolution failure must never break a parse — item survives with None."""
+    import src.sources.news.resolve as resolve_mod
+    monkeypatch.setattr(resolve_mod, "_resolve_google_news_token", lambda link: None)
+    monkeypatch.setattr(resolve_mod, "_CACHE", {})
+    xml = (
+        "<rss><channel><item>"
+        "<title>T3</title>"
+        "<link>https://news.google.com/rss/articles/CBMiZZZ</link>"
+        "</item></channel></rss>"
+    )
+    items = parse_feed(xml.encode())
+    assert items and items[0].publisher_domain is None
+
+
+def test_parse_feed_resolves_via_summary_link(monkeypatch):
+    """Google News links without ?url= fall back to a link in the summary HTML."""
+    import src.sources.news.resolve as resolve_mod
+    monkeypatch.setattr(resolve_mod, "_resolve_google_news_token", lambda link: None)
+    monkeypatch.setattr(resolve_mod, "_CACHE", {})
+    xml = (
+        "<rss><channel><item>"
+        "<title>T4</title>"
+        "<link>https://news.google.com/rss/articles/CBMiAAA</link>"
+        "<description>Read more at &lt;a href=\"https://arlnow.com/story\"&gt;link&lt;/a&gt;</description>"
+        "</item></channel></rss>"
+    )
+    items = parse_feed(xml.encode())
+    assert items and items[0].publisher_domain == "arlnow.com"
+
+
+def test_parse_feed_publisher_domain_cached_per_link(monkeypatch):
+    """The same Google News token appearing twice resolves only once."""
+    import src.sources.news.resolve as resolve_mod
+    calls = []
+
+    def fake_token(link):
+        calls.append(link)
+        return "arlnow.com"
+
+    monkeypatch.setattr(resolve_mod, "_resolve_google_news_token", fake_token)
+    monkeypatch.setattr(resolve_mod, "_CACHE", {})
+    xml = (
+        "<rss><channel>"
+        "<item><title>A</title><link>https://news.google.com/rss/articles/CBMiBBB</link></item>"
+        "<item><title>B</title><link>https://news.google.com/rss/articles/CBMiBBB</link></item>"
+        "</channel></rss>"
+    )
+    items = parse_feed(xml.encode())
+    assert len(items) == 2
+    assert all(it.publisher_domain == "arlnow.com" for it in items)
+    assert len(calls) == 1  # second item hit the cache

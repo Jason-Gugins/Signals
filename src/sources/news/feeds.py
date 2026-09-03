@@ -31,6 +31,7 @@ class NewsItem:
     published: str | None
     summary: str | None
     source_name: str | None
+    publisher_domain: str | None = None
 
 
 class _LinkParser(HTMLParser):
@@ -139,5 +140,13 @@ def parse_feed(body: bytes) -> list[NewsItem]:
         if e.get("source"):
             source = e.source.get("title") if hasattr(e.source, "get") else getattr(e.source, "title", None)
         link = _unwrap(link, summary)
-        out.append(NewsItem(title=title, link=link, published=published, summary=summary, source_name=source))
+        # Resolve the true publisher domain (offline-first: ?url= param or
+        # summary link; only leftover news.google.com tokens hit the slow
+        # decoder — cached per link there). Failure → None, never a crash.
+        from src.sources.news.resolve import resolve_publisher_domain
+
+        out.append(NewsItem(
+            title=title, link=link, published=published, summary=summary,
+            source_name=source, publisher_domain=resolve_publisher_domain(link, summary),
+        ))
     return out

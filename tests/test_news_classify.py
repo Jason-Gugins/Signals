@@ -439,3 +439,118 @@ def test_common_word_glow_real_security_news_kept():
     c = classify_news(item, glow, today=TODAY)
     assert c is not None
     assert c.signal_type == "product_launch"
+
+
+# ---- publisher-domain attribution ladder (Part A, plan Task 3) --------------
+
+def test_publisher_domain_match_accepts_common_word_name():
+    """Article published on glow.security is about Glow — even a headline
+    that carries NO company name and would fail every in_text guard."""
+    glow = Account(domain="glow.security", name="Glow")
+    item = NewsItem(
+        title="Glow announces Series A funding round",
+        link="https://news.google.com/x", published="2026-09-01",
+        summary="", source_name="", publisher_domain="glow.security",
+    )
+    c = classify_news(item, glow, today=TODAY)
+    assert c is not None
+
+
+def test_publisher_domain_subdomain_match_accepts():
+    """press.glow.security is still Glow's own domain (tier-1 suffix match)."""
+    glow = Account(domain="glow.security", name="Glow")
+    item = NewsItem(
+        title="Glow raises $8M seed round",
+        link="https://news.google.com/x", published="2026-09-01",
+        summary="", source_name="", publisher_domain="press.glow.security",
+    )
+    assert classify_news(item, glow, today=TODAY) is not None
+
+
+def test_publisher_domain_www_prefix_normalized():
+    """www.glow.security normalizes to glow.security for tier-1."""
+    glow = Account(domain="glow.security", name="Glow")
+    item = NewsItem(
+        title="Glow closes its Series A round",
+        link="https://news.google.com/x", published="2026-09-01",
+        summary="", source_name="", publisher_domain="www.glow.security",
+    )
+    assert classify_news(item, glow, today=TODAY) is not None
+
+
+def test_other_brand_publisher_domain_rejects():
+    """dolceglow.com publishing 'Dolce Glow raises $11M' is NOT Glow Security."""
+    glow = Account(domain="glow.security", name="Glow")
+    item = NewsItem(
+        title="Dolce Glow raises $11M Series A",
+        link="https://news.google.com/y", published="2026-09-01",
+        summary="", source_name="Yahoo", publisher_domain="dolceglow.com",
+    )
+    assert classify_news(item, glow, today=TODAY) is None
+
+
+def test_other_brand_publisher_domain_rejects_even_real_looking_signal():
+    """The other-brand reject must hold even when the headline looks like a
+    perfect, unambiguous signal for the account name."""
+    glow = Account(domain="glow.security", name="Glow")
+    item = NewsItem(
+        title="Glow raises $20M Series B for security platform",
+        link="https://news.google.com/y", published="2026-09-01",
+        summary="", source_name="TechCrunch", publisher_domain="glowrecipe.com",
+    )
+    assert classify_news(item, glow, today=TODAY) is None
+
+
+def test_unresolved_publisher_falls_back_to_existing_guards():
+    """publisher_domain=None → current behavior (beauty-context guards etc.)."""
+    glow = Account(domain="glow.security", name="Glow")
+    item = NewsItem(
+        title="Dior Launches Backstage Glow-Up Skin Tint",
+        link="https://news.google.com/z", published="2026-09-01",
+        summary="", source_name="The Impression", publisher_domain=None,
+    )
+    assert classify_news(item, glow, today=TODAY) is None
+
+
+def test_neutral_publisher_domain_falls_through_to_guards():
+    """A neutral publisher domain (techcrunch.com) neither accepts nor
+    rejects — the existing guard chain decides."""
+    glow = Account(domain="glow.security", name="Glow")
+    # Real security news on a neutral publisher → still kept (tier-3 pass).
+    kept = NewsItem(
+        title="Glow Security launches endpoint AI agent platform - TechCrunch",
+        link="https://news.google.com/z", published="2026-09-01",
+        summary="", source_name="TechCrunch", publisher_domain="techcrunch.com",
+    )
+    assert classify_news(kept, glow, today=TODAY) is not None
+    # Beauty noise on the same neutral publisher → still dropped.
+    noise = NewsItem(
+        title="Dior Launches Backstage Glow-Up Skin Tint - The Impression",
+        link="https://news.google.com/z", published="2026-09-01",
+        summary="", source_name="The Impression", publisher_domain="theimpression.com",
+    )
+    assert classify_news(noise, glow, today=TODAY) is None
+
+
+def test_is_other_brand_domain_unit():
+    from src.sources.news.classify import _is_other_brand_domain
+    assert _is_other_brand_domain("dolceglow.com", "glow")
+    assert _is_other_brand_domain("glowrecipe.com", "glow")
+    assert not _is_other_brand_domain("glow.security", "glow")   # exact own domain
+    assert not _is_other_brand_domain("techcrunch.com", "glow")  # name absent
+    assert not _is_other_brand_domain("glow.com", "glow")        # bare == name
+    assert not _is_other_brand_domain("anything.com", None)      # no name to check
+
+
+def test_domain_proof_skips_common_word_guards_completely():
+    """Tier-1 proof bypasses even headlines that would trip the beauty guards
+    (e.g. a launch post that happens to mention 'glow-up')."""
+    glow = Account(domain="glow.security", name="Glow")
+    item = NewsItem(
+        title="Introducing the new Glow dashboard",
+        link="https://news.google.com/x", published="2026-09-01",
+        summary="", source_name="", publisher_domain="glow.security",
+    )
+    c = classify_news(item, glow, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "product_launch"

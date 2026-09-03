@@ -203,6 +203,19 @@ _RESEARCH_PATTERNS = [
 ]
 
 
+def _is_other_brand_domain(pub_host: str, want: str | None) -> bool:
+    """True if the publisher domain IS the ambiguous brand itself
+    (e.g. 'dolceglow.com' for account name 'Glow'): the domain contains
+    the name but is not the account's own domain — the other brand's own
+    domain publishing the article proves this is not about the account.
+    """
+    if not want:
+        return False
+    w = want.casefold()
+    bare = pub_host.split(".")[0]
+    return w in pub_host and bare != w and len(bare) > len(w)
+
+
 def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[SignalCandidate]:
     title = item.title or ""
     summary = item.summary or ""
@@ -212,75 +225,100 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
     # Strip publisher attribution ("Headline - Publisher") so the account
     # name is checked against the headline content, not the byline.
     headline = _strip_source_attribution(title)
-    headline_n = normalize_name(headline) or ""
-    blob_n = normalize_name(text) or ""
-    summary_n = normalize_name(summary) or ""
-    in_title = bool(want and want in headline_n) or (domain.split(".")[0] in headline.casefold())
-    in_summary = bool(want and want in summary_n)
-    in_text = in_title or in_summary or (want and want in blob_n and want in headline_n)
-    # Gong Cha vs Gong: require token-ish presence of normalized name as whole-ish
-    if want:
-        # reject if name only as prefix of a longer different token (gong vs gong cha)
-        if re.search(rf"\b{re.escape(want)}\s+cha\b", blob_n):
-            if want == "gong":
-                in_text = False
-                in_title = False
-    if not in_text:
-        return None
-    # For common-word company names (e.g. "Levitate"), require proper-noun
-    # casing or domain mention. This prevents verb/adjective matches:
-    #   "Watch Alex levitate" ≠ Levitate the company
-    #   "Levitate Music Festival" ≠ Levitate the company (context check below)
-    if in_text and _is_common_word(account.name):
-        if not (_has_proper_mention(headline, account.name) or
-                _has_proper_mention(summary, account.name)):
+    # --- Tier-1/2: publisher-domain proof (resolves common-word ambiguity) ---
+    # The article's publisher/linked domain compared against the account's
+    # domain beats every lexical guard:
+    #   Tier 1: publisher domain == account domain (or subdomain thereof)
+    #           → authoritative match, skip ALL name guards below.
+    #   Tier 2: publisher domain contains the name but is NOT the account's
+    #           domain (e.g. dolceglow.com for account "Glow") → the other
+    #           brand's own domain proves this is not about the account.
+    #   Tier 3: neutral publisher (techcrunch.com, ...) → fall through to
+    #           the existing in_text + common-word guard chain.
+    pub = getattr(item, "publisher_domain", None)
+    acct_host = (domain or "").casefold()  # e.g. glow.security
+    domain_proof = False
+    if pub and acct_host:
+        pub_h = pub.casefold().removeprefix("www.")
+        if pub_h == acct_host or pub_h.endswith("." + acct_host) or acct_host.endswith("." + pub_h):
+            domain_proof = True  # authoritative match
+        elif _is_other_brand_domain(pub_h, want):
+            return None  # a different known brand's own domain proves non-match
+    if domain_proof:
+        # Tier-1: the publisher IS the account's domain — the account name
+        # is proven without any lexical guard. Skip the in_text/common-word
+        # chain entirely and classify from the rules directly.
+        in_title = in_summary = True
+    else:
+        headline_n = normalize_name(headline) or ""
+        blob_n = normalize_name(text) or ""
+        summary_n = normalize_name(summary) or ""
+        in_title = bool(want and want in headline_n) or (domain.split(".")[0] in headline.casefold())
+        in_summary = bool(want and want in summary_n)
+        in_text = in_title or in_summary or (want and want in blob_n and want in headline_n)
+        # Gong Cha vs Gong: require token-ish presence of normalized name as whole-ish
+        if want:
+            # reject if name only as prefix of a longer different token (gong vs gong cha)
+            if re.search(rf"\b{re.escape(want)}\s+cha\b", blob_n):
+                if want == "gong":
+                    in_text = False
+                    in_title = False
+        if not in_text:
             return None
-        # Even with proper casing, reject if the name is immediately followed
-        # by "music", "festival", "art", "#", or other non-company contexts.
-        # These are title-case uses of the common word, not company mentions.
-        # Check BOTH headline and summary (context can appear in either).
-        _NON_COMPANY_CONTEXTS = (
-            "music festival", "music & arts", "art festival",
-            "#", "live session", "backyard",
-            # beauty/cosmetics/consumer-lifestyle uses of the word
-            # (e.g. Glow Security vs "Dior Glow-Up skin tint", "K-beauty Glow")
-            "beauty", "skincare", "skin tint", "k-beauty", "cosmetics",
-            "makeup", "lipstick", "mascara", "festival by", "wellness",
-        )
-        name_lower = (account.name or "").casefold()
-        for ctx in _NON_COMPANY_CONTEXTS:
-            needle = name_lower + " " + ctx
-            if needle in headline.casefold() or needle in summary.casefold():
+        # For common-word company names (e.g. "Levitate"), require proper-noun
+        # casing or domain mention. This prevents verb/adjective matches:
+        #   "Watch Alex levitate" ≠ Levitate the company
+        #   "Levitate Music Festival" ≠ Levitate the company (context check below)
+        if in_text and _is_common_word(account.name):
+            if not (_has_proper_mention(headline, account.name) or
+                    _has_proper_mention(summary, account.name)):
                 return None
-            needle2 = name_lower + ctx  # e.g. "levitate#9"
-            if needle2 in headline.casefold() or needle2 in summary.casefold():
+            # Even with proper casing, reject if the name is immediately followed
+            # by "music", "festival", "art", "#", or other non-company contexts.
+            # These are title-case uses of the common word, not company mentions.
+            # Check BOTH headline and summary (context can appear in either).
+            _NON_COMPANY_CONTEXTS = (
+                "music festival", "music & arts", "art festival",
+                "#", "live session", "backyard",
+                # beauty/cosmetics/consumer-lifestyle uses of the word
+                # (e.g. Glow Security vs "Dior Glow-Up skin tint", "K-beauty Glow")
+                "beauty", "skincare", "skin tint", "k-beauty", "cosmetics",
+                "makeup", "lipstick", "mascara", "festival by", "wellness",
+            )
+            name_lower = (account.name or "").casefold()
+            for ctx in _NON_COMPANY_CONTEXTS:
+                needle = name_lower + " " + ctx
+                if needle in headline.casefold() or needle in summary.casefold():
+                    return None
+                needle2 = name_lower + ctx  # e.g. "levitate#9"
+                if needle2 in headline.casefold() or needle2 in summary.casefold():
+                    return None
+            # Beauty/lifestyle collisions put the context BEFORE or distant from the
+            # name ("Dior Glow-Up", "Glow Festival by Prudential") — the positional
+            # needle above misses those. For common-word names, ALSO reject when a
+            # context marker appears anywhere near the mention in the headline.
+            _ANYWHERE_CONTEXTS = ("skin tint", "k-beauty", "skincare", "cosmetics",
+                                  "makeup", "lipstick", "mascara", "beauty launches",
+                                  "glow-up", "glow up", "monsoon", "festival",
+                                  # other-brand name collisions: "Dolce Glow",
+                                  # "Glow Recipe", "Glow Festival" — a different
+                                  # company whose name merely contains ours
+                                  "dolce glow", "glow recipe", "glow festival")
+            head_l = headline.casefold()
+            summ_l = summary.casefold()
+            for ctx in _ANYWHERE_CONTEXTS:
+                if ctx in head_l or ctx in summ_l:
+                    return None
+            # Cosmetics-brand launches mention the name as a PRODUCT qualifier
+            # ("Luminous Even Glow range") with no security context at all.
+            # For common-word names, require the headline to carry at least one
+            # B2B/security-ish context token, else treat as brand noise.
+            _SECURITY_CONTEXT = ("security", "endpoint", "cyber", "ai ", " ai",
+                                 "series", "funding", "raises", "acquires",
+                                 "acquisition", "launches its", "unveils its",
+                                 "app", "platform", " raises")
+            if not any(k in head_l or k in summ_l for k in _SECURITY_CONTEXT):
                 return None
-        # Beauty/lifestyle collisions put the context BEFORE or distant from the
-        # name ("Dior Glow-Up", "Glow Festival by Prudential") — the positional
-        # needle above misses those. For common-word names, ALSO reject when a
-        # context marker appears anywhere near the mention in the headline.
-        _ANYWHERE_CONTEXTS = ("skin tint", "k-beauty", "skincare", "cosmetics",
-                              "makeup", "lipstick", "mascara", "beauty launches",
-                              "glow-up", "glow up", "monsoon", "festival",
-                              # other-brand name collisions: "Dolce Glow",
-                              # "Glow Recipe", "Glow Festival" — a different
-                              # company whose name merely contains ours
-                              "dolce glow", "glow recipe", "glow festival")
-        head_l = headline.casefold()
-        summ_l = summary.casefold()
-        for ctx in _ANYWHERE_CONTEXTS:
-            if ctx in head_l or ctx in summ_l:
-                return None
-        # Cosmetics-brand launches mention the name as a PRODUCT qualifier
-        # ("Luminous Even Glow range") with no security context at all.
-        # For common-word names, require the headline to carry at least one
-        # B2B/security-ish context token, else treat as brand noise.
-        _SECURITY_CONTEXT = ("security", "endpoint", "cyber", "ai ", " ai",
-                             "series", "funding", "raises", "acquires",
-                             "acquisition", "launches its", "unveils its",
-                             "app", "platform", " raises")
-        if not any(k in head_l or k in summ_l for k in _SECURITY_CONTEXT):
-            return None
     # If the publisher (source_name) matches the account name, this is
     # likely self-published content. Only keep signal types that are
     # legitimate self-announcements (funding, product launches, etc.).

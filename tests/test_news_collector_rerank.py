@@ -165,3 +165,34 @@ def test_none_scores_keep_everything(monkeypatch):
     types = sorted(c.signal_type for c in cands)
     assert types == ["exec_hire", "funding_round"]
     assert all("relevance" not in (c.evidence_data or {}) for c in cands)
+
+
+# --------------------------------------------- domain-proof query boost (A4)
+
+
+def test_domain_proof_query_boost(monkeypatch):
+    """When an item's publisher_domain matches the account domain, the
+    reranker query becomes 'Name domain official' instead of 'Name keyword'."""
+    fake = FakeScorer([0.9, 0.2, 0.8])
+    monkeypatch.setattr(collector_mod, "get_scorer", lambda: fake)
+    src = GoogleNewsSource()
+    meta = {"kind": "search", "query": "Acme Corp", "today": TODAY,
+            "rerank": {"enabled": True}}
+    # Feed items whose publisher_domain matches the account domain.
+    from src.sources.news.feeds import NewsItem as NI
+    items = [
+        NI(title="Acme Corp raises $50M Series B", link="https://a/1",
+           published="2026-08-18", summary="s", source_name="TechCrunch",
+           publisher_domain="acme.com"),
+        NI(title="Acme Corp appoints new CTO", link="https://a/2",
+           published="2026-08-17", summary="s", source_name="VentureBeat",
+           publisher_domain="techcrunch.com"),
+        NI(title="Acme Corp opens office", link="https://a/3",
+           published="2026-08-16", summary="s", source_name="Verge",
+           publisher_domain="www.acme.com"),
+    ]
+    kept, _ = collector_mod._rerank_items(items, ACCOUNT, meta)
+    query, _docs = fake.calls[0]
+    assert query == "Acme Corp acme.com official"
+    # Default floor 0.35: the 0.2-scored item is dropped, 0.9/0.8 survive.
+    assert len(kept) == 2

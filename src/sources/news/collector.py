@@ -74,7 +74,21 @@ def _rerank_items(
 
         name = account.name or account.domain
         keyword = task_meta.get("keyword")
-        query = f"{name} {keyword}" if keyword else name
+        # Domain-proof query boost: when ANY item's publisher domain matches
+        # the account's own domain, those items are about the account — pass
+        # a stronger query ("Name domain official") so the reranker score
+        # reflects the proven attribution instead of the bare name.
+        acct_host = (account.domain or "").casefold().removeprefix("www.")
+        has_domain_proof = bool(acct_host) and any(
+            (it.publisher_domain or "").casefold().removeprefix("www.") == acct_host
+            for it in items
+        )
+        if has_domain_proof:
+            query = f"{name} {account.domain} official"
+        elif keyword:
+            query = f"{name} {keyword}"
+        else:
+            query = name
         scores = get_scorer().score_pairs(
             query,
             [

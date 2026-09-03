@@ -408,3 +408,34 @@ def test_regression_gartner_acquisition_kept():
     c = classify_news(item, gartner, today=TODAY)
     assert c is not None
     assert c.signal_type == "ma_acquirer"
+
+
+# ---- common-word name: Glow Security vs beauty-brand collisions (2026-09-03) --
+
+def test_common_word_glow_beauty_noise_dropped():
+    """'Glow' is a common word AND a beauty-industry term — K-beauty/skin-tint/
+    cosmetics headlines must not become Glow Security signals."""
+    glow = Account(domain="glow.security", name="Glow")
+    noise_titles = [
+        "Glow up: K-beauty launches at the Okinawa Exchange - Stripes Okinawa",
+        "Hautelist: 22 New Beauty Launches To Restore Your Glow This Monsoon Season",
+        "Dior Launches Backstage Glow-Up Skin Tint - The Impression",
+        "Nivea launches Luminous Even Glow range with new campaign - IMPACT",
+    ]
+    for t in noise_titles:
+        item = NewsItem(title=t, link="https://news.google.com/x", published="2026-09-01",
+                        summary="", source_name="X")
+        assert classify_news(item, glow, today=TODAY) is None, t
+
+
+def test_common_word_glow_real_security_news_kept():
+    """Genuine Glow Security headlines still classify."""
+    glow = Account(domain="glow.security", name="Glow")
+    item = NewsItem(
+        title="Glow Security launches endpoint AI agent platform - TechCrunch",
+        link="https://news.google.com/x", published="2026-09-01",
+        summary="", source_name="TechCrunch",
+    )
+    c = classify_news(item, glow, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "product_launch"

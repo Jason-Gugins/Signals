@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
 
@@ -10,6 +11,32 @@ from src.core.textutil import guess_seniority, slugify, stable_id
 from src.sources.base import SignalCandidate
 
 _MONTHS = {m: i for i, m in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+
+
+def _current_role(row: dict) -> tuple[str, str]:
+    """(title, dates) for the person's CURRENT role.
+
+    Profile rows carry role history in the `experience` JSON blob (list of
+    {title, company, dates, is_current}) — the flat `experience_dates`/`dates`
+    columns are always NULL in scraper output. Falls back to the flat columns
+    and `job_title`/`title` for listing rows.
+    """
+    title = row.get("job_title") or row.get("title") or ""
+    dates = row.get("experience_dates") or row.get("dates") or ""
+    raw = row.get("experience")
+    if raw:
+        try:
+            exp = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            exp = []
+        if isinstance(exp, list) and exp:
+            cur = [e for e in exp if e.get("is_current")]
+            entry = cur[0] if cur else exp[0]
+            if not dates:
+                dates = entry.get("dates") or ""
+            if not title:
+                title = entry.get("title") or ""
+    return title, dates
 
 
 def parse_role_start(dates: str | None) -> date | None:
@@ -52,8 +79,8 @@ def detect_role_changes(contacts: list[Contact], people_rows: list[dict], champi
     out = []
     for r in people_rows:
         slug = r.get("linkedin_slug")
-        title = r.get("job_title") or r.get("title") or ""
-        start = parse_role_start(r.get("experience_dates") or r.get("dates"))
+        title, role_dates = _current_role(r)
+        start = parse_role_start(role_dates)
         lead = guess_seniority(title) in {"c_level", "vp", "director", "head"}
         if start and role_age_months(start, today) <= max_role_months and lead:
             out.append(

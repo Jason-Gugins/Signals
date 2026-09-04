@@ -1,6 +1,6 @@
 # TODO — Project Roadmap
 
-Last reviewed: 2026-09-03. Baseline: **1,344 tests passing**. P1 fully delivered
+Last reviewed: 2026-09-04. Baseline: **1,344 tests passing**. P1 fully delivered
 (2026-08-31); **P2 fully delivered (2026-09-01)**; **P3 fully delivered
 (2026-09-02)** — see below. Legacy Cloudflare-bypass checklist archived at the
 bottom.
@@ -185,6 +185,93 @@ the subprocess (carried account names); sqlite busy-timeout 30s on the scraper
 DB read. Minors: BBB reportUrl joined via urljoin (was string concat), `<em >`
 markup tolerated in name matching, sweep resolver-pass scope comment,
 feed-discovery budget named constant.
+
+---
+
+## Sources & waterfall-stability roadmap (2026-09-04 audit)
+
+Fresh audit of `src/sources/` + `src/identity/` for new-source opportunities
+and enrichment-waterfall stability gaps. Priority key as above. Techstack DNS
+probe verdict: **built and tested, not wired** — `probe_dns()` /
+`dns_evidence_to_matches()` (`src/sources/techstack/dns_probe.py:31,62`) pass
+`tests/test_dns_probe.py` and the `dns_cname`/`spf_include` rules already exist
+in `config/fingerprints.yaml`, but nothing outside the module calls them.
+Full plan: `.zcode/plans/2026-09-04_160212-sources-waterfall-roadmap.md`.
+
+### P1 — new functionality / stability
+- [ ] **Wire the techstack DNS probe into the collect pass** — merge MX/SPF/CNAME
+  evidence into the harvest via `merge_matches` (gate on the html task so it
+  probes once per weekly collect; fail-open; `dnspython` is already a hard dep).
+  DNS-discovered vendors then flow through `upsert_technologies` + the
+  prior-cycle diff like HTML/HAR ones. Anti-bot-immune vendor evidence for free.
+- [ ] **GitHub token auth + probe all org guesses** — `GITHUB_TOKEN` is loaded
+  into config (`src/core/config.py:194,331`) but never attached, so
+  `community_github` runs unauthenticated (60 req/hr — dies cohort-wide past
+  ~60 accounts) and `plan()` probes only `github_org_guess(account)[0]`
+  (`src/sources/community/collector.py:31-32`). Attach `Authorization: Bearer`
+  via `FetchTask.headers` (plumbing exists, `src/core/http.py:186-187`);
+  fall through the remaining guesses on 404.
+- [ ] **Fanout-adapter isolation in `runner.run`** — `_run_fanout` is called
+  without try/except (`src/pipeline/runner.py:135-137`), unlike the per-account
+  loop right below, so one `federal_register`/`warn_notices` exception aborts
+  every adapter after it in collect/sweep mode. Wrap in the same
+  `_record_fail` pattern.
+- [ ] **Failure backoff scales with real cadence** — `_record_fail` reads
+  `_default_cadence_hours` (`src/pipeline/runner.py:849`), which nothing ever
+  assigns: every source backs off on a 24h scale (wayback/crtsh's 336h cadence
+  caps at 8 days instead of 8×336h; 12h ATS sources over-penalized). Pass
+  `adapter.cadence_hours` through the two call sites (`runner.py:143`, `:501`).
+- [ ] **ATS detection/collector symmetry** — `ats_discovery` detects
+  bamboohr/jazzhr/personio, which have no collectors — setting `ats_vendor`
+  disables the careers-page fallback, so hiring collection silently stops for
+  those accounts (`src/sources/registry.py:69-74`). Conversely rippling/
+  jobvite/breezy collectors exist but are never detected (patterns missing from
+  `src/identity/ats_discovery.py:18-44`). Add the 3 regexes; stop setting
+  `ats_vendor` for collector-less vendors (personio XML board is a free
+  collector candidate if we want the vendors for real).
+
+### P2
+- [ ] **Per-source `rate_per_host` is dead config** — `config/sources.yaml`
+  rates (sec_edgar 8.0, crtsh 0.2, bbb_profile 0.2) never reach the
+  RateLimiter: `src/pipeline/orchestrator.py:631` builds a global-only one, so
+  crt.sh and BBB are hit 5× faster than configured. Wire the per-host map
+  (keyed by task host) or delete the keys.
+- [ ] **G2 slug resolver violates the never-guess contract** —
+  `resolve_g2_slug` falls back to `search_results[0]["slug"]`
+  (`src/identity/g2_resolve.py:54`) and the orchestrator persists it
+  (`src/pipeline/orchestrator.py:205-208`); capterra/appstore/bbb are all
+  candidates-only. A wrong slug burns anti-bot budget on another company's
+  reviews. Mirror the capterra candidates-only contract.
+- [ ] **Resolver passes: per-account isolation + index retry** — the
+  CIK/appstore/bbb resolver loops are wrapped in one try/except
+  (`orchestrator.py:123-151`), so one malformed tickers JSON kills the cohort
+  pass; `refresh_index` (`src/identity/edgar_ids.py:111-118`) has no retry.
+  Follow the per-account pattern used by the ATS/feeds/g2 branches.
+- [ ] **Wire `renewal_window`** — `renewal_candidates()`
+  (`src/sources/wayback/renewal.py:18`) has no production caller although the
+  taxonomy type (`config/signals.yaml:230`) and evidence template exist; the
+  runner already loads `technologies.first_seen_at` at the diff site, so emit
+  from there (per-vendor contract-years config, default 1y).
+- [ ] **Alert dedupe: persist + evict** — `_DELIVERED`
+  (`src/export/alerts.py:29`) is in-memory and never evicted: unbounded growth
+  in watch mode and 24h of alerts re-delivered on every restart.
+
+### P3
+- [ ] **Concurrent JSON state locking** — a manual `collect` alongside a watch
+  tick races on read-modify-write of trend/empty-log JSON
+  (`src/sources/marketplace/trend.py:47-53`, `src/sources/jobsignals/trend.py:48-54`,
+  `src/sources/marketplace/empty_log.py:96-100`); last writer wins (absorbs the
+  "concurrent-watch JSON write locking" P3 candidate note above).
+- [ ] **Marketplace empty-since for capterra/trustradius** — `record_empty`/
+  `record_reviews` fire only on the G2 fragment path (`runner.py:734-744`) but
+  `_filter_backoff` applies empty-since backoff to all marketplace sources.
+- [ ] **GitHub Feb-29 guard cleanup** — malformed conditional in the
+  stagnation check (`src/sources/community/github.py:74`); currently
+  coincidentally safe, one refactor from a wrong signal.
+- [ ] **New-source spike (probe-first)** — paced live probes of Trustpilot
+  reviews, Gartner-network reviews (Software Advice / GetApp), and the
+  usaspending.gov federal-contract API (free, keyless); verdicts scoped like
+  the P2 spike before any build.
 
 ---
 

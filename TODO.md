@@ -130,64 +130,61 @@ per batch, review majors fixed before the next batch. Commits `8834511`…`84047
 ## Enrichment upgrades — waterfall audit (2026-09-03)
 
 Findings from auditing the shipped enrichment playbook (`ENRICHMENT.md`) for
-functional gaps. Priority key as above.
+functional gaps. Priority key as above. **Status: 8 of 9 delivered
+(2026-09-03, two-stage reviewed, review blocker+majors fixed)** — commits
+`fbc0b8d`…`5ad41c7`. WARN fanout wiring deliberately excluded by product
+decision (Jason), stays open below.
 
-- [ ] **P1 — run the existing resolvers during sweep onboarding.** `resolve
-  --cik --ats --feeds --icp` all exist in `Orchestrator.resolve` and would fill
-  exactly the gaps sweep reports — but `run_sweep` never calls it, so
-  sweep-created accounts stay prerequisite-less until someone remembers to run
-  resolve by hand. Fix: after account creation in `src/pipeline/sweep.py`,
-  invoke the resolver set (respecting the existing skip-if-present guards).
-  This single wiring change collapses Flow G's "fill the gaps" loop.
+- [x] **P1 — run the existing resolvers during sweep onboarding** (`fbc0b8d`) —
+  new accounts get the CIK/ATS/feeds/ICP resolver pass automatically; skipped
+  report recomputed post-resolve; `sweep --deep` extends it to existing
+  accounts. Opt-in resolvers (appstore/bbb/linkedin) stay explicit flags.
 
 - [ ] **P1 — wire the dormant WARN parsers into the fanout.** NJ/FL/OH/WA/TX/IL
   parsers exist and ship tested (`84f4a31`), but `warn_notices.plan()` fans out
   NY+CA only (`src/sources/warn/source.py:24`) — 7 jurisdictions of layoff
   signal are sitting dark. Fix: make the jurisdiction list configurable
   (`sources.yaml` → `warn.jurisdictions`, default the current two for
-  conservative rollout), keep MI deferred (JS-rendered).
+  conservative rollout), keep MI deferred (JS-rendered). **Excluded by product
+  decision 2026-09-03 — revisit when more WARN coverage is wanted.**
 
-- [ ] **P1 — add `resolve --appstore` via the iTunes Search API.** Verified
-  live 2026-09-03: `itunes.apple.com/search?term=X&entity=software&country=US`
-  is free, keyless, returns `trackId` (the `app_store_id` the
-  `appstore_reviews` source needs). One call at resolve time per
-  software-looking account; candidates-only when ambiguous (never guess).
-  Files: `src/identity/appstore_ids.py`, `src/cli.py` resolve flag.
+- [x] **P1 — add `resolve --appstore` via the iTunes Search API** (`143f2e6`,
+  wired `87bd6e6`) — candidates-only on ambiguity, never guesses.
 
-- [ ] **P2 — Form D stub accounts are write-only.** `sec_formd` global fanout
-  attaches unmatched issuers to `cik<pad>.edgar` stub domains
-  (`formd_identity.attach_form_d_account`) that nothing reads — no digest tier
-  surfaces them, so newly-funded unknown-to-us companies evaporate. Fix (a):
-  surface stub-account `funding_form_d` signals in a digest section for manual
-  resolution; or (b) when an issuer fuzzily matches a known champion's
-  employer, attach and emit `champion_migration`. Files:
-  `src/sources/sec/formd_identity.py`, digest pipeline.
+- [x] **P2 — Form D stub accounts surfaced in digests** (`e828d3e` + digest
+  wiring) — option (a): "New Form D issuers (unmatched)" section on non-domain
+  digests, amount-sorted, capped 25. Option (b) champion-attach not attempted.
 
-- [ ] **P2 — promote the two prose-only combo recipes to scored combos.**
-  `config/scoring.yaml` has 7 combos; ENRICHMENT §3's turnaround (marketplace
-  sentiment decline × `exec_departure`) and relocation (`new_geo` × WARN in
-  the old region) recipes have no combo entry — they never earn a score bonus
-  or an action line in digests. `doctor`'s combo-coverage check (`4d837a5`)
-  already catches drift once entries exist. Files: `config/scoring.yaml`.
+- [x] **P2 — prose-only combo recipes promoted to scored combos** (`63b7493`) —
+  `turnaround_pitch` (intent_2nd_marketplace × exec_departure) and
+  `relocation_window` (new_geo/department_expansion × layoff), with COMBO_PLAY
+  mappings so doctor's coverage check stays green. Proxy types documented in
+  the action text.
 
-- [ ] **P2 — `sweep --deep`: resolve → collect in one command.** Depends on
-  the resolver wiring (P1 above). `sweep --deep` = sweep + full resolve pass +
-  collect, making Flow G genuinely one command. Files:
-  `src/pipeline/sweep.py`, `src/cli.py`.
+- [x] **P2 — `sweep --deep`** (`fbc0b8d`) — resolve → collect in one command.
 
-- [ ] **P3 — `resolve --linkedin` slug discovery.** Wrong-slug junk rows were a
-  live failure mode (`wispr.ai` vs `wisprflow`). A resolver that queries the
-  companion scraper's discovery (search request, not a scrape) would close the
-  last manual prerequisite field. Posture note: human-triggered only; no
-  automated login. Files: `src/identity/`, companion scraper.
+- [x] **P3 — `resolve --linkedin` slug discovery** (`d3e3f86`) — one-row seed
+  CSV through the companion scraper's `discover` subprocess (no login, no
+  --headed, one subprocess per batch); slug read from the scraper DB.
 
-- [ ] **P3 — `resolve --bbb`.** `bbb_profile` needs `extra_data.bbb_url`;
-  the BBB search page is server-rendered (probe-friendly). Same
-  candidates-only contract as g2 resolution. Files: `src/identity/`.
+- [x] **P3 — `resolve --bbb`** (`9150bef`) — BBB's JSON search API (the HTML
+  page is a JS shell); candidates-only contract.
 
-- [ ] **P3 — company_feed URL hint from wayback.** Feed discovery fails on
-  sites with nonstandard feed paths; wayback homepage snapshots often reveal
-  the real feed URL. Manual seeding works today — polish only.
+- [x] **P3 — company_feed URL hint from wayback** (`445bd73`) — feed discovery
+  falls back to archived homepage snapshots (same-host feeds only) when the
+  live site is a JS shell.
+
+### Review-fix ledger (2026-09-03, `5ad41c7`)
+
+BLOCKER: `marketplace_review_trend` was missing from `config/signals.yaml` —
+the P1 review-trend feature's signals were silently discarded as
+unknown_signal_type while stats_state advanced, burning every delta. Now a
+real taxonomy type (neutral polarity, weight 18, marketplace_compare play)
+with a persistence regression test. Majors: LinkedIn seed CSV deleted after
+the subprocess (carried account names); sqlite busy-timeout 30s on the scraper
+DB read. Minors: BBB reportUrl joined via urljoin (was string concat), `<em >`
+markup tolerated in name matching, sweep resolver-pass scope comment,
+feed-discovery budget named constant.
 
 ---
 

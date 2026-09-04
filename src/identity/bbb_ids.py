@@ -125,13 +125,19 @@ class BbbProfileResolver:
             if existing:
                 out[acct.domain] = existing
                 continue
-            url = self._search(acct)
-            out[acct.domain] = url
-            if url:
-                data = dict(acct.extra_data or {})
-                data["bbb_url"] = url
-                acct.extra_data = data
-                self.registry.upsert(acct, source="bbb_ids")
+            try:
+                url = self._search(acct)
+                out[acct.domain] = url
+                if url:
+                    data = dict(acct.extra_data or {})
+                    data["bbb_url"] = url
+                    acct.extra_data = data
+                    self.registry.upsert(acct, source="bbb_ids")
+            except Exception as exc:
+                # Per-account isolation: one failing account (e.g. registry
+                # write failure) must not kill the pass for the cohort.
+                logger.warning("bbb_ids: resolve failed for {}: {}", acct.domain, exc)
+                out[acct.domain] = None
         return out
 
     def _search(self, account: Account) -> str | None:

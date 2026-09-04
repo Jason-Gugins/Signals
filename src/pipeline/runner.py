@@ -322,6 +322,30 @@ class CollectorRunner:
                         upsert_trustradius_reviews,
                     )
                     revs = harvest_revs(result.doc, account, meta) or []
+                    # Empty-since bookkeeping parity with the G2 fragment path
+                    # (_fetch_g2_fragment): _filter_backoff applies empty-since
+                    # backoff to EVERY marketplace_* source, but only G2 fed
+                    # the log — capterra/trustradius slugs could never enter or
+                    # reset backoff. Record their page results here exactly
+                    # like the G2 branch does (zero reviews -> empty, reviews
+                    # -> reset). Single-process assumption: record_* is a
+                    # read-modify-write on the shared empty_slugs.json, so it
+                    # is serialized via the fail-open state lock.
+                    if (
+                        adapter.key.startswith("marketplace_")
+                        and adapter.key != "marketplace_g2"
+                    ):
+                        mslug = str(meta.get("product_slug") or "")
+                        if mslug:
+                            msource = adapter.key[len("marketplace_"):]
+                            try:
+                                with exclusive_lock(self.empty_log.path):
+                                    if revs:
+                                        self.empty_log.record_reviews(mslug, msource)
+                                    else:
+                                        self.empty_log.record_empty(mslug, msource)
+                            except Exception:  # pragma: no cover - defensive
+                                pass
                     if revs:
                         # Dispatch per adapter: the shared g2_reviews table
                         # stores provenance in its ``source`` column.

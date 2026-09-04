@@ -61,6 +61,20 @@ combos:
     action: "Lead with the integration."
     all_of:
       - { any_type: [tech_install_new], within_days: 90 }
+  - id: turnaround_pitch
+    bonus: 10
+    urgency: 6
+    action: "Turnaround window: leadership churn + softening marketplace reviews (intent_2nd_marketplace as proxy for sentiment decline — no dedicated sentiment signal exists). Lead with displacement risk."
+    all_of:
+      - { any_type: [intent_2nd_marketplace], within_days: 30 }
+      - { any_type: [exec_departure], within_days: 60 }
+  - id: relocation_window
+    bonus: 10
+    urgency: 6
+    action: "Team may be relocating — new-site stack decisions are open. Verify the WARN employer maps to this account."
+    all_of:
+      - { any_type: [new_geo, department_expansion], within_days: 30 }
+      - { any_type: [layoff], within_days: 60 }
 
 tiers:
   tier1: { min_score: 70, or_urgency: 8 }

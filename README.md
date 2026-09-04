@@ -199,20 +199,20 @@ fire). Entity resolution (`normalize_entity` + fuzzy match, `config`
 and `config/icp.yaml` scores accounts at seed time so tiering is real from
 day one.
 
-### Relevance reranking (optional)
+### Relevance reranking (enabled)
 
 Google News matches on company name are surface-level: an `"Acme" CEO` SERP
 query returns tangential coverage that keyword guards can't fully judge. The
-optional cross-encoder reranker scores every SERP candidate for true semantic
+cross-encoder reranker scores every SERP candidate for true semantic
 relevance, drops below-floor matches before classification, and stamps
 survivors with `evidence_data["relevance"]` (which then decides which same-day
-candidates survive the per-type cap). It's **off by default** and fully
-optional — the whole pipeline runs unchanged without it:
+candidates survive the per-type cap). **Shipped enabled** in
+`config/default.yaml` (`rerank.enabled: true`, floor 0.35) with the
+`signals[rerank]` extra installed:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[rerank]"
-# then flip rerank.enabled to true in the existing config/default.yaml block
-# (floor defaults to 0.35)
+# rerank.enabled is already true in config/default.yaml (floor 0.35)
 ```
 
 Enablement note: with `enabled: true` but the extra not installed, the reranker

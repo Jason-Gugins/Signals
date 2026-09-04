@@ -68,8 +68,22 @@ Beyond the plain `"CompanyName"` query, `google_news` runs one **keyword-augment
 `classify_news(item, account, today)` in `classify.py`:
 
 1. **Attribution guards** (reject false positives — this is the hardened classifier):
+   - **Publisher-domain ladder** (first check, strongest signal) —
+     `parse_feed` resolves each item's true publisher domain (`feeds.py` →
+     `resolve.py`: `?url=` param, summary link, then the `googlenewsdecoder`
+     network decode for leftover `news.google.com` tokens; offline-first,
+     bounded LRU-cached, never fatal). Classification then applies three tiers:
+     **tier-1** — publisher domain matches the account's domain (subdomains
+     count, `www.` normalized) → the name is *proven*, every lexical guard is
+     skipped; **tier-2** — publisher is a *different brand's* domain containing
+     the name (`dolceglow.com` for account "Glow") → hard reject even if the
+     headline looks like a perfect signal (fused-label caveat documented in
+     `_is_other_brand_domain`); **tier-3** — neutral/unknown publisher → the
+     lexical guards below decide. When any item carries domain proof, the
+     reranker query is boosted to `"{name} {domain} official"` so the
+     cross-encoder scores against proven attribution.
    - **Source-attribution strip** — strips `"Headline - Publisher"` from Google News titles so a company appearing *only* as the byline isn't treated as a mention.
-   - **Common-word guard** — for names that are also English words (`levitate`, `slack`, `stripe`, … in `_COMMON_WORD_NAMES`), requires a proper-noun/domain mention and rejects non-company contexts ("Levitate Music Festival", "Levitate #9" artwork).
+   - **Common-word guard** — for names that are also English words (`levitate`, `slack`, `stripe`, `glow`, … in `_COMMON_WORD_NAMES`), requires a proper-noun/domain mention and rejects non-company contexts ("Levitate Music Festival", "Glow up: K-beauty launches", beauty/cosmetics contexts) — this is the tier-3 fallback when publisher resolution can't prove or disprove the match.
    - **Self-published research guard** — when the RSS `<source>` (publisher) equals the account, drops research/commentary headlines (predicts/forecasts/reports) that aren't events *happening to* the company.
 2. **Rule matching** against `NEWS_RULES` pattern sets.
 3. Emits a `SignalCandidate` with a confidence, amount/round-stage extraction where relevant, and a `natural_key`.
@@ -106,17 +120,15 @@ second). `task_meta["rerank"]` (`{enabled, floor}`) can override
 ```yaml
 # config/default.yaml
 rerank:
-  enabled: false   # flip to true after: pip install -e ".[rerank]"
-  floor: 0.35
+  enabled: true    # shipped enabled (floor 0.35); requires: pip install -e ".[rerank]"
 ```
 
-Off by default and fully optional: with the gate off, parse output is
-byte-identical to the pre-rerank behavior; with it on, a model/download
-failure degrades that feed to unranked with a logged warning — never a parse
-failure. Troubleshooting: `enabled: true` without the `signals[rerank]` extra
-installed silently yields `NullScorer` (log line: "rerank model unavailable,
-reranking disabled: ...") — check for that line if you expect ranking and see
-none.
+Enabled by default (floor 0.35): with the `signals[rerank]` extra installed,
+every SERP parse is reranked; a model/download failure degrades that feed to
+unranked with a logged warning — never a parse failure. Troubleshooting:
+`enabled: true` without the extra installed silently yields `NullScorer` (log
+line: "rerank model unavailable, reranking disabled: ...") — check for that
+line if you expect ranking and see none.
 
 ### Signal types emitted
 
@@ -133,18 +145,19 @@ none.
 | File | Role |
 |---|---|
 | `collector.py` | `NewsRssSource`, `GoogleNewsSource`, `CompanyFeedSource` — `plan()`/`parse()` |
-| `feeds.py` | `google_news_search_url`, `google_news_topic_url`, `google_news_url`, `bing_news_url`, `parse_feed`, `_unwrap`, feed discovery |
-| `classify.py` | `classify_news`, `NEWS_RULES`, attribution guards (`_strip_source_attribution`, common-word + self-published guards) |
+| `feeds.py` | `google_news_search_url`, `google_news_topic_url`, `google_news_url`, `bing_news_url`, `parse_feed`, `_unwrap`, `publisher_domain` resolution wiring, feed discovery |
+| `resolve.py` | `resolve_publisher_domain` — three-tier publisher-domain resolution (`?url=` → summary link → `googlenewsdecoder`), bounded LRU cache |
+| `classify.py` | `classify_news`, `NEWS_RULES`, attribution guards (publisher-domain ladder, `_strip_source_attribution`, common-word + self-published guards) |
 | `serp_config.py` | `load_google_news_cfg()` — reads `serp_keywords` from `sources.yaml` |
 
 ## Tests
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_news_feeds.py tests/test_news_classify.py tests/test_news_collector_parse.py -v
+.\.venv\Scripts\python.exe -m pytest tests/test_news_feeds.py tests/test_news_classify.py tests/test_news_collector_parse.py tests/test_news_collector_rerank.py -v
 ```
 
-- `test_news_feeds.py` — URL builders, feed parse/unwrap, SERP config loader.
-- `test_news_classify.py` — rules, guard behavior, live-test regression cases (Gartner as publisher, Levitate festival/artwork) frozen so the false positives can't return.
+- `test_news_feeds.py` — URL builders, feed parse/unwrap, SERP config loader, publisher-domain resolution (default None, `?url=`/summary-link paths, failure→None, bounded cache).
+- `test_news_classify.py` — rules, guard behavior, publisher-domain ladder tiers (accept/reject/fallback), live-test regression cases (Gartner as publisher, Levitate festival/artwork, Glow beauty noise) frozen so the false positives can't return.
 - `test_news_collector_parse.py` — end-to-end `parse()` on frozen RSS fixtures.
 
 All offline — fixtures under `tests/fixtures/news/`, no live network (conftest blocks `httpx.Client.send`).

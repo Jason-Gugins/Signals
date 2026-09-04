@@ -71,7 +71,7 @@ def _wire(monkeypatch, tmp_path, tier):
     def fake_assign_plays(account, signals, result, t, **kw):
         return [{"play_id": "growth_pitch"}]
 
-    def fake_build_digest(domain, signals, plays, *, period, taxonomy=None, since=None):
+    def fake_build_digest(domain, signals, plays, *, period, taxonomy=None, since=None, **kw):
         captured[domain] = plays
         return f"# {domain} — {period} digest\n"
 
@@ -166,7 +166,7 @@ def test_expired_signal_excluded_from_digest_signal_groups(monkeypatch, tmp_path
 
     seen_signals = {}
 
-    def fake_build_digest(domain, signals, plays, *, period, taxonomy=None, since=None):
+    def fake_build_digest(domain, signals, plays, *, period, taxonomy=None, since=None, **kw):
         seen_signals[domain] = list(signals)
         return f"# {domain} — {period} digest\n"
 
@@ -222,7 +222,7 @@ def test_expired_signal_included_when_no_supersede_map(monkeypatch, tmp_path):
 
     seen_signals = {}
 
-    def fake_build_digest(domain, signals, plays, *, period, taxonomy=None, since=None):
+    def fake_build_digest(domain, signals, plays, *, period, taxonomy=None, since=None, **kw):
         seen_signals[domain] = list(signals)
         return f"# {domain} — {period} digest\n"
 

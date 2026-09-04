@@ -344,8 +344,14 @@ class CollectorRunner:
                                         self.empty_log.record_reviews(mslug, msource)
                                     else:
                                         self.empty_log.record_empty(mslug, msource)
-                            except Exception:  # pragma: no cover - defensive
-                                pass
+                            except Exception:
+                                # Fail-open, but never silent: dropped empty/
+                                # review records leave backoff stale.
+                                logger.exception(
+                                    "empty-since bookkeeping failed for {} / {}",
+                                    msource,
+                                    mslug,
+                                )
                     if revs:
                         # Dispatch per adapter: the shared g2_reviews table
                         # stores provenance in its ``source`` column.
@@ -568,12 +574,10 @@ class CollectorRunner:
             if not result.ok or result.doc is None:
                 exc = RuntimeError(result.error or "fanout fetch failed")
                 _attach_fetch_context(exc, result)
-                # Stamp the cursor BEFORE the raise propagates: a fanout fetch
-                # failure escapes run()'s per-account try/except (watch.py's
-                # adapter-level catch handles it), so without this stamp the
-                # cursor would never record fail_count / error_class /
-                # backoff — the fanout analogue of the non-fanout path.
-                self._record_fail(adapter.key, "global", exc, cadence_hours=getattr(adapter, "cadence_hours", 24))
+                # No stamp here — the raise propagates to run()'s fanout
+                # try/except, which records fail_count / error_class / backoff
+                # exactly once (stamp-stamp here would double fail_count and
+                # compound next_due on every failed fetch).
                 raise exc
             stats.fetched += 1
             last_doc = result.doc

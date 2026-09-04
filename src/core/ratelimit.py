@@ -60,48 +60,62 @@ class RateLimiter:
     ):
         self.default_rate = default_rate
         self.per_host = dict(per_host or {})
-        # Per-SOURCE rate overrides (config/sources.yaml rate_per_host keyed by
-        # source key). Precedence: per_source > per_host > default_rate.
+        # Per-SOURCE rate claims (config/sources.yaml rate_per_host keyed by
+        # source key). Buckets stay keyed by HOST — two sources sharing a host
+        # share one budget at the MIN of their claims, so overriding sec_edgar
+        # to 8 req/s cannot stack with sec_formd's 8 into a 16 req/s burst
+        # against a host ceiling of 10.
         self.per_source = dict(per_source or {})
         self.clock = clock
         self.sleep = sleep
         self._buckets: dict[str, TokenBucket] = {}
         self._base_rates: dict[str, float] = {}
         self._penalty_until: dict[str, float] = {}
+        self._host_claims: dict[str, set[float]] = {}
         self._sema = threading.Semaphore(max_concurrency)
         self._lock = threading.Lock()
 
     def _host(self, url: str) -> str:
         return (urlparse(url).hostname or url).lower()
 
-    def _bucket_key(self, host: str, source: str | None) -> str:
-        """Bucket key for a fetch. A source with its own rate override gets a
-        private bucket (``source@host``) so two sources sharing a host keep
-        independent rates instead of whichever created the bucket first."""
+    def _claim(self, host: str, source: str | None) -> None:
         if source and source in self.per_source:
-            return f"{source}@{host}"
-        return host
+            self._host_claims.setdefault(host, set()).add(float(self.per_source[source]))
+        else:
+            # Un-overridden sources claim the default, keeping a shared host
+            # at the most conservative rate anyone asked for.
+            self._host_claims.setdefault(host, set()).add(float(self.default_rate))
 
-    def _rate_for(self, host: str, source: str | None) -> float:
-        if source and source in self.per_source:
-            return self.per_source[source]
-        return self.per_host.get(host, self.default_rate)
+    def _effective_rate(self, host: str) -> float:
+        claims = set(self._host_claims.get(host, ()))
+        if host in self.per_host:
+            claims.add(float(self.per_host[host]))
+        if not claims:
+            return self.default_rate
+        return min(claims)
 
     def _bucket(self, url: str, source: str | None = None) -> tuple[str, TokenBucket]:
         host = self._host(url)
-        key = self._bucket_key(host, source)
         with self._lock:
-            until = self._penalty_until.get(key)
+            self._claim(host, source)
+            rate = self._effective_rate(host)
+            until = self._penalty_until.get(host)
             if until is not None and self.clock() >= until:
-                self._penalty_until.pop(key, None)
-                if key in self._buckets:
-                    self._buckets[key].rate_per_sec = self._base_rates[key]
-            if key not in self._buckets:
-                self._base_rates[key] = self._rate_for(host, source)
-                self._buckets[key] = TokenBucket(
-                    rate_per_sec=self._base_rates[key], clock=self.clock, sleep=self.sleep
+                self._penalty_until.pop(host, None)
+                if host in self._buckets:
+                    self._buckets[host].rate_per_sec = rate
+            if host not in self._buckets:
+                self._base_rates[host] = rate
+                self._buckets[host] = TokenBucket(
+                    rate_per_sec=rate, clock=self.clock, sleep=self.sleep
                 )
-            return key, self._buckets[key]
+            elif rate != self._base_rates[host]:
+                # A later claim changed the shared-host rate; honor it unless
+                # the bucket is mid-penalty (restore happens at expiry).
+                self._base_rates[host] = rate
+                if host not in self._penalty_until:
+                    self._buckets[host].rate_per_sec = rate
+            return host, self._buckets[host]
 
     def wait(self, url: str, source: str | None = None) -> float:
         _, bucket = self._bucket(url, source)

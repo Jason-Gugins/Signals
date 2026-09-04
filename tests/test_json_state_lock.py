@@ -125,3 +125,35 @@ def test_fail_open_when_foreign_lock_held(tmp_path):
     assert any(m.record["level"].name == "WARNING" for m in messages)
     # own-lock-only release: the foreign lock survives the failed acquirer
     assert lock_file.exists()
+
+
+def test_release_does_not_unlink_a_successors_lock(tmp_path):
+    """A hold longer than stale_s can be legitimately stale-broken and
+    re-acquired by another process; our release must verify the lockfile
+    still holds OUR pid before unlinking. Simulated by rewriting the lockfile
+    pid to another pid while the lock is held."""
+    path = tmp_path / "state.json"
+    lock_file = tmp_path / "state.json.lock"
+    with exclusive_lock(path):
+        assert lock_file.exists()
+        lock_file.write_text("999999", encoding="utf-8")  # successor took over
+    # our release saw a foreign pid -> left the successor's lock in place
+    assert lock_file.exists()
+    lock_file.unlink()
+
+
+def test_pid_write_failure_fails_open_and_cleans_up(tmp_path, monkeypatch):
+    """An os.write failure inside the CM must not raise out of __enter__ nor
+    orphan the lockfile: fail-open (acquired False), lockfile removed."""
+    import src.core.filelock as filelock_module
+
+    path = tmp_path / "state.json"
+    lock_file = tmp_path / "state.json.lock"
+
+    def boom(fd, data):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(filelock_module.os, "write", boom)
+    with exclusive_lock(path) as acquired:
+        assert acquired is False
+    assert not lock_file.exists()

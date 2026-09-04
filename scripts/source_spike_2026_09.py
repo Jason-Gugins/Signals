@@ -42,7 +42,6 @@ import time
 from pathlib import Path
 
 OUT_DIR = Path("data/probe")
-OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_PER_HOST = 6
 PACE_S = 5.0
@@ -617,6 +616,7 @@ PROBES = {
 
 
 def main() -> None:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     ap = argparse.ArgumentParser(description="P3 Task 14 paced new-source probe")
     ap.add_argument("--host", action="append", choices=sorted(PROBES),
                     help="probe only these hosts (repeatable); default: all")

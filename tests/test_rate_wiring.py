@@ -54,14 +54,37 @@ def test_source_override_throttles_that_source_to_its_rate():
     assert clock.sleeps and abs(clock.sleeps[-1] - 5.0) < 1e-9
 
 
-def test_other_source_on_same_host_falls_back_to_default():
+def test_shared_host_takes_the_min_of_all_claims():
     clock = FakeClock()
     limiter = RateLimiter(default_rate=1.0, per_source={"crtsh": 0.2}, clock=clock, sleep=clock.sleep)
     url = "https://crt.sh/?q=acme.com"
+    # crtsh claims 0.2 for the shared host bucket; news_rss (no override,
+    # would claim the 1.0 default) then inherits that min instead of running
+    # a second, faster bucket against the same host.
+    limiter.wait(url, source="crtsh")  # fresh bucket, free
     limiter.wait(url, source="news_rss")
-    limiter.wait(url, source="news_rss")
-    # no override for news_rss -> default 1 req/s -> 1s
-    assert clock.sleeps and abs(clock.sleeps[-1] - 1.0) < 1e-9
+    assert clock.sleeps and abs(clock.sleeps[-1] - 5.0) < 1e-9
+
+
+def test_two_overridden_sources_sharing_a_host_do_not_sum_budgets():
+    clock = FakeClock()
+    # sec_edgar and sec_formd both hit data.sec.gov at a claimed 8 req/s each;
+    # private per-source buckets would allow 16 req/s against the documented
+    # ceiling of 10 — the shared host bucket must run at the min (8).
+    limiter = RateLimiter(
+        default_rate=1.0,
+        per_source={"sec_edgar": 8.0, "sec_formd": 8.0, "crtsh": 0.2},
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    limiter.wait("https://data.sec.gov/submissions/CIK1.json", source="sec_edgar")
+    limiter.wait("https://data.sec.gov/submissions/CIK2.json", source="sec_formd")
+    assert limiter._base_rates["data.sec.gov"] == 8.0
+    assert len(limiter._buckets) == 1  # one shared bucket, not source@host pairs
+    # a slower source on the same host drags the shared bucket down to the min
+    limiter.wait("https://data.sec.gov/submissions/CIK3.json", source="crtsh")
+    assert limiter._base_rates["data.sec.gov"] == 0.2
+    assert limiter._buckets["data.sec.gov"].rate_per_sec == 0.2
 
 
 def test_per_host_rates_still_apply_when_source_has_no_override():

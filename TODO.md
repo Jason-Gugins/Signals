@@ -1,6 +1,6 @@
 # TODO — Project Roadmap
 
-Last reviewed: 2026-09-04. Baseline: **1,344 tests passing**. P1 fully delivered
+Last reviewed: 2026-09-04. Baseline: **1,455 offline tests passing**. P1 fully delivered
 (2026-08-31); **P2 fully delivered (2026-09-01)**; **P3 fully delivered
 (2026-09-02)** — see below. Legacy Cloudflare-bypass checklist archived at the
 bottom.
@@ -190,88 +190,103 @@ feed-discovery budget named constant.
 
 ## Sources & waterfall-stability roadmap (2026-09-04 audit)
 
-Fresh audit of `src/sources/` + `src/identity/` for new-source opportunities
-and enrichment-waterfall stability gaps. Priority key as above. Techstack DNS
-probe verdict: **built and tested, not wired** — `probe_dns()` /
-`dns_evidence_to_matches()` (`src/sources/techstack/dns_probe.py:31,62`) pass
-`tests/test_dns_probe.py` and the `dns_cname`/`spf_include` rules already exist
-in `config/fingerprints.yaml`, but nothing outside the module calls them.
-Full plan: `.zcode/plans/2026-09-04_160212-sources-waterfall-roadmap.md`.
+**Status: DELIVERED (2026-09-04)** — all 14 items in three subagent batches,
+strict TDD per task, full offline suite green after each batch. Commits
+`21489e6`…`0d9920a` plus the review-fix commit `33558bc`. The techstack DNS
+probe question that opened the audit: **built and tested, not wired** —
+`probe_dns()` / `dns_evidence_to_matches()` passed `tests/test_dns_probe.py`
+with zero production call sites until this batch. Full plan:
+`.zcode/plans/2026-09-04_160212-sources-waterfall-roadmap.md`.
 
 ### P1 — new functionality / stability
-- [ ] **Wire the techstack DNS probe into the collect pass** — merge MX/SPF/CNAME
-  evidence into the harvest via `merge_matches` (gate on the html task so it
-  probes once per weekly collect; fail-open; `dnspython` is already a hard dep).
-  DNS-discovered vendors then flow through `upsert_technologies` + the
-  prior-cycle diff like HTML/HAR ones. Anti-bot-immune vendor evidence for free.
-- [ ] **GitHub token auth + probe all org guesses** — `GITHUB_TOKEN` is loaded
-  into config (`src/core/config.py:194,331`) but never attached, so
-  `community_github` runs unauthenticated (60 req/hr — dies cohort-wide past
-  ~60 accounts) and `plan()` probes only `github_org_guess(account)[0]`
-  (`src/sources/community/collector.py:31-32`). Attach `Authorization: Bearer`
-  via `FetchTask.headers` (plumbing exists, `src/core/http.py:186-187`);
-  fall through the remaining guesses on 404.
-- [ ] **Fanout-adapter isolation in `runner.run`** — `_run_fanout` is called
-  without try/except (`src/pipeline/runner.py:135-137`), unlike the per-account
-  loop right below, so one `federal_register`/`warn_notices` exception aborts
-  every adapter after it in collect/sweep mode. Wrap in the same
-  `_record_fail` pattern.
-- [ ] **Failure backoff scales with real cadence** — `_record_fail` reads
-  `_default_cadence_hours` (`src/pipeline/runner.py:849`), which nothing ever
-  assigns: every source backs off on a 24h scale (wayback/crtsh's 336h cadence
-  caps at 8 days instead of 8×336h; 12h ATS sources over-penalized). Pass
-  `adapter.cadence_hours` through the two call sites (`runner.py:143`, `:501`).
-- [ ] **ATS detection/collector symmetry** — `ats_discovery` detects
-  bamboohr/jazzhr/personio, which have no collectors — setting `ats_vendor`
-  disables the careers-page fallback, so hiring collection silently stops for
-  those accounts (`src/sources/registry.py:69-74`). Conversely rippling/
-  jobvite/breezy collectors exist but are never detected (patterns missing from
-  `src/identity/ats_discovery.py:18-44`). Add the 3 regexes; stop setting
-  `ats_vendor` for collector-less vendors (personio XML board is a free
-  collector candidate if we want the vendors for real).
+- [x] **Wire the techstack DNS probe into the collect pass** (`21489e6`) —
+  `harvest_tech` merges MX/SPF/CNAME evidence via `merge_matches` after the
+  `cloudflare_unsolved` reduction (DNS evidence is challenge-independent),
+  gated on the html task, fail-open with a warning log. DNS-discovered vendors
+  flow through `upsert_technologies` + the prior-cycle diff like HTML/HAR ones.
+- [x] **GitHub token auth** (`fc07dac`) — `GITHUB_TOKEN` Bearer header attached
+  in `plan()` via `FetchTask.headers` (same env var `config.py` consumes);
+  unauthenticated behavior preserved when unset. The plan's "probe all org
+  guesses" was deliberately **not** implemented at collect time: wrong-guess
+  404s return `ok=False` and stamp backoff, so probing 2 wrong guesses per
+  collect would trip the `fail_count >= 5` skip — multi-guess belongs in a
+  future resolve-time resolver.
+- [x] **Fanout-adapter isolation in `runner.run`** (`0098a85`) — `_run_fanout`
+  wrapped in the per-account `_record_fail` pattern; one existing taxonomy test
+  updated to the new no-raise contract. The review pass then removed the
+  double stamp (`_run_fanout` stamped AND re-raised into the new catch —
+  doubled `fail_count` and compounded backoff on every failed fetch).
+- [x] **Failure backoff scales with real cadence** (`0edd8a8`) —
+  `_record_fail(..., cadence_hours=)` fed from `adapter.cadence_hours` at all
+  three call sites; the phantom `_default_cadence_hours` getattr deleted
+  (wayback's 336h cadence now caps at 8×336h, 12h ATS sources no longer
+  over-penalized).
+- [x] **ATS detection/collector symmetry** (`e21481c`) — rippling/jobvite/breezy
+  detection patterns added; bamboohr/jazzhr/personio detections now write
+  `careers_url` only (leaving `ats_vendor`/`ats_token` unset keeps the
+  `ats_careers_page` fallback eligible). Personio's XML board remains a free
+  collector candidate.
 
 ### P2
-- [ ] **Per-source `rate_per_host` is dead config** — `config/sources.yaml`
-  rates (sec_edgar 8.0, crtsh 0.2, bbb_profile 0.2) never reach the
-  RateLimiter: `src/pipeline/orchestrator.py:631` builds a global-only one, so
-  crt.sh and BBB are hit 5× faster than configured. Wire the per-host map
-  (keyed by task host) or delete the keys.
-- [ ] **G2 slug resolver violates the never-guess contract** —
-  `resolve_g2_slug` falls back to `search_results[0]["slug"]`
-  (`src/identity/g2_resolve.py:54`) and the orchestrator persists it
-  (`src/pipeline/orchestrator.py:205-208`); capterra/appstore/bbb are all
-  candidates-only. A wrong slug burns anti-bot budget on another company's
-  reviews. Mirror the capterra candidates-only contract.
-- [ ] **Resolver passes: per-account isolation + index retry** — the
-  CIK/appstore/bbb resolver loops are wrapped in one try/except
-  (`orchestrator.py:123-151`), so one malformed tickers JSON kills the cohort
-  pass; `refresh_index` (`src/identity/edgar_ids.py:111-118`) has no retry.
-  Follow the per-account pattern used by the ATS/feeds/g2 branches.
-- [ ] **Wire `renewal_window`** — `renewal_candidates()`
-  (`src/sources/wayback/renewal.py:18`) has no production caller although the
-  taxonomy type (`config/signals.yaml:230`) and evidence template exist; the
-  runner already loads `technologies.first_seen_at` at the diff site, so emit
-  from there (per-vendor contract-years config, default 1y).
-- [ ] **Alert dedupe: persist + evict** — `_DELIVERED`
-  (`src/export/alerts.py:29`) is in-memory and never evicted: unbounded growth
-  in watch mode and 24h of alerts re-delivered on every restart.
+- [x] **Per-source `rate_per_host` wired** (`c71cfea`) — the orchestrator feeds
+  sources.yaml rates into the limiter as per-source claims; HttpFetcher passes
+  `task.source`. The review pass re-keyed buckets to the HOST with min-claim
+  semantics: private `source@host` buckets would have let sec_edgar 8.0 +
+  sec_formd 8.0 sum to 16 req/s against data.sec.gov's documented 10 ceiling.
+- [x] **G2 slug resolver candidates-only** (`82f5759`) — the first-result
+  fallback removed; exact/unique-substring accepted, ambiguity reports
+  candidates and persists nothing (the capterra contract).
+- [x] **Resolver passes: per-account isolation + EDGAR index retry**
+  (`7cf1eac`) — per-account try/except inside the edgar/appstore/bbb
+  `resolve_all` loops (one bad row no longer zeroes a cohort pass);
+  `refresh_index` retries once with injectable sleep, degrading to an empty
+  index instead of raising.
+- [x] **`renewal_window` wired** (`a060e20`) — emitted from the techstack diff
+  pass using stored `first_seen_at`; per-vendor `contract_years` in
+  fingerprints.yaml (workday: 3), default 1y; natural-key dedupe on re-runs.
+  The review pass added a Feb-29 clamp (a Feb-29 `first_seen_at` previously
+  raised ValueError every cycle for that domain, silently zeroing candidates).
+- [x] **Alert dedupe: persist + evict** (`3627de1`) — atomic JSON store
+  (`data/alerts_dedupe.json`), fail-open load at startup, >24h entries pruned
+  on every write; delivery never breaks because persistence did.
 
 ### P3
-- [ ] **Concurrent JSON state locking** — a manual `collect` alongside a watch
-  tick races on read-modify-write of trend/empty-log JSON
-  (`src/sources/marketplace/trend.py:47-53`, `src/sources/jobsignals/trend.py:48-54`,
-  `src/sources/marketplace/empty_log.py:96-100`); last writer wins (absorbs the
-  "concurrent-watch JSON write locking" P3 candidate note above).
-- [ ] **Marketplace empty-since for capterra/trustradius** — `record_empty`/
-  `record_reviews` fire only on the G2 fragment path (`runner.py:734-744`) but
-  `_filter_backoff` applies empty-since backoff to all marketplace sources.
-- [ ] **GitHub Feb-29 guard cleanup** — malformed conditional in the
-  stagnation check (`src/sources/community/github.py:74`); currently
-  coincidentally safe, one refactor from a wrong signal.
-- [ ] **New-source spike (probe-first)** — paced live probes of Trustpilot
-  reviews, Gartner-network reviews (Software Advice / GetApp), and the
-  usaspending.gov federal-contract API (free, keyless); verdicts scoped like
-  the P2 spike before any build.
+- [x] **Concurrent JSON state locking** (`7a78e4a`) —
+  `src/core/filelock.exclusive_lock` (SingleFlight-style O_EXCL, fail-open)
+  wrapped around the three stats read-modify-write cycles; `EmptyLog.record_*`
+  re-reads state inside the lock for a true RMW. The review pass made release
+  ownership-checked (no unlinking a successor's stale-broken lock) and made a
+  pid-write failure fail-open with cleanup.
+- [x] **Marketplace empty-since for capterra/trustradius** (`9e4fe49`) —
+  non-G2 marketplace adapters record empties/reviews per-source exactly like
+  the G2 fragment path, so `_filter_backoff` is fully wired for all three.
+- [x] **GitHub Feb-29 guard cleanup** (`68c8c73`) — the precedence-broken
+  ternary replaced with a pure `_one_year_ago` helper (Feb 29 → Feb 28); the
+  redundant inner ≥365-day re-check removed with no observable change on
+  non-leap dates.
+- [x] **New-source spike (probe-first)** (`0d9920a`) — verdicts from paced
+  live probes (≤6 req/host, ≥5s apart; `scripts/source_spike_2026_09.py`,
+  evidence in `data/probe/P3_SOURCE_SPIKE_2026_09.md`): **Trustpilot
+  browser-tier** (AWS WAF JS challenge on both httpx and curl_cffi — skip
+  unless reviews matter enough for a real-browser pass); **Gartner network
+  GO via curl_cffi** (Software Advice `/<cat>/<slug>-profile/` and GetApp
+  `/<cat>/a/<slug>/` are SSR with JSON-LD ratings — but low priority, the
+  corpus overlaps Capterra); **usaspending.gov GO** (keyless JSON API:
+  `POST /api/v2/recipient/` → hash, `GET /api/v2/recipient/<hash>/` profile,
+  `POST /api/v2/search/spending_by_award/` with keywords+award_type_codes —
+  a small collector is trivially scoped).
+
+### Review-fix ledger (2026-09-04, `b9332ce` + `33558bc`)
+
+Majors: fanout double-stamp (above); shared-host rate min-claim (above).
+Also: the rate-wiring commit's `source` kwarg broke the cookie-jar tests'
+`FakeLimiter` stubs (18 failures) — stubs patched to tolerate extra kwargs
+(`b9332ce`, house rule: stubs take `**kw`). Minors: renewal Feb-29 clamp,
+filelock ownership + write-failure fail-open, silent DNS-merge/empty-since
+excepts now log. Nit: spike script's `data/probe` mkdir moved into `main()`.
+A standalone code-quality review pass over the combined diff confirmed the
+rest clean (stub/real method parity, kwarg plumbing to real call sites,
+natural-key dedupe, no silent-signal-loss paths).
 
 ---
 

@@ -61,6 +61,41 @@ def _why_now(signal: Signal) -> Optional[str]:
     return None
 
 
+def _is_stub_domain(domain: str) -> bool:
+    """Form D stub-account domain: ``cikXXXXXXXXXX.edgar``.
+
+    Mirrors ``formd_identity._is_stub`` without importing the private helper
+    (digest rendering must stay independent of the SEC source layer).
+    """
+    return bool(domain) and domain.startswith("cik") and domain.endswith(".edgar")
+
+
+FORMD_SECTION_TITLE = "New Form D issuers (unmatched)"
+FORMD_SECTION_CAP = 25
+
+
+def _formd_unmatched_rows(signals: Iterable[Signal]) -> list[str]:
+    """One line per funding_form_d signal, sorted by amount desc, capped."""
+    rows: list[tuple[float, str]] = []
+    for s in signals:
+        if s.signal_type != "funding_form_d":
+            continue
+        d = s.evidence_data if isinstance(s.evidence_data, dict) else {}
+        entity = d.get("entity_name") or s.title or s.domain
+        amt = d.get("amount_usd")
+        try:
+            amt_f = float(amt)
+        except (TypeError, ValueError):
+            amt_f = 0.0
+        amt_s = _fmt_amount(amt_f) if amt is not None else (d.get("amount_display") or "?")
+        state = d.get("state") or "—"
+        cik = d.get("cik") or ""
+        filed = s.observed_at or "?"
+        rows.append((amt_f, f"- {entity} — {amt_s} — {state} — filed {filed} — CIK {cik}"))
+    rows.sort(key=lambda t: t[0], reverse=True)
+    return [line for _, line in rows[:FORMD_SECTION_CAP]]
+
+
 def _date_range(signals: Iterable[Signal]) -> str:
     dates = sorted({s.observed_at for s in signals if s.observed_at})
     if not dates:
@@ -77,6 +112,7 @@ def build_digest(
     period: str,
     taxonomy: Optional[Taxonomy] = None,
     since: Optional[str] = None,
+    include_formd_unmatched: bool = False,
 ) -> str:
     """Render a markdown alert digest for one account.
 
@@ -84,6 +120,11 @@ def build_digest(
     signals observed before it are excluded, so a daily digest is actually
     about the last day rather than full history. ``None`` keeps every
     signal (used by tests and callers that pre-filter).
+
+    ``include_formd_unmatched`` appends the "New Form D issuers (unmatched)"
+    section for stub-account (cik*.edgar) funding_form_d signals in the
+    window. Only the global/default render enables it — per-domain renders
+    pass False (default), so stubs never leak into a named account's digest.
     """
     tax = taxonomy or Taxonomy.load()
     if since:
@@ -109,6 +150,13 @@ def build_digest(
                 why = _why_now(s)
                 if why:
                     lines.append(f"  - {why}")
+        if include_formd_unmatched:
+            stub_sigs = [s for s in signals if _is_stub_domain(s.domain or "")]
+            rows = _formd_unmatched_rows(stub_sigs)
+            if rows:
+                lines.append("")
+                lines.append(f"## {FORMD_SECTION_TITLE}")
+                lines.extend(rows)
     lines.append("")
     lines.append("## Top plays")
     top = list(plays)[:2]

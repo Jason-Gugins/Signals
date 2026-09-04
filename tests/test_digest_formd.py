@@ -123,3 +123,62 @@ def test_missing_evidence_graceful():
     sig = _stub_sig(signal_id="bare", evidence_data={})
     doc = _doc([sig])
     assert f"## {FORMD_SECTION_TITLE}" in doc
+
+
+def test_digest_paths_wiring_passes_formd_flag(monkeypatch, tmp_path):
+    """Parent wiring: _digest_paths must pass include_formd_unmatched=True."""
+    from datetime import date
+    import src.cli as cli
+    import src.export.digest as digest_mod
+    import src.signals.plays as plays_mod
+    import src.signals.tier as tier_mod
+    import src.pipeline.orchestrator as orch_mod
+    from src.core.models import Account
+    from src.signals.tier import TierResult
+    from types import SimpleNamespace
+
+    TODAY = date(2026, 9, 3)
+    captured = {}
+
+    def fake_build_digest(domain, signals, plays, *, period, taxonomy=None,
+                          since=None, include_formd_unmatched=False):
+        captured["include_formd_unmatched"] = include_formd_unmatched
+        return f"# {domain} digest"
+
+    monkeypatch.setattr(digest_mod, "build_digest", fake_build_digest)
+    monkeypatch.setattr(tier_mod, "assign_tier",
+                        lambda signals, result, **kw: TierResult(1, "active", "ok."))
+    monkeypatch.setattr(plays_mod, "assign_plays", lambda *a, **kw: [])
+    monkeypatch.setattr("src.signals.score.score_account", lambda *a, **kw: SimpleNamespace())
+    monkeypatch.setattr("src.signals.calibration.load_stats", lambda db: {})
+    monkeypatch.setattr(orch_mod, "_today", lambda: TODAY)
+    monkeypatch.setattr(cli, "_today", lambda: TODAY, raising=False)
+
+    class _Store:
+        def for_account(self, domain):
+            return []
+
+    class _FakeOrch:
+        db = object()
+        signal_store = _Store()
+        taxonomy = None
+
+        def _accounts(self, *, domains=None, cohort=None, **kw):
+            return [Account(domain="cik0002039747.edgar", name="Test Issuer")]
+
+        def _contacts(self, domain):
+            return []
+
+    class _Storage:
+        def __init__(self, d):
+            self.digests_dir = str(d)
+
+    class _Cfg:
+        def load_yaml(self, name):
+            return {}
+
+    cfg = _Cfg()
+    cfg.storage = _Storage(tmp_path)
+    ctx = SimpleNamespace(obj={"get_orch": lambda: _FakeOrch(), "config": cfg, "cohort": None})
+    cli._digest_paths(ctx, "daily", ())
+    assert captured["include_formd_unmatched"] is True

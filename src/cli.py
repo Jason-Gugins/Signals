@@ -255,8 +255,14 @@ def _email_files(paths, cfg: Config, kind: str, period: str, to: str) -> None:
             click.echo(f"emailed {kind}: {p} -> {to}")
 
 
-def _digest_paths(ctx, period, domains, include_tier4=False) -> list[str]:
-    """Build and write per-account digests; returns the written paths."""
+def _digest_paths(ctx, period, domains, include_tier4=False, include_formd=True) -> list[str]:
+    """Build and write per-account digests; returns the written paths.
+
+    ``include_formd`` enables the "New Form D issuers (unmatched)" section.
+    It only ever renders on stub accounts (cik*.edgar), so passing True
+    unconditionally is safe for per-domain renders too — a named account's
+    digest simply never contains stub signals.
+    """
     from src.export.digest import build_digest
     from src.pipeline.orchestrator import _today
     from src.signals.calibration import load_stats
@@ -301,7 +307,7 @@ def _digest_paths(ctx, period, domains, include_tier4=False) -> list[str]:
             plays = []
         else:
             plays = assign_plays(acct, signals, result, tier, taxonomy=orch.taxonomy, plays_cfg=plays_cfg, contacts=contacts)
-        text = build_digest(acct.domain, signals, plays, period=period, taxonomy=orch.taxonomy, since=since)
+        text = build_digest(acct.domain, signals, plays, period=period, taxonomy=orch.taxonomy, since=since, include_formd_unmatched=include_formd)
         paths.append(write_digest(str(Path(digests_dir) / f"{acct.domain}.md"), text))
     return paths
 

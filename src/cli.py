@@ -89,15 +89,18 @@ def seed(ctx, csv_path, linkedin, repvue, limit, cohort):
 @click.option("--icp/--no-icp", default=True)
 @click.option("--g2/--no-g2", default=False)
 @click.option("--capterra/--no-capterra", default=False)
+@click.option("--appstore/--no-appstore", default=False)
+@click.option("--bbb/--no-bbb", default=False)
+@click.option("--linkedin/--no-linkedin", default=False)
 @click.option("--limit", type=int, default=None)
 @click.pass_context
-def resolve(ctx, cik, ats, feeds, icp, g2, capterra, limit):
+def resolve(ctx, cik, ats, feeds, icp, g2, capterra, appstore, bbb, linkedin, limit):
     orch: Orchestrator = ctx.obj["get_orch"]()
     if capterra:
         _resolve_capterra(orch, cohort=ctx.obj["cohort"], limit=limit)
         return
     try:
-        out = orch.resolve(cohort=ctx.obj["cohort"], limit=limit, ats=ats, cik=cik, feeds=feeds, icp=icp, g2=g2)
+        out = orch.resolve(cohort=ctx.obj["cohort"], limit=limit, ats=ats, cik=cik, feeds=feeds, icp=icp, g2=g2, appstore=appstore, bbb=bbb, linkedin=linkedin)
         click.echo(f"resolved accounts={out.get('accounts', 0)}")
     except Exception as exc:
         click.echo(f"resolve degraded: {exc}")

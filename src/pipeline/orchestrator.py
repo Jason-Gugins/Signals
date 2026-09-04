@@ -96,14 +96,14 @@ class Orchestrator:
             ctx.bump(accounts=stats.created)
             return stats
 
-    def resolve(self, *, cohort=None, limit=None, domains: list[str] | None = None, ats: bool = True, cik: bool = True, feeds: bool = True, icp: bool = True, g2: bool = False) -> dict:
+    def resolve(self, *, cohort=None, limit=None, domains: list[str] | None = None, ats: bool = True, cik: bool = True, feeds: bool = True, icp: bool = True, g2: bool = False, appstore: bool = False, bbb: bool = False, linkedin: bool = False) -> dict:
         with RunContext(self.db, "resolve") as ctx:
             if domains:
                 accounts = self._accounts(domains=domains)
             else:
                 accounts = self._accounts(cohort=cohort, limit=limit)
             ctx.bump(accounts=len(accounts))
-            out = {"accounts": len(accounts), "cik": 0, "ats": 0, "feeds": 0, "icp": 0, "g2": 0}
+            out = {"accounts": len(accounts), "cik": 0, "ats": 0, "feeds": 0, "icp": 0, "g2": 0, "appstore": 0, "bbb": 0, "linkedin": 0}
             if ats:
                 from src.identity.ats_discovery import AtsDiscovery
 
@@ -127,6 +127,39 @@ class Orchestrator:
                         out["cik"] = sum(1 for v in found.values() if v)
                     except Exception as exc:
                         logger.warning("cik resolve failed: {}", exc)
+            if appstore:
+                from src.identity.appstore_ids import AppStoreIdResolver
+
+                need = [a for a in accounts if not a.app_store_id]
+                if need:
+                    try:
+                        resolver = AppStoreIdResolver(self.fetcher or self._http_fetcher(ctx), self.registry)
+                        found = resolver.resolve_all(need)
+                        out["appstore"] = sum(1 for v in found.values() if v)
+                    except Exception as exc:
+                        logger.warning("appstore resolve failed: {}", exc)
+            if bbb:
+                from src.identity.bbb_ids import BbbProfileResolver
+
+                need = [a for a in accounts if not (a.extra_data or {}).get("bbb_url")]
+                if need:
+                    try:
+                        resolver = BbbProfileResolver(self.fetcher or self._http_fetcher(ctx), self.registry)
+                        found = resolver.resolve_all(need)
+                        out["bbb"] = sum(1 for v in found.values() if v)
+                    except Exception as exc:
+                        logger.warning("bbb resolve failed: {}", exc)
+            if linkedin:
+                from src.identity.linkedin_ids import LinkedinSlugResolver
+
+                need = [a for a in accounts if not a.linkedin_slug]
+                if need:
+                    try:
+                        resolver = LinkedinSlugResolver(self.config, self.registry)
+                        found = resolver.resolve_all(need)
+                        out["linkedin"] = sum(1 for v in found.values() if v)
+                    except Exception as exc:
+                        logger.warning("linkedin resolve failed: {}", exc)
             if feeds:
                 from src.identity.feed_discovery import FeedDiscovery
 

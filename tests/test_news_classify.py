@@ -554,3 +554,24 @@ def test_domain_proof_skips_common_word_guards_completely():
     c = classify_news(item, glow, today=TODAY)
     assert c is not None
     assert c.signal_type == "product_launch"
+
+
+# ---- review fixes: other-brand shape + registrable-suffix exemption ----------
+
+def test_other_brand_second_domain_exempt():
+    """Account's own second brand domain (glow.com blog) is NOT other-brand."""
+    from src.sources.news.classify import _is_other_brand_domain
+    assert _is_other_brand_domain("glow.com", "glow", "glow.security") is False
+    assert _is_other_brand_domain("press.glow.security", "glow", "glow.security") is False
+
+
+def test_other_brand_fused_label_still_rejects():
+    """Fused other-brand labels (dolceglow.com) still reject — the Dolce Glow case."""
+    from src.sources.news.classify import _is_other_brand_domain
+    assert _is_other_brand_domain("dolceglow.com", "glow", "glow.security") is True
+    assert _is_other_brand_domain("glowrecipe.com", "glow", "glow.security") is True
+
+
+def test_other_brand_acct_domain_none_still_works():
+    from src.sources.news.classify import _is_other_brand_domain
+    assert _is_other_brand_domain("dolceglow.com", "glow", None) is True

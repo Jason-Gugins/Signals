@@ -142,7 +142,7 @@ def test_parse_feed_publisher_failure_is_none_not_crash(monkeypatch):
     """Resolution failure must never break a parse — item survives with None."""
     import src.sources.news.resolve as resolve_mod
     monkeypatch.setattr(resolve_mod, "_resolve_google_news_token", lambda link: None)
-    monkeypatch.setattr(resolve_mod, "_CACHE", {})
+    resolve_mod._cached_resolve.cache_clear()
     xml = (
         "<rss><channel><item>"
         "<title>T3</title>"
@@ -157,7 +157,7 @@ def test_parse_feed_resolves_via_summary_link(monkeypatch):
     """Google News links without ?url= fall back to a link in the summary HTML."""
     import src.sources.news.resolve as resolve_mod
     monkeypatch.setattr(resolve_mod, "_resolve_google_news_token", lambda link: None)
-    monkeypatch.setattr(resolve_mod, "_CACHE", {})
+    resolve_mod._cached_resolve.cache_clear()
     xml = (
         "<rss><channel><item>"
         "<title>T4</title>"
@@ -179,7 +179,7 @@ def test_parse_feed_publisher_domain_cached_per_link(monkeypatch):
         return "arlnow.com"
 
     monkeypatch.setattr(resolve_mod, "_resolve_google_news_token", fake_token)
-    monkeypatch.setattr(resolve_mod, "_CACHE", {})
+    resolve_mod._cached_resolve.cache_clear()
     xml = (
         "<rss><channel>"
         "<item><title>A</title><link>https://news.google.com/rss/articles/CBMiBBB</link></item>"
@@ -190,3 +190,12 @@ def test_parse_feed_publisher_domain_cached_per_link(monkeypatch):
     assert len(items) == 2
     assert all(it.publisher_domain == "arlnow.com" for it in items)
     assert len(calls) == 1  # second item hit the cache
+
+
+def test_resolver_cache_is_bounded():
+    """The resolver memo must be an lru_cache (bounded), not a bare dict."""
+    import functools as _ft
+    from src.sources.news import resolve
+    assert isinstance(
+        resolve._cached_resolve, _ft._lru_cache_wrapper
+    ), "resolve cache must be functools.lru_cache (bounded), got bare dict/module fn"

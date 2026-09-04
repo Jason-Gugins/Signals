@@ -203,17 +203,28 @@ _RESEARCH_PATTERNS = [
 ]
 
 
-def _is_other_brand_domain(pub_host: str, want: str | None) -> bool:
+def _is_other_brand_domain(pub_host: str, want: str | None, acct_domain: str | None = None) -> bool:
     """True if the publisher domain IS the ambiguous brand itself
     (e.g. 'dolceglow.com' for account name 'Glow'): the domain contains
     the name but is not the account's own domain — the other brand's own
     domain publishing the article proves this is not about the account.
+
+    Fused-label caveat (known limitation): any host whose bare label merely
+    contains the name ('workflowhub.com' for account 'Flow') is treated as
+    other-brand. Separated labels (workflow-hub.com) would also match.
+    Accounts sharing the registrable suffix are exempt (second brand
+    domains, press subdomains) — see the acct_domain guard below.
     """
     if not want:
         return False
     w = want.casefold()
-    bare = pub_host.split(".")[0]
-    return w in pub_host and bare != w and len(bare) > len(w)
+    pub = (pub_host or "").casefold().removeprefix("www.")
+    acct = (acct_domain or "").casefold().removeprefix("www.")
+    # Same registrable family → never other-brand (tier-1/tier-3 will handle).
+    if acct and (pub == acct or pub.endswith("." + acct) or acct.endswith("." + pub)):
+        return False
+    bare = pub.split(".")[0]
+    return w in pub and bare != w and len(bare) > len(w)
 
 
 def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[SignalCandidate]:
@@ -236,13 +247,13 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
     #   Tier 3: neutral publisher (techcrunch.com, ...) → fall through to
     #           the existing in_text + common-word guard chain.
     pub = getattr(item, "publisher_domain", None)
-    acct_host = (domain or "").casefold()  # e.g. glow.security
+    acct_host = (domain or "").casefold().removeprefix("www.")  # e.g. glow.security
     domain_proof = False
-    if pub and acct_host:
+    if pub and acct_host and "." in pub:  # bare-TLD "publisher" is not a domain
         pub_h = pub.casefold().removeprefix("www.")
         if pub_h == acct_host or pub_h.endswith("." + acct_host) or acct_host.endswith("." + pub_h):
             domain_proof = True  # authoritative match
-        elif _is_other_brand_domain(pub_h, want):
+        elif _is_other_brand_domain(pub_h, want, acct_host):
             return None  # a different known brand's own domain proves non-match
     if domain_proof:
         # Tier-1: the publisher IS the account's domain — the account name

@@ -14,13 +14,16 @@ break over attribution.
 """
 from __future__ import annotations
 
+import functools
 import re
 from urllib.parse import parse_qs, urlparse
 
-# Module-level memo of link → publisher domain (or None when unresolvable).
 # Google News SERPs reuse the same article links across feeds/keywords, so a
-# process-lifetime cache keeps the slow decoder to one call per unique link.
-_CACHE: dict[str, str | None] = {}
+# bounded LRU cache keeps the slow decoder to one call per unique link without
+# unbounded process-lifetime growth in a long-running scheduler.
+@functools.lru_cache(maxsize=4096)
+def _cached_resolve(link: str, summary: str | None) -> str | None:
+    return _resolve_publisher_domain_uncached(link, summary)
 
 
 def _is_google_news(host: str) -> bool:
@@ -55,16 +58,7 @@ def _resolve_google_news_token(link: str) -> str | None:
     return None
 
 
-def resolve_publisher_domain(link: str, summary: str | None = None) -> str | None:
-    """Best-effort publisher hostname for a news item's link.
-
-    Returns the hostname casefolded with a leading ``www.`` stripped
-    (e.g. ``"pymnts.com"``), or None when it cannot be determined.
-    """
-    if not link:
-        return None
-    if link in _CACHE:
-        return _CACHE[link]
+def _resolve_publisher_domain_uncached(link: str, summary: str | None) -> str | None:
     domain: str | None = None
     try:
         parsed = urlparse(link)
@@ -79,7 +73,8 @@ def resolve_publisher_domain(link: str, summary: str | None = None) -> str | Non
             if cand_host and not _is_google_news(cand_host.casefold()):
                 domain = cand_host
             else:
-                # Try an http(s) URL embedded in the summary HTML.
+                # Try an http(s) URL embedded in the summary HTML (offline;
+                # this re-scan overlaps _unwrap in feeds.py — cheap, left as is).
                 if summary:
                     m = re.search(r"https?://[^\s\"'<>]+", summary)
                     if m:
@@ -93,5 +88,15 @@ def resolve_publisher_domain(link: str, summary: str | None = None) -> str | Non
     if domain:
         domain = domain.casefold()
         domain = domain.removeprefix("www.")
-    _CACHE[link] = domain
     return domain
+
+
+def resolve_publisher_domain(link: str, summary: str | None = None) -> str | None:
+    """Best-effort publisher hostname for a news item's link.
+
+    Returns the hostname casefolded with a leading ``www.`` stripped
+    (e.g. ``"pymnts.com"``), or None when it cannot be determined.
+    """
+    if not link:
+        return None
+    return _cached_resolve(link, summary)

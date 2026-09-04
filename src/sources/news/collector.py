@@ -79,9 +79,12 @@ def _rerank_items(
         # a stronger query ("Name domain official") so the reranker score
         # reflects the proven attribution instead of the bare name.
         acct_host = (account.domain or "").casefold().removeprefix("www.")
+        # Mirrors classify.py tier-1 (subdomains count, both directions).
+        def _matches_acct(pub: str) -> bool:
+            p = pub.casefold().removeprefix("www.")
+            return bool(p) and (p == acct_host or p.endswith("." + acct_host) or acct_host.endswith("." + p))
         has_domain_proof = bool(acct_host) and any(
-            (it.publisher_domain or "").casefold().removeprefix("www.") == acct_host
-            for it in items
+            _matches_acct(it.publisher_domain or "") for it in items
         )
         if has_domain_proof:
             query = f"{name} {account.domain} official"

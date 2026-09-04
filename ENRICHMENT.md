@@ -69,11 +69,14 @@ Prereqs: none.
 .\.venv\Scripts\python.exe -m src.cli brief --domain acme.com
 ```
 
-What you get: account created/updated, every eligible source run
-(google_news + news_rss + warn + techstack + wayback immediately), a digest of
-signals, and a list of sources skipped with the exact missing field.
+What you get: account created/updated, the identity resolver pass (CIK, ATS,
+feeds, ICP) run for new accounts, every eligible source run (google_news +
+news_rss + warn + techstack + wayback immediately), a digest of signals, and a
+list of sources skipped with the exact missing field.
 
-Caveats: bare company names are refused (v1) — pass a URL or domain.
+Caveats: bare company names are refused (v1) — pass a URL or domain. The
+opt-in resolvers (`--appstore`, `--bbb`, `--linkedin`) are not part of sweep;
+run them via `resolve` when you want them.
 
 ### Flow B — Leadership tracking (LinkedIn)
 
@@ -137,7 +140,7 @@ Prereqs: the marketplace slug on the account (`g2_slug`); sources enabled in
 `config/sources.yaml` (they ship disabled).
 
 ```powershell
-.\.venv\Scripts\python.exe -m src.cli resolve --g2 --domain acme.com
+.\.venv\Scripts\python.exe -m src.cli resolve --g2
 .\.venv\Scripts\python.exe -m src.cli collect --source marketplace_g2 --domain acme.com
 ```
 
@@ -167,12 +170,16 @@ Prereqs: fill in what sweep tells you is missing.
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli sweep https://acme.com
-# fill the gaps sweep reports (g2_slug, ats_token, cik, linkedin_slug, blog_feed_url), then:
-.\.venv\Scripts\python.exe -m src.cli sweep https://acme.com --force
+# new accounts get CIK/ATS/feeds/ICP resolution automatically;
+# opt-in resolvers fill app_store_id / bbb_url / linkedin_slug for the cohort:
+.\.venv\Scripts\python.exe -m src.cli resolve --appstore --bbb --linkedin
+.\.venv\Scripts\python.exe -m src.cli sweep https://acme.com --deep
 .\.venv\Scripts\python.exe -m src.cli digest --period weekly --domain acme.com
 ```
 
-What you get: every source the account qualifies for, one digest.
+What you get: every source the account qualifies for, one digest — plus a
+"New Form D issuers (unmatched)" section on non-domain digests listing
+newly-funded companies the registry doesn't know yet.
 
 ## 3. Combination recipes
 
@@ -188,13 +195,13 @@ What you get: every source the account qualifies for, one digest.
 
 | Field | How to get it |
 |---|---|
-| `g2_slug` | `python -m src.cli resolve --g2 --domain acme.com` (marketplace search) |
+| `g2_slug` | `python -m src.cli resolve --g2` (marketplace search; scope via the global `--cohort` flag) |
 | `ats_token` | Detect the ATS from the careers page; the vendor board token is then set on the account |
-| `cik` | EDGAR full-text search (efts.sec.gov) → company CIK; public filers only |
-| `linkedin_slug` | The funded-companies list (`src/sources/funded_software_companies.md`) or the scraper's discovery; must be the exact LinkedIn slug |
-| `blog_feed_url` | Auto-discovered at seed time (`src/identity/feed_discovery.py`) or set manually |
-| `app_store_id` | The app's store listing id |
-| `extra_data.bbb_url` | BBB profile URL |
+| `cik` | Auto at sweep/`resolve --cik` (SEC tickers match); manual: EDGAR full-text search (efts.sec.gov) |
+| `linkedin_slug` | `python -m src.cli resolve --linkedin` (companion-scraper discover subprocess; human-triggered) or the funded-companies list (`src/sources/funded_software_companies.md`); must be the exact LinkedIn slug |
+| `blog_feed_url` | Auto-discovered at seed/sweep time (`src/identity/feed_discovery.py` — falls back to archived homepage snapshots when the live site is a JS shell) |
+| `app_store_id` | `python -m src.cli resolve --appstore` (iTunes Search API; candidates-only on ambiguity) |
+| `extra_data.bbb_url` | `python -m src.cli resolve --bbb` (BBB search API; candidates-only on ambiguity) |
 
 ## 5. Operational caveats (read once, saves pain)
 

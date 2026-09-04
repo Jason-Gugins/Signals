@@ -81,7 +81,11 @@ the account from a URL or bare domain, then run every enabled source for it —
 refused in v1, sources whose required account fields are missing are reported
 as skipped, and LinkedIn deepen stays a separate manual `deepen` call), `init`,
 `resolve` (`--g2`, `--capterra` — slug discovery via each
-marketplace's search), `collect`, `reparse`, `score`, `status`, `doctor`,
+marketplace's search; `--cik`/`--ats`/`--feeds`/`--icp` always-on resolvers;
+opt-in `--appstore` via iTunes Search, `--bbb` via BBB search API, and
+`--linkedin` — slug discovery through the companion scraper's `discover`
+subprocess; human-triggered posture, no automated login), `collect`,
+`reparse`, `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
 `capterra-selfcheck`, `prune` (retention: delete old fetch_log/documents/runs
 rows + raw files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum`

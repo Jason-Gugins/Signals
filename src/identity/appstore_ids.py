@@ -86,11 +86,19 @@ class AppStoreIdResolver:
             if acct.app_store_id:
                 out[acct.domain] = acct.app_store_id
                 continue
-            track_id = self._search(acct)
-            out[acct.domain] = track_id
-            if track_id:
-                acct.app_store_id = track_id
-                self.registry.upsert(acct, source="appstore")
+            try:
+                track_id = self._search(acct)
+                out[acct.domain] = track_id
+                if track_id:
+                    acct.app_store_id = track_id
+                    self.registry.upsert(acct, source="appstore")
+            except Exception as exc:
+                # Per-account isolation: one failing account (e.g. registry
+                # write failure) must not kill the pass for the cohort.
+                logger.warning(
+                    "appstore_ids: resolve failed for {}: {}", acct.domain, exc
+                )
+                out[acct.domain] = None
         return out
 
     def _search(self, account: Account) -> str | None:

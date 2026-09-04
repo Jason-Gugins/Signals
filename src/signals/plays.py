@@ -22,6 +22,8 @@ COMBO_PLAY = {
     "efficiency_pivot": "automation_pitch",
     "displacement_clock": "displacement_pitch",
     "contextual_cold": "contextual_cold",
+    "turnaround_pitch": "turnaround_pitch",
+    "relocation_window": "infrastructure_pitch",
 }
 
 

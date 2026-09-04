@@ -44,6 +44,8 @@ MINIMAL = {
     "efficiency_pivot": [_sig("layoff", 10)],
     "displacement_clock": [_sig("renewal_window", 20), _sig("competitor_detected", 40)],
     "contextual_cold": [_sig("tech_install_new", 15)],
+    "turnaround_pitch": [_sig("intent_2nd_marketplace", 5), _sig("exec_departure", 20)],
+    "relocation_window": [_sig("new_geo", 10), _sig("layoff", 40)],
 }
 
 TOO_OLD = {
@@ -54,6 +56,8 @@ TOO_OLD = {
     "efficiency_pivot": [_sig("layoff", 61)],
     "displacement_clock": [_sig("renewal_window", 91), _sig("competitor_detected", 40)],
     "contextual_cold": [_sig("tech_install_new", 91)],
+    "turnaround_pitch": [_sig("intent_2nd_marketplace", 31), _sig("exec_departure", 20)],
+    "relocation_window": [_sig("new_geo", 31), _sig("layoff", 40)],
 }
 
 
@@ -107,3 +111,36 @@ def test_unknown_condition_key_raises():
     defs = [{"id": "bad", "bonus": 1, "urgency": 1, "action": "z", "all_of": [{"nope": True}]}]
     with pytest.raises(ConfigError):
         evaluate_combos([], defs, today=TODAY)
+
+
+NEW_RECIPES = ("turnaround_pitch", "relocation_window")
+
+
+def test_new_recipe_combos_fire_within_window():
+    """Turnaround + relocation combos fire when both clauses are in-window."""
+    fired = {f["id"] for f in evaluate_combos(
+        MINIMAL["turnaround_pitch"] + MINIMAL["relocation_window"], COMBOS, today=TODAY)}
+    for cid in NEW_RECIPES:
+        assert cid in fired, cid
+
+
+def test_new_recipe_combos_do_not_fire_when_clause_is_stale():
+    """Each new combo stays silent when any clause signal is outside within_days."""
+    for cid in NEW_RECIPES:
+        fired = {f["id"] for f in evaluate_combos(TOO_OLD[cid], COMBOS, today=TODAY)}
+        assert cid not in fired, cid
+
+
+def test_new_recipe_ids_and_actions_in_loaded_config():
+    """New recipe ids exist in config with non-empty action text."""
+    by_id = {c["id"]: c for c in COMBOS}
+    for cid in NEW_RECIPES:
+        assert cid in by_id, cid
+        entry = by_id[cid]
+        assert entry.get("action"), cid
+        assert int(entry.get("bonus") or 0) > 0
+        assert int(entry.get("urgency") or 0) > 0
+    # honest-proxy note in the turnaround action (no sentiment_decline type exists)
+    assert "proxy" in by_id["turnaround_pitch"]["action"].lower()
+    # verify-first caveat in the relocation action (region matching not automatable)
+    assert "verify" in by_id["relocation_window"]["action"].lower()

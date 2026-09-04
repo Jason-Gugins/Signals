@@ -1,3 +1,4 @@
+import os
 from datetime import date
 
 from src.sources.base import FetchTask, SourceAdapter
@@ -29,7 +30,13 @@ class CommunityGithubSource(SourceAdapter):
 
     def plan(self, account, cursor):
         org = github_org_guess(account)[0]
-        return [FetchTask(source=self.key, url=f"https://api.github.com/orgs/{org}", domain=account.domain, meta={"kind": "org"})]
+        # Same env var the config loader reads (src/core/config.py _apply_env_overrides),
+        # so config.github_token and the collector always agree. Never log/persist it.
+        headers = {}
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return [FetchTask(source=self.key, url=f"https://api.github.com/orgs/{org}", domain=account.domain, headers=headers, meta={"kind": "org"})]
 
     def parse(self, doc, account, task_meta):
         if not doc.body:

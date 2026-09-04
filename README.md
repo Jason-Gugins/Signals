@@ -73,7 +73,12 @@ populate it (a human provides):
 .\.venv\Scripts\python.exe -m src.cli watch --once
 ```
 
-Also: `init`, `resolve` (`--g2`, `--capterra` — slug discovery via each
+Also: `sweep <url-or-domain> [--force]` (one-command onboarding: seed-or-update
+the account from a URL or bare domain, then run every enabled source for it —
+`--force` recollects even if the account already exists; bare company names are
+refused in v1, sources whose required account fields are missing are reported
+as skipped, and LinkedIn deepen stays a separate manual `deepen` call), `init`,
+`resolve` (`--g2`, `--capterra` — slug discovery via each
 marketplace's search), `collect`, `reparse`, `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
 `capterra-selfcheck`, `prune` (retention: delete old fetch_log/documents/runs

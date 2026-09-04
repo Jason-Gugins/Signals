@@ -137,7 +137,7 @@ class CollectorRunner:
                         self._run_fanout(adapter, eligible, stats, force=force, dry_run=dry_run, now=now)
                     except Exception as exc:
                         logger.exception("fanout adapter {} failed", adapter.key)
-                        self._record_fail(adapter.key, "global", exc)
+                        self._record_fail(adapter.key, "global", exc, cadence_hours=getattr(adapter, "cadence_hours", 24))
                         stats.failed += 1
                         stats._src(adapter.key)["failed"] += 1
                         self.ctx.bump(errors=1)
@@ -147,7 +147,7 @@ class CollectorRunner:
                         self._run_pair(adapter, account, stats, force=force, dry_run=dry_run, max_passes=max_passes, limit_per_source=limit_per_source, now=now)
                     except Exception as exc:
                         logger.exception("adapter {} failed for {}", adapter.key, account.domain)
-                        self._record_fail(adapter.key, account.domain, exc)
+                        self._record_fail(adapter.key, account.domain, exc, cadence_hours=getattr(adapter, "cadence_hours", 24))
                         stats.failed += 1
                         stats._src(adapter.key)["failed"] += 1
                         self.ctx.bump(errors=1)
@@ -505,7 +505,7 @@ class CollectorRunner:
                 # adapter-level catch handles it), so without this stamp the
                 # cursor would never record fail_count / error_class /
                 # backoff — the fanout analogue of the non-fanout path.
-                self._record_fail(adapter.key, "global", exc)
+                self._record_fail(adapter.key, "global", exc, cadence_hours=getattr(adapter, "cadence_hours", 24))
                 raise exc
             stats.fetched += 1
             last_doc = result.doc
@@ -837,9 +837,14 @@ class CollectorRunner:
             overwrite={"fail_count", "last_error", "error_class"},
         )
 
-    def _record_fail(self, source, key, exc):
+    def _record_fail(self, source, key, exc, *, cadence_hours: int = 24):
         """Stamp the failure on the cursor: fail_count, error_class, and a
         next-due penalty multiplied by the class's BACKOFF_MULTIPLIER.
+
+        The penalty is computed against the SOURCE's real cadence (passed by
+        the call sites from ``adapter.cadence_hours``), not a global 24h: a
+        336h-cadence source (wayback/crt.sh) compounds on its own scale and a
+        12h ATS source takes 2x-shorter penalties.
 
         The TOTAL next-due penalty is capped scheduler-style at 8x the adapter
         cadence (mirrors scheduler.MAX_BACKOFF_EXPONENT = 3 → 2**3 == 8x), so
@@ -853,7 +858,6 @@ class CollectorRunner:
         body_hint = getattr(exc, "fetch_body_hint", None)
         error_class = classify_fetch_error(status, error, body_hint)
         multiplier = BACKOFF_MULTIPLIER.get(error_class, 1)
-        cadence_hours = int(getattr(self, "_default_cadence_hours", 24))
         cap = timedelta(hours=8 * cadence_hours)
         floor = _now()
         prev_due = row.get("next_due_at")

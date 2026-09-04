@@ -440,16 +440,16 @@ class Fanout403:
 
 
 def test_runner_fanout_fetch_failure_stamps_error_class(tmp_path):
-    """A fetch failure inside _run_fanout escapes run()'s per-account
-    try/except, so the fanout path must stamp the cursor itself (plain 403 ->
-    'auth', same shape as the non-fanout path) before re-raising."""
+    """A fetch failure inside _run_fanout is isolated by run()'s fanout
+    try/except (mirroring the per-account path): the failure is recorded in
+    stats AND the global cursor is stamped (plain 403 -> 'auth')."""
     from core.models import Account
 
     runner, db, ctx = _runner_harness(tmp_path, Fetch403())
-    with pytest.raises(RuntimeError):
-        runner.run([Fanout403()], [Account(domain="acme.com")], force=True)
+    stats = runner.run([Fanout403()], [Account(domain="acme.com")], force=True)
     ctx.__exit__(None, None, None)
 
+    assert stats.failed >= 1
     cur = db.one("SELECT * FROM source_cursors WHERE source='fanout403' AND key='global'")
     assert cur is not None, "fanout fetch failure must stamp the global cursor"
     assert cur["error_class"] == "auth"

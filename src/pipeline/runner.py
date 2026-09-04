@@ -133,7 +133,14 @@ class CollectorRunner:
                             continue
                     eligible.append(account)
                 if getattr(adapter, "fanout", False) and eligible:
-                    self._run_fanout(adapter, eligible, stats, force=force, dry_run=dry_run, now=now)
+                    try:
+                        self._run_fanout(adapter, eligible, stats, force=force, dry_run=dry_run, now=now)
+                    except Exception as exc:
+                        logger.exception("fanout adapter {} failed", adapter.key)
+                        self._record_fail(adapter.key, "global", exc)
+                        stats.failed += 1
+                        stats._src(adapter.key)["failed"] += 1
+                        self.ctx.bump(errors=1)
                     continue
                 for account in eligible:
                     try:

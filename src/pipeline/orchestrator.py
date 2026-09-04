@@ -625,10 +625,42 @@ class Orchestrator:
             adapters = [a for a in adapters if a.key in wanted]
         return adapters
 
+    def _source_rate_overrides(self) -> dict[str, float]:
+        """Per-source ``rate_per_host`` overrides from config/sources.yaml.
+
+        Only entries that define their own rate_per_host are included; sources
+        without one keep the global default / per-host behavior unchanged.
+        """
+        try:
+            table = self.config.load_yaml("sources") or {}
+        except Exception:
+            return {}
+        entries = table.get("sources", table)
+        out: dict[str, float] = {}
+        for key, entry in (entries or {}).items():
+            if not isinstance(entry, dict):
+                continue
+            rate = entry.get("rate_per_host")
+            if rate is None:
+                continue
+            try:
+                out[key] = float(rate)
+            except (TypeError, ValueError):
+                continue
+        return out
+
     def _http_fetcher(self, ctx):
         from src.core.http import HttpFetcher
 
-        return HttpFetcher(self.config, self.raw, RateLimiter(self.config.http.default_rate_per_host), ctx=ctx)
+        return HttpFetcher(
+            self.config,
+            self.raw,
+            RateLimiter(
+                self.config.http.default_rate_per_host,
+                per_source=self._source_rate_overrides(),
+            ),
+            ctx=ctx,
+        )
 
     def _cookie_jar(self, scope: str):
         """Optional core cookie jar for the given transport scope, or None.

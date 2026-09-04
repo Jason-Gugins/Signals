@@ -207,7 +207,7 @@ class HttpFetcher:
 
         for attempt in range(0, max_retries + 1):
             attempts = attempt + 1
-            self.limiter.wait(url)
+            self.limiter.wait(url, source=getattr(task, "source", None))
             try:
                 with self.limiter.slot():
                     kwargs: dict[str, Any] = {"headers": headers}
@@ -249,7 +249,7 @@ class HttpFetcher:
                     return result
                 if status in RETRY_STATUSES and attempt < max_retries:
                     if status in {429, 503}:
-                        self.limiter.penalize(url, seconds=5.0)
+                        self.limiter.penalize(url, seconds=5.0, source=getattr(task, "source", None))
                     self._backoff(attempt + 1, response)
                     last_error = f"HTTP {status}"
                     continue

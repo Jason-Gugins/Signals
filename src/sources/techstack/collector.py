@@ -163,5 +163,9 @@ class TechstackSource(SourceAdapter):
 
                 matches = merge_matches(matches, dns_evidence_to_matches(probe_dns(account.domain), rules))
             except Exception:
-                pass  # fail-open: DNS problems never block the HTML harvest
+                # Fail-open, but diagnosable: a silently broken probe would be
+                # indistinguishable from "no DNS evidence for this domain".
+                from loguru import logger
+
+                logger.exception("dns probe merge failed for {}", account.domain)
         return matches

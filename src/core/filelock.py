@@ -135,17 +135,41 @@ def exclusive_lock(
                 except OSError:
                     logger.exception("state lock acquire failed at {}", lock_path)
                     break
+                wrote = False
                 try:
                     os.write(fd, str(os.getpid()).encode("utf-8"))
+                    wrote = True
+                except OSError:
+                    pass  # handled below, after the fd is closed
                 finally:
-                    os.close(fd)
-                acquired = True
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                if wrote:
+                    acquired = True
+                else:
+                    # Fail-open: an unwritable pid must not raise out of
+                    # __enter__ nor orphan a lockfile that blocks others.
+                    # (Unlink only after close — Windows cannot unlink an
+                    # open file.)
+                    logger.warning(
+                        "state lock {} pid write failed — proceeding unguarded",
+                        lock_path,
+                    )
+                    try:
+                        lock_path.unlink()
+                    except OSError:
+                        pass
                 break
         yield acquired
     finally:
         if acquired:
-            # Own-lock-only release: only unlink a lock we created.
+            # Own-lock-only release: only unlink while the lockfile still
+            # holds OUR pid — a hold longer than stale_s can be legitimately
+            # stale-broken and re-acquired by another process meanwhile.
             try:
-                lock_path.unlink()
+                if lock_path.read_text(encoding="utf-8").strip() == str(os.getpid()):
+                    lock_path.unlink()
             except OSError:
                 pass

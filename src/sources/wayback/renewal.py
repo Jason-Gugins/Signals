@@ -26,7 +26,10 @@ def renewal_candidates(domain: str, tech_rows: list[dict], *, contract_years: di
         years = contract_years.get(row["vendor"], default_years)
         k = 1
         while True:
-            renewal = date(start.year + years * k, start.month, start.day)
+            try:
+                renewal = date(start.year + years * k, start.month, start.day)
+            except ValueError:  # Feb 29 first_seen on a non-leap renewal year
+                renewal = date(start.year + years * k, start.month, 28)
             delta = (renewal - today).days
             if renewal < today - timedelta(days=400):
                 k += 1

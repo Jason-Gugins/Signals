@@ -166,3 +166,27 @@ def test_runner_emits_and_dedupes_renewal_window(tmp_path):
     assert len(rows2) == 1
     assert stats2.signals_new == 0
     ctx.__exit__(None, None, None)
+
+
+# ── Review fix: Feb-29 first_seen_at must clamp, not crash ──────────────────
+
+
+def test_renewal_candidates_feb29_first_seen_does_not_crash():
+    """A Feb-29 first_seen_at must clamp to Feb 28 on non-leap renewal years.
+    Pre-fix, date(2025, 2, 29) raised ValueError on EVERY cycle for that
+    domain and the runner's fail-open catch silently emitted zero candidates
+    forever (first_seen never changes)."""
+    from src.sources.wayback.renewal import renewal_candidates
+
+    rows = [{"vendor": "hubspot", "first_seen_at": "2024-02-29"}]
+    # 1-year renewal from 2024-02-29 clamps to 2025-02-28; scanning forward,
+    # the 2026-02-28 clamped anniversary lands inside the widened window.
+    cands = renewal_candidates(
+        "acme.com",
+        rows,
+        contract_years={},
+        default_years=1,
+        today=date(2025, 4, 1),
+        lead_days=(0, 400),
+    )
+    assert [c.natural_key for c in cands] == ["renewal:hubspot:2026-02-28"]

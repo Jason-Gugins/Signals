@@ -220,3 +220,31 @@ def test_run_passes_adapter_cadence_to_record_fail(tmp_path):
     assert row is not None
     hours = _due_hours_from_now(row)
     assert hours == pytest.approx(12 * 2, abs=1.0)
+
+
+# ── Review fix: no double stamp on real fanout fetch failures ───────────────
+
+
+class FailFetch:
+    """Fetcher that fails for any task (ok=False, HTTP 500)."""
+
+    def get(self, task, *, etag=None, last_modified=None):
+        from src.core.http import FetchResult
+
+        return FetchResult(False, 500, None, False, "HTTP 500", 1)
+
+
+def test_real_fanout_fetch_failure_stamps_cursor_exactly_once(tmp_path):
+    """Regression: _run_fanout used to stamp the cursor AND re-raise into
+    run()'s fanout catch, which stamped again — doubling fail_count and
+    compounding next_due on every failed fetch. Exactly one stamp remains."""
+    runner, db, ctx = _runner(tmp_path, fetcher=FailFetch())
+    stats = runner.run([FanoutBoom()], [Account(domain="acme.com")], force=True)
+    ctx.__exit__(None, None, None)
+
+    cur = db.one(
+        "SELECT fail_count FROM source_cursors WHERE source='fanboom' AND key='global'"
+    )
+    assert cur is not None
+    assert int(cur["fail_count"]) == 1
+    assert stats.failed >= 1

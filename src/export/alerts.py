@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import time
@@ -24,9 +25,23 @@ WEBHOOK_ATTEMPTS = 3
 WEBHOOK_BASE_DELAY_S = 1.0
 WEBHOOK_JITTER = 0.2
 
-# In-memory natural-key dedupe store: natural_key -> delivery epoch seconds.
-# Deliberately process-local (no persistence); a restart clears the window.
+# Natural-key dedupe store for alert delivery: (url, domain, signal_type, at)
+# -> delivery epoch seconds. Persisted to DEDUPE_PATH so a process restart
+# does not re-deliver the last window; entries older than the window are
+# pruned on every save, so neither the file nor this dict grows unbounded.
+# Single-process assumption: no file locking (Task 11 owns JSON-state locks).
 _DELIVERED: dict[tuple, float] = {}
+
+# Default dedupe store path (relative to the process CWD, like other data/
+# runtime state). Injectable per call via dedupe_path= (tests use tmp_path).
+DEDUPE_PATH = Path("data/alerts_dedupe.json")
+
+# Which store file has been merged into _DELIVERED (lazy per-path cache).
+_DEDUPE_LOADED_PATH: Path | None = None
+
+# Separator for JSON object keys: ASCII unit separator, which cannot occur
+# in URLs, domains, signal types or ISO timestamps.
+_DEDUPE_KEY_SEP = "\x1f"
 
 
 def _validate_webhook_url(url: str) -> bool:
@@ -109,6 +124,93 @@ def _natural_key(alert: Alert) -> tuple:
     return (alert.domain, alert.signal_type, alert.at)
 
 
+def _dedupe_key_to_str(key: tuple) -> str:
+    """Serialize a dedupe key tuple as a JSON object key."""
+    return _DEDUPE_KEY_SEP.join(str(part) for part in key)
+
+
+def _dedupe_key_from_str(raw: str) -> tuple:
+    """Inverse of :func:`_dedupe_key_to_str`."""
+    return tuple(raw.split(_DEDUPE_KEY_SEP))
+
+
+def _ensure_dedupe_loaded(path: str | Path | None = None) -> None:
+    """Merge the persisted dedupe store into ``_DELIVERED`` (once per path).
+
+    Fail-open: a missing or corrupt store leaves the in-memory state as-is
+    (delivery proceeds; the next mark rewrites a clean store). Persisted
+    entries never overwrite fresher in-memory marks (setdefault).
+    """
+    global _DEDUPE_LOADED_PATH
+    p = DEDUPE_PATH if path is None else Path(path)
+    if _DEDUPE_LOADED_PATH == p:
+        return
+    try:
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                for raw_key, ts in data.items():
+                    try:
+                        stamp = float(ts)
+                    except (TypeError, ValueError):
+                        continue
+                    if not math.isfinite(stamp) or stamp <= 0:
+                        continue
+                    _DELIVERED.setdefault(_dedupe_key_from_str(raw_key), stamp)
+            else:
+                logger.warning("alert dedupe store {} is not a JSON object; starting empty", p)
+        else:
+            logger.debug("alert dedupe store {} missing; starting empty", p)
+    except (OSError, ValueError) as exc:
+        logger.warning("alert dedupe store {} unreadable ({}); starting empty", p, exc)
+    _DEDUPE_LOADED_PATH = p
+
+
+def _save_dedupe(path: str | Path | None = None, *, window_h: float = 24.0) -> None:
+    """Atomically persist ``_DELIVERED``, pruning entries older than the
+    dedupe window (same window the check enforces), so the store cannot grow
+    unbounded. Atomic write: temp file + os.replace in the same directory."""
+    p = DEDUPE_PATH if path is None else Path(path)
+    now = time.time()
+    cutoff = window_h * 3600
+    for stale in [k for k, ts in _DELIVERED.items() if (now - ts) >= cutoff]:
+        del _DELIVERED[stale]
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    try:
+        tmp.write_text(
+            json.dumps(
+                {_dedupe_key_to_str(k): ts for k, ts in _DELIVERED.items()},
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        os.replace(tmp, p)
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        logger.warning("alert dedupe store {} not saved: {} (delivery continues)", p, exc)
+
+
+def _mark_delivered(key: tuple, *, path: str | Path | None = None, window_h: float = 24.0) -> None:
+    """Upsert a delivery into ``_DELIVERED`` and persist it (best effort).
+
+    The in-memory mark happens first and any persistence failure is swallowed:
+    delivery must never break because dedupe persistence did.
+    """
+    _DELIVERED[key] = time.time()
+    try:
+        _save_dedupe(path, window_h=window_h)
+    except Exception as exc:  # persistence must never break delivery
+        logger.warning("alert dedupe persistence failed: {}", exc)
+
+
+# Warm start at import (= process startup for the long-lived watch): load the
+# default store so a restart does not re-deliver the previous window. Stores
+# injected via dedupe_path= load lazily on first use.
+_ensure_dedupe_loaded()
+
+
 def _deliver_once(client, url: str, payload: dict, timeout: float, headers: dict | None = None, body: bytes | None = None) -> bool:
     """Single POST attempt. Returns True on 2xx, False otherwise.
 
@@ -186,9 +288,17 @@ def _sign_body(signing_secret: str | None, payload: dict) -> tuple[bytes, dict]:
 _NO_CLIENT = object()
 
 
-def _filtered_pending(alerts, url: str, dedupe_window_h: float, now: float | None = None) -> list[Alert]:
+def _filtered_pending(
+    alerts,
+    url: str,
+    dedupe_window_h: float,
+    now: float | None = None,
+    dedupe_path: str | Path | None = None,
+) -> list[Alert]:
     """Natural-key dedupe filter shared by post_webhook / post_json_webhook.
-    Keyed per destination URL so one alert can fan out to multiple webhooks."""
+    Keyed per destination URL so one alert can fan out to multiple webhooks.
+    Merges the persisted store for ``dedupe_path`` on first use."""
+    _ensure_dedupe_loaded(dedupe_path)
     if now is None:
         now = time.time()
     cutoff_h = dedupe_window_h
@@ -212,6 +322,7 @@ def post_webhook(
     timeout: float = DEFAULT_WEBHOOK_TIMEOUT_S,
     sleep=time.sleep,
     dedupe_window_h: float = 24.0,
+    dedupe_path: str | Path | None = None,
 ) -> int:
     """Deliver alerts to a Slack-compatible webhook.
 
@@ -222,14 +333,15 @@ def post_webhook(
       (1s/2s/4s base, ±20% jitter). Pass ``sleep`` to avoid real delays.
     - Delivery outcomes are logged (success / exhausted retries).
     - Natural-key dedupe: an alert whose (domain, signal_type, at) key was
-      delivered within ``dedupe_window_h`` hours is skipped. The store is
-      in-memory only (no persistence) — a restart clears the window.
+      delivered within ``dedupe_window_h`` hours is skipped. Delivered keys
+      are persisted to ``dedupe_path`` (default DEDUPE_PATH, pruned to the
+      window on write), so a restart does not clear the window.
     """
     if not _validate_webhook_url(url):
         logger.warning("webhook skipped: invalid URL {!r} (must be http/https with a host)", url)
         return 0
 
-    pending = _filtered_pending(alerts, url, dedupe_window_h)
+    pending = _filtered_pending(alerts, url, dedupe_window_h, dedupe_path=dedupe_path)
 
     own = client is _NO_CLIENT
     if own:
@@ -249,7 +361,7 @@ def post_webhook(
                     try:
                         if _deliver_once(http_client, url, payload, timeout):
                             sent += 1
-                            _DELIVERED[(url,) + key] = time.time()
+                            _mark_delivered((url,) + key, path=dedupe_path, window_h=dedupe_window_h)
                             logger.info("webhook delivered: {} (attempt {})", key, attempt)
                             break
                     except Exception as exc:
@@ -276,6 +388,7 @@ def post_json_webhook(
     timeout: float = DEFAULT_WEBHOOK_TIMEOUT_S,
     sleep=time.sleep,
     dedupe_window_h: float = 24.0,
+    dedupe_path: str | Path | None = None,
 ) -> int:
     """Deliver alerts to a generic JSON webhook with the same hardened skeleton
     as post_webhook (URL validation, 3-attempt exp backoff ±jitter, natural-key
@@ -291,7 +404,7 @@ def post_json_webhook(
         logger.warning("webhook skipped: invalid URL {!r} (must be http/https with a host)", url)
         return 0
 
-    pending = _filtered_pending(alerts, url, dedupe_window_h)
+    pending = _filtered_pending(alerts, url, dedupe_window_h, dedupe_path=dedupe_path)
 
     own = client is _NO_CLIENT
     if own:
@@ -312,7 +425,7 @@ def post_json_webhook(
                     try:
                         if _deliver_once(http_client, url, payload, timeout, headers=headers, body=body or None):
                             sent += 1
-                            _DELIVERED[(url,) + key] = time.time()
+                            _mark_delivered((url,) + key, path=dedupe_path, window_h=dedupe_window_h)
                             logger.info("webhook delivered: {} (attempt {})", key, attempt)
                             break
                     except Exception as exc:
@@ -363,6 +476,7 @@ def deliver_alerts(
     timeout: float = DEFAULT_WEBHOOK_TIMEOUT_S,
     sleep=time.sleep,
     dedupe_window_h: float = 24.0,
+    dedupe_path: str | Path | None = None,
 ) -> int:
     """Dispatch alerts to every configured webhook (config.alert_webhooks shape:
     list of {url, format: 'slack'|'json', secret_env?}).
@@ -398,12 +512,12 @@ def deliver_alerts(
             sent += _deliver_to_webhooks(
                 matching, route.get("webhooks") or [], client=client,
                 batch=batch, timeout=timeout, sleep=sleep,
-                dedupe_window_h=dedupe_window_h,
+                dedupe_window_h=dedupe_window_h, dedupe_path=dedupe_path,
             )
         return sent
     return _deliver_to_webhooks(
         alerts, webhooks, client=client, batch=batch, timeout=timeout,
-        sleep=sleep, dedupe_window_h=dedupe_window_h,
+        sleep=sleep, dedupe_window_h=dedupe_window_h, dedupe_path=dedupe_path,
     )
 
 
@@ -416,6 +530,7 @@ def _deliver_to_webhooks(
     timeout: float,
     sleep,
     dedupe_window_h: float,
+    dedupe_path: str | Path | None = None,
 ) -> int:
     """Legacy fan-out: every alert to every webhook in ``webhooks``."""
     sent = 0
@@ -432,11 +547,12 @@ def _deliver_to_webhooks(
             sent += post_webhook(
                 alerts, url, client=client, batch=batch, timeout=timeout,
                 sleep=sleep, dedupe_window_h=dedupe_window_h,
+                dedupe_path=dedupe_path,
             )
         else:
             sent += post_json_webhook(
                 alerts, url, signing_secret=signing_secret, client=client,
                 batch=batch, timeout=timeout, sleep=sleep,
-                dedupe_window_h=dedupe_window_h,
+                dedupe_window_h=dedupe_window_h, dedupe_path=dedupe_path,
             )
     return sent

@@ -22,7 +22,12 @@ class CaWarn:
         reader = csv.DictReader(io.StringIO(text))
         out = []
         for row in reader:
-            rec = {(k or "").strip().casefold(): (v or "").strip() for k, v in row.items()}
+            # Live CA pages sometimes return list-typed values (multi-value
+            # CSV cells); coerce anything non-str to a joined string first.
+            rec = {
+                (k or "").strip().casefold(): (v.strip() if isinstance(v, str) else " ".join(map(str, v)) if isinstance(v, (list, tuple)) else (str(v) if v is not None else ""))
+                for k, v in row.items()
+            }
             out.append(
                 WarnNotice(
                     company_raw=rec.get("company") or rec.get("employer") or "",

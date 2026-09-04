@@ -44,3 +44,13 @@ def test_match_notices_conservative(tmp_path):
     assert unmatched.exists()
     cand = warn_to_candidate(notices[0], today=date(2026, 8, 16))
     assert cand.signal_type == "layoff" and cand.confidence == 0.95
+
+
+def test_ca_parse_list_typed_cells():
+    """Live CA pages sometimes return list-typed CSV cells — must not crash."""
+    from src.sources.warn.states.ca import CaWarn
+    import csv, io
+    body = b'Company,Notice Date,Employees\n["Acme Corp"],2026-08-01,[42]\n'
+    notices = CaWarn().parse(body)
+    assert len(notices) == 1
+    assert "Acme" in notices[0].company_raw

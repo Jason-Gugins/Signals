@@ -63,6 +63,8 @@ populate it (a human provides):
 
 ## Everyday commands
 
+**Enrichment flows & waterfalls (per-domain playbooks): see [ENRICHMENT.md](ENRICHMENT.md).**
+
 `--dry-run` goes **before** the subcommand (`python -m src.cli --dry-run collect`).
 
 ```powershell

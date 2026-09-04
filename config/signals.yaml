@@ -167,6 +167,16 @@ types:
     supersede_days: 30  # example value — tune per data quality
     play: scaling_pitch
     label: "Hiring surge"
+  marketplace_review_trend:
+    category: intent
+    origin: internal
+    catalyst: primary
+    polarity: neutral  # deltas can be negative (declining reviews)
+    degree: 0
+    weight: 18
+    half_life_days: 90
+    play: marketplace_compare
+    label: "Marketplace review trend"
   department_expansion:
     category: hiring
     origin: internal

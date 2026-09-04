@@ -17,6 +17,10 @@ class FeedDiscovery:
         self.fetcher = fetcher
         self.registry = registry
 
+    # Fetch budget per account: 1 homepage + len(FEED_GUESSES) guesses + 1 CDX
+    # query + up to 2 wayback snapshots. A named constant prevents drift.
+    MAX_FETCHES = 12
+
     def discover(self, account: Account) -> Optional[str]:
         if account.blog_feed_url:
             return None
@@ -24,7 +28,7 @@ class FeedDiscovery:
 
         def fetch(url: str):
             nonlocal used
-            if used >= 12:
+            if used >= self.MAX_FETCHES:
                 return None
             used += 1
             from src.identity.edgar_ids import _Task

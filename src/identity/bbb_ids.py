@@ -31,7 +31,7 @@ from src.core.models import Account
 
 SEARCH_URL = "https://www.bbb.org/api/search"
 _BBB_BASE = "https://www.bbb.org"
-_EM_TAG_RE = re.compile(r"</?em>", re.IGNORECASE)
+_EM_TAG_RE = re.compile(r"</?em\b[^>]*>", re.IGNORECASE)
 
 # House style for fetch tasks outside src/sources/: local frozen-ish dataclass
 # mirroring edgar_ids._Task.
@@ -77,12 +77,19 @@ def _clean_name(raw: str | None) -> str:
     return _EM_TAG_RE.sub("", raw or "")
 
 
+def _abs_bbb_url(report_url: str) -> str:
+    """Join a reportUrl path (with or without leading slash) onto the base."""
+    from urllib.parse import urljoin
+
+    return urljoin(_BBB_BASE + "/", report_url.lstrip("/"))
+
+
 def pick_profile_url(account: Account, results: list[dict]) -> str | None:
     """Deterministic pick from search results. Never guesses on ambiguity."""
     if not results:
         return None
     if len(results) == 1:
-        return _BBB_BASE + str(results[0]["reportUrl"])
+        return _abs_bbb_url(str(results[0]["reportUrl"]))
     # Ambiguous (>1): accept only a clear name-substring winner, either direction.
     name = (account.name or "").casefold().strip()
     if not name:
@@ -95,7 +102,7 @@ def pick_profile_url(account: Account, results: list[dict]) -> str | None:
         if name in bname or bname in name:
             winners.append(r)
     if len(winners) == 1:
-        return _BBB_BASE + str(winners[0]["reportUrl"])
+        return _abs_bbb_url(str(winners[0]["reportUrl"]))
     return None
 
 

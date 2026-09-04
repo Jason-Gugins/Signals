@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
+from loguru import logger
+
 from src.core.models import Account
 from src.identity.domains import root_domain
 
@@ -73,10 +75,19 @@ def _missing_requires(account: Account, adapter) -> list[str]:
     return missing
 
 
-def run_sweep(url_or_name: str, *, force_first_run: bool | None = None) -> dict:
+def run_sweep(
+    url_or_name: str,
+    *,
+    force_first_run: bool | None = None,
+    deep: bool = False,
+) -> dict:
     """Seed-or-update the account, collect from every applicable source.
 
-    Returns {domain, created, collected, skipped, reminders}.
+    Newly created accounts also get a resolver pass (Orchestrator.resolve:
+    CIK/ATS/feeds/ICP), reported under ``resolved``. With ``deep=True`` the
+    resolver pass runs even for existing accounts.
+
+    Returns {domain, created, collected, skipped, reminders[, resolved, deep]}.
     """
     from src.core.config import Config
     from src.core.db import Database
@@ -99,11 +110,31 @@ def run_sweep(url_or_name: str, *, force_first_run: bool | None = None) -> dict:
     adapters = _enabled_adapters(orch)
     account = registry.get(domain) or Account(domain=domain, name=name)
 
-    skipped: list[tuple[str, str]] = []
-    for adapter in adapters:
-        missing = _missing_requires(account, adapter)
-        if missing:
-            skipped.append((adapter.key, "missing " + ", ".join(missing)))
+    def _compute_skipped() -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        for adapter in adapters:
+            missing = _missing_requires(account, adapter)
+            if missing:
+                out.append((adapter.key, "missing " + ", ".join(missing)))
+        return out
+
+    skipped = _compute_skipped()
+
+    # Resolver pass: on onboarding (newly created) or when --deep is passed.
+    # Resolution failures must never fail the sweep.
+    resolved: dict = {}
+    if created or deep:
+        try:
+            out = orch.resolve(domains=[domain], ats=True, cik=True, feeds=True, icp=True, g2=False)
+            resolved = {k: out.get(k, 0) for k in ("cik", "ats", "feeds", "icp")}
+        except Exception as exc:
+            logger.warning("sweep resolver pass failed for {}: {}", domain, exc)
+            resolved = {}
+        else:
+            # Re-fetch post-resolve so fields filled by resolvers no longer
+            # show as missing in the skipped report.
+            account = registry.get(domain) or account
+            skipped = _compute_skipped()
 
     force = created if force_first_run is None else bool(force_first_run)
     stats = orchestrator_collect(orch, sources=None, domains=[domain], force=force, dry_run=False, limit=None, cohort=None)
@@ -120,10 +151,14 @@ def run_sweep(url_or_name: str, *, force_first_run: bool | None = None) -> dict:
         "LinkedIn people data is deepen-driven: run `python -m src.cli deepen --domain "
         f"{domain}` when you want profiles scraped (manual-only posture)."
     ]
-    return {
+    result = {
         "domain": domain,
         "created": created,
         "collected": collected,
         "skipped": skipped,
         "reminders": reminders,
+        "resolved": resolved,
     }
+    if deep:
+        result["deep"] = True
+    return result

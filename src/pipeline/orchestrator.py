@@ -96,9 +96,12 @@ class Orchestrator:
             ctx.bump(accounts=stats.created)
             return stats
 
-    def resolve(self, *, cohort=None, limit=None, ats: bool = True, cik: bool = True, feeds: bool = True, icp: bool = True, g2: bool = False) -> dict:
+    def resolve(self, *, cohort=None, limit=None, domains: list[str] | None = None, ats: bool = True, cik: bool = True, feeds: bool = True, icp: bool = True, g2: bool = False) -> dict:
         with RunContext(self.db, "resolve") as ctx:
-            accounts = self._accounts(cohort=cohort, limit=limit)
+            if domains:
+                accounts = self._accounts(domains=domains)
+            else:
+                accounts = self._accounts(cohort=cohort, limit=limit)
             ctx.bump(accounts=len(accounts))
             out = {"accounts": len(accounts), "cik": 0, "ats": 0, "feeds": 0, "icp": 0, "g2": 0}
             if ats:

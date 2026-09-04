@@ -119,7 +119,7 @@ class TestMergeOrder:
                 return D()
 
         class FakeLimiter:
-            def wait(self, url):
+            def wait(self, url, **kw):
                 pass
 
             def slot(self):
@@ -172,7 +172,7 @@ class TestMergeOrder:
                 return D()
 
         class FakeLimiter:
-            def wait(self, url):
+            def wait(self, url, **kw):
                 pass
 
             def slot(self):
@@ -217,7 +217,7 @@ class TestMergeOrder:
                 return D()
 
         class FakeLimiter:
-            def wait(self, url):
+            def wait(self, url, **kw):
                 pass
 
             def slot(self):
@@ -266,7 +266,7 @@ class TestDisabledByDefault:
                 return D()
 
         class FakeLimiter:
-            def wait(self, url):
+            def wait(self, url, **kw):
                 pass
 
             def slot(self):

@@ -43,6 +43,13 @@ def parse_releases(body: bytes) -> list[dict]:
     return raw if isinstance(raw, list) else []
 
 
+def _one_year_ago(today: date) -> date:
+    try:
+        return today.replace(year=today.year - 1)
+    except ValueError:  # Feb 29 -> Feb 28 on non-leap years
+        return today.replace(year=today.year - 1, day=28)
+
+
 def github_to_candidates(org, repos, releases, account: Account, *, today: date) -> list[SignalCandidate]:
     if org:
         blog = root_domain(org.get("blog"))
@@ -71,17 +78,16 @@ def github_to_candidates(org, repos, releases, account: Account, *, today: date)
         p = to_iso_date(repo.get("pushed_at"))
         if p:
             pushed.append(date.fromisoformat(p))
-    if repos and (not pushed or max(pushed) < today.replace(year=today.year - 1) if today.month != 2 or today.day != 29 else today):
-        # no push in 365 days
-        if not pushed or (today - max(pushed)).days >= 365:
-            out.append(
-                SignalCandidate(
-                    signal_type="stagnation",
-                    observed_at=today.isoformat(),
-                    natural_key=f"ghstale:{account.domain}:{today.year}",
-                    title="No GitHub pushes in 365 days",
-                    confidence=0.4,
-                    evidence_data={},
-                )
+    if repos and (not pushed or max(pushed) < _one_year_ago(today)):
+        # no push in the last year
+        out.append(
+            SignalCandidate(
+                signal_type="stagnation",
+                observed_at=today.isoformat(),
+                natural_key=f"ghstale:{account.domain}:{today.year}",
+                title="No GitHub pushes in 365 days",
+                confidence=0.4,
+                evidence_data={},
             )
+        )
     return out

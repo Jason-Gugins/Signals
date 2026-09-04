@@ -424,15 +424,23 @@ class CollectorRunner:
             if tech_harvests:
                 from src.sources.techstack.collector import upsert_technologies
                 from src.sources.techstack.diff import diff_technologies
-                from src.sources.techstack.fingerprint import merge_matches
+                from src.sources.techstack.fingerprint import load_fingerprint_rules, merge_matches
 
                 merged = merge_matches(*tech_harvests)
+                # Previous stored rows for this domain: the diff needs the
+                # vendor SET; the renewal estimator also needs each vendor's
+                # stored first_seen_at. Read BEFORE upsert_technologies so
+                # first-seen history (not this cycle's fetch time) feeds it.
+                try:
+                    prev_rows = self.db.query(
+                        "SELECT vendor, first_seen_at FROM technologies WHERE domain=?", (account.domain,)
+                    )
+                except Exception:
+                    logger.exception("technologies lookup failed for {}", account.domain)
+                    prev_rows = []
                 # Diff against the previous cycle's vendor set for this domain
                 # and persist any install/churn change signals before upserting.
                 try:
-                    prev_rows = self.db.query(
-                        "SELECT vendor FROM technologies WHERE domain=?", (account.domain,)
-                    )
                     previous = {r["vendor"] for r in prev_rows}
                     tech_changes = diff_technologies(
                         previous, {m.vendor for m in merged},
@@ -449,6 +457,31 @@ class CollectorRunner:
                     stats.signals_new += added
                     stats._src(adapter.key)["signals_new"] += added
                     stats.candidates += len(change_cands)
+                # Renewal-window estimation from the stored first-seen dates,
+                # with per-vendor contract terms from fingerprints.yaml
+                # (optional contract_years; default 1-year cycle). Same
+                # fail-open pattern as the diff: estimation problems must
+                # never block the harvest.
+                try:
+                    renewal_cands = _renewal_cands(
+                        account.domain,
+                        [
+                            {"vendor": r["vendor"], "first_seen_at": r["first_seen_at"]}
+                            for r in prev_rows
+                        ],
+                        now.date(),
+                        load_fingerprint_rules(),
+                    )
+                except Exception:
+                    logger.exception(
+                        "renewal window estimation failed for {}", account.domain
+                    )
+                    renewal_cands = []
+                if renewal_cands:
+                    added = self._persist(account, adapter.key, renewal_cands, None)
+                    stats.signals_new += added
+                    stats._src(adapter.key)["signals_new"] += added
+                    stats.candidates += len(renewal_cands)
 
                 upsert_technologies(self.db, account.domain, merged, now=_iso(now))
             stats.candidates += len(all_cands)
@@ -887,6 +920,28 @@ class CollectorRunner:
             },
             pk=("source", "key"),
         )
+
+
+def _renewal_cands(domain: str, tech_rows: list[dict], today, rules: dict) -> list:
+    """Renewal-window candidates from stored technology rows.
+
+    Per-vendor contract terms come from the fingerprints.yaml vendor specs
+    (optional ``contract_years`` key, e.g. multi-year enterprise HCM deals);
+    every other vendor assumes the 1-year default cycle. Pure computation
+    (src.sources.wayback.renewal) — the caller wraps this in the techstack
+    pass's fail-open try/except so estimation problems never block a harvest.
+    """
+    from src.sources.wayback.renewal import renewal_candidates
+
+    vendors = (rules or {}).get("vendors") or {}
+    contract_years = {
+        name: int(spec["contract_years"])
+        for name, spec in vendors.items()
+        if isinstance(spec, dict) and spec.get("contract_years") is not None
+    }
+    return renewal_candidates(
+        domain, tech_rows, contract_years=contract_years, default_years=1, today=today
+    )
 
 
 def _ckey(adapter, account) -> str:

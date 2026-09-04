@@ -31,7 +31,9 @@ vendors:
              match: { script_src: ["cdn.segment.com"] } }
   snowflake: { display: "Snowflake", category: [data_warehouse], tier: enterprise,
              match: { job_text: ["snowflake"] } }
-  workday: { display: "Workday", category: [hris], tier: enterprise,
+  # Workday HCM deals typically run on multi-year contracts, so its renewal
+  # window is estimated from first_seen + 3 years (renewal_window wiring).
+  workday: { display: "Workday", category: [hris], tier: enterprise, contract_years: 3,
              match: { dns_cname: ["myworkdayjobs.com"], script_src: ["myworkday.com"] } }
   statuspage: { display: "Atlassian Statuspage", category: [status], tier: mid,
              match: { dns_cname: ["statuspage.io"] } }

@@ -156,4 +156,12 @@ class TechstackSource(SourceAdapter):
                         confidence=0.9,
                     )
                 ]
+        if kind in ("", "html"):
+            try:
+                from src.sources.techstack.dns_probe import dns_evidence_to_matches, probe_dns
+                from src.sources.techstack.fingerprint import merge_matches
+
+                matches = merge_matches(matches, dns_evidence_to_matches(probe_dns(account.domain), rules))
+            except Exception:
+                pass  # fail-open: DNS problems never block the HTML harvest
         return matches

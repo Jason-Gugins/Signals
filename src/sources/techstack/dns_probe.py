@@ -36,6 +36,9 @@ def probe_dns(domain: str, *, resolver=None, subdomains=("www", "info", "mail", 
             resolver = dns.resolver.Resolver()
             resolver.lifetime = 3
         except Exception:
+            from loguru import logger
+
+            logger.debug("dnspython unavailable; DNS probe skipped for remaining collects")
             return ev
 
     def _q(name, rtype):

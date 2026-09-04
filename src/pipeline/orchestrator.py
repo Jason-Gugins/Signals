@@ -187,7 +187,7 @@ class Orchestrator:
                     except Exception as exc:
                         logger.warning("icp failed for {}: {}", acct.domain, exc)
             if g2:
-                from src.identity.g2_resolve import fetch_g2_search_url, parse_g2_search_results, resolve_g2_slug
+                from src.identity.g2_resolve import fetch_g2_search_url, parse_g2_search_results, resolve_g2_from_results
 
                 fetcher = self.fetcher or self._http_fetcher(ctx)
                 for acct in accounts:
@@ -202,11 +202,20 @@ class Orchestrator:
                             continue
                         html = res.doc.body.decode("utf-8", "replace")
                         results = parse_g2_search_results(html)
-                        slug = resolve_g2_slug(acct.name, results)
-                        if slug:
-                            acct.g2_slug = slug
+                        resolved = resolve_g2_from_results(acct.name, results)
+                        if resolved.status == "resolved" and resolved.slug:
+                            acct.g2_slug = resolved.slug
                             self.registry.upsert(acct, source="g2_resolve")
                             out["g2"] += 1
+                        elif resolved.candidates:
+                            # Never-guess contract (mirrors capterra): ambiguity
+                            # persists nothing and surfaces the candidate slugs.
+                            logger.warning(
+                                "g2 resolve not unique for {} (name={!r}): candidate slugs {}",
+                                acct.domain,
+                                acct.name,
+                                [c.get("slug") for c in resolved.candidates],
+                            )
                     except Exception as exc:
                         logger.warning("g2 resolve failed for {}: {}", acct.domain, exc)
             return out

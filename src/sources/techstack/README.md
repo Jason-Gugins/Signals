@@ -51,7 +51,7 @@ Rules live in [`config/fingerprints.yaml`](../../../config/fingerprints.yaml).
 |---|---|---|
 | `script_src` | `<script src>` in first HTML | `js.hs-scripts.com` → HubSpot |
 | `network_host` | HAR-lite host list (suffix match only) | `cdn.prod.website-files.com` → Webflow |
-| `dns_cname` / `mx` / `spf_include` | DNS probe (rules exist; merge is later) | `protection.outlook.com` → Microsoft 365 |
+| `dns_cname` / `mx` / `spf_include` | DNS probe, merged into `harvest_tech` (html-task-gated, fail-open) | `protection.outlook.com` → Microsoft 365 |
 | `job_text` | text blob | `snowflake` |
 
 `network_host` matching is suffix-only (`host == needle` or `host.endswith("." + needle)`). `force.com` does **not** match `workforce.com`. `cdn-cookieyes.com` is **not** a suffix of `cookieyes.com` — both needles are required. Needles are copied into YAML only from a frozen fixture — never guessed.

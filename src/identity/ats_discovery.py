@@ -41,6 +41,11 @@ ATS_PATTERNS: dict[str, list[re.Pattern]] = {
     "jazzhr": [re.compile(r"([a-z0-9-]+)\.applytojob\.com", re.I)],
     "personio": [re.compile(r"([a-z0-9-]+)\.jobs\.personio\.(?:de|com)", re.I)],
     "teamtailor": [re.compile(r"([a-z0-9-]+)\.teamtailor\.com", re.I)],
+    # Collector-backed vendors (src/sources/registry.py COLLECTED_VENDORS):
+    # every one of these must be detectable, else the collector never fires.
+    "rippling": [re.compile(r"ats\.rippling\.com/([a-z0-9_-]+)", re.I)],
+    "jobvite": [re.compile(r"jobs\.jobvite\.com/([a-z0-9_-]+)", re.I)],
+    "breezy": [re.compile(r"([a-z0-9-]+)\.breezy\.hr", re.I)],
 }
 
 
@@ -184,8 +189,16 @@ class AtsDiscovery:
             token = best.token
             if best.vendor == "workday" and best.extra.get("tenant"):
                 token = f"{best.extra['tenant']}/{best.extra['wd']}/{best.extra['site']}"
-            account.ats_vendor = best.vendor
-            account.ats_token = token
+            # Only stamp vendor/token for vendors that actually have a
+            # collector. Collector-less detections (bamboohr/jazzhr/personio
+            # today) must stay vendorless: setting ats_vendor OR ats_token
+            # disables the ats_careers_page fallback (_ats_vendor_ok requires
+            # BOTH empty), which would silently stop hiring collection.
+            from src.sources.registry import COLLECTED_VENDORS
+
+            if best.vendor in COLLECTED_VENDORS:
+                account.ats_vendor = best.vendor
+                account.ats_token = token
             account.careers_url = careers_url
             self.registry.upsert(account, source="ats_discovery")
         return best

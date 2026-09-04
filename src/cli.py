@@ -731,6 +731,40 @@ def deepen(ctx, domain, max_people, timeout):
 
 
 @main.command()
+@click.argument("url_or_name")
+@click.option("--force", is_flag=True, help="Force recollection even if the account already exists.")
+@click.pass_context
+def sweep(ctx, url_or_name, force):
+    """One-command onboarding: seed-or-update the account, then collect.
+
+    Accepts a URL (https://acme.io/about) or a bare domain (acme.io).
+    A bare company name without a dot is refused in v1.
+    """
+    from src.pipeline import sweep as sweep_mod
+
+    try:
+        result = sweep_mod.run_sweep(url_or_name, force_first_run=True if force else None)
+    except sweep_mod.SweepError as exc:
+        click.echo(f"sweep refused: {exc}", err=True)
+        ctx_exit(2)
+        return
+    created = "created" if result["created"] else "existing"
+    click.echo(f"account={result['domain']} ({created})")
+    collected = result.get("collected") or {}
+    click.echo(
+        f"fetched={collected.get('fetched', 0)} "
+        f"signals_new={collected.get('signals_new', 0)} "
+        f"failed={collected.get('failed', 0)}"
+    )
+    if result.get("skipped"):
+        click.echo("sources skipped and why:")
+        for source, reason in result["skipped"]:
+            click.echo(f"  {source}\t{reason}")
+    for line in result.get("reminders", []):
+        click.echo(f"reminder: {line}")
+
+
+@main.command()
 @click.option("--cohort", default=None)
 @click.option("--skip-collect", is_flag=True)
 @click.option("--strict", is_flag=True)

@@ -1,8 +1,9 @@
 # TODO — Project Roadmap
 
-Last reviewed: 2026-09-01. Baseline: **1,152 tests passing**. P1 fully delivered
-(2026-08-31); **P2 fully delivered (2026-09-01)** — see below. Legacy
-Cloudflare-bypass checklist archived at the bottom.
+Last reviewed: 2026-09-03. Baseline: **1,344 tests passing**. P1 fully delivered
+(2026-08-31); **P2 fully delivered (2026-09-01)**; **P3 fully delivered
+(2026-09-02)** — see below. Legacy Cloudflare-bypass checklist archived at the
+bottom.
 
 Note from the P1 review sweep (P3 candidates): `flap_guard` persistence,
 `effective_cadence` dead code, `_DELIVERED` eviction, raw-vs-blended confidence
@@ -126,6 +127,70 @@ per batch, review majors fixed before the next batch. Commits `8834511`…`84047
 
 ---
 
+## Enrichment upgrades — waterfall audit (2026-09-03)
+
+Findings from auditing the shipped enrichment playbook (`ENRICHMENT.md`) for
+functional gaps. Priority key as above.
+
+- [ ] **P1 — run the existing resolvers during sweep onboarding.** `resolve
+  --cik --ats --feeds --icp` all exist in `Orchestrator.resolve` and would fill
+  exactly the gaps sweep reports — but `run_sweep` never calls it, so
+  sweep-created accounts stay prerequisite-less until someone remembers to run
+  resolve by hand. Fix: after account creation in `src/pipeline/sweep.py`,
+  invoke the resolver set (respecting the existing skip-if-present guards).
+  This single wiring change collapses Flow G's "fill the gaps" loop.
+
+- [ ] **P1 — wire the dormant WARN parsers into the fanout.** NJ/FL/OH/WA/TX/IL
+  parsers exist and ship tested (`84f4a31`), but `warn_notices.plan()` fans out
+  NY+CA only (`src/sources/warn/source.py:24`) — 7 jurisdictions of layoff
+  signal are sitting dark. Fix: make the jurisdiction list configurable
+  (`sources.yaml` → `warn.jurisdictions`, default the current two for
+  conservative rollout), keep MI deferred (JS-rendered).
+
+- [ ] **P1 — add `resolve --appstore` via the iTunes Search API.** Verified
+  live 2026-09-03: `itunes.apple.com/search?term=X&entity=software&country=US`
+  is free, keyless, returns `trackId` (the `app_store_id` the
+  `appstore_reviews` source needs). One call at resolve time per
+  software-looking account; candidates-only when ambiguous (never guess).
+  Files: `src/identity/appstore_ids.py`, `src/cli.py` resolve flag.
+
+- [ ] **P2 — Form D stub accounts are write-only.** `sec_formd` global fanout
+  attaches unmatched issuers to `cik<pad>.edgar` stub domains
+  (`formd_identity.attach_form_d_account`) that nothing reads — no digest tier
+  surfaces them, so newly-funded unknown-to-us companies evaporate. Fix (a):
+  surface stub-account `funding_form_d` signals in a digest section for manual
+  resolution; or (b) when an issuer fuzzily matches a known champion's
+  employer, attach and emit `champion_migration`. Files:
+  `src/sources/sec/formd_identity.py`, digest pipeline.
+
+- [ ] **P2 — promote the two prose-only combo recipes to scored combos.**
+  `config/scoring.yaml` has 7 combos; ENRICHMENT §3's turnaround (marketplace
+  sentiment decline × `exec_departure`) and relocation (`new_geo` × WARN in
+  the old region) recipes have no combo entry — they never earn a score bonus
+  or an action line in digests. `doctor`'s combo-coverage check (`4d837a5`)
+  already catches drift once entries exist. Files: `config/scoring.yaml`.
+
+- [ ] **P2 — `sweep --deep`: resolve → collect in one command.** Depends on
+  the resolver wiring (P1 above). `sweep --deep` = sweep + full resolve pass +
+  collect, making Flow G genuinely one command. Files:
+  `src/pipeline/sweep.py`, `src/cli.py`.
+
+- [ ] **P3 — `resolve --linkedin` slug discovery.** Wrong-slug junk rows were a
+  live failure mode (`wispr.ai` vs `wisprflow`). A resolver that queries the
+  companion scraper's discovery (search request, not a scrape) would close the
+  last manual prerequisite field. Posture note: human-triggered only; no
+  automated login. Files: `src/identity/`, companion scraper.
+
+- [ ] **P3 — `resolve --bbb`.** `bbb_profile` needs `extra_data.bbb_url`;
+  the BBB search page is server-rendered (probe-friendly). Same
+  candidates-only contract as g2 resolution. Files: `src/identity/`.
+
+- [ ] **P3 — company_feed URL hint from wayback.** Feed discovery fails on
+  sites with nonstandard feed paths; wayback homepage snapshots often reveal
+  the real feed URL. Manual seeding works today — polish only.
+
+---
+
 ## Deferred — not scheduled
 
 - **Multi-user server / web UI** — thin read-only API + dashboard over SQLite.
@@ -134,7 +199,6 @@ per batch, review majors fixed before the next batch. Commits `8834511`…`84047
 - **Bi-directional CRM sync** — read dispositions back to feed play-hit-rate backtesting.
 - **Legal/regulatory exposure scoring** — account-level compliance-risk summaries from federal_register/WARN.
 - **Reddit mirror fallbacks** — old.reddit .json mirrors if JSON endpoints block (blocked until `community_reddit` is enabled).
-- **Per-source `resolve` commands** — `resolve --g2`/`--capterra` exist; others stay config-manual.
 - **Headed-fallback unattended path** — DataDome tier 4 auto-retry with session capture.
 - **ML-DSA sig-alg support** — track BoringSSL upstream; post-quantum sig-algs when supported.
 

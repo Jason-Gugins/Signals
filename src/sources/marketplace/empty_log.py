@@ -46,6 +46,10 @@ class EmptyLog:
 
     def record_empty(self, slug: str, source: str) -> None:
         """Record an empty harvest for *slug*: bump the consecutive counter."""
+        # Re-read the state file first: callers hold exclusive_lock(path)
+        # around this call, so the refresh makes the locked section a true
+        # read-modify-write even when another process wrote since our __init__.
+        self._load()
         key = self._key(slug, source)
         now = self.clock()
         entry = self._entries.get(key) or {}
@@ -63,6 +67,9 @@ class EmptyLog:
 
     def record_reviews(self, slug: str, source: str) -> None:
         """A cycle with reviews: reset (remove) the slug's empty state."""
+        # Refresh from disk under the caller's exclusive_lock(path): a reset
+        # must not clobber entries another process recorded since __init__.
+        self._load()
         key = self._key(slug, source)
         if key in self._entries:
             del self._entries[key]

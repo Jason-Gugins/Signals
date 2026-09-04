@@ -10,6 +10,7 @@ from typing import Optional
 from loguru import logger
 
 from src.core.errors import BACKOFF_MULTIPLIER, FetchErrorClass, classify_fetch_error
+from src.core.filelock import exclusive_lock
 from src.core.models import Account, Document
 from src.core.runlog import RunContext
 from src.signals.normalize import normalize_batch
@@ -353,6 +354,7 @@ class CollectorRunner:
             # count/avg-rating against the previous cycle's stored stats.
             if review_harvests:
                 from src.sources.marketplace.trend import (
+                    DEFAULT_STATS_PATH as MARKETPLACE_STATS_PATH,
                     compute_stats,
                     load_stats,
                     review_trend_signal,
@@ -367,24 +369,28 @@ class CollectorRunner:
                 except Exception:  # pragma: no cover - defensive
                     rt_cfg = {}
                 source_name = adapter.key[len("marketplace_"):]
-                stats_state = load_stats()
-                for slug, revs in review_harvests.items():
-                    curr = compute_stats(revs)
-                    key = stats_key(source_name, slug)
-                    cand = review_trend_signal(
-                        slug,
-                        source_name,
-                        stats_state.get(key),
-                        curr,
-                        domain=account.domain,
-                        today=now.date().isoformat(),
-                        min_count_delta=int(rt_cfg.get("min_count_delta", 5)),
-                        min_rating_delta=float(rt_cfg.get("min_rating_delta", 0.5)),
-                    )
-                    stats_state[key] = curr
-                    if cand is not None:
-                        all_cands.append(cand)
-                save_stats(stats_state)
+                # Single-process assumption: the load→mutate→save cycle below
+                # touches a shared JSON file, so it is serialized against a
+                # manually running `collect` via the fail-open state lock.
+                with exclusive_lock(MARKETPLACE_STATS_PATH):
+                    stats_state = load_stats()
+                    for slug, revs in review_harvests.items():
+                        curr = compute_stats(revs)
+                        key = stats_key(source_name, slug)
+                        cand = review_trend_signal(
+                            slug,
+                            source_name,
+                            stats_state.get(key),
+                            curr,
+                            domain=account.domain,
+                            today=now.date().isoformat(),
+                            min_count_delta=int(rt_cfg.get("min_count_delta", 5)),
+                            min_rating_delta=float(rt_cfg.get("min_rating_delta", 0.5)),
+                        )
+                        stats_state[key] = curr
+                        if cand is not None:
+                            all_cands.append(cand)
+                    save_stats(stats_state)
             # Hiring-velocity trend signals: diff this cycle's per-domain
             # open-role count against the previous cycle's stored stats.
             # Only compute when pagination is FINISHED (no follow tasks
@@ -392,6 +398,7 @@ class CollectorRunner:
             # accumulation above already captured every page's jobs.
             if job_harvests and not follow:
                 from src.sources.jobsignals.trend import (
+                    DEFAULT_STATS_PATH as JOBSIGNALS_STATS_PATH,
                     compute_stats,
                     hiring_trend_signal,
                     load_stats,
@@ -405,22 +412,26 @@ class CollectorRunner:
                     )
                 except Exception:  # pragma: no cover - defensive
                     ht_cfg = {}
-                stats_state = load_stats()
-                for domain, jobs in job_harvests.items():
-                    curr = compute_stats(jobs)
-                    key = stats_key(domain)
-                    cand = hiring_trend_signal(
-                        domain,
-                        stats_state.get(key),
-                        curr,
-                        today=now.date().isoformat(),
-                        min_delta_pct=float(ht_cfg.get("min_delta_pct", 25.0)),
-                        min_count=int(ht_cfg.get("min_count", DEFAULT_MIN_HIRING_COUNT)),
-                    )
-                    stats_state[key] = curr
-                    if cand is not None:
-                        all_cands.append(cand)
-                save_stats(stats_state)
+                # Single-process assumption: the load→mutate→save cycle below
+                # touches a shared JSON file, so it is serialized against a
+                # manually running `collect` via the fail-open state lock.
+                with exclusive_lock(JOBSIGNALS_STATS_PATH):
+                    stats_state = load_stats()
+                    for domain, jobs in job_harvests.items():
+                        curr = compute_stats(jobs)
+                        key = stats_key(domain)
+                        cand = hiring_trend_signal(
+                            domain,
+                            stats_state.get(key),
+                            curr,
+                            today=now.date().isoformat(),
+                            min_delta_pct=float(ht_cfg.get("min_delta_pct", 25.0)),
+                            min_count=int(ht_cfg.get("min_count", DEFAULT_MIN_HIRING_COUNT)),
+                        )
+                        stats_state[key] = curr
+                        if cand is not None:
+                            all_cands.append(cand)
+                    save_stats(stats_state)
             if tech_harvests:
                 from src.sources.techstack.collector import upsert_technologies
                 from src.sources.techstack.diff import diff_technologies
@@ -773,11 +784,15 @@ class CollectorRunner:
             result.doc.g2_state = "ok" if reviews_count else "empty"
             # Empty-since bookkeeping: consecutive empty cycles put the slug
             # into cadence backoff; a cycle with reviews resets the counter.
+            # Single-process assumption: record_* is a read-modify-write on
+            # the shared empty_slugs.json — serialize it against a manually
+            # running `collect` via the fail-open state lock.
             try:
-                if result.doc.g2_state == "empty":
-                    self.empty_log.record_empty(str(slug), "g2")
-                else:
-                    self.empty_log.record_reviews(str(slug), "g2")
+                with exclusive_lock(self.empty_log.path):
+                    if result.doc.g2_state == "empty":
+                        self.empty_log.record_empty(str(slug), "g2")
+                    else:
+                        self.empty_log.record_reviews(str(slug), "g2")
             except Exception:  # pragma: no cover - defensive
                 pass
             if reviews_count == 0:

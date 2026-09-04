@@ -40,9 +40,9 @@ def _data(types: dict) -> dict:
     }
 
 
-def test_loads_real_signals_yaml_40_types():
+def test_loads_real_signals_yaml_41_types():
     tax = Taxonomy.load(str(ROOT / "config" / "signals.yaml"))
-    assert len(tax.all()) == 40
+    assert len(tax.all()) == 41
     assert tax.get("funding_round").weight == 30
     assert tax.get("intent_1st_owned").degree == 1
 
@@ -109,6 +109,7 @@ def test_primary_types_match_section_32():
         "internal_project_scoop",
         "intent_1st_owned",
         "intent_2nd_marketplace",
+        "marketplace_review_trend",
     }
     assert tax.primary_types() == expected
 
@@ -119,6 +120,7 @@ def test_intent_types_and_get_unknown():
         "intent_1st_owned",
         "intent_2nd_marketplace",
         "intent_3rd_topic",
+        "marketplace_review_trend",
     }
     with pytest.raises(UnknownSignalType, match="not_a_type"):
         tax.get("not_a_type")

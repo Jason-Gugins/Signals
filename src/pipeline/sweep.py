@@ -121,6 +121,9 @@ def run_sweep(
     skipped = _compute_skipped()
 
     # Resolver pass: on onboarding (newly created) or when --deep is passed.
+    # Deliberately omits appstore/bbb/linkedin: they are explicit opt-in flags
+    # on `resolve` (network/subprocess cost; LinkedIn posture is
+    # human-triggered), so sweep keeps to the always-on resolvers only.
     # Resolution failures must never fail the sweep.
     resolved: dict = {}
     if created or deep:

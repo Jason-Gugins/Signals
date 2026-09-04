@@ -63,15 +63,24 @@ class LinkedinSlugResolver:
         if not need:
             return out
 
-        seed_path = self._write_seed_csv(need)
-        ok = self._run_discover(cwd, exe, seed_path)
-        for acct in need:
-            slug = self._lookup_slug(cwd, acct) if ok else None
-            out[acct.domain] = slug
-            if slug:
-                acct.linkedin_slug = slug
-                self.registry.upsert(acct, source="linkedin_ids")
-        return out
+        seed_path: Path | None = None
+        try:
+            seed_path = self._write_seed_csv(need)
+            ok = self._run_discover(cwd, exe, seed_path)
+            for acct in need:
+                slug = self._lookup_slug(cwd, acct) if ok else None
+                out[acct.domain] = slug
+                if slug:
+                    acct.linkedin_slug = slug
+                    self.registry.upsert(acct, source="linkedin_ids")
+            return out
+        finally:
+            # The seed CSV carries account names — never leave it on disk.
+            if seed_path is not None:
+                try:
+                    seed_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("could not remove seed CSV {}", seed_path)
 
     def _write_seed_csv(self, accounts: list[Account]) -> Path:
         log_dir = Path("data/logs")
@@ -125,7 +134,9 @@ class LinkedinSlugResolver:
             )
             return None
         try:
-            conn = sqlite3.connect(str(db_path))
+            # timeout=30: the scraper process may hold the DB mid-write right
+            # after discover returns; default 5s busy-timeout is too tight.
+            conn = sqlite3.connect(str(db_path), timeout=30)
             try:
                 row = conn.execute(COMPANIES_QUERY, (account.domain,)).fetchone()
             finally:

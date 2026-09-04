@@ -733,8 +733,9 @@ def deepen(ctx, domain, max_people, timeout):
 @main.command()
 @click.argument("url_or_name")
 @click.option("--force", is_flag=True, help="Force recollection even if the account already exists.")
+@click.option("--deep", is_flag=True, help="Run the identity resolver pass (CIK/ATS/feeds/ICP) even for existing accounts.")
 @click.pass_context
-def sweep(ctx, url_or_name, force):
+def sweep(ctx, url_or_name, force, deep):
     """One-command onboarding: seed-or-update the account, then collect.
 
     Accepts a URL (https://acme.io/about) or a bare domain (acme.io).
@@ -743,13 +744,19 @@ def sweep(ctx, url_or_name, force):
     from src.pipeline import sweep as sweep_mod
 
     try:
-        result = sweep_mod.run_sweep(url_or_name, force_first_run=True if force else None)
+        result = sweep_mod.run_sweep(url_or_name, force_first_run=True if force else None, deep=deep)
     except sweep_mod.SweepError as exc:
         click.echo(f"sweep refused: {exc}", err=True)
         ctx_exit(2)
         return
     created = "created" if result["created"] else "existing"
     click.echo(f"account={result['domain']} ({created})")
+    resolved = result.get("resolved") or {}
+    if resolved:
+        click.echo(
+            f"resolved cik={resolved.get('cik', 0)} ats={resolved.get('ats', 0)} "
+            f"feeds={resolved.get('feeds', 0)} icp={resolved.get('icp', 0)}"
+        )
     collected = result.get("collected") or {}
     click.echo(
         f"fetched={collected.get('fetched', 0)} "

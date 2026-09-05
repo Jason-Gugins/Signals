@@ -1,0 +1,88 @@
+{
+  "spending_level": "awards",
+  "limit": 100,
+  "results": [
+    {
+      "internal_id": 281082246,
+      "Award ID": "47QFCA21F0018",
+      "Recipient Name": "BOOZ ALLEN HAMILTON INC",
+      "Start Date": "2021-03-09",
+      "End Date": "2025-02-15",
+      "Award Amount": 1379603153.12,
+      "Awarding Agency": "General Services Administration",
+      "awarding_agency_id": 614,
+      "agency_slug": "general-services-administration",
+      "generated_internal_id": "CONT_AWD_47QFCA21F0018_4732_47QTCK18D0004_4732"
+    },
+    {
+      "internal_id": 279969328,
+      "Award ID": "36C10B21N10070021",
+      "Recipient Name": "BOOZ ALLEN HAMILTON INC",
+      "Start Date": "2021-05-17",
+      "End Date": "2026-08-07",
+      "Award Amount": 1365285599.63,
+      "Awarding Agency": "Department of Veterans Affairs",
+      "awarding_agency_id": 561,
+      "agency_slug": "department-of-veterans-affairs",
+      "generated_internal_id": "CONT_AWD_36C10B21N10070021_3600_VA11816D1007_3600"
+    },
+    {
+      "internal_id": 281082999,
+      "Award ID": "47QFCA25F0123",
+      "Recipient Name": "BOOZ ALLEN HAMILTON INC",
+      "Start Date": "2026-01-05",
+      "End Date": "2026-12-31",
+      "Award Amount": 450000.0,
+      "Description": "AGILE SOFTWARE DELIVERY SUPPORT SERVICES, DEFENSE HEALTH AGENCY TASK ORDER",
+      "Awarding Agency": "General Services Administration",
+      "awarding_agency_id": 614,
+      "agency_slug": "general-services-administration",
+      "generated_internal_id": "CONT_AWD_47QFCA25F0123_4732_47QFCA22D0406_4732"
+    },
+    {
+      "internal_id": 281086592,
+      "Award ID": "47QFRA20F0016",
+      "Recipient Name": "BOOZ ALLEN HAMILTON ENGINEERING SERVICES, LLC",
+      "Start Date": "2020-03-01",
+      "End Date": "2024-04-30",
+      "Award Amount": 1234567.89,
+      "Awarding Agency": "General Services Administration",
+      "awarding_agency_id": 614,
+      "agency_slug": "general-services-administration",
+      "generated_internal_id": "CONT_AWD_47QFRA20F0016_4732_47QSRA18D0000_4735"
+    },
+    {
+      "internal_id": 281090001,
+      "Award ID": "36C10B24N00001",
+      "Recipient Name": "BOOZ ALLEN HAMILTON INCORPORATED (3626)",
+      "Start Date": "2024-09-10",
+      "End Date": "2027-09-09",
+      "Award Amount": 98765.4,
+      "Awarding Agency": "Department of Veterans Affairs",
+      "awarding_agency_id": 561,
+      "agency_slug": "department-of-veterans-affairs",
+      "generated_internal_id": "CONT_AWD_36C10B24N00001_3600_VA11816D1007_3600"
+    },
+    {
+      "internal_id": 279969772,
+      "Award ID": "36C10B22N10070023",
+      "Recipient Name": "BOOZ ALLEN HAMILTON HOLDING CORPORATION",
+      "Start Date": "2022-09-28",
+      "End Date": "2027-01-15",
+      "Award Amount": 859669885.97,
+      "Awarding Agency": "Department of Veterans Affairs",
+      "awarding_agency_id": 561,
+      "agency_slug": "department-of-veterans-affairs",
+      "generated_internal_id": "CONT_AWD_36C10B22N10070023_3600_VA11816D1007_3600"
+    }
+  ],
+  "page_metadata": {
+    "page": 1,
+    "hasNext": false,
+    "last_record_unique_id": 279969772,
+    "last_record_sort_value": "85966988597"
+  },
+  "messages": [
+    "For searches, time period start and end dates are currently limited to an earliest date of 2007-10-01."
+  ]
+}

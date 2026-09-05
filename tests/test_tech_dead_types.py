@@ -193,3 +193,76 @@ def test_runner_persists_tech_removed_after_two_missing_runs(tmp_path):
     assert len(rows3) == 1
     assert stats3.signals_new == 0
     ctx.__exit__(None, None, None)
+
+
+# ── 4c: backfill_open (jobsignals local derivation) ─────────────────────────
+
+from src.signals.normalize import make_signal_id, normalize_batch  # noqa: E402
+from src.sources.ats.common import JobPost, upsert_jobs  # noqa: E402
+from src.sources.jobsignals.collector import JobSignalsSource  # noqa: E402
+
+BACKFILL_TODAY = date(2026, 9, 5)
+
+
+def _seed_backfill_jobs(db):
+    """Six jobs: a recently-closed title that is open again under a new
+    external_id (case-varied), a closed title NOT re-opened, an open-only
+    title, and a re-opened pair whose closure is beyond the 120d window."""
+    posted = (BACKFILL_TODAY - timedelta(days=30)).isoformat()
+    jobs = [
+        JobPost(external_id="1", title="Account Executive", url="https://x/1", posted_at=posted, department="Sales", country="Canada"),
+        JobPost(external_id="42", title="account executive", url="https://x/42", posted_at=posted, department="Sales", country="Canada"),
+        JobPost(external_id="2", title="Data Analyst", url="https://x/2", posted_at=posted, department="Data", country="Canada"),
+        JobPost(external_id="3", title="Sales Manager", url="https://x/3", posted_at=posted, department="Sales", country="Canada"),
+        JobPost(external_id="4", title="Recruiter", url="https://x/4", posted_at=posted, department="HR", country="Canada"),
+        JobPost(external_id="5", title="Recruiter", url="https://x/5", posted_at=posted, department="HR", country="Canada"),
+    ]
+    upsert_jobs(db, "acme.com", jobs, "ats_greenhouse", now="2026-08-06T00:00:00", token="acme")
+    for ext_id, closed_at in [
+        ("1", (BACKFILL_TODAY - timedelta(days=10)).isoformat()),  # re-opened
+        ("2", (BACKFILL_TODAY - timedelta(days=5)).isoformat()),  # closed, not re-opened
+        ("4", (BACKFILL_TODAY - timedelta(days=200)).isoformat()),  # re-opened, too old
+    ]:
+        db.execute(
+            "UPDATE jobs SET closed_at=? WHERE domain='acme.com' AND external_id=?",
+            (closed_at, ext_id),
+        )
+
+
+def test_backfill_open_emitted_for_reopened_title(tmp_path):
+    db = Database(tmp_path / "s.db")
+    _seed_backfill_jobs(db)
+    cands = JobSignalsSource().local_harvest(
+        db=db, account=Account(domain="acme.com"), today=BACKFILL_TODAY, task_meta={}
+    )
+    bf = [c for c in cands if c.signal_type == "backfill_open"]
+    assert len(bf) == 1
+    cand = bf[0]
+    assert cand.natural_key == "backfill:acme.com:account-executive:2026-09"
+    assert cand.title == "account executive"  # the currently-open title
+    assert cand.observed_at == "2026-09-05"
+    assert cand.confidence == 0.6
+    assert cand.evidence_data == {"title": "account executive", "closed_at": "2026-08-26"}
+
+
+def test_backfill_open_persists_through_normalize_batch(tmp_path):
+    db = Database(tmp_path / "s.db")
+    _seed_backfill_jobs(db)
+    cands = JobSignalsSource().local_harvest(
+        db=db, account=Account(domain="acme.com"), today=BACKFILL_TODAY, task_meta={}
+    )
+    valid, rej = normalize_batch(
+        cands,
+        account=Account(domain="acme.com"),
+        source="jobsignals",
+        taxonomy=Taxonomy.load(),
+        now="2026-09-05T00:00:00",
+    )
+    sigs = [s for s in valid if s.signal_type == "backfill_open"]
+    assert len(sigs) == 1
+    assert sigs[0].source == "jobsignals"
+    assert sigs[0].domain == "acme.com"
+    assert sigs[0].signal_id == make_signal_id(
+        "acme.com", "backfill_open", "backfill:acme.com:account-executive:2026-09"
+    )
+    assert not any("backfill" in reason for _, reason in rej)

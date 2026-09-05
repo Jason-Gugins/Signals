@@ -6,7 +6,8 @@ import json
 from datetime import timedelta
 
 from src.core.models import Account
-from src.sources.base import SourceAdapter
+from src.core.textutil import slugify
+from src.sources.base import SignalCandidate, SourceAdapter
 from src.sources.jobsignals.analyze import JobsWindow, analyze_jobs
 from src.sources.jobsignals.thresholds import load_jobsignals_cfg
 from src.sources.registry import register
@@ -56,4 +57,52 @@ class JobSignalsSource(SourceAdapter):
             prior_departments=prior_depts,
             baseline_open_by_dept=baseline,
         )
-        return analyze_jobs(w, today=today, cfg=cfg)
+        out = analyze_jobs(w, today=today, cfg=cfg)
+        out.extend(self._backfill_cands(db, account, rows, today))
+        return out
+
+    def _backfill_cands(self, db, account, open_rows, today):
+        """Recently-closed title that is open again -> backfill_open.
+
+        A title closed within the last 120 days whose casefold-normalized
+        form matches a currently-open title (same domain, typically a
+        re-post under a new external_id) is a backfill. Monthly natural-key
+        dedupe like the sibling types; one candidate per title even if the
+        title was closed and re-posted several times in the window (most
+        recent closure wins via ORDER BY closed_at DESC).
+        """
+        cutoff = (today - timedelta(days=120)).isoformat()
+        closed = db.query(
+            """SELECT title, closed_at FROM jobs
+               WHERE domain=? AND closed_at IS NOT NULL AND closed_at >= ?
+               ORDER BY closed_at DESC""",
+            (account.domain, cutoff),
+        )
+        open_by_casefold = {
+            str(r.get("title") or "").casefold(): r.get("title")
+            for r in open_rows
+            if r.get("title")
+        }
+        iso_month = today.strftime("%Y-%m")
+        out = []
+        seen = set()
+        for r in closed:
+            closed_title = r.get("title")
+            if not closed_title:
+                continue
+            key = str(closed_title).casefold()
+            open_title = open_by_casefold.get(key)
+            if open_title is None or key in seen:
+                continue
+            seen.add(key)
+            out.append(
+                SignalCandidate(
+                    "backfill_open",
+                    today.isoformat(),
+                    f"backfill:{account.domain}:{slugify(open_title)}:{iso_month}",
+                    title=open_title,
+                    confidence=0.6,
+                    evidence_data={"title": open_title, "closed_at": r.get("closed_at")},
+                )
+            )
+        return out

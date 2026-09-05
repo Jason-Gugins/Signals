@@ -33,6 +33,7 @@ TEMPLATES: dict[str, str] = {
     "new_subdomain": "New subdomain live: {subdomain} ({observed_human})",
     "github_momentum": "{momentum_kind}: {detail} ({observed_human})",
     "federal_contract_award": "Federal award to {recipient} — {amount_display} ({observed_human})",
+    "reputation_drop": "BBB rating {old_rating} → {new_rating} ({observed_human})",
 }
 
 _SPACES = re.compile(r" {2,}")

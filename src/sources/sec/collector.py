@@ -36,10 +36,11 @@ class SecEdgarSource(SourceAdapter):
         "contract_terminated",
         "insider_trade",
     )
-    # Only forms classify_form maps or follow_tasks fans out (D/D/A, 8-K, 4).
-    # Unmapped forms (e.g. 10-Q, SC 14D9) are NOT watched: they would be
-    # fetched, parsed, and silently dropped. 10-Q XBRL mapping is deferred.
-    # Form 4 amendments ("4/A") stay unwatched — amendment noise.
+    # Only forms classify_form maps or follow_tasks fans out (D/D/A, 8-K, 4,
+    # SC 13D/G). Unmapped forms (e.g. 10-Q, SC 14D9) are NOT watched: they
+    # would be fetched, parsed, and silently dropped. 10-Q XBRL mapping is
+    # deferred. Amendment forms ("4/A", "SC 13D/A", "SC 13G/A") stay
+    # unwatched — amendment noise, so no fetched-then-dropped rows return.
     WATCH_FORMS = {
         "8-K",
         "10-K",
@@ -51,6 +52,8 @@ class SecEdgarSource(SourceAdapter):
         "25",
         "425",
         "4",
+        "SC 13D",
+        "SC 13G",
     }
     # Form 4 fanout bound: heavy option-grant calendars can file dozens of
     # Form 4s in one window — cap primary-doc fetches per cycle (newest first).

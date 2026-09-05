@@ -61,6 +61,10 @@ def classify_form(filing: Filing, *, today: date) -> list[SignalCandidate]:
         "424B4": ("ipo_pricing", 0.9),
         "10-K": ("annual_report_10k", 0.8),
         "425": ("ma_acquirer", 0.5),
+        # 5%+ stake filings are M&A prelude evidence; /A amendments stay
+        # unmapped (amendment noise, not a new stake).
+        "SC 13D": ("ma_target", 0.65),
+        "SC 13G": ("ma_target", 0.5),
     }
     if form == "25" or form not in mapping:
         return []

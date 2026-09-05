@@ -431,6 +431,16 @@ types:
     half_life_days: 180
     play: turnaround_pitch
     label: "Stagnation"
+  reputation_drop:
+    category: negative
+    origin: internal
+    catalyst: secondary
+    polarity: negative
+    degree: 0
+    weight: 14
+    half_life_days: 90
+    play: support_pitch
+    label: "Reputation drop"
   award:
     category: neutral
     origin: internal

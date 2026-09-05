@@ -85,6 +85,7 @@ def parse_itunes_reviews(body: bytes) -> list[dict]:
         content = (e.get("content") or {}).get("label")
         updated = (e.get("updated") or {}).get("label")
         link = ((e.get("link") or {}).get("attributes") or {}).get("href")
+        version = (e.get("im:version") or {}).get("label")
         out.append(
             {
                 "review_id": entry_id,
@@ -94,6 +95,7 @@ def parse_itunes_reviews(body: bytes) -> list[dict]:
                 "body": content,
                 "posted_at": updated,
                 "review_url": link,
+                "version": version,
             }
         )
     return out
@@ -126,7 +128,10 @@ class AppStoreReviewSource(SourceAdapter):
                 source=self.key,
                 url=itunes_reviews_url(app_id),
                 domain=account.domain,
-                meta={"kind": "reviews", "app_store_id": app_id},
+                # product_slug: the app id IS the stable per-app slug (same
+                # role as marketplace product slugs) — the runner keys its
+                # review_harvests filing (review-velocity trend stats) on it.
+                meta={"kind": "reviews", "app_store_id": app_id, "product_slug": str(app_id)},
             )
             for app_id in ids
         ]
@@ -159,6 +164,11 @@ def upsert_appstore_reviews(db, reviews: list[dict], *, now: str,
     so the App Store id space cannot collide with G2/Capterra/TrustRadius
     ids. ``app_store_id`` (or per-review ``r["app_store_id"]``) keys the
     namespace; reviews lacking both are skipped. Returns (new, updated).
+
+    The per-review ``version`` captured by parse_itunes_reviews has no
+    g2_reviews column and deliberately gets none (no schema migration): the
+    upsert ignores it, so it only rides in the review dict (trend/evidence
+    path) until a column is actually warranted.
     """
     new, updated = 0, 0
     for r in reviews:

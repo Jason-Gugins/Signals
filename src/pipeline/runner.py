@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Optional
 
 from loguru import logger
@@ -392,7 +393,17 @@ class CollectorRunner:
                         if int(meta.get("page", 1) or 1) <= 1:
                             slug = str(meta.get("product_slug") or "")
                             if slug:
-                                review_harvests.setdefault(slug, []).extend(revs)
+                                # The shared trend compute_stats reads
+                                # attribute ratings; marketplace harvests
+                                # yield attribute objects but the appstore
+                                # harvest yields plain dicts — wrap those so
+                                # the appstore_reviews source files trend
+                                # stats like every other review source. The
+                                # original dicts are what got persisted (the
+                                # upsert branch above ran first).
+                                review_harvests.setdefault(slug, []).extend(
+                                    _dict_review_view(r) for r in revs
+                                )
             # Review-velocity trend signals: diff this cycle's per-slug
             # count/avg-rating against the previous cycle's stored stats.
             if review_harvests:
@@ -411,7 +422,16 @@ class CollectorRunner:
                     )
                 except Exception:  # pragma: no cover - defensive
                     rt_cfg = {}
-                source_name = adapter.key[len("marketplace_"):]
+                # appstore_reviews is NOT a marketplace site: keep the full
+                # adapter key as the stats source name (the marketplace_
+                # slice would garble it into "iews"). For marketplace_* keys
+                # the suffix stays the source name exactly as before, so the
+                # G2/Capterra/TrustRadius stats keys are unchanged.
+                source_name = (
+                    adapter.key[len("marketplace_"):]
+                    if adapter.key.startswith("marketplace_")
+                    else adapter.key
+                )
                 # Single-process assumption: the load→mutate→save cycle below
                 # touches a shared JSON file, so it is serialized against a
                 # manually running `collect` via the fail-open state lock.
@@ -1053,6 +1073,20 @@ def _attach_fetch_context(exc: BaseException, result) -> None:
             )
     except Exception:  # pragma: no cover - defensive
         pass
+
+
+def _dict_review_view(rev):
+    """Attribute view over a dict review, identity for attribute objects.
+
+    marketplace.trend.compute_stats reads ``r.rating`` on every review; the
+    appstore_reviews harvest yields plain dicts (its upsert contract), which
+    would raise AttributeError inside the shared trend block and abort the
+    whole cycle. Dict reviews are wrapped in a read-only SimpleNamespace so
+    they flow through the trend path like every marketplace review object.
+    """
+    if isinstance(rev, dict):
+        return SimpleNamespace(**rev)
+    return rev
 
 
 ATS_PREFIX = "ats_"

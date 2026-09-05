@@ -13,6 +13,8 @@ from src.sources.sec.parse_submissions import Filing
 
 ITEM_MAP: dict[str, tuple[str | None, float]] = {
     "1.01": ("ma_acquirer", 0.45),
+    "1.02": ("contract_terminated", 0.7),  # material agreement terminated
+    "1.03": ("bankruptcy_signal", 0.9),  # bankruptcy / receivership
     "2.01": ("ma_acquirer", 0.9),
     "2.05": ("layoff", 0.85),
     "2.06": ("earnings_warning", 0.7),
@@ -40,6 +42,8 @@ _DISPOSE = re.compile(
 )
 _AFFECTED = re.compile(r"(\d[\d,]*)\s+(?:employees|roles|positions|workers)", re.I)
 _CHARGE = re.compile(r"\$[\d,.]+\s*(?:million|billion|m|b)?", re.I)
+# Bankruptcy-code chapter for Item 1.03 (7 = liquidation, 11 = reorganization).
+_CHAPTER = re.compile(r"\bchapter\s+(\d+)", re.I)
 
 
 def extract_text(html_bytes: bytes) -> str:
@@ -120,6 +124,10 @@ def classify_8k(filing: Filing, body_text: str | None, *, today: date) -> list[S
             ch = _CHARGE.search(text)
             if ch:
                 data["charge_amount"] = ch.group(0)
+        if item == "1.03" and text:
+            cm = _CHAPTER.search(text)
+            if cm:
+                data["chapter"] = cm.group(1)
         out.append(
             SignalCandidate(
                 signal_type=typ,

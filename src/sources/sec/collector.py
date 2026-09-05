@@ -31,6 +31,8 @@ class SecEdgarSource(SourceAdapter):
         "exec_departure",
         "layoff",
         "earnings_warning",
+        "bankruptcy_signal",
+        "contract_terminated",
     )
     WATCH_FORMS = {
         "8-K",

@@ -5,6 +5,9 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+from src.core.models import Account
+from src.signals.normalize import normalize_batch
+from src.signals.taxonomy import Taxonomy
 from src.sources.sec.parse_8k import classify_8k, classify_form, extract_text
 from src.sources.sec.parse_submissions import Filing
 
@@ -128,3 +131,66 @@ def test_disposition_fixture_no_ma_signal():
     text = extract_text(MA_DISP_FIXTURE.read_bytes())
     cands = classify_8k(_filing(items=["2.01"]), text, today=TODAY)
     assert not any(c.signal_type in {"ma_acquirer", "ma_target"} for c in cands)
+
+
+def test_item_103_bankruptcy_signal():
+    # Item 1.03 (bankruptcy/receivership) — the strongest negative signal in
+    # the form — maps to bankruptcy_signal at high confidence.
+    cands = classify_8k(_filing(items=["1.03"]), None, today=TODAY)
+    c = next(c for c in cands if c.signal_type == "bankruptcy_signal")
+    assert c.confidence == 0.9
+    assert c.natural_key == "0001:1.03"
+    assert c.evidence_data.get("item") == "1.03"
+
+
+def test_item_103_chapter_captured_from_body():
+    # Chapter of the bankruptcy code (7 = liquidation, 11 = reorganization)
+    # is captured into evidence_data when the body states it.
+    text = (
+        "On March 1, 2026, the Company filed a voluntary petition for relief "
+        "under chapter 11 of the United States Bankruptcy Code."
+    )
+    cands = classify_8k(_filing(items=["1.03"]), text, today=TODAY)
+    c = next(c for c in cands if c.signal_type == "bankruptcy_signal")
+    assert c.evidence_data.get("chapter") == "11"
+
+
+def test_item_102_contract_terminated():
+    # Item 1.02 (termination of a material agreement) — incumbent-displacement
+    # evidence — maps to contract_terminated.
+    cands = classify_8k(_filing(items=["1.02"]), None, today=TODAY)
+    c = next(c for c in cands if c.signal_type == "contract_terminated")
+    assert c.confidence == 0.7
+    assert c.natural_key == "0001:1.02"
+    assert c.evidence_data.get("item") == "1.02"
+
+
+def test_neither_102_nor_103_emits_new_types():
+    # Existing behavior unchanged: an 8-K with neither item produces no new
+    # candidate types.
+    cands = classify_8k(_filing(items=["7.01", "8.01", "9.01"]), None, today=TODAY)
+    assert not any(
+        c.signal_type in {"bankruptcy_signal", "contract_terminated"} for c in cands
+    )
+
+
+def test_new_types_persist_through_normalize_batch():
+    # tech_churn precedent: a type missing from the taxonomy is silently
+    # discarded by normalize. Pin both new types end-to-end.
+    tax = Taxonomy.load()
+    for typ in ("bankruptcy_signal", "contract_terminated"):
+        assert typ in tax._types, (
+            f"{typ} missing from signals.yaml — 8-K candidates are rejected "
+            "as unknown and never persist"
+        )
+    cands = classify_8k(_filing(items=["1.02", "1.03"]), None, today=TODAY)
+    assert {c.signal_type for c in cands} == {"bankruptcy_signal", "contract_terminated"}
+    valid, rejected = normalize_batch(
+        cands,
+        account=Account(domain="acme.com", name="Acme"),
+        source="sec_edgar",
+        taxonomy=tax,
+        now="2026-08-16T00:00:00Z",
+    )
+    assert not rejected
+    assert {"bankruptcy_signal", "contract_terminated"} <= {s.signal_type for s in valid}

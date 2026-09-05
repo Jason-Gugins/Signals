@@ -292,6 +292,19 @@ class CollectorRunner:
                         )
                     except Exception:
                         logger.exception("prev homepage lookup failed for {}", task.domain)
+                if adapter.key == "crtsh" and "prev_crtsh_names" not in meta:
+                    # Subdomain delta: the PREVIOUS stored crt.sh doc for this
+                    # domain (different doc_id, earlier fetch) re-parsed into
+                    # its name list — mirrors the prev_pricing_html /
+                    # prev_homepage_html injections. No prior doc -> meta
+                    # stays absent -> adapter conservatively emits nothing
+                    # (first run never guesses).
+                    try:
+                        meta["prev_crtsh_names"] = self._prev_crtsh_names(
+                            task.domain, exclude_doc_id=result.doc.doc_id
+                        )
+                    except Exception:
+                        logger.exception("prev crtsh lookup failed for {}", task.domain)
                 # Meta defaults are per marketplace site. The Capterra adapter
                 # injects its own defaults (review_lookback_days=90,
                 # max_review_pages=3) in plan(), so setdefault never overrides
@@ -951,6 +964,34 @@ class CollectorRunner:
         if doc is None or not doc.body:
             return None
         return doc.body.decode("utf-8", "replace")
+
+    def _prev_crtsh_names(self, domain: str, *, exclude_doc_id: str) -> Optional[list[str]]:
+        """Most recent prior crt.sh name list for this domain, EXCLUDING the
+        doc currently being parsed (that's the 'current' side of the diff).
+
+        Mirror of _prev_pricing_html/_prev_homepage_html for the subdomain
+        delta: the stored JSON is re-parsed with parse_crtsh into the sorted
+        name list the adapter diffs against. Returns None when no prior doc
+        exists — the caller then injects nothing and the adapter
+        conservatively emits nothing (first run never guesses).
+        """
+        rows = self.db.query(
+            """
+            SELECT doc_id FROM documents
+            WHERE source = 'crtsh' AND domain = ? AND doc_id != ?
+            ORDER BY fetched_at DESC
+            LIMIT 1
+            """,
+            (domain, exclude_doc_id),
+        )
+        if not rows:
+            return None
+        doc = self.store.get(rows[0]["doc_id"])
+        if doc is None or not doc.body:
+            return None
+        from src.sources.crtsh.subdomains import parse_crtsh
+
+        return parse_crtsh(doc.body)
 
     def _persist(self, account, source, cands, doc) -> int:
         if not cands:

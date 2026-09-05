@@ -173,6 +173,12 @@ class CollectorRunner:
         # count, not total-minus-page-1. The trend COMPUTE step below is
         # gated on no-follow-remaining instead of the accumulation.
         job_harvests: dict[str, list] = {}
+        # Per-domain repo snapshots for the GitHub momentum signal, gathered
+        # from the duck-typed harvest_repos hook across the pass loop (the
+        # community_github adapter yields the parsed repo dicts for
+        # kind == "repos" docs). Diffed against the stats file after the
+        # pass loop, exactly like the review/jobs trend signals.
+        repo_harvests: dict[str, list] = {}
         # ALL jobs harvested this cycle (every pass, every task). ATS
         # persistence (upsert + mark_closed + snapshot) is deferred to ONE
         # call after the pass loop using this complete set: marking closed
@@ -417,6 +423,14 @@ class CollectorRunner:
                                 review_harvests.setdefault(slug, []).extend(
                                     _dict_review_view(r) for r in revs
                                 )
+                harvest_gh_repos = getattr(adapter, "harvest_repos", None)
+                if callable(harvest_gh_repos):
+                    # Duck-typed hook (harvest_tech/harvest_reviews
+                    # precedent): the parsed repo dicts for kind == "repos"
+                    # docs; [] otherwise.
+                    gh_repos = harvest_gh_repos(result.doc, account, meta) or []
+                    if gh_repos:
+                        repo_harvests.setdefault(account.domain, []).extend(gh_repos)
             # Review-velocity trend signals: diff this cycle's per-slug
             # count/avg-rating against the previous cycle's stored stats.
             if review_harvests:
@@ -508,6 +522,69 @@ class CollectorRunner:
                         if cand is not None:
                             all_cands.append(cand)
                     save_stats(stats_state)
+            # GitHub momentum signals: diff this cycle's per-domain repo
+            # snapshot against the previous cycle's stored per-repo stats
+            # (new repo / star surge / archived). Mirror of the marketplace
+            # review-trend block's load -> diff -> save structure, but the
+            # candidates persist immediately (doc=None — the evidence comes
+            # from the stats delta, not one raw doc).
+            if repo_harvests:
+                from src.sources.community.github import repo_delta
+                from src.sources.community.stats import (
+                    DEFAULT_STATS_PATH as GITHUB_STATS_PATH,
+                    load_stats,
+                    save_stats,
+                )
+
+                try:
+                    # Single-process assumption: the load→mutate→save cycle
+                    # below touches a shared JSON file, so it is serialized
+                    # against a manually running `collect` via the fail-open
+                    # state lock.
+                    with exclusive_lock(GITHUB_STATS_PATH):
+                        stats_state = load_stats()
+                        for domain, repos in repo_harvests.items():
+                            today_iso = now.date().isoformat()
+                            month = today_iso[:7]
+                            momentum = repo_delta(
+                                stats_state.get(domain) or {}, repos, today=now.date()
+                            )
+                            cands = [
+                                SignalCandidate(
+                                    signal_type="github_momentum",
+                                    observed_at=today_iso,
+                                    # Monthly re-affirmation like the sibling
+                                    # trend types: a fresh surge next month
+                                    # is a new signal.
+                                    natural_key=f"github:{domain}:{ev['repo']}:{kind}:{month}",
+                                    title=ev["repo"],
+                                    confidence=0.6,
+                                    evidence_data={"momentum_kind": kind, **ev},
+                                )
+                                for kind, ev in momentum
+                            ]
+                            if cands:
+                                added = self._persist(account, adapter.key, cands, None)
+                                stats.signals_new += added
+                                stats._src(adapter.key)["signals_new"] += added
+                                stats.candidates += len(cands)
+                            # Snapshot EVERY repo seen this cycle (not just
+                            # the delta emitters) so the next cycle diffs
+                            # against the full set; entries for repos that
+                            # vanished this cycle are kept (last-seen).
+                            domain_state = stats_state.setdefault(domain, {})
+                            for repo in repos:
+                                name = str(repo.get("full_name") or "")
+                                if not name:
+                                    continue
+                                domain_state[name] = {
+                                    "stars": int(repo.get("stargazers_count") or 0),
+                                    "archived": bool(repo.get("archived")),
+                                    "seen_at": today_iso,
+                                }
+                        save_stats(stats_state)
+                except Exception:
+                    logger.exception("github momentum diff failed for {}", account.domain)
             if tech_harvests:
                 from src.sources.techstack.collector import upsert_technologies
                 from src.sources.techstack.diff import diff_technologies

@@ -52,6 +52,15 @@ class CommunityGithubSource(SourceAdapter):
             return github_to_candidates(org, parse_repos(doc.body), [], account, today=today)
         return []
 
+    def harvest_repos(self, doc, account, task_meta):
+        """Runner hook (duck-typed, harvest_tech/harvest_reviews precedent):
+        the parsed repo dicts for kind == "repos" docs ONLY — the runner
+        diffs them cycle-over-cycle for the github_momentum signal. [] for
+        every other kind (org/release docs are not repo snapshots)."""
+        if (task_meta or {}).get("kind") != "repos" or not doc.body:
+            return []
+        return parse_repos(doc.body)
+
     def follow_tasks(self, doc, account, task_meta):
         if (task_meta or {}).get("kind") not in (None, "org") or not doc.body:
             return []

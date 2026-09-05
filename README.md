@@ -148,7 +148,10 @@ Enabled adapters live in `config/sources.yaml`:
 **Making an ATS source fire:** set the account's `ats_vendor` and `ats_token`
 (Feed Me CSV columns at seed time, or `deepen` for per-account updates);
 `ats_careers_page` then stays quiet for that account (no duplicate job rows)
-and covers accounts with neither field set.
+and covers accounts with neither field set. Careers-page auto-detection
+(`resolve`/sweep resolver pass) covers all 11 collected vendors; detections of
+collector-less boards (bamboohr, jazzhr, personio) deliberately set only
+`careers_url` so the careers-page fallback keeps firing for those accounts.
 
 - News / regulators: `news_rss`, `google_news`, `company_feed`, `federal_register`, `warn_notices`
 
@@ -156,6 +159,10 @@ and covers accounts with neither field set.
 
 - Footprint: `techstack`, `wayback`, `crtsh`, `jobsignals`
 - Community: `community_hn`, `community_github`
+  (`community_github` authenticates with `GITHUB_TOKEN` from the environment
+  when set — 5,000 req/hr instead of the unauthenticated 60; the org login is
+  guessed from the domain label / account name with only the first guess
+  probed per cycle, so a GitHub login that differs from both is a known gap)
 - App stores / registry: `appstore_reviews` (live iTunes RSS reviews; set the
   account's `app_store_id` — a seed CSV column or `deepen` update),
   `bbb_profile` (live BBB business profiles; seed

@@ -135,6 +135,7 @@ Needles for Webflow / HubSpot / GTM / GA / Meta / CookieYes / Vector were frozen
 - `tech_churn` — a vendor present last cycle is gone this cycle (confidence 0.6)
 - `high_ticket_tech` (enterprise tier)
 - `competitor_detected`
+- `renewal_window` — emitted by the runner's diff pass from stored `first_seen_at` (see change detection below)
 
 ### Change detection (`diff_technologies`)
 
@@ -148,19 +149,28 @@ harvest. A `flap_guard` parameter (vendors seen churn in the immediately
 prior diff) exists to suppress flapping vendors; wiring its persistence is a
 roadmap item.
 
+The same pass also feeds the stored rows (vendor + `first_seen_at`) through
+`renewal_candidates` (`src/sources/wayback/renewal.py`): when a vendor's
+anniversary lands inside the 30–120 day lead window, a `renewal_window`
+candidate is persisted (natural key `renewal:{vendor}:{date}`, deduped on
+re-runs). Contract length comes from an optional `contract_years` key on the
+vendor's `config/fingerprints.yaml` spec (default 1) — e.g. `workday: 3`.
+A Feb-29 `first_seen_at` clamps to Feb 28 on non-leap renewal years instead
+of crashing the pass.
+
 Unknown hosts persist via `harvest_tech` → `technologies` as `host:…`.
 
 ## Layout
 
 | File | Role |
 |---|---|
-| `collector.py` | `TechstackSource` — plan, parse, `harvest_tech`; gates stripping on `cloudflare_unsolved` meta flag |
+| `collector.py` | `TechstackSource` — plan, parse, `harvest_tech`; gates stripping on `cloudflare_unsolved` meta flag; merges DNS-probe matches (html-task-gated, fail-open) |
 | `diff.py` | `diff_technologies` — pure prior-cycle vendor diff → `tech_install_new` / `tech_churn` candidates |
 | `fingerprint.py` | evidence, `observed_hosts`, `dynamic_matches`, `promote_or_observe`, `classify_cloudflare_challenge` |
 | `cf_bypass.py` | `CloudflareBypass` — 5-tier bypass waterfall (`attempt()`) |
 | `cf_solver.py` | 2Captcha/anti-captcha adapter — returns Turnstile token (not a cookie) |
 | `datadome.py` / `datadome_bypass.py` / `datadome_solver.py` | DataDome challenge detection, bypass waterfall, and 2Captcha solver (marketplace_g2-scoped — see the marketplace README) |
-| `dns_probe.py` | MX / SPF / CNAME |
+| `dns_probe.py` | MX / SPF / CNAME probe — wired into `harvest_tech` (html-task-gated, fail-open; needs `dnspython`, a hard dependency) |
 | `http_probe.py` | re-export of HTTP extract |
 | `../../../src/core/browser.py` | `fetch(..., capture_network=True)` HAR-lite; `fetch(..., capture_html=True)` challenge-aware solve with fresh context |
 
@@ -169,7 +179,7 @@ Runner: network tasks run on the collector thread. `_fetch_one` returns `None` w
 ## Add a vendor
 
 1. Recon a real homepage. Freeze hosts under `tests/fixtures/techstack/`.
-2. Add `match.network_host` **and** `script_src` (HTML-only collect) in `config/fingerprints.yaml`.
+2. Add `match.network_host` **and** `script_src` (HTML-only collect) in `config/fingerprints.yaml`; add `dns_cname` / `spf_include` needles when the vendor is DNS-probeable (Statuspage, Marketo, …) and an optional `contract_years` when it runs multi-year contracts (feeds `renewal_window`).
 3. Test: `./.venv/Scripts/python.exe -m pytest tests/test_fingerprint.py tests/test_tech_collectors_parse.py -v`
 
 Do not invent hostnames. Do not store full HAR bodies. Do not enable `browser.enabled` by default.

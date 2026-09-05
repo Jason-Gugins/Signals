@@ -42,7 +42,7 @@ def _data(types: dict) -> dict:
 
 def test_loads_real_signals_yaml_41_types():
     tax = Taxonomy.load(str(ROOT / "config" / "signals.yaml"))
-    assert len(tax.all()) == 42
+    assert len(tax.all()) == 48
     assert tax.get("funding_round").weight == 30
     assert tax.get("intent_1st_owned").degree == 1
 
@@ -93,6 +93,7 @@ def test_primary_types_match_section_32():
         "ipo_filing",
         "ipo_pricing",
         "pricing_change",
+        "positioning_change",
         "ma_acquirer",
         "ma_target",
         "champion_migration",
@@ -107,6 +108,9 @@ def test_primary_types_match_section_32():
         "regulation_applicable",
         "competitor_outage",
         "layoff",
+        "bankruptcy_signal",
+        "contract_terminated",
+        "federal_contract_award",
         "internal_project_scoop",
         "intent_1st_owned",
         "intent_2nd_marketplace",

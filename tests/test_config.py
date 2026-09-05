@@ -134,7 +134,7 @@ def test_load_yaml_signals_has_41_types():
     cfg = Config()
     cfg.config_dir = str(ROOT / "config")
     data = cfg.load_yaml("signals")
-    assert len(data["types"]) == 42
+    assert len(data["types"]) == 48
     # cache: same object on second load
     assert cfg.load_yaml("signals") is data
 

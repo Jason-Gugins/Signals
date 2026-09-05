@@ -25,6 +25,16 @@ types:
     half_life_days: 180
     play: growth_pitch
     label: "Form D filing"
+  federal_contract_award:
+    category: financial
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 26
+    half_life_days: 180
+    play: scaling_pitch
+    label: "Federal contract award"
   ipo_filing:
     category: financial
     origin: internal
@@ -55,6 +65,16 @@ types:
     half_life_days: 90
     play: growth_pitch
     label: "Pricing page changed"
+  positioning_change:
+    category: operational
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 16
+    half_life_days: 90
+    play: growth_pitch
+    label: "Positioning changed"
   ma_acquirer:
     category: financial
     origin: internal
@@ -227,6 +247,26 @@ types:
     half_life_days: 120
     play: displacement_pitch
     label: "Tech churn"
+  new_subdomain:
+    category: technology
+    origin: internal
+    catalyst: secondary
+    polarity: neutral
+    degree: 0
+    weight: 12
+    half_life_days: 90
+    play: ecosystem_pitch
+    label: "New subdomain live"
+  github_momentum:
+    category: technology
+    origin: internal
+    catalyst: secondary
+    polarity: positive
+    degree: 0
+    weight: 16
+    half_life_days: 90
+    play: ecosystem_pitch
+    label: "GitHub momentum"
   competitor_detected:
     category: technology
     origin: internal
@@ -361,6 +401,26 @@ types:
     supersede_days: 90  # example value — tune per data quality
     play: automation_pitch
     label: "Layoff"
+  bankruptcy_signal:
+    category: negative
+    origin: internal
+    catalyst: primary
+    polarity: negative
+    degree: 0
+    weight: 30
+    half_life_days: 60
+    play: turnaround_pitch
+    label: "Bankruptcy / receivership"
+  contract_terminated:
+    category: operational
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 24
+    half_life_days: 90
+    play: displacement_pitch
+    label: "Material agreement terminated"
   stagnation:
     category: negative
     origin: internal

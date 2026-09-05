@@ -15,7 +15,7 @@ from src.core.filelock import exclusive_lock
 from src.core.models import Account, Document
 from src.core.runlog import RunContext
 from src.signals.normalize import normalize_batch
-from src.sources.base import FetchTask, SourceAdapter
+from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 
 
 @dataclass
@@ -557,7 +557,37 @@ class CollectorRunner:
                     stats._src(adapter.key)["signals_new"] += added
                     stats.candidates += len(renewal_cands)
 
-                upsert_technologies(self.db, account.domain, merged, now=_iso(now))
+                # upsert_technologies returns (new, gone): `gone` is the
+                # confirmed-removal list (missing_runs >= 2, host: rows
+                # included so filter them here). Emit tech_removed for those
+                # vendors in the collector's tech_to_candidates emission
+                # shape, persisted exactly like the diff's change_cands.
+                try:
+                    _new_vendors, gone = upsert_technologies(
+                        self.db, account.domain, merged, now=_iso(now)
+                    )
+                    removed_cands = [
+                        SignalCandidate(
+                            "tech_removed",
+                            _iso(now)[:10],
+                            f"tech_removed:{v}:{_iso(now)[:7]}",
+                            title=v,
+                            confidence=0.8,
+                            evidence_data={"vendor": v},
+                        )
+                        for v in gone
+                        if not str(v).startswith("host:")
+                    ]
+                except Exception:
+                    logger.exception(
+                        "techstack removal candidates failed for {}", account.domain
+                    )
+                    removed_cands = []
+                if removed_cands:
+                    added = self._persist(account, adapter.key, removed_cands, None)
+                    stats.signals_new += added
+                    stats._src(adapter.key)["signals_new"] += added
+                    stats.candidates += len(removed_cands)
             stats.candidates += len(all_cands)
             stats._src(adapter.key)["candidates"] += len(all_cands)
             new_n = self._persist(account, adapter.key, all_cands, last_doc)

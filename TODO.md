@@ -276,9 +276,16 @@ with zero production call sites until this batch. Full plan:
   `POST /api/v2/search/spending_by_award/` with keywords+award_type_codes —
   a small collector is trivially scoped).
 
-### Review-fix ledger (2026-09-04, `b9332ce` + `33558bc`)
+### Review-fix ledger (2026-09-04, `b9332ce` + `33558bc` + `adcc67f`)
 
-Majors: fanout double-stamp (above); shared-host rate min-claim (above).
+BLOCKER (found by the README sweep, `adcc67f`): `tech_churn` was missing from
+`config/signals.yaml` — `diff_technologies` had emitted it since the P1
+change-detection feature, but `normalize_candidate` rejected every churn
+candidate as unknown_signal_type, silently discarding the signal while the
+technologies table still advanced. Registered (mirrors `tech_removed`,
+displacement_pitch, weight 22) with a persistence regression test; taxonomy
+count assertions updated to 42. Majors: fanout double-stamp (above); shared-host
+rate min-claim (above).
 Also: the rate-wiring commit's `source` kwarg broke the cookie-jar tests'
 `FakeLimiter` stubs (18 failures) — stubs patched to tolerate extra kwargs
 (`b9332ce`, house rule: stubs take `**kw`). Minors: renewal Feb-29 clamp,

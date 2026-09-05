@@ -18,6 +18,7 @@ import src.sources.crtsh.collector  # noqa: F401
 import src.sources.community.collector  # noqa: F401
 import src.sources.community.reddit  # noqa: F401  (community_reddit — disabled-by-default)
 import src.sources.marketplace.collector  # noqa: F401
+import src.sources.marketplace.sa_ga  # noqa: F401  (marketplace_softwareadvice / marketplace_getapp — disabled by default)
 import src.sources.content.collector  # noqa: F401
 import src.sources.content.producthunt  # noqa: F401  (content_producthunt — stub)
 import src.sources.yc.collector  # noqa: F401  (yc_batch — stub, browser-tier upgrade required)

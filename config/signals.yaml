@@ -217,6 +217,16 @@ types:
     half_life_days: 120
     play: displacement_pitch
     label: "Tech removed"
+  tech_churn:
+    category: technology
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 22
+    half_life_days: 120
+    play: displacement_pitch
+    label: "Tech churn"
   competitor_detected:
     category: technology
     origin: internal

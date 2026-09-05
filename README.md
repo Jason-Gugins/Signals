@@ -157,6 +157,7 @@ collector-less boards (bamboohr, jazzhr, personio) deliberately set only
 
 `google_news` fetches keyword search RSS (per-account name) plus named section feeds (TECHNOLOGY, BUSINESS). Same `classify_news` pipeline — funding, exec hires, M&A, product launches. Configurable topics in `config/sources.yaml`. SERP manipulation: the account query is also run augmented with signal keywords (fundraising, new leadership, new GTM product, acquisition) for higher recall — see `serp_keywords` in `config/sources.yaml`.
 
+- Federal spend: `federal_contracts` (live usaspending.gov award search — keyless POST, trailing-12-month window, never-guess name matching)
 - Footprint: `techstack`, `wayback`, `crtsh`, `jobsignals`
 - Community: `community_hn`, `community_github`
   (`community_github` authenticates with `GITHUB_TOKEN` from the environment

@@ -26,3 +26,4 @@ import src.sources.bbb.collector  # noqa: F401  (bbb_profile — live SSR)
 import src.sources.owned.collector  # noqa: F401
 import src.sources.linkedin_db.collector  # noqa: F401
 import src.sources.repvue_db.collector  # noqa: F401
+import src.sources.federal.collector  # noqa: F401  (federal_contracts — live usaspending.gov award search)

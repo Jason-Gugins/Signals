@@ -65,6 +65,7 @@ sources:
   owned_intent:   { enabled: true, cadence_hours: 1 }      # local file drop
   linkedin_db:    { enabled: true, cadence_hours: 6 }
   repvue_db:      { enabled: true, cadence_hours: 168 }
+  federal_contracts: { enabled: true, cadence_hours: 168, rate_per_host: 0.5 }  # live usaspending.gov award search (GO per P3 spike)
   jobsignals:
     enabled: true
     cadence_hours: 12

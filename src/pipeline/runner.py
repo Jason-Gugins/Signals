@@ -278,6 +278,19 @@ class CollectorRunner:
                         )
                     except Exception:
                         logger.exception("prev pricing lookup failed for {}", task.domain)
+                if adapter.key == "wayback" and (task.meta or {}).get("kind") == "snapshot":
+                    # Homepage positioning diff: identical mechanism to the
+                    # prev_pricing_html injection above — the PREVIOUS stored
+                    # homepage snapshot (kind="snapshot" tasks fetch the
+                    # web.archive.org/web/... homepage URLs). No prior
+                    # snapshot -> meta stays absent -> adapter conservatively
+                    # emits nothing.
+                    try:
+                        meta["prev_homepage_html"] = self._prev_homepage_html(
+                            task.domain, exclude_doc_id=result.doc.doc_id
+                        )
+                    except Exception:
+                        logger.exception("prev homepage lookup failed for {}", task.domain)
                 # Meta defaults are per marketplace site. The Capterra adapter
                 # injects its own defaults (review_lookback_days=90,
                 # max_review_pages=3) in plan(), so setdefault never overrides
@@ -847,6 +860,36 @@ class CollectorRunner:
             SELECT doc_id, url FROM documents
             WHERE source = 'wayback' AND domain = ? AND doc_id != ?
               AND url LIKE '%/pricing%'
+            ORDER BY fetched_at DESC
+            LIMIT 1
+            """,
+            (domain, exclude_doc_id),
+        )
+        if not rows:
+            return None
+        doc = self.store.get(rows[0]["doc_id"])
+        if doc is None or not doc.body:
+            return None
+        return doc.body.decode("utf-8", "replace")
+
+    def _prev_homepage_html(self, domain: str, *, exclude_doc_id: str) -> Optional[str]:
+        """Most recent wayback HOMEPAGE snapshot body for this domain, EXCLUDING
+        the doc currently being parsed (that's the 'current' side of the diff).
+
+        Mirror of _prev_pricing_html for the homepage positioning diff:
+        snapshot tasks fetch web.archive.org/web/<ts>id_/<homepage> URLs.
+        Pricing snapshot URLs share that shape but end in /pricing — excluded
+        here so each diff reads its own doc kind. The CDX listing doc does not
+        match the web.archive.org/web/ prefix at all. Returns None when no
+        prior homepage snapshot exists — the caller then skips the diff
+        (never fabricate a comparison).
+        """
+        rows = self.db.query(
+            """
+            SELECT doc_id, url FROM documents
+            WHERE source = 'wayback' AND domain = ? AND doc_id != ?
+              AND url LIKE '%web.archive.org/web/%'
+              AND url NOT LIKE '%/pricing%'
             ORDER BY fetched_at DESC
             LIMIT 1
             """,

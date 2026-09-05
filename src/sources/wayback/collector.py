@@ -2,6 +2,7 @@ from src.sources.base import FetchTask, SourceAdapter
 from src.sources.registry import register
 from src.sources.wayback.cdx import cdx_url, parse_cdx, pick_snapshots, snapshot_url
 from src.sources.wayback.pricing import diff_pricing
+from src.sources.wayback.positioning import diff_positioning
 
 
 @register
@@ -14,21 +15,41 @@ class WaybackSource(SourceAdapter):
         return [FetchTask(source=self.key, url=cdx_url(account.domain, from_year=2018), domain=account.domain, meta={"kind": "cdx"})]
 
     def parse(self, doc, account, task_meta):
-        if (task_meta or {}).get("kind") != "pricing":
+        kind = (task_meta or {}).get("kind")
+        if kind == "pricing":
+            # Conservative: diff against the previously stored pricing html for
+            # this domain, carried in task_meta by the runner (meta.setdefault
+            # pattern). No previous html -> no signal, never guess.
+            prev_html = (task_meta or {}).get("prev_pricing_html")
+            if not prev_html:
+                return []
+            today = (task_meta or {}).get("today")
+            if not today:
+                return []
+            cand = diff_pricing(prev_html, doc.body, domain=account.domain, today=today)
+            return [cand] if cand is not None else []
+        if kind != "snapshot":
             return []
-        # Conservative: diff against the previously stored pricing html for
-        # this domain, carried in task_meta by the runner (meta.setdefault
-        # pattern). No previous html -> no signal, never guess.
-        prev_html = (task_meta or {}).get("prev_pricing_html")
+        # Homepage positioning diff: same conservative contract as the pricing
+        # branch — diff against the previously stored homepage snapshot html
+        # for this domain, carried in task_meta by the runner
+        # (prev_homepage_html). No previous html -> no signal, never guess.
+        prev_html = (task_meta or {}).get("prev_homepage_html")
         if not prev_html:
             return []
         today = (task_meta or {}).get("today")
         if not today:
             return []
-        cand = diff_pricing(prev_html, doc.body, domain=account.domain, today=today)
+        cand = diff_positioning(prev_html, doc.body, domain=account.domain, today=today)
         return [cand] if cand is not None else []
 
     def follow_tasks(self, doc, account, task_meta):
+        # Only the CDX listing produces follow tasks. Snapshot/pricing docs
+        # carry HTML bodies — feeding those to parse_cdx (json.loads) raises
+        # JSONDecodeError, which aborts the whole runner pass and drops every
+        # candidate already parsed in it.
+        if (task_meta or {}).get("kind") not in (None, "cdx"):
+            return []
         if not doc.body:
             return []
         rows = parse_cdx(doc.body)

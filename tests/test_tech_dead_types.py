@@ -13,10 +13,22 @@ taxonomy but had no live production call site. These tests pin each wiring:
 
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import date, timedelta
 
+from src.core.config import Config
+from src.core.db import Database
+from src.core.http import FetchResult
 from src.core.models import Account, Document
+from src.core.rawstore import RawStore
+from src.core.runlog import RunContext
+from src.identity.registry import AccountRegistry
+from src.pipeline.runner import CollectorRunner
+from src.signals.store import SignalStore
+from src.signals.taxonomy import Taxonomy
+from src.sources.base import FetchTask, SourceAdapter
 from src.sources.techstack.collector import TechstackSource, tech_to_candidates
+from src.sources.techstack.fingerprint import TechMatch
 
 TODAY = date(2026, 9, 4)
 
@@ -79,3 +91,105 @@ def test_parse_passes_fingerprint_competitors(monkeypatch):
     hits = [c for c in cands if c.signal_type == "competitor_detected"]
     assert len(hits) == 1
     assert hits[0].natural_key == "competitor_detected:hubspot:2026-09"
+
+
+# ── 4b: tech_removed (runner wiring) ────────────────────────────────────────
+
+
+class _FakeFetch:
+    def __init__(self, by_url: dict):
+        self.by_url = by_url
+
+    def get(self, task, *, etag=None, last_modified=None):
+        body = self.by_url[task.url]
+        doc = Document(
+            doc_id="d", source=task.source, url=task.url,
+            domain=task.domain, body=bytes(body), status=200,
+        )
+        return FetchResult(True, 200, doc, False, None, 1)
+
+
+class _TechRemovedStub(SourceAdapter):
+    """Techstack-shaped adapter that no longer returns the seeded vendor."""
+
+    key = "techstack"
+    tier = "http"
+    cadence_hours = 168
+
+    def plan(self, account, cursor):
+        return [FetchTask(source=self.key, url=f"https://{account.domain}/", domain=account.domain)]
+
+    def parse(self, doc, account, task_meta):
+        return []
+
+    def harvest_tech(self, doc, account, task_meta):
+        return [TechMatch("hubspot", "HubSpot", ["crm"], "mid", "script_src", 0.8)]
+
+
+def _removed_harness(tmp_path):
+    """Runner over a db pre-seeded with a 'zendesk' technologies row that the
+    stub no longer returns. Seeding computes first_seen relative to the real
+    clock (the runner runs on the real clock); 200 days back keeps zendesk's
+    default 1-year renewal OUTSIDE the 30..120-day lead window so only
+    tech_removed is under test."""
+    db = Database(tmp_path / "s.db")
+    today = date.today()
+    seen = (today - timedelta(days=200)).isoformat()
+    db.upsert(
+        "technologies",
+        {
+            "domain": "acme.com", "vendor": "zendesk", "category": "support",
+            "tier": "mid", "first_seen_at": seen, "last_seen_at": seen,
+            "missing_runs": 0, "evidence": "script_src", "confidence": 0.8,
+            "source": "techstack",
+        },
+        pk=("domain", "vendor"),
+    )
+    cfg = Config()
+    cfg.http.max_workers = 2
+    cfg.http.respect_robots = False
+    store = RawStore(db, tmp_path / "raw")
+    tax = Taxonomy.load()
+    ctx = RunContext(db, "collect")
+    ctx.__enter__()
+    fetcher = _FakeFetch({"https://acme.com/": b"<html><body>ok</body></html>"})
+    runner = CollectorRunner(
+        cfg, db, AccountRegistry(db), store, fetcher, SignalStore(db, tax), tax, ctx
+    )
+    return runner, db, ctx
+
+
+def test_runner_persists_tech_removed_after_two_missing_runs(tmp_path):
+    runner, db, ctx = _removed_harness(tmp_path)
+    accounts = [Account(domain="acme.com", name="Acme")]
+    adapters = [_TechRemovedStub()]
+    # Run 1: zendesk missing_runs 0->1 (unconfirmed) -> NO tech_removed.
+    stats1 = runner.run(adapters, accounts, force=True)
+    rows1 = db.query("SELECT * FROM signals WHERE signal_type='tech_removed'")
+    assert rows1 == []
+    assert stats1.signals_new == 2  # install(hubspot) + churn(zendesk) only
+    # Run 2: zendesk missing_runs 1->2 (confirmed) -> tech_removed persisted.
+    stats2 = runner.run(adapters, accounts, force=True)
+    rows2 = db.query("SELECT * FROM signals WHERE signal_type='tech_removed'")
+    assert len(rows2) == 1
+    row = rows2[0]
+    assert row["domain"] == "acme.com"
+    assert row["source"] == "techstack"
+    assert row["title"] == "zendesk"
+    # The signals table stores the hashed natural key; assert through
+    # make_signal_id that the monthly key shape is exactly the collector's.
+    from src.signals.normalize import make_signal_id
+
+    assert row["signal_id"] == make_signal_id(
+        "acme.com", "tech_removed", f"tech_removed:zendesk:{date.today():%Y-%m}"
+    )
+    assert row["observed_at"] == date.today().isoformat()
+    assert json.loads(row["evidence_data"]) == {"vendor": "zendesk"}
+    assert stats2.signals_new == 1
+    assert stats2.by_source["techstack"]["signals_new"] == 1
+    # Same-month re-run: zendesk gone again but the natural key dedupes.
+    stats3 = runner.run(adapters, accounts, force=True)
+    rows3 = db.query("SELECT * FROM signals WHERE signal_type='tech_removed'")
+    assert len(rows3) == 1
+    assert stats3.signals_new == 0
+    ctx.__exit__(None, None, None)

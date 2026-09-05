@@ -142,7 +142,13 @@ class TechstackSource(SourceAdapter):
         today = date.fromisoformat(task_meta["today"])
         named = [m for m in matches if m.tier != "unknown"]
         return tech_to_candidates(
-            account.domain, [m.vendor for m in named], [], [], rules, [], today=today
+            account.domain,
+            [m.vendor for m in named],
+            [],
+            [],
+            rules,
+            list(rules.get("competitors") or []),
+            today=today,
         )
 
     def _parse_statuspage(self, doc, account, task_meta):

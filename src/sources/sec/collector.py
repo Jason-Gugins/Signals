@@ -10,6 +10,7 @@ from src.identity.edgar_ids import SUBMISSIONS_URL, pad_cik
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.registry import register
 from src.sources.sec.parse_8k import classify_8k, classify_form, extract_text
+from src.sources.sec.parse_form4 import parse_form4
 from src.sources.sec.parse_formd import form_d_to_candidates, parse_form_d
 from src.sources.sec.parse_submissions import Filing, filings_since, parse_submissions
 
@@ -33,10 +34,12 @@ class SecEdgarSource(SourceAdapter):
         "earnings_warning",
         "bankruptcy_signal",
         "contract_terminated",
+        "insider_trade",
     )
-    # Only forms classify_form maps or follow_tasks fans out (D/D/A, 8-K).
+    # Only forms classify_form maps or follow_tasks fans out (D/D/A, 8-K, 4).
     # Unmapped forms (e.g. 10-Q, SC 14D9) are NOT watched: they would be
     # fetched, parsed, and silently dropped. 10-Q XBRL mapping is deferred.
+    # Form 4 amendments ("4/A") stay unwatched — amendment noise.
     WATCH_FORMS = {
         "8-K",
         "10-K",
@@ -47,7 +50,11 @@ class SecEdgarSource(SourceAdapter):
         "D/A",
         "25",
         "425",
+        "4",
     }
+    # Form 4 fanout bound: heavy option-grant calendars can file dozens of
+    # Form 4s in one window — cap primary-doc fetches per cycle (newest first).
+    FORM4_MAX_FOLLOWS = 10
 
     def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
         cik = pad_cik(account.cik)
@@ -97,6 +104,13 @@ class SecEdgarSource(SourceAdapter):
                 cik=task_meta.get("cik") or account.cik or "0",
             )
             return classify_8k(filing, extract_text(doc.body), today=today)
+        if kind == "form4":
+            return parse_form4(
+                doc.body,
+                accession=task_meta.get("accession") or "unk",
+                today=today,
+                url=doc.url,
+            )
         return []
 
     def follow_tasks(self, doc: Document, account: Account, task_meta: dict) -> list[FetchTask]:
@@ -107,11 +121,17 @@ class SecEdgarSource(SourceAdapter):
             return []
         _, filings = parse_submissions(doc.body)
         out = []
+        form4_follows = 0
         for f in filings_since(filings, task_meta.get("cursor"), self.WATCH_FORMS):
             if f.form in {"D", "D/A"}:
                 k = "form_d"
             elif f.form == "8-K":
                 k = "8k"
+            elif f.form == "4":
+                if form4_follows >= self.FORM4_MAX_FOLLOWS:
+                    continue  # cap: a filing-heavy company cannot flood the queue
+                form4_follows += 1
+                k = "form4"
             else:
                 continue
             out.append(

@@ -13,11 +13,21 @@ surface verified on the live capture:
 - ``div.bpr-header-accreditation-rating[data-accredited]`` — accreditation flag.
 - ``span.bpr-header-rating`` — letter grade ("A+").
 
-BBB facts are IDENTITY EVIDENCE, not intent signals: ``parse_bbb_profile``
-returns a plain facts dict and the adapter raises a candidate ONLY when an
-alternate name cross-resolves (via ``AccountRegistry.resolve(name=...)``) to a
-DIFFERENT account than the profiled one — i.e. the profiled business operates
-under a name already tracked as a distinct account.
+BBB facts are IDENTITY EVIDENCE and REPUTATION EVIDENCE: ``parse_bbb_profile``
+returns a plain facts dict and the adapter raises candidates in exactly two
+cases —
+
+- an alternate name cross-resolves (via ``AccountRegistry.resolve(name=...)``)
+  to a DIFFERENT account than the profiled one (identity), or
+- the letter grade DROPPED or accreditation was LOST versus the observation
+  persisted on the account from the previous cycle (``reputation_drop``).
+
+The rating baseline lives on the account itself: every successful profile
+parse merges ``bbb_rating`` / ``bbb_accredited`` / ``bbb_observed_at`` into
+``account.extra_data`` through the ``AccountRegistry`` the runner injects
+into parse ``task_meta`` (``meta.setdefault("registry", ...)``), so the next
+cycle can diff against it. Merged, never replaced — unrelated keys (the
+seeded ``bbb_url``) survive.
 
 LIMITATIONS (per spike):
 - Complaint lists are NOT probed (``/complaints`` paginates; out of budget).
@@ -33,7 +43,24 @@ from src.core.textutil import slugify
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.registry import register
 
-__all__ = ["parse_bbb_profile", "BbbProfileSource"]
+__all__ = ["parse_bbb_profile", "BbbProfileSource", "grade_ordinal", "BBB_GRADE_SCALE"]
+
+# BBB letter-grade scale, best -> worst. The index IS the ordinal: a downgrade
+# is any step toward a HIGHER ordinal. "NR" (no rating) and anything unknown
+# deliberately maps to None — an unrankable grade never drives a delta.
+BBB_GRADE_SCALE = ("A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "F")
+
+
+def grade_ordinal(grade) -> int | None:
+    """Ordinal of a BBB letter grade on the A+..F scale (higher = worse). PURE.
+
+    Unknown, blank, or non-string grades (BBB's "NR", markup drift) return
+    None so callers can never compare against a guessed position.
+    """
+    if not isinstance(grade, str):
+        return None
+    token = grade.strip().upper()
+    return BBB_GRADE_SCALE.index(token) if token in BBB_GRADE_SCALE else None
 
 
 def _dt_dd_facts(soup) -> dict[str, list[str]]:
@@ -61,8 +88,12 @@ def parse_bbb_profile(html: str) -> dict:
     no network, no I/O, no clock reads.
 
     Returns ``{business_name, alternate_names, entity_type, accredited,
-    bbb_rating, file_opened}``. ``alternate_names`` is a list (possibly empty);
-    scalar fields are ``None`` when the markup is absent.
+    accredited_present, bbb_rating, file_opened}``. ``alternate_names`` is a
+    list (possibly empty); scalar fields are ``None`` when the markup is
+    absent. ``accredited_present`` distinguishes "genuinely not accredited"
+    (``data-accredited`` found, false) from "markup absent" (the parser's
+    ``accredited=False`` default) so the delta logic never reads an
+    accreditation loss out of a page that simply stopped rendering the flag.
     """
     from bs4 import BeautifulSoup
 
@@ -71,6 +102,7 @@ def parse_bbb_profile(html: str) -> dict:
         "alternate_names": [],
         "entity_type": None,
         "accredited": False,
+        "accredited_present": False,
         "bbb_rating": None,
         "file_opened": None,
     }
@@ -108,6 +140,7 @@ def parse_bbb_profile(html: str) -> dict:
     # --- accreditation + rating (bpr-header-*) -------------------------------
     accred = soup.select_one("div.bpr-header-accreditation-rating[data-accredited]")
     if accred is not None:
+        out["accredited_present"] = True
         out["accredited"] = str(accred.get("data-accredited", "")).strip().lower() == "true"
     rating = soup.select_one(".bpr-header-rating")
     if rating is not None:
@@ -117,13 +150,92 @@ def parse_bbb_profile(html: str) -> dict:
     return out
 
 
+def _rating_delta(account, facts: dict, registry, today, *, doc_url=None):
+    """Diff this cycle's BBB facts against the account's stored baseline.
+
+    Persistence mechanism: the runner injects the ``AccountRegistry`` into
+    parse ``task_meta`` (``meta.setdefault("registry", ...)`` in
+    ``CollectorRunner._run_pair``), so the adapter reads the stored account
+    (``registry.get``) and writes through the SAME ``registry.upsert``
+    account-upsert path the Form D identity flow uses — no runner changes.
+
+    ``extra_data`` is MERGED, never replaced: only ``bbb_rating`` /
+    ``bbb_accredited`` / ``bbb_observed_at`` are written, and only from facts
+    actually present in this cycle's markup (a page that stops rendering the
+    rating span or the accreditation flag never erases the stored baseline —
+    the adapter-wiring lesson: sparse upserts must not NULL stored fields).
+
+    Emission rules (``reputation_drop``, 720h cadence = per-cycle diff):
+    letter-grade downgrade (any step down the A+..F scale) or accreditation
+    loss (True -> False, only when the flag was actually rendered this
+    cycle). Improvements and no change emit nothing; the FIRST observation
+    stores the baseline and emits nothing (no baseline, never guess).
+
+    Returns at most one SignalCandidate (a downgrade and a simultaneous
+    accreditation loss are one event, one natural key per month).
+    """
+    base = registry.get(account.domain) or account
+    original = dict(getattr(base, "extra_data", None) or {})
+    stored = dict(original)
+    prev_rating = stored.get("bbb_rating")
+    prev_accredited = stored.get("bbb_accredited")
+
+    new_rating = facts.get("bbb_rating")
+    new_accredited = facts.get("accredited")
+    accredited_seen = bool(facts.get("accredited_present"))
+
+    old_o, new_o = grade_ordinal(prev_rating), grade_ordinal(new_rating)
+    downgrade = old_o is not None and new_o is not None and new_o > old_o
+    lost_accreditation = (
+        prev_accredited is True and accredited_seen and new_accredited is False
+    )
+
+    cand = None
+    if (downgrade or lost_accreditation) and today:
+        parts = []
+        if downgrade:
+            parts.append(f"BBB letter grade fell from {prev_rating} to {new_rating}")
+        if lost_accreditation:
+            parts.append("BBB accreditation lost")
+        cand = SignalCandidate(
+            signal_type="reputation_drop",
+            observed_at=today,
+            natural_key=f"bbbdrop:{account.domain}:{today[:7]}",
+            title=f"BBB {prev_rating or '?'} → {new_rating or '?'}",
+            summary="; ".join(parts),
+            url=doc_url,
+            confidence=0.7,
+            domain_override=account.domain,
+            evidence_data={
+                "old_rating": prev_rating,
+                "new_rating": new_rating,
+                "accredited_before": prev_accredited,
+                "accredited_after": new_accredited,
+            },
+        )
+
+    changed = False
+    if new_rating is not None:
+        stored["bbb_rating"] = new_rating
+        if today:
+            stored["bbb_observed_at"] = today
+        changed = True
+    if accredited_seen:
+        stored["bbb_accredited"] = bool(new_accredited)
+        changed = True
+    if changed and stored != original:
+        base.extra_data = stored
+        registry.upsert(base)
+    return cand
+
+
 @register
 class BbbProfileSource(SourceAdapter):
     key = "bbb_profile"
     tier = "http"
     cadence_hours = 720  # 30 days: BBB profile facts change slowly
     requires: tuple[str, ...] = ()
-    emits = ("intent_3rd_topic",)
+    emits = ("intent_3rd_topic", "reputation_drop")
 
     def plan(self, account, cursor) -> list:
         """One FetchTask per account, gated on ``extra_data['bbb_url']``.
@@ -142,24 +254,30 @@ class BbbProfileSource(SourceAdapter):
         return [FetchTask(source=self.key, url=bbb_url, domain=account.domain)]
 
     def parse(self, doc, account, task_meta) -> list:
-        """Cross-account alias resolution. PURE.
+        """Rating delta + cross-account alias resolution.
 
-        For each alternate name on the profile, resolve it through
-        ``task_meta['registry'].resolve(name=...)``. Emit one SignalCandidate
-        per alternate name that resolves to a DIFFERENT account. No registry
-        in task_meta, or no cross-account match: ``[]``.
+        Both flows run through ``task_meta['registry']`` (the AccountRegistry
+        injected by the runner): ``_rating_delta`` persists the observation on
+        the account and maybe emits ``reputation_drop``; alternate names are
+        resolved via ``registry.resolve(name=...)`` and emit one
+        SignalCandidate per name that resolves to a DIFFERENT account. No
+        registry in task_meta: ``[]`` — nothing can be resolved or persisted.
         """
-        from src.core.models import Account
-
         registry = (task_meta or {}).get("registry")
         if registry is None:
             return []
 
         html = doc.body.decode("utf-8", errors="replace") if isinstance(doc.body, bytes) else (doc.body or "")
         facts = parse_bbb_profile(html)
-        business_id = slugify(facts.get("business_name") or (account.domain or ""))
 
         out = []
+        today = (task_meta.get("today") or (doc.fetched_at or ""))[:10] or None
+        delta = _rating_delta(account, facts, registry, today, doc_url=doc.url)
+        if delta is not None:
+            out.append(delta)
+
+        business_id = slugify(facts.get("business_name") or (account.domain or ""))
+
         for alt in facts.get("alternate_names", []):
             try:
                 hit = registry.resolve(name=alt)

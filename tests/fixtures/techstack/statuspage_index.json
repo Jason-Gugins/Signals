@@ -1,0 +1,40 @@
+{
+  "page": {
+    "id": "acme",
+    "name": "Acme Status",
+    "url": "https://acme.statuspage.io"
+  },
+  "status": {
+    "indicator": "major",
+    "description": "Partially degraded service"
+  },
+  "components": [],
+  "incidents": [
+    {
+      "id": "inc_investigating_01",
+      "incident_number": 42,
+      "name": "Elevated API errors",
+      "status": "investigating",
+      "impact": "major",
+      "shortlink": "https://stspg.io/p1",
+      "started_at": "2026-09-04T10:00:00.000Z",
+      "created_at": "2026-09-04T10:01:00.000Z",
+      "updated_at": "2026-09-04T10:30:00.000Z",
+      "affected_components": []
+    },
+    {
+      "id": "inc_resolved_02",
+      "incident_number": 41,
+      "name": "Earlier dashboard latency",
+      "status": "resolved",
+      "impact": "minor",
+      "shortlink": "https://stspg.io/p0",
+      "started_at": "2026-09-01T09:00:00.000Z",
+      "created_at": "2026-09-01T09:01:00.000Z",
+      "updated_at": "2026-09-01T12:00:00.000Z",
+      "resolved_at": "2026-09-01T12:00:00.000Z",
+      "affected_components": []
+    }
+  ],
+  "scheduled_maintenances": []
+}

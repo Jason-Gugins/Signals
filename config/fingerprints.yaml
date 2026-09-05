@@ -1,4 +1,8 @@
 version: 1
+# Vendor keys (must match a `vendors:` key) that are the account's named
+# competitors: a fingerprint match on one emits `competitor_detected`.
+# e.g. competitors: ["Acme CRM"]
+competitors: []
 vendors:
   hubspot:
     display: "HubSpot"

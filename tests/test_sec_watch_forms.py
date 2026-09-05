@@ -37,6 +37,8 @@ def test_watch_forms_drops_unmapped_10q_and_sc14d9():
 
 def test_watch_forms_keeps_every_mapped_form():
     # Exact contract: nothing else is dropped along with the two unmapped forms.
+    # "4" (Form 4) is fanned out to its primary XML doc by follow_tasks; the
+    # "4/A" amendment form stays unwatched (amendment noise).
     assert SecEdgarSource.WATCH_FORMS == {
         "8-K",
         "10-K",
@@ -47,7 +49,9 @@ def test_watch_forms_keeps_every_mapped_form():
         "D/A",
         "25",
         "425",
+        "4",
     }
+    assert "4/A" not in SecEdgarSource.WATCH_FORMS
 
 
 def test_classify_form_mappings_unregressed():
@@ -61,7 +65,8 @@ def test_classify_form_mappings_unregressed():
 
 def test_formd_fanout_unregressed():
     # The D/D/A fanout still fires for exactly the D and D/A filings in the
-    # submissions feed, and 8-K bodies are still followed.
+    # submissions feed, and 8-K bodies are still followed. Form 4 rows now
+    # fan out their primary XML doc too (the fixture contains 4 of them).
     _, filings = parse_submissions(FIXTURE.read_bytes())
     expected_form_d = {f.accession for f in filings if f.form in {"D", "D/A"}}
     assert expected_form_d  # fixture sanity
@@ -78,4 +83,4 @@ def test_formd_fanout_unregressed():
     follows = src.follow_tasks(doc, acct, meta)
     form_d = {t.meta["accession"] for t in follows if t.meta["kind"] == "form_d"}
     assert form_d == expected_form_d
-    assert {t.meta["kind"] for t in follows} == {"form_d", "8k"}
+    assert {t.meta["kind"] for t in follows} == {"form_d", "8k", "form4"}

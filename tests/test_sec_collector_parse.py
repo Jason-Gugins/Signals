@@ -23,7 +23,7 @@ def test_submissions_emits_form_candidates_and_follow_tasks():
     assert {"ipo_filing", "annual_report_10k", "ipo_pricing"} <= types
     follows = src.follow_tasks(doc, ACCT, meta)
     assert follows
-    assert {t.meta.get("kind") for t in follows} <= {"form_d", "8k"}
+    assert {t.meta.get("kind") for t in follows} <= {"form_d", "8k", "form4"}
     assert all(t.meta.get("accession") for t in follows)
 
 

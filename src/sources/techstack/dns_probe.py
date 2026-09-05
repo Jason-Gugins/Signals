@@ -62,5 +62,33 @@ def probe_dns(domain: str, *, resolver=None, subdomains=("www", "info", "mail", 
     return ev
 
 
+def statuspage_target(domain: str, *, resolver=None) -> str | None:
+    """ONE CNAME query: return the *.statuspage.io host status.<domain> points at.
+
+    Fail-open contract for the plan() gate: any resolver failure (NXDOMAIN,
+    timeout, no dnspython) returns None — a DNS probe problem must never break
+    planning. Returns the lowercased, trailing-dot-stripped target only when it
+    ends with "statuspage.io"; the raw CNAME is otherwise discarded, so this is
+    the hook the status-page poller needs (plan verified 2026-09-04).
+    """
+    if resolver is None:
+        try:
+            import dns.resolver
+
+            resolver = dns.resolver.Resolver()
+            resolver.lifetime = 3
+        except Exception:
+            return None
+    try:
+        answers = resolver.resolve(f"status.{domain}", "CNAME")
+    except Exception:
+        return None
+    for ans in answers:
+        target = str(ans).rstrip(".").lower()
+        if target.endswith("statuspage.io"):
+            return target
+    return None
+
+
 def dns_evidence_to_matches(ev: DnsEvidence, rules: dict) -> list:
     return match_dns(ev, rules)

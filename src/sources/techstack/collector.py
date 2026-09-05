@@ -78,7 +78,7 @@ class TechstackSource(SourceAdapter):
     cadence_hours = 168
 
     def plan(self, account, cursor):
-        return [
+        tasks = [
             FetchTask(source=self.key, url=f"https://{account.domain}/", domain=account.domain, meta={"kind": "html"}),
             FetchTask(
                 source=self.key,
@@ -87,6 +87,30 @@ class TechstackSource(SourceAdapter):
                 meta={"kind": "network", "capture": "network"},
             ),
         ]
+        # Status-page gate: only domains whose status.<domain> CNAME resolves
+        # to *.statuspage.io get the extra index.json poll — normal domains
+        # stay at two fetches with zero 404-stamp noise. Fail-open: a DNS
+        # probe failure must never break plan(). The runner injects
+        # meta["today"] at fetch time; plan() deliberately sets no today.
+        try:
+            from src.sources.techstack.dns_probe import statuspage_target
+
+            target = statuspage_target(account.domain)
+        except Exception:
+            from loguru import logger
+
+            logger.exception("statuspage gate failed for {}", account.domain)
+            return tasks
+        if target:
+            tasks.append(
+                FetchTask(
+                    source=self.key,
+                    url=f"https://{target}/index.json",
+                    domain=account.domain,
+                    meta={"kind": "statuspage"},
+                )
+            )
+        return tasks
 
     def parse(self, doc, account, task_meta):
         import json
@@ -101,6 +125,8 @@ class TechstackSource(SourceAdapter):
 
         rules = load_fingerprint_rules()
         kind = (task_meta or {}).get("kind") or ""
+        if kind == "statuspage":
+            return self._parse_statuspage(doc, account, task_meta)
         body = doc.body or b""
         use_net = kind == "network" or (not kind and body.lstrip().startswith(b"{"))
         if use_net:
@@ -118,6 +144,52 @@ class TechstackSource(SourceAdapter):
         return tech_to_candidates(
             account.domain, [m.vendor for m in named], [], [], rules, [], today=today
         )
+
+    def _parse_statuspage(self, doc, account, task_meta):
+        """statuspage index.json -> competitor_outage candidates (PURE).
+
+        Emit one candidate per incident whose status is not resolved/postmortem;
+        natural key `outage:{domain}:{incident_id}` is idempotent across cycles.
+        Scheduled maintenance is ignored for v1. Fail-open: malformed JSON or
+        missing keys yield [] — a broken status page never breaks the pipeline.
+        """
+        import json
+
+        try:
+            data = json.loads(doc.body or b"")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return []
+        if not isinstance(data, dict):
+            return []
+        today = str((task_meta or {}).get("today") or "")
+        out = []
+        for inc in data.get("incidents") or []:
+            if not isinstance(inc, dict):
+                continue
+            status = str(inc.get("status") or "").lower()
+            if status in {"resolved", "postmortem"}:
+                continue
+            inc_id = inc.get("id")
+            if not inc_id:
+                continue
+            name = inc.get("name") or "incident"
+            out.append(
+                SignalCandidate(
+                    "competitor_outage",
+                    today,
+                    f"outage:{account.domain}:{inc_id}",
+                    title=name,
+                    confidence=0.85,
+                    evidence_data={
+                        "incident": name,
+                        "status": status,
+                        "impact": inc.get("impact"),
+                        "started_at": inc.get("started_at"),
+                        "url": inc.get("shortlink"),
+                    },
+                )
+            )
+        return out
 
     def harvest_tech(self, doc, account, task_meta):
         import json

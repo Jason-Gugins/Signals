@@ -441,6 +441,16 @@ types:
     half_life_days: 90
     play: support_pitch
     label: "Reputation drop"
+  insider_trade:
+    category: financial
+    origin: internal
+    catalyst: secondary
+    polarity: positive
+    degree: 0
+    weight: 14
+    half_life_days: 90
+    play: insider_pitch
+    label: "Insider transaction"
   award:
     category: neutral
     origin: internal

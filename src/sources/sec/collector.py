@@ -34,10 +34,12 @@ class SecEdgarSource(SourceAdapter):
         "bankruptcy_signal",
         "contract_terminated",
     )
+    # Only forms classify_form maps or follow_tasks fans out (D/D/A, 8-K).
+    # Unmapped forms (e.g. 10-Q, SC 14D9) are NOT watched: they would be
+    # fetched, parsed, and silently dropped. 10-Q XBRL mapping is deferred.
     WATCH_FORMS = {
         "8-K",
         "10-K",
-        "10-Q",
         "S-1",
         "S-1/A",
         "424B4",
@@ -45,7 +47,6 @@ class SecEdgarSource(SourceAdapter):
         "D/A",
         "25",
         "425",
-        "SC 14D9",
     }
 
     def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:

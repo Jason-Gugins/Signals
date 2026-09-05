@@ -44,7 +44,7 @@ Onboarding — one command, seed-or-update + run everything + report gaps:
 | `jobsignals` | job postings in DB | hiring_surge, leadership_job_open, department_expansion, new_geo | derived | |
 | `linkedin_db` | `linkedin_slug` | exec_hire, champion_migration, leadership_job_open + contacts | 6h | DB-only; live deepen is manual |
 | `warn_notices` | — | WARN layoff notices | 24h | NY+CA fan out in code; NJ/FL/OH/WA/TX/IL parsers present; MI deferred |
-| `techstack` | — | tech-stack signals | 168h | |
+| `techstack` | — | tech_install_new, tech_churn, tech_removed, renewal_window, high_ticket_tech, competitor_detected | 168h | HTML + HAR-lite + DNS-probe evidence; `renewal_window` fires from stored vendor first-seen anniversaries |
 | `wayback` | — | website-change history | — | |
 | `yc_batch` | — | YC-company context | — | disabled by default (stub) |
 | `repvue_db` | — | sales-hiring context | — | optional local DB |
@@ -195,7 +195,7 @@ newly-funded companies the registry doesn't know yet.
 
 | Field | How to get it |
 |---|---|
-| `g2_slug` | `python -m src.cli resolve --g2` (marketplace search; scope via the global `--cohort` flag) |
+| `g2_slug` | `python -m src.cli resolve --g2` (marketplace search; scope via the global `--cohort` flag; candidates-only on ambiguity — a wrong guess is never auto-persisted) |
 | `ats_token` | Detect the ATS from the careers page; the vendor board token is then set on the account |
 | `cik` | Auto at sweep/`resolve --cik` (SEC tickers match); manual: EDGAR full-text search (efts.sec.gov) |
 | `linkedin_slug` | `python -m src.cli resolve --linkedin` (companion-scraper discover subprocess; human-triggered) or the funded-companies list (`src/sources/funded_software_companies.md`); must be the exact LinkedIn slug |

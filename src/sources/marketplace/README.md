@@ -1002,7 +1002,10 @@ roadmap item; see the commit references in the project history.
 
 - **Empty-since bookkeeping with cadence backoff** — `EmptyLog` tracks consecutive empty cycles
   per slug/source (atomic JSON, injectable clock); after 3 consecutive empties the planner skips
-  the slug ("empty since" date logged), and any cycle with reviews resets the counter.
+  the slug ("empty since" date logged), and any cycle with reviews resets the counter. All three
+  marketplace adapters record into it: G2 via its fragment path, capterra/trustradius via the
+  shared harvest-reviews path — so `_filter_backoff`'s empty-since backoff is fully wired for
+  every marketplace source, not just G2.
 
 - **Multi-page pagination** — `follow_tasks()` plans the next review page (`?page=N`) up to
   `max_review_pages` (default 5). The runner fetches each page in turn so a single collect run

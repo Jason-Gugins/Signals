@@ -27,6 +27,12 @@ TEMPLATES: dict[str, str] = {
     "tech_migration_mentioned": "Job post mentions migrating from {from_tech} to {to_tech}",
     "exec_hire": "{person_name} joined as {new_role} ({observed_human})",
     "product_launch": "Launched {product} ({observed_human})",
+    "positioning_change": "Repositioned: \"{new_description}\" ({observed_human})",
+    "bankruptcy_signal": "8-K Item 1.03 — bankruptcy/receivership ({observed_human})",
+    "contract_terminated": "8-K Item 1.02 — material agreement terminated ({observed_human})",
+    "new_subdomain": "New subdomain live: {subdomain} ({observed_human})",
+    "github_momentum": "{momentum_kind}: {detail} ({observed_human})",
+    "federal_contract_award": "Federal award to {recipient} — {amount_display} ({observed_human})",
 }
 
 _SPACES = re.compile(r" {2,}")

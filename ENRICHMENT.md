@@ -34,22 +34,23 @@ Onboarding — one command, seed-or-update + run everything + report gaps:
 | `google_news` | — | funding_round, exec_hire, exec_departure, product_launch, ma_*, ipo_*, layoff, earnings_warning, office_open, award, certification, market_consolidation, competitor_outage | 12h | reranked (floor 0.35); keyword SERPs |
 | `news_rss` | — | same classifier (name query + Bing News) | 12h | |
 | `company_feed` | `blog_feed_url` | product_launch + blog-derived signals | 24h | the company's own blog |
-| `sec_edgar` | `cik` | ipo_filing, ipo_pricing, ma_*, annual_report_10k, exec_*, layoff, earnings_warning | 24h | private cos = empty by design (no CIK) |
+| `sec_edgar` | `cik` | ipo_filing, ipo_pricing, ma_*, annual_report_10k, exec_*, layoff, earnings_warning, bankruptcy_signal, contract_terminated | 24h | private cos = empty by design (no CIK); 8-K items 1.03 (bankruptcy, chapter captured) and 1.02 (agreement terminated) now mapped |
 | `sec_formd` | — | funding_form_d | 24h | global Form D fanout |
+| `federal_contracts` | — (matches on account name) | federal_contract_award | 168h | live usaspending.gov award search (keyless POST, trailing 12 months); never-guess recipient matching — ambiguous names emit nothing |
 | `marketplace_g2` | `g2_slug` | review/sentiment + reviewer signals | 168h | ships disabled; ≤2 req/host, ≥4s pacing |
 | `marketplace_capterra` | `g2_slug` | same shape as G2 | 168h | ships disabled; needs numeric-id slug |
 | `marketplace_trustradius` | `g2_slug` | same shape | 168h | ships disabled |
 | `ats_greenhouse` / `ats_lever` / `ats_ashby` / `ats_smartrecruiters` / `ats_breezy` / `ats_jobvite` / `ats_recruitee` / `ats_teamtailor` / `ats_rippling` / `ats_workday` / `ats_workable` | `ats_token` | job postings | 12h | vendor board APIs |
 | `ats_careers_page` | — | job postings (careers-page scrape) | 24h | gated OFF when a vendor ATS matches |
-| `jobsignals` | job postings in DB | hiring_surge, leadership_job_open, department_expansion, new_geo | derived | |
+| `jobsignals` | job postings in DB | hiring_surge, leadership_job_open, department_expansion, new_geo, backfill_open, tech_migration_mentioned, internal_project_scoop | derived | job-text extraction: required-stack phrasing, case-insensitive vendor allowlist, all matches per job |
 | `linkedin_db` | `linkedin_slug` | exec_hire, champion_migration, leadership_job_open + contacts | 6h | DB-only; live deepen is manual |
 | `warn_notices` | — | WARN layoff notices | 24h | NY+CA fan out in code; NJ/FL/OH/WA/TX/IL parsers present; MI deferred |
-| `techstack` | — | tech_install_new, tech_churn, tech_removed, renewal_window, high_ticket_tech, competitor_detected | 168h | HTML + HAR-lite + DNS-probe evidence; `renewal_window` fires from stored vendor first-seen anniversaries |
-| `wayback` | — | website-change history | — | |
+| `techstack` | — | tech_install_new, tech_churn, tech_removed, renewal_window, high_ticket_tech, competitor_detected, competitor_outage | 168h | HTML + HAR-lite + DNS-probe evidence; `renewal_window` from stored first-seen anniversaries; `competitor_detected` fires for vendors in the fingerprints `competitors:` list; polls `*.statuspage.io/index.json` when `status.<domain>` CNAMEs there |
+| `wayback` | — | pricing_change, positioning_change | — | archived homepage title/meta-description diff + `/pricing` diff |
 | `yc_batch` | — | YC-company context | — | disabled by default (stub) |
 | `repvue_db` | — | sales-hiring context | — | optional local DB |
-| `appstore_reviews` | `app_store_id` | app-review sentiment | 168h | |
-| `bbb_profile` | `extra_data.bbb_url` | identity evidence, intent signals | 720h | |
+| `appstore_reviews` | `app_store_id` | app-review sentiment + review-velocity trend | 168h | trend wiring fixed (was dead: missing slug + garbled source key); captures app version per review |
+| `bbb_profile` | `extra_data.bbb_url` | identity evidence, intent signals, reputation_drop | 720h | rating downgrade / accreditation loss vs the stored baseline (first observation = baseline only) |
 | `owned_intent` | `data/inbox/owned/*.csv` | first-party intent | 1h | local files |
 
 Marketplace and yc sources ship `enabled: false` in `config/sources.yaml` —

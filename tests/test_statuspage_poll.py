@@ -66,11 +66,21 @@ def test_statuspage_target_nxdomain_raises_to_none():
 
 
 # --- plan(): the gate emits exactly one extra task ---------------------------
+# Review fix: the gate reads the PERSISTED DNS evidence snapshot
+# (extra_data["dns_evidence"]["cname"]) — plan() stays pure, no live probe.
+# The snapshot lands on the first techstack collect, so the poller starts one
+# cycle later; tests seed extra_data directly.
 
 
-def test_plan_appends_status_task_only_when_gate_passes(monkeypatch):
-    monkeypatch.setattr(dns_probe, "statuspage_target", lambda domain, **kw: "acme.statuspage.io")
-    tasks = TechstackSource().plan(Account(domain="acme.com"), None)
+def _account_with_statuspage(target="acme.statuspage.io"):
+    return Account(
+        domain="acme.com",
+        extra_data={"dns_evidence": {"cname": {"status.acme.com": target}, "mx": [], "spf_includes": []}},
+    )
+
+
+def test_plan_appends_status_task_only_when_gate_passes():
+    tasks = TechstackSource().plan(_account_with_statuspage(), None)
     kinds = [(t.meta or {}).get("kind") for t in tasks]
     assert kinds == ["html", "network", "statuspage"]
     st = tasks[2]
@@ -80,19 +90,21 @@ def test_plan_appends_status_task_only_when_gate_passes(monkeypatch):
     assert "today" not in (st.meta or {})
 
 
-def test_plan_emits_no_status_task_when_gate_fails(monkeypatch):
-    monkeypatch.setattr(dns_probe, "statuspage_target", lambda domain, **kw: None)
-    tasks = TechstackSource().plan(Account(domain="acme.com"), None)
-    assert [(t.meta or {}).get("kind") for t in tasks] == ["html", "network"]
+def test_plan_emits_no_status_task_without_snapshot_or_gate_hit():
+    # no snapshot yet (first cycle) -> no task
+    assert [(t.meta or {}).get("kind") for t in TechstackSource().plan(Account(domain="acme.com"), None)] == [
+        "html",
+        "network",
+    ]
+    # snapshot with a non-statuspage CNAME -> no task
+    acct = _account_with_statuspage(target="status.acme-cdn.example")
+    assert [(t.meta or {}).get("kind") for t in TechstackSource().plan(acct, None)] == ["html", "network"]
 
 
-def test_plan_gate_failure_is_fail_open(monkeypatch):
-    def _boom(domain, **kw):
-        raise RuntimeError("resolver exploded")
-
-    monkeypatch.setattr(dns_probe, "statuspage_target", _boom)
-    tasks = TechstackSource().plan(Account(domain="acme.com"), None)
-    assert [(t.meta or {}).get("kind") for t in tasks] == ["html", "network"]
+def test_plan_gate_failure_is_fail_open():
+    # a malformed extra_data must never break plan (fail-open, no status task)
+    acct = Account(domain="acme.com", extra_data={"dns_evidence": "garbage"})
+    assert [(t.meta or {}).get("kind") for t in TechstackSource().plan(acct, None)] == ["html", "network"]
 
 
 # --- parse(): incidents -> competitor_outage ---------------------------------

@@ -111,15 +111,20 @@ class TechstackSource(SourceAdapter):
                 meta={"kind": "network", "capture": "network"},
             ),
         ]
-        # Status-page gate: only domains whose status.<domain> CNAME resolves
-        # to *.statuspage.io get the extra index.json poll — normal domains
-        # stay at two fetches with zero 404-stamp noise. Fail-open: a DNS
-        # probe failure must never break plan(). The runner injects
-        # meta["today"] at fetch time; plan() deliberately sets no today.
+        # Status-page gate: only domains whose PERSISTED DNS evidence (the
+        # extra_data["dns_evidence"] snapshot the dns-delta path writes each
+        # collect) shows status.<domain> CNAMEing to *.statuspage.io get the
+        # extra index.json poll — normal domains stay at two fetches with
+        # zero 404-stamp noise. plan() must stay pure (no live DNS probe
+        # here): the snapshot is one cycle stale by design, so the poller
+        # starts on the techstack collect AFTER the first DNS evidence
+        # lands. The runner injects meta["today"] at fetch time; plan()
+        # deliberately sets no today.
         try:
-            from src.sources.techstack.dns_probe import statuspage_target
-
-            target = statuspage_target(account.domain)
+            dns_snap = (getattr(account, "extra_data", None) or {}).get("dns_evidence") or {}
+            target = (dns_snap.get("cname") or {}).get(f"status.{account.domain}")
+            if target and not str(target).endswith(".statuspage.io"):
+                target = None
         except Exception:
             from loguru import logger
 
@@ -253,7 +258,16 @@ class TechstackSource(SourceAdapter):
                 )
             )
 
-        if prior != snapshot:
+        # Upsert only when the EVIDENCE changed (observed_at always differs,
+        # so comparing whole snapshots would rewrite the account row every
+        # cycle even on identical DNS). observed_at then reflects the last
+        # confirmed change.
+        evidence_changed = (
+            (prior.get("mx") or []) != snapshot["mx"]
+            or (prior.get("spf_includes") or []) != snapshot["spf_includes"]
+            or (prior.get("cname") or {}) != snapshot["cname"]
+        )
+        if not prior or evidence_changed:
             stored = dict(original)
             stored["dns_evidence"] = snapshot
             base.extra_data = stored
@@ -318,6 +332,11 @@ class TechstackSource(SourceAdapter):
 
         rules = load_fingerprint_rules()
         kind = (task_meta or {}).get("kind") or ""
+        if kind == "statuspage":
+            # The status page's own third-party JSON/headers must not feed
+            # vendor fingerprinting — that would attribute the statuspage
+            # host's infrastructure to the account's stack.
+            return []
         body = doc.body or b""
         use_net = kind == "network" or (not kind and body.lstrip().startswith(b"{"))
         if use_net:

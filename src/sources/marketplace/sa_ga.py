@@ -275,15 +275,15 @@ def _sa_review(rev: dict, slug: str) -> GartnerReview:
     """One SA JSON-LD ``Review`` node → GartnerReview. Never invents fields."""
     author = rev.get("author")
     name = _person_name(author)
-    # SA's JSON-LD carries no job title: the employer/org line under
-    # worksFor is the closest person metadata (lands in reviewer_title) and
-    # numberOfEmployees.value is the size band (reviewer_company_size).
+    # SA's JSON-LD carries no job title: worksFor.name is the reviewer's
+    # EMPLOYER, not a title — the reviewer-ICP join reads reviewer_title as a
+    # job title, so the org name must not land there (a company literally
+    # named "Sales" would false-match "VP Sales"). numberOfEmployees.value is
+    # the size band (reviewer_company_size).
     works_for = author.get("worksFor") if isinstance(author, dict) else None
     reviewer_title = None
     reviewer_company_size = None
     if isinstance(works_for, dict):
-        if isinstance(works_for.get("name"), str) and works_for["name"].strip():
-            reviewer_title = works_for["name"].strip()
         size = works_for.get("numberOfEmployees")
         if isinstance(size, dict) and size.get("value") is not None:
             reviewer_company_size = str(size["value"]).strip() or None

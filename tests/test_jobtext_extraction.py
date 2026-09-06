@@ -82,17 +82,36 @@ def _ev_strings(cand) -> set[str]:
 # ── case-insensitive vendor matching (the old code missed lowercase) ────────
 
 
-def test_lowercase_stack_vendors_fire_where_old_code_missed():
+def test_bare_stack_mention_does_not_assert_migration():
+    # Review fix: tech_migration_mentioned asserts a MIGRATION. A bare stack
+    # statement fires nothing — the evidence template would render
+    # "migrating from  to X" with an empty from_tech.
     cands = analyze_jobs(
         _window([_job("Our stack is built on snowflake and salesforce.", external_id="low")]),
         today=TODAY,
         cfg=CFG,
     )
+    assert not _migrations(cands)
+
+    # The lowercase-recall win lives in MIGRATION phrasing (see the allowlist
+    # test below): mentions still enrich real migration candidates' evidence.
+    cands = analyze_jobs(
+        _window(
+            [
+                _job(
+                    "We are migrating off of marketo to braze. "
+                    "Our stack is also built on snowflake.",
+                    external_id="low2",
+                )
+            ]
+        ),
+        today=TODAY,
+        cfg=CFG,
+    )
     migs = _migrations(cands)
-    assert migs, "lowercase vendor names in a stack statement must fire"
+    assert migs and migs[0].evidence_data["from_tech"] == "marketo"
     blob = _ev_strings(migs[0])
     assert "snowflake" in blob
-    assert "salesforce" in blob
 
 
 def test_lowercase_migration_pair_resolved_via_allowlist():
@@ -115,6 +134,7 @@ def test_required_stack_experience_with():
         _window(
             [
                 _job(
+                    "We are migrating off of marketo to braze. "
                     "You will need experience with Workday. "
                     "Bonus: proficiency in Snowflake.",
                     external_id="req",
@@ -125,7 +145,7 @@ def test_required_stack_experience_with():
         cfg=CFG,
     )
     migs = _migrations(cands)
-    assert migs, "required-stack phrasing with a known vendor must produce evidence"
+    assert migs, "required-stack phrasing rides a real migration candidate's evidence"
     req = migs[0].evidence_data.get("required_stack") or []
     assert "workday" in req
     assert "snowflake" in req
@@ -160,14 +180,24 @@ def test_ambiguous_common_word_requires_b2b_context():
         cfg=CFG,
     )
     assert not _migrations(alone)
-    # ...but a B2B context ("crm", "integration") legitimizes the vendor read.
+    # ...and even with B2B context, a bare mention must not fabricate a
+    # migration — it only enriches a real migration candidate's evidence.
     ctx = analyze_jobs(
-        _window([_job("Own our monday crm integration and admin work.", external_id="mon2")]),
+        _window(
+            [
+                _job(
+                    "We are migrating off of marketo to braze. "
+                    "Own our monday crm integration and admin work.",
+                    external_id="mon2",
+                )
+            ]
+        ),
         today=TODAY,
         cfg=CFG,
     )
     migs = _migrations(ctx)
-    assert migs, "monday + crm context must match"
+    assert migs, "the migration pair still fires"
+    assert migs[0].evidence_data["from_tech"] == "marketo"
     assert "monday" in _ev_strings(migs[0])
 
 
@@ -215,7 +245,14 @@ def test_capitalized_first_pair_behavior_unchanged():
 
 def test_jobtext_candidate_persists_through_normalize_batch():
     cands = analyze_jobs(
-        _window([_job("Our stack is built on snowflake and salesforce.", external_id="persist")]),
+        _window(
+            [
+                _job(
+                    "We are migrating off of marketo to braze next quarter.",
+                    external_id="persist",
+                )
+            ]
+        ),
         today=TODAY,
         cfg=CFG,
     )

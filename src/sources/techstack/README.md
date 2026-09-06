@@ -140,13 +140,15 @@ Needles for Webflow / HubSpot / GTM / GA / Meta / CookieYes / Vector were frozen
 
 ### Status-page polling
 
-When the DNS gate (`statuspage_target` in `dns_probe.py` — one CNAME query,
-fail-open) resolves `status.<domain>` to a `*.statuspage.io` host, `plan()`
-appends a third task fetching `https://<app>.statuspage.io/index.json`
-(keyless JSON). `parse` emits one `competitor_outage` per incident whose
+When the PERSISTED DNS evidence (`extra_data["dns_evidence"]`, written by the
+dns-delta snapshot each collect) shows `status.<domain>` CNAMEing to a
+`*.statuspage.io` host, `plan()` appends a third task fetching
+`https://<app>.statuspage.io/index.json` (keyless JSON) — plan stays pure, no
+live DNS probe. `parse` emits one `competitor_outage` per incident whose
 status is not `resolved`/`postmortem` (natural key
-`outage:{domain}:{incident_id}` — idempotent across cycles). Domains without
-a Statuspage CNAME get no extra fetch.
+`outage:{domain}:{incident_id}` — idempotent across cycles). The poller
+starts on the techstack collect AFTER the first DNS evidence lands (one-cycle
+delay by design); domains without a Statuspage CNAME get no extra fetch.
 
 ### Change detection (`diff_technologies`)
 

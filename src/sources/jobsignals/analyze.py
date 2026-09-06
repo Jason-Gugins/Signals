@@ -355,16 +355,15 @@ def analyze_jobs(w: JobsWindow, *, today: date, cfg: dict) -> list[SignalCandida
         pairs = _migration_pairs(desc, vocab)
         mentioned = _stack_mentions(desc, vocab)
         required = _required_stack(desc, vocab)
-        if pairs or mentioned or required:
-            if pairs:
-                frm, to = pairs[0]
-                conf = 0.7
-            elif mentioned:
-                frm, to = "", mentioned[0]
-                conf = 0.65
-            else:
-                frm, to = "", required[0]
-                conf = 0.6
+        # tech_migration_mentioned asserts a MIGRATION — bare stack mentions
+        # and required-stack text don't assert one, and the evidence template
+        # would render "migrating from  to X" with an empty from_tech. Emit
+        # only on real migration pairs; mentions/required still enrich the
+        # evidence of candidates that do fire. (The scoop scan below must run
+        # for EVERY job — only the migration emission is gated.)
+        if pairs:
+            frm, to = pairs[0]
+            conf = 0.7
             covered = {frm.casefold(), to.casefold()} - {""}
             also: list[dict] = []
             for p2 in pairs[1:]:

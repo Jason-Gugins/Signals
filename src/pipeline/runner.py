@@ -14,6 +14,7 @@ from src.core.errors import BACKOFF_MULTIPLIER, FetchErrorClass, classify_fetch_
 from src.core.filelock import exclusive_lock
 from src.core.models import Account, Document
 from src.core.runlog import RunContext
+from src.core.textutil import to_iso_date
 from src.signals.normalize import normalize_batch
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 
@@ -198,6 +199,10 @@ class CollectorRunner:
                 max_passes = int(site_cfg.get("max_review_pages", pages_default)) + 1
             except Exception:
                 max_passes = pages_default + 1
+        # The funding-drought check is per-ACCOUNT over persisted signals, not
+        # per adapter pass — run it once per _run_pair, not once per pagination
+        # pass (marketplace adapters can pass 6x).
+        drought_done = False
         for pass_i in range(max_passes):
             if pending_follow:
                 tasks = pending_follow
@@ -449,7 +454,14 @@ class CollectorRunner:
                                         icp_cands.append(
                                             SignalCandidate(
                                                 signal_type="intent_2nd_marketplace",
-                                                observed_at=getattr(r, "posted_at", None)
+                                                # posted_at can be month-precision
+                                                # ("2026-07" from Software Advice) —
+                                                # unparseable dates must fall back to
+                                                # today, or normalize_batch silently
+                                                # drops the candidate.
+                                                observed_at=to_iso_date(
+                                                    getattr(r, "posted_at", None)
+                                                )
                                                 or _iso(now)[:10],
                                                 natural_key=f"icprev:{adapter.key}:{rid}",
                                                 title=f"ICP reviewer on "
@@ -750,27 +762,30 @@ class CollectorRunner:
             # the sec_formd fanout stores funding_form_d rows with observed_at
             # dates; a prior raise gone 18-24 months silent is runway pressure
             # -> the pre-registered funding_drought type. Monthly natural key
-            # keeps re-runs and multi-adapter passes deduped. Fail-open like
+            # keeps re-runs deduped; the drought_done guard keeps one query +
+            # persist per account (not per pagination pass). Fail-open like
             # the renewal estimator above — the harvest must never block.
-            try:
-                from src.pipeline.funding import drought_candidates
+            if not drought_done:
+                drought_done = True
+                try:
+                    from src.pipeline.funding import drought_candidates
 
-                fd_rows = self.db.query(
-                    "SELECT observed_at FROM signals "
-                    "WHERE domain=? AND signal_type='funding_form_d'",
-                    (account.domain,),
-                )
-                drought_cands = drought_candidates(
-                    fd_rows, domain=account.domain, today=_iso(now)[:10]
-                )
-            except Exception:
-                logger.exception("funding drought check failed for {}", account.domain)
-                drought_cands = []
-            if drought_cands:
-                added = self._persist(account, "sec_formd", drought_cands, None)
-                stats.signals_new += added
-                stats._src(adapter.key)["signals_new"] += added
-                stats.candidates += len(drought_cands)
+                    fd_rows = self.db.query(
+                        "SELECT observed_at FROM signals "
+                        "WHERE domain=? AND signal_type='funding_form_d'",
+                        (account.domain,),
+                    )
+                    drought_cands = drought_candidates(
+                        fd_rows, domain=account.domain, today=_iso(now)[:10]
+                    )
+                except Exception:
+                    logger.exception("funding drought check failed for {}", account.domain)
+                    drought_cands = []
+                if drought_cands:
+                    added = self._persist(account, "sec_formd", drought_cands, None)
+                    stats.signals_new += added
+                    stats._src("sec_formd")["signals_new"] += added
+                    stats.candidates += len(drought_cands)
             stats.candidates += len(all_cands)
             stats._src(adapter.key)["candidates"] += len(all_cands)
             new_n = self._persist(account, adapter.key, all_cands, last_doc)
@@ -1127,10 +1142,11 @@ class CollectorRunner:
             WHERE source = 'wayback' AND domain = ? AND doc_id != ?
               AND url LIKE '%web.archive.org/web/%'
               AND url NOT LIKE '%/pricing%'
+              AND fetched_at < (SELECT fetched_at FROM documents WHERE doc_id = ?)
             ORDER BY fetched_at DESC
             LIMIT 1
             """,
-            (domain, exclude_doc_id),
+            (domain, exclude_doc_id, exclude_doc_id),
         )
         if not rows:
             return None

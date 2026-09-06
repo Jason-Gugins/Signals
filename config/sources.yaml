@@ -74,6 +74,10 @@ sources:
   linkedin_db:    { enabled: true, cadence_hours: 6 }
   repvue_db:      { enabled: true, cadence_hours: 168 }
   federal_contracts: { enabled: true, cadence_hours: 168, rate_per_host: 0.5 }  # live usaspending.gov award search (GO per P3 spike)
+  # gkg_ids identity-discovery task (plan T3b; not a cadence adapter —
+  # resolve-time only, hence enabled: false). EKG quota is 60 rpm = exactly
+  # 1 req/s with zero headroom, so pace at 0.5 req/s.
+  gkg_ids:         { enabled: false, rate_per_host: 0.5 }
   jobsignals:
     enabled: true
     cadence_hours: 12

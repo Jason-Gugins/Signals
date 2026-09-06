@@ -32,6 +32,9 @@ rerank = [
     "tokenizers>=0.20",
     "huggingface_hub>=0.24",
 ]
+# Google Knowledge Graph identity discovery (gkg_ids): EKG service-account
+# auth; deferred import keeps the offline lane green without it.
+gkg = ["google-auth>=2"]
 
 [project.scripts]
 signals = "src.cli:main"

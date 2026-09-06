@@ -189,6 +189,98 @@ def test_signature_is_deterministic_per_body():
 
 
 # ---------------------------------------------------------------------------
+# Per-webhook signature options: legacy | hub | stripe
+# ---------------------------------------------------------------------------
+
+
+def test_legacy_signature_explicit_option_unchanged():
+    """signature='legacy' (the default) pins today's header exactly."""
+    secret = "whsec_legacy"
+    c = CapturingClient([200])
+    sent = post_json_webhook(
+        [_alert()], "https://hooks.example/json",
+        signing_secret=secret, signature="legacy", client=c, sleep=NoSleep(),
+    )
+    assert sent == 1
+    headers = c.calls[0]["headers"]
+    assert headers["X-Signature"] == _expected_signature(secret, c.calls[0]["body"])
+    assert "X-Hub-Signature-256" not in headers
+    assert "Stripe-Signature" not in headers
+
+
+def test_hub_signature_header_matches_wire_body():
+    secret = "whsec_hub"
+    c = CapturingClient([200])
+    sent = post_json_webhook(
+        [_alert()], "https://hooks.example/json",
+        signing_secret=secret, signature="hub", client=c, sleep=NoSleep(),
+    )
+    assert sent == 1
+    headers = c.calls[0]["headers"]
+    assert "X-Signature" not in headers
+    assert "Stripe-Signature" not in headers
+    # Same exact-body-bytes HMAC as legacy, under the GitHub-style header name.
+    assert headers["X-Hub-Signature-256"] == _expected_signature(secret, c.calls[0]["body"])
+
+
+def test_stripe_signature_scheme_with_injected_clock():
+    secret = "whsec_stripe"
+    c = CapturingClient([200, 200])
+    a1, a2 = _alert(typ="funding_round"), _alert(domain="other.com", typ="hiring_surge")
+    post_json_webhook(
+        [a1], "https://hooks.example/json", signing_secret=secret,
+        signature="stripe", now=1_000_000_000, client=c, sleep=NoSleep(),
+    )
+    post_json_webhook(
+        [a2], "https://hooks.example/json", signing_secret=secret,
+        signature="stripe", now=1_000_000_500, client=c, sleep=NoSleep(),
+    )
+    assert len(c.calls) == 2
+    first, second = c.calls
+    assert "X-Signature" not in first["headers"]
+    assert "X-Hub-Signature-256" not in first["headers"]
+
+    def _parse(call):
+        parts = dict(p.split("=", 1) for p in call["headers"]["Stripe-Signature"].split(","))
+        assert set(parts) == {"t", "v1"}
+        return parts
+
+    p1, p2 = _parse(first), _parse(second)
+    assert p1["t"] == "1000000000"  # t comes from the injected clock
+    assert p2["t"] == "1000000500"
+    assert p1["t"] != p2["t"]  # different injected now -> different timestamp
+    # v1 = HMAC-SHA256 of "<t>.<body>" over the EXACT wire bytes.
+    for parts, call in ((p1, first), (p2, second)):
+        expected = hmac.new(
+            secret.encode("utf-8"), f"{parts['t']}.".encode("utf-8") + call["body"], hashlib.sha256
+        ).hexdigest()
+        assert parts["v1"] == expected
+    assert p1["v1"] != p2["v1"]
+
+
+def test_unknown_signature_value_falls_back_to_legacy_with_warning(caplog):
+    secret = "whsec_x"
+    c = CapturingClient([200])
+    bridge = LoguruCaplog(caplog)
+    try:
+        with bridge:
+            sent = post_json_webhook(
+                [_alert()], "https://hooks.example/json",
+                signing_secret=secret, signature="carrier_pigeon",
+                client=c, sleep=NoSleep(),
+            )
+    except Exception:
+        bridge.__exit__(None, None, None)
+        raise
+    assert sent == 1  # delivery is never dropped by a bad option value
+    headers = c.calls[0]["headers"]
+    assert headers["X-Signature"] == _expected_signature(secret, c.calls[0]["body"])
+    assert "X-Hub-Signature-256" not in headers
+    assert "Stripe-Signature" not in headers
+    assert any("carrier_pigeon" in m for m in bridge.messages())
+
+
+# ---------------------------------------------------------------------------
 # Retry reuse (same hardened skeleton as post_webhook)
 # ---------------------------------------------------------------------------
 
@@ -317,6 +409,24 @@ def test_deliver_alerts_missing_secret_env_skips_with_warning(caplog):
     assert any(missing in m for m in bridge.messages())
 
 
+def test_signature_option_flows_through_deliver_alerts(monkeypatch):
+    """The per-webhook dict carries `signature` exactly like format/secret_env."""
+    from src.export.alerts import deliver_alerts
+
+    monkeypatch.setenv("HOOK_SIG_OPTION_TEST", "s3cret")
+    c = CapturingClient([200])
+    sent = deliver_alerts(
+        [_alert()],
+        [{"url": "https://hooks.example/json", "format": "json",
+          "secret_env": "HOOK_SIG_OPTION_TEST", "signature": "hub"}],
+        client=c, sleep=NoSleep(),
+    )
+    assert sent == 1
+    headers = c.calls[0]["headers"]
+    assert "X-Signature" not in headers
+    assert headers["X-Hub-Signature-256"] == _expected_signature("s3cret", c.calls[0]["body"])
+
+
 # ---------------------------------------------------------------------------
 # Config: ALERT_WEBHOOKS_JSON parsing
 # ---------------------------------------------------------------------------
@@ -343,6 +453,20 @@ def test_config_alert_webhooks_json_valid_list(tmp_path, monkeypatch):
         {"url": "https://example.com/hook", "format": "json", "secret_env": "HOOK_ONE"},
         {"url": "https://hooks.example/slack", "format": "slack"},
     ]
+
+
+def test_config_alert_webhooks_json_signature_key_passthrough(tmp_path, monkeypatch):
+    """The signature option rides the same per-webhook dict as format/secret_env
+    (ALERT_WEBHOOKS_JSON entries pass through verbatim, no key whitelist)."""
+    raw = json.dumps(
+        [
+            {"url": "https://example.com/hook", "format": "json",
+             "secret_env": "HOOK_ONE", "signature": "stripe"},
+        ]
+    )
+    monkeypatch.setenv("ALERT_WEBHOOKS_JSON", raw)
+    cfg = _load_cfg(tmp_path, monkeypatch)
+    assert cfg.alert_webhooks[0]["signature"] == "stripe"
 
 
 def test_config_alert_webhooks_default_empty(tmp_path, monkeypatch):

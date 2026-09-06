@@ -37,6 +37,8 @@ NEGATIVES = [
     ("product_launch", "Acme launch party tonight"),
     ("ma_acquirer", "Acme customer acquisition cost drops"),
     ("security_breach", "Acme data breach insurance premiums surge"),
+    ("security_breach", "Acme breached its contract with the customer"),
+    ("security_breach", "Acme faces a contract breach lawsuit"),
 ]
 
 

@@ -6,10 +6,20 @@ single account identity graph, scores and tiers them per High Probability
 Prospecting (HPP), maps each signal to a sales play, and exports ranked
 account briefs.
 
-No paid APIs. No ZoomInfo, Apollo, Exa, BuiltWith, or Bombora.
+No paid APIs. No ZoomInfo, Apollo, Exa, BuiltWith, or Bombora. The only keyed
+integrations are free and stay off until credentials exist: `GITHUB_TOKEN`
+(raised GitHub API rate limit) and Google's Knowledge Graph APIs — Cloud
+Enterprise Knowledge Graph, with the legacy Knowledge Graph Search API as a
+fallback (identity discovery only; see *Identity discovery* below).
 
 Public, business-relevant data only. Polite HTTP (`robots.txt` honored by
 default). A real contact address in the User-Agent. Rate limits are floors.
+The one documented exception: the optional DuckDuckGo SERP stage of
+`sweep --discover --ddg` — duckduckgo.com's robots.txt disallows scraping and
+the curl tier carries no robots logic, so that stage ships off by default,
+runs only at resolve time (never on a collection cadence, one request per
+lookup), and is probe-gated (see
+`data/probe/KEYLESS_IDENTITY_2026_09.md`).
 Marketplace scraping is opt-in — see the *Sources* section below for the full
 gate and per-site options.
 
@@ -78,7 +88,9 @@ populate it (a human provides):
 Also: `sweep <url-or-domain> [--force]` (one-command onboarding: seed-or-update
 the account from a URL or bare domain, then run every enabled source for it —
 `--force` recollects even if the account already exists; bare company names are
-refused in v1, sources whose required account fields are missing are reported
+refused — use `sweep --discover "Name"` / `sweep --competitors "Name"` for
+name-keyed discovery, see *Identity discovery* below — sources whose required
+account fields are missing are reported
 as skipped, and LinkedIn deepen stays a separate manual `deepen` call), `init`,
 `resolve` (`--g2`, `--capterra` — slug discovery via each
 marketplace's search; `--cik`/`--ats`/`--feeds`/`--icp` always-on resolvers;
@@ -102,6 +114,51 @@ Outputs land in `data/exports/`, `data/briefs/`, `data/digests/`, and
 `data/alerts/`. Run logs rotate in `data/logs/` keyed by run ID (10 MB
 rotation, configured via `logging.logs_dir`).
 Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
+
+## Identity discovery
+
+`sweep --discover "Company Name"` resolves a bare company name to a domain
+through a keyless waterfall. Discovery never creates accounts — the outcome is
+a printed report plus a review queue:
+
+1. **Wikidata** — `P856` official website
+2. **Wikipedia** — external links
+3. **Google Knowledge Graph** — credential-gated, see below (the `gkg_ids`
+   entry ships `enabled: false` in `config/sources.yaml` — it is not a cadence
+   adapter, the waterfall calls it at resolve time only)
+4. **DuckDuckGo SERP** — only behind `--ddg` (the probe-gated robots exception
+   owned at the top of this README)
+
+A run reports `resolved` when a single stage returns an unambiguous hit, or
+when two stages agree on the same root domain (the 2-source apex rule, e.g.
+Wikidata `P856` == GKG url — the agreeing stages are printed). Everything else
+is `ambiguous`/`no_match`. Ranked candidates land in the `identity_candidates`
+review queue either way (kind=domain; alternates from resolved runs included)
+and `doctor` surfaces the pending count. Promotion is always human: rerun
+`sweep <chosen-domain>` to onboard the account.
+
+**GKG credentials.** Both GKG stages are silent no-ops (`status:
+unconfigured`) until configured; the doctor's `gkg_credentials` check WARNs
+while they are:
+
+- **EKG (default backend)** — enable the Enterprise Knowledge Graph API in the
+  Google Cloud console, create a service account, set `GOOGLE_APPLICATION_CREDENTIALS`
+  (path to its JSON key) and `GKG_PROJECT_ID`, and install the optional extra:
+  `.\.venv\Scripts\python.exe -m pip install -e ".[gkg]"` (google-auth; bare
+  API keys do not work on EKG — auth is a service-account OAuth2 bearer token).
+- **Legacy fallback** — set `gkg_backend: kgsearch` in `config/default.yaml`
+  and `GOOGLE_KGSEARCH_KEY` (a bare API key).
+
+Only derived fields (name, url, entity id, domain) are ever persisted — never
+raw Google payloads.
+
+`sweep --competitors "Company Name"` mines comparison headlines (Bing News RSS
++ HN Algolia, keyless) into the same queue as kind=competitor rows. Promotion
+is a human edit: approved domains go into `config/lists/competitors.txt`
+(drives the `icp.yaml` competitor disqualifier) and/or names into
+`competitors:` in `config/fingerprints.yaml` (drives `competitor_detected`).
+The G2 competitors-page pass is deferred — DataDome-challenged, see
+`data/probe/G2_COMPETITORS_2026_09.md` (needs fresh cookies or solver keys).
 
 ## Email delivery
 
@@ -208,7 +265,11 @@ P2 added signal families beyond news: `pricing_change` (wayback snapshots of
 `/pricing` diffed each cycle — a plan/price change means budget is moving) and
 `hiring_surge` (open-role deltas from the ATS/job-board sources, with both a
 minimum percentage delta and an absolute-count floor so tiny boards don't
-fire). Entity resolution (`normalize_entity` + fuzzy match, `config`
+fire). The catalog now holds **51 signal types** — newer additions:
+`security_breach` (news-classified breach detection; maps to the
+`trust_rebuild_pitch` play) and `relocation` (BBB business-profile address
+delta, fires only for accounts seeded with a `bbb_url`). Entity resolution
+(`normalize_entity` + fuzzy match, `config`
 `entity_aliases`) ties same-company variants across sources to one account,
 and `config/icp.yaml` scores accounts at seed time so tiering is real from
 day one.
@@ -289,21 +350,29 @@ bypass — honest limits are documented. Full notes: [`src/antibot/README.md`](s
   play outcomes with `plays --outcome`, then `plays-calibrate` feeds decided
   outcomes into the table (P2 backtesting, migration v5).
 - **DB migrations** — schema changes run as ordered, transactional migrations
-  tracked by `PRAGMA user_version` (currently v6), with a startup
+  tracked by `PRAGMA user_version` (currently v7), with a startup
   `integrity_check`.
 - **Account health gate** — a pure polarity score (`src/signals/health.py`,
   weights in `config/health.yaml`) suppresses growth-family plays for
   negative-signal accounts (default threshold −0.5; `health_gate` in
   `config/plays.yaml`).
 - **Signed webhooks** — beyond the Slack channel, `ALERT_WEBHOOKS_JSON`
-  configures generic JSON webhooks with optional HMAC `X-Signature` signing
-  (secret referenced by env-var name, resolved at send time).
+  configures generic JSON webhooks with optional HMAC signing (secret
+  referenced by env-var name, resolved at send time). Each entry takes a
+  per-webhook `signature` option: `legacy` (`X-Signature: sha256=<hex>`,
+  default), `hub` (`X-Hub-Signature-256: sha256=<hex>`), or `stripe`
+  (`Stripe-Signature: t=<unix-seconds>,v1=<hex>`); unknown values fall back to
+  `legacy` with a warning.
 - **Per-tier routing** — `ALERT_ROUTES_JSON` (a JSON array of
   `{min_tier, max_tier, webhooks, digest?}`) routes alerts by account tier to
   specific webhooks or digest-only; absent = all alerts to all webhooks.
 - **Export destinations** — `exports.destinations` in `config/default.yaml`
   (default `[{type: file}]`) configures the fan-out; add
-  `{type: webhook, ...}` for signed alert-webhook delivery via the same path.
+  `{type: webhook, ...}` for signed alert-webhook delivery via the same path,
+  or `{type: slack}` — the same webhook destination with Slack payloads pinned,
+  for Slack-app incoming webhooks (self-contained install flow; the webhook URL
+  is itself the revocable secret; channel and icon are fixed in the Slack app
+  config and not overridable per message).
 - **Raw-store quota** — set `storage.raw_quota_mb` in `config/default.yaml` to
   cap `data/raw` disk usage (doctor/status WARN when exceeded; off by default).
 

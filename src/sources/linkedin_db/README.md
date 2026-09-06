@@ -16,7 +16,7 @@ touches LinkedIn itself.
 - **`deepen` (manual only)** — `python -m src.cli deepen --domain <domain>
   [--max-people N] [--timeout S]` runs the scraper's own CLI (`extract
   --url https://www.linkedin.com/company/<slug>/`) as a subprocess,
-  writing output to `data/logs/deepen_<domain>.log`. This is the only path
+  writing output to `data/logs/deepen_<linkedin_slug>.log`. This is the only path
   that touches LinkedIn live, and it is **manual-trigger by design** — the 6h
   cadence reads the local DB only.
 

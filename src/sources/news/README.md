@@ -8,7 +8,7 @@ The signal layer is a **rule-based classifier** (`classify.py`) with **attributi
 
 ## Quickstart
 
-Prereqs: Python 3.11+, a `Signals` checkout with `.venv` created (see the [root README](../../README.md) — install is `pip install -e .`), and an account seeded (`python -m src.cli seed ...`). Run from the repo root. **Enable the sources + set `blog_feed_url` for `company_feed` in `config/sources.yaml`**, then:
+Prereqs: Python 3.12+, a `Signals` checkout with `.venv` created (see the [root README](../../README.md) — install is `pip install -e .`), and an account seeded (`python -m src.cli seed ...`). Run from the repo root. **The three sources ship `enabled: true` — confirm in `config/sources.yaml`, and set `blog_feed_url` on accounts for `company_feed`**, then:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli collect --source news_rss --force
@@ -33,7 +33,7 @@ sources:
     enabled: true
     cadence_hours: 12
     rate_per_host: 0.5
-    serp_keywords: [fundraising, series, new leadership, CEO, product launch, launches, GTM, acquisition, acquires]
+    serp_keywords: [fundraising, series, new leadership, CEO, product launch, launches, GTM, acquisition, acquires, data breach]
   company_feed: { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["blog_feed_url"] }
 ```
 
@@ -89,7 +89,7 @@ Beyond the plain `"CompanyName"` query, `google_news` runs one **keyword-augment
 3. Emits a `SignalCandidate` with a confidence, amount/round-stage extraction where relevant, and a `natural_key`.
 4. **Summary-only confidence floor** — a candidate that matched only in the summary (not the title) is capped at confidence 0.6.
 
-### Structured evidence_data (Task 18)
+### Structured evidence_data
 
 Beyond the regex `extract` vars (`amount`, `round_stage`), `classify.py` adds
 **structured** fields, sourced from the **attribution-stripped headline only**
@@ -140,6 +140,14 @@ line if you expect ranking and see none.
 - **Add a signal rule** (new signal type) — add a `NewsRule` to `NEWS_RULES` in `classify.py`.
 - **If the new keyword/name collides with an English word** (e.g. `signal`, `slack`) — also add it to `_COMMON_WORD_NAMES` in `classify.py` so the common-word guard applies.
 
+## Verify / troubleshoot
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli selfcheck --source news_rss
+```
+
+States: `ok` / `drift` / `empty` / `challenge` / `error` (challenge and empty exit 0; drift and error exit 1). If scoring logs `"rerank model unavailable, reranking disabled: ..."`, install the extra: `pip install -e ".[rerank]"` — the pipeline keeps running without it.
+
 ## Layout
 
 | File | Role |
@@ -159,6 +167,7 @@ line if you expect ranking and see none.
 - `test_news_feeds.py` — URL builders, feed parse/unwrap, SERP config loader, publisher-domain resolution (default None, `?url=`/summary-link paths, failure→None, bounded cache).
 - `test_news_classify.py` — rules, guard behavior, publisher-domain ladder tiers (accept/reject/fallback), live-test regression cases (Gartner as publisher, Levitate festival/artwork, Glow beauty noise) frozen so the false positives can't return.
 - `test_news_collector_parse.py` — end-to-end `parse()` on frozen RSS fixtures.
+- `test_news_collector_rerank.py` — rerank-aware candidate capping and NullScorer degradation.
 
 All offline — fixtures under `tests/fixtures/news/`, no live network (conftest blocks `httpx.Client.send`).
 

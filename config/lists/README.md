@@ -15,3 +15,9 @@ Jane Doe,jane-doe,Gong,gong.io,former AE,2026-01-15,used us at Gong
 ```
 
 A champion row needs `name` AND (`linkedin_slug` OR `prior_domain`).
+
+Load the champion CSV (the only file with a loader command):
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli champions --load config/lists/champions.csv
+```

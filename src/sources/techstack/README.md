@@ -71,7 +71,7 @@ Cap **80 unique hosts**, third-party first (first-party CSS/fonts no longer fill
 
 ## Cloudflare bypass
 
-When the HTTP fetch hits a Cloudflare challenge (403 or `challenges.cloudflare.com`), the techstack source attempts to bypass it in tiers. Detection uses `classify_cloudflare_challenge` (fingerprint.py), which inspects the response status + body and returns `"js"` (standard JS challenge), `"managed"` (Turnstile / interactive), or `None`. The bypass is shared with the marketplace sources — the runner gates on `_CF_BYPASS_SOURCES` (techstack + the three marketplace adapters), so other sources retain the 403 hard-stop.
+When the HTTP fetch hits a Cloudflare challenge (403 or `challenges.cloudflare.com`), the techstack source attempts to bypass it in tiers (6, including the optional SignalsShadow tier). Detection uses `classify_cloudflare_challenge` (fingerprint.py), which inspects the response status + body and returns `"js"` (standard JS challenge), `"managed"` (Turnstile / interactive), or `None`. The bypass is shared with the marketplace sources — the runner gates on `_CF_BYPASS_SOURCES` (techstack + the three marketplace adapters), so other sources retain the 403 hard-stop.
 
 The runner stores 403 response bodies in a doc (http.py) so `classify_cloudflare_challenge` can inspect them. On a challenge, it invokes `CloudflareBypass.attempt()` and sets a `cloudflare_unsolved` meta flag. The collector gates stripping on this flag — if unsolved, only `cloudflare` is recorded (no techstack invented).
 
@@ -180,7 +180,7 @@ Unknown hosts persist via `harvest_tech` → `technologies` as `host:…`.
 | `collector.py` | `TechstackSource` — plan, parse, `harvest_tech`; gates stripping on `cloudflare_unsolved` meta flag; merges DNS-probe matches (html-task-gated, fail-open) |
 | `diff.py` | `diff_technologies` — pure prior-cycle vendor diff → `tech_install_new` / `tech_churn` candidates |
 | `fingerprint.py` | evidence, `observed_hosts`, `dynamic_matches`, `promote_or_observe`, `classify_cloudflare_challenge` |
-| `cf_bypass.py` | `CloudflareBypass` — 5-tier bypass waterfall (`attempt()`) |
+| `cf_bypass.py` | `CloudflareBypass` — 6-tier bypass waterfall (`attempt()`) |
 | `cf_solver.py` | 2Captcha/anti-captcha adapter — returns Turnstile token (not a cookie) |
 | `datadome.py` / `datadome_bypass.py` / `datadome_solver.py` | DataDome challenge detection, bypass waterfall, and 2Captcha solver (marketplace_g2-scoped — see the marketplace README) |
 | `dns_probe.py` | MX / SPF / CNAME probe — wired into `harvest_tech` (html-task-gated, fail-open; needs `dnspython`, a hard dependency). The raw evidence is snapshotted into `extra_data["dns_evidence"]` each collect; a removed spf_include that no fingerprint rule claims emits `tech_churn` (mail-vendor switch, key `dnschurn:{domain}:{include}:{month}`) |

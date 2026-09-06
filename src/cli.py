@@ -65,7 +65,11 @@ def init(ctx):
     lists = Path("config/lists")
     readme = lists / "README.md"
     if not readme.exists():
-        readme.write_text("Drop champions.csv, exclusions.txt, email_patterns.csv here.\n", encoding="utf-8")
+        readme.write_text(
+            "Drop competitors.txt, customers.txt, dnc.txt, champions.csv here.\n"
+            "See this directory's README.md for formats.\n",
+            encoding="utf-8",
+        )
     click.echo("Initialized data/ and config/lists/. Next: signals seed --csv accounts.csv")
 
 

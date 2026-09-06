@@ -178,6 +178,27 @@ def _host_hit(host: str, needle: str) -> bool:
     return h == n or h.endswith("." + n)
 
 
+def _header_hit(headers, spec: dict) -> bool:
+    """True when ANY (key, value) pair in the rule's ``header`` match spec is
+    present in the response headers with a casefolded SUBSTRING value match.
+
+    Header keys are matched case-insensitively (``extract_http_evidence``
+    lowercases them; this lookup re-lowercases defensively for synthetic
+    evidence objects). An evidence object without a ``headers`` attribute or
+    an empty one can never hit.
+    """
+    if not headers or not spec:
+        return False
+    low = {str(k).lower(): v for k, v in headers.items()}
+    for key, needle in spec.items():
+        actual = low.get(str(key).lower())
+        if actual is None:
+            continue
+        if str(needle).casefold() in str(actual).casefold():
+            return True
+    return False
+
+
 def is_challenge_evidence(ev, *, status: int | None = None) -> bool:
     if status == 403:
         return True
@@ -242,6 +263,10 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
         needles = match.get("network_host") or []
         if any(_host_hit(h, s) for h in (getattr(ev, "hosts", ()) or ()) for s in needles):
             evidence = evidence or "network_host"
+        # Response-header evidence (Task 14): HttpEvidence carries the fetch's
+        # response headers; DNS/network evidence objects have none.
+        if _header_hit(getattr(ev, "headers", None), match.get("header") or {}):
+            evidence = evidence or "header"
         if evidence:
             cat = spec.get("category") or []
             if isinstance(cat, str):
@@ -253,7 +278,7 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
                     category=list(cat),
                     tier=spec.get("tier") or "mid",
                     evidence=evidence,
-                    confidence=0.8 if evidence in {"script_src", "mx", "network_host"} else 0.7,
+                    confidence=0.8 if evidence in {"script_src", "mx", "network_host", "header"} else 0.7,
                 )
             )
     return hits

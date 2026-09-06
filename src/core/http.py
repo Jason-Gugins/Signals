@@ -48,6 +48,10 @@ class FetchResult:
     error: Optional[str]
     elapsed_ms: int
     cloudflare_cookies: list = field(default_factory=list)
+    # Response headers from the 2xx path (keys lowercased), in-memory only —
+    # Documents are not extended and nothing is persisted. Other construction
+    # sites (errors, 304, browser shims) default to empty.
+    headers: dict = field(default_factory=dict)
 
 
 class RobotsCache:
@@ -244,6 +248,7 @@ class HttpFetcher:
                     result = FetchResult(
                         ok=True, status=status, doc=doc, cached=False,
                         error=_attempts_note(attempts), elapsed_ms=_elapsed(started),
+                        headers={k.lower(): v for k, v in response.headers.items()},
                     )
                     self._log(task, result, attempts=attempts)
                     return result

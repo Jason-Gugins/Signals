@@ -135,7 +135,9 @@ class TechstackSource(SourceAdapter):
             except (json.JSONDecodeError, TypeError, ValueError):
                 return []
         else:
-            ev = extract_http_evidence(body, {}, doc.url or "")
+            ev = extract_http_evidence(
+                body, (task_meta or {}).get("response_headers") or {}, doc.url or ""
+            )
         matches = promote_or_observe(ev, rules, domain=account.domain)
         if (task_meta or {}).get("cloudflare_unsolved"):
             matches = [m for m in matches if m.vendor == "cloudflare"]
@@ -217,7 +219,9 @@ class TechstackSource(SourceAdapter):
             except (json.JSONDecodeError, TypeError, ValueError):
                 return []
         else:
-            ev = extract_http_evidence(body, {}, doc.url or "")
+            ev = extract_http_evidence(
+                body, (task_meta or {}).get("response_headers") or {}, doc.url or ""
+            )
         matches = promote_or_observe(ev, rules, domain=account.domain)
         if (task_meta or {}).get("cloudflare_unsolved"):
             matches = [m for m in matches if m.vendor == "cloudflare"]

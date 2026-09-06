@@ -71,12 +71,36 @@ def tech_to_candidates(domain, new_vendors, gone_vendors, all_rows, rules, compe
     return out
 
 
+# Single DNS probe per (domain, collect-day): the runner calls BOTH parse()
+# and harvest_tech() for the same html fetch, and both need the DnsEvidence
+# (parse for the snapshot/delta, harvest for vendor matching). Keyed by
+# domain+today and pruned to the current day so memory stays bounded; tests
+# clear it per-case via tests/test_dns_delta.py's autouse fixture.
+_DNS_CACHE: dict = {}
+
+
+def probe_dns_cached(domain: str, today: str):
+    """probe_dns result memoized per (domain, today) so ONE probe serves the
+    whole collect. Resolves dns_probe.probe_dns lazily so monkeypatching the
+    probe module keeps working."""
+    key = (str(domain), str(today))
+    ev = _DNS_CACHE.get(key)
+    if ev is not None:
+        return ev
+    from src.sources.techstack.dns_probe import probe_dns
+
+    ev = probe_dns(domain)
+    for k in [k for k in _DNS_CACHE if k[1] != str(today)]:
+        _DNS_CACHE.pop(k, None)
+    _DNS_CACHE[key] = ev
+    return ev
+
+
 @register
 class TechstackSource(SourceAdapter):
     key = "techstack"
     tier = "http"
     cadence_hours = 168
-
     def plan(self, account, cursor):
         tasks = [
             FetchTask(source=self.key, url=f"https://{account.domain}/", domain=account.domain, meta={"kind": "html"}),
@@ -143,7 +167,7 @@ class TechstackSource(SourceAdapter):
             matches = [m for m in matches if m.vendor == "cloudflare"]
         today = date.fromisoformat(task_meta["today"])
         named = [m for m in matches if m.tier != "unknown"]
-        return tech_to_candidates(
+        cands = tech_to_candidates(
             account.domain,
             [m.vendor for m in named],
             [],
@@ -152,6 +176,89 @@ class TechstackSource(SourceAdapter):
             list(rules.get("competitors") or []),
             today=today,
         )
+        if kind in ("", "html"):
+            # DNS raw delta (Task 14): the probe already runs for html tasks;
+            # snapshot its DnsEvidence on the account and diff spf_includes
+            # cycle-over-cycle. Candidates are parse's return type, so the
+            # emission rides here rather than on harvest_tech (which returns
+            # TechMatch objects, not candidates).
+            cands = list(cands) + self._dns_delta(account, task_meta, rules, today)
+        return cands
+
+    def _dns_delta(self, account, task_meta, rules, today):
+        """Snapshot DnsEvidence into extra_data['dns_evidence'] and emit
+        tech_churn for spf_includes that disappeared since the prior snapshot.
+
+        Contract (mirrors the BBB rating baseline): the snapshot is persisted
+        through the runner-injected AccountRegistry — registry.get(domain) ->
+        MERGE into extra_data -> registry.upsert — so unrelated keys survive.
+        No registry in task_meta -> nothing. A totally empty probe result
+        (dnspython missing, total DNS failure) persists and emits NOTHING: a
+        probe failure must never masquerade as mail-vendor churn. Includes
+        claimed by any fingerprint rule's spf_include needles are skipped —
+        those vendors already have their own diff. today is a date built from
+        task_meta (no clock reads — purity).
+        """
+        registry = (task_meta or {}).get("registry")
+        if registry is None:
+            return []
+        today_iso = today.isoformat()
+        try:
+            ev = probe_dns_cached(account.domain, today_iso)
+        except Exception:
+            from loguru import logger
+
+            logger.exception("dns probe failed for {}", account.domain)
+            return []
+        # Probe produced nothing at all -> DNS unavailable; never treat that
+        # as "all includes removed".
+        if not (ev.mx or ev.txt or ev.spf_includes or ev.cname or ev.ns):
+            return []
+        snapshot = {
+            "observed_at": today_iso,
+            "mx": list(ev.mx),
+            "spf_includes": list(ev.spf_includes),
+            "cname": dict(ev.cname),
+        }
+
+        base = registry.get(account.domain) or account
+        original = dict(getattr(base, "extra_data", None) or {})
+        prior = original.get("dns_evidence") or {}
+
+        removed: list[str] = []
+        if prior:
+            current = set(ev.spf_includes)
+            removed = [i for i in (prior.get("spf_includes") or []) if i not in current]
+
+        claimed = set()
+        for spec in (rules.get("vendors") or rules).values():
+            match = (spec or {}).get("match") or {}
+            claimed.update(str(n).casefold() for n in match.get("spf_include") or [])
+        iso_month = today_iso[:7]
+        out = []
+        for inc in removed:
+            if str(inc).casefold() in claimed:
+                continue
+            out.append(
+                SignalCandidate(
+                    "tech_churn",
+                    today_iso,
+                    f"dnschurn:{account.domain}:{inc}:{iso_month}",
+                    title=f"SPF include removed: {inc}",
+                    confidence=0.5,
+                    evidence_data={
+                        "spf_include_removed": inc,
+                        "kind": "mail_vendor_switch",
+                    },
+                )
+            )
+
+        if prior != snapshot:
+            stored = dict(original)
+            stored["dns_evidence"] = snapshot
+            base.extra_data = stored
+            registry.upsert(base)
+        return out
 
     def _parse_statuspage(self, doc, account, task_meta):
         """statuspage index.json -> competitor_outage candidates (PURE).
@@ -240,10 +347,16 @@ class TechstackSource(SourceAdapter):
                 ]
         if kind in ("", "html"):
             try:
-                from src.sources.techstack.dns_probe import dns_evidence_to_matches, probe_dns
+                from src.sources.techstack.dns_probe import dns_evidence_to_matches
                 from src.sources.techstack.fingerprint import merge_matches
 
-                matches = merge_matches(matches, dns_evidence_to_matches(probe_dns(account.domain), rules))
+                # Shared (domain, today)-keyed probe: parse() already probed
+                # for the dns_evidence snapshot — reuse it instead of paying
+                # ~12 DNS queries a second time per collect.
+                dns_ev = probe_dns_cached(
+                    account.domain, str((task_meta or {}).get("today") or "")
+                )
+                matches = merge_matches(matches, dns_evidence_to_matches(dns_ev, rules))
             except Exception:
                 # Fail-open, but diagnosable: a silently broken probe would be
                 # indistinguishable from "no DNS evidence for this domain".

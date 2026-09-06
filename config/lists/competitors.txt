@@ -1,0 +1,7 @@
+# One competitor domain per line (apex form, e.g. competitor.com).
+# Lines starting with # are ignored.
+# Populated by hand after approving candidates from: sweep --competitors NAME
+# (kind=competitor rows in the identity_candidates review queue; the doctor
+# surfaces the pending count).
+# Used by icp.yaml disqualifiers.domain_in_file and the config/fingerprints.yaml
+# competitor_detected wiring.

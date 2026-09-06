@@ -217,6 +217,23 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
             add(f"write:{d}", "FAIL", str(exc))
     lists = Path(config.config_dir) / "lists"
     add("lists", "OK" if lists.exists() else "WARN", str(lists))
+    # identity_candidates review queue (plan T2): pure db read — a human
+    # backlog is a WARN, never a FAIL.
+    try:
+        pending = db.one(
+            "SELECT COUNT(*) AS n FROM identity_candidates WHERE status = 'pending'"
+        )["n"]
+        if pending:
+            add(
+                "identity_candidates_pending",
+                "WARN",
+                f"{pending} pending identity candidates "
+                "(review via sweep --discover / candidates list)",
+            )
+        else:
+            add("identity_candidates_pending", "OK", "no pending identity candidates")
+    except Exception as exc:
+        add("identity_candidates_pending", "WARN", f"check skipped: {exc}")
     if check_network:
         try:
             import httpx

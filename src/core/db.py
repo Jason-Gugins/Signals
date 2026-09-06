@@ -411,6 +411,34 @@ def _create_play_outcomes(conn: sqlite3.Connection) -> None:
     )
 
 
+def _create_identity_candidates(conn: sqlite3.Connection) -> None:
+    """v7 (plan T2): identity_candidates — review queue for identity discovery.
+
+    Discovery resolvers (sweep --discover, competitor/news mining) write
+    RANKED CANDIDATES here instead of touching accounts. A row becomes an
+    account only when a human accepts a candidate (set_decision accepted +
+    chosen_domain) and reruns `sweep <chosen-domain>` — the same
+    never-auto-merge policy as entity_aliases, one step earlier in the
+    funnel. status: pending|accepted|rejected.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS identity_candidates (
+            name            TEXT NOT NULL,   -- queried entity name (normalize_entity form)
+            kind            TEXT NOT NULL,   -- what the name refers to: account|competitor|...
+            candidates_json TEXT NOT NULL,   -- JSON list of ranked candidate dicts
+            chosen_domain   TEXT,            -- set only by a human accept decision
+            status          TEXT NOT NULL DEFAULT 'pending',  -- pending|accepted|rejected
+            source          TEXT,            -- resolver that produced the candidates
+            created_at      TEXT NOT NULL,   -- isoformat UTC, injected by IdentityCandidateStore
+            PRIMARY KEY (name, kind)
+        )
+        """
+    )
+    # NOTE: no index on status — the queue is human-gated and tiny by design
+    # (v6 policy: always-full-scanned tables get no index).
+
+
 def _add_maintenance_indexes(conn: sqlite3.Connection) -> None:
     """v6 (Task 24): hot-path indexes found by EXPLAIN QUERY PLAN review.
 
@@ -438,6 +466,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (4, "create entity_aliases table (manual/config-driven alias map, never auto-merged)", _create_entity_aliases),
     (5, "create play_outcomes table (local play outcome backtesting)", _create_play_outcomes),
     (6, "maintenance indexes + hot-path review", _add_maintenance_indexes),
+    (7, "create identity_candidates table (human review queue for identity discovery)", _create_identity_candidates),
 ]
 
 LATEST_VERSION: int = max(v for v, _, _ in MIGRATIONS)
@@ -709,6 +738,79 @@ class DataDomeCookieStore:
 
     def clear(self, domain: str) -> None:
         self.db.execute("DELETE FROM datadome_cookies WHERE domain=?", (domain,))
+
+
+class IdentityCandidateStore:
+    """Review queue for identity discovery (plan T2).
+
+    Resolvers write ranked candidate domains per (name, kind); a human
+    accepts one via set_decision (which requires the chosen domain) and
+    reruns `sweep <chosen-domain>` to create the account. Nothing here ever
+    writes to accounts — same never-auto-merge policy as entity_aliases.
+    """
+
+    def __init__(self, db: "Database"):
+        self.db = db
+
+    def upsert_candidate(
+        self,
+        name: str,
+        kind: str,
+        candidates: list[dict],
+        source: str | None = None,
+    ) -> None:
+        """Store ranked candidates for (name, kind); resets the row to pending.
+
+        Idempotent on (name, kind): a re-discovery replaces candidates_json,
+        resets status to 'pending' and clears any previous chosen_domain.
+        coalesce=False: a fresh candidate set MUST overwrite the old row
+        (including chosen_domain=None), not merge with it.
+        """
+        self.db.upsert(
+            "identity_candidates",
+            {
+                "name": name,
+                "kind": kind,
+                "candidates_json": json.dumps(candidates),
+                "chosen_domain": None,
+                "status": "pending",
+                "source": source,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+            pk=("name", "kind"),
+            coalesce=False,
+        )
+
+    def set_decision(
+        self, name: str, kind: str, status: str, chosen_domain: str | None = None
+    ) -> None:
+        """Record the human decision: 'accepted' (requires chosen_domain) or 'rejected'."""
+        if status not in ("accepted", "rejected"):
+            raise ValueError(f"status must be 'accepted' or 'rejected', got {status!r}")
+        if status == "accepted" and not chosen_domain:
+            raise ValueError("accepted requires a non-empty chosen_domain")
+        self.db.execute(
+            "UPDATE identity_candidates SET status = ?, chosen_domain = ? "
+            "WHERE name = ? AND kind = ?",
+            (status, chosen_domain, name, kind),
+        )
+
+    def pending_candidates(self, kind: str | None = None) -> list[dict]:
+        """Pending rows (optionally filtered by kind) with candidates_json parsed.
+
+        Each row keeps the raw candidates_json column and adds a parsed
+        `candidates` list alongside it.
+        """
+        sql = "SELECT * FROM identity_candidates WHERE status = 'pending'"
+        params: list[str] = []
+        if kind is not None:
+            sql += " AND kind = ?"
+            params.append(kind)
+        sql += " ORDER BY created_at"
+        rows = self.db.query(sql, params)
+        for row in rows:
+            row["candidates"] = json.loads(row["candidates_json"])
+        return rows
 
 
 def prune_all(db: Database, *, keep_days: int, raw_store=None) -> dict:

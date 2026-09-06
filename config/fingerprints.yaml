@@ -111,3 +111,8 @@ vendors:
     match:
       network_host: ["challenges.cloudflare.com", "cloudflare.com"]
       script_src: ["challenges.cloudflare.com"]
+      # Task 14 live header needle: Cloudflare's edge emits `server: cloudflare`
+      # on every proxied response (substring, casefolded — also hits
+      # "cloudflare-nginx" style values). Header match shape, for reference:
+      # header: {x-powered-by: "next.js"}
+      header: {server: "cloudflare"}

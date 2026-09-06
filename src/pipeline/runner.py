@@ -262,6 +262,14 @@ class CollectorRunner:
                 meta = dict(task.meta or {})
                 meta.setdefault("today", now.date().isoformat())
                 meta.setdefault("registry", self.registry)
+                # Response-header evidence (Task 14): the fetcher captured the
+                # 2xx response headers on the FetchResult; inject them so
+                # adapters (techstack fingerprint matching) can consult them.
+                # Duck-typed getattr: browser/bypass shims may not carry the
+                # field. Empty headers inject nothing (keep meta cheap).
+                _resp_headers = getattr(result, "headers", None)
+                if _resp_headers:
+                    meta["response_headers"] = _resp_headers
                 # Propagate the cloudflare_unsolved flag set by _fetch_one
                 # when a challenge was detected and the bypass was attempted.
                 if _cf_unsolved is not None:
@@ -823,6 +831,10 @@ class CollectorRunner:
                 meta = dict(task.meta or {})
                 meta.setdefault("today", now.date().isoformat())
                 meta.setdefault("registry", self.registry)
+                # Response-header evidence (Task 14): mirror of _run_pair.
+                _resp_headers = getattr(result, "headers", None)
+                if _resp_headers:
+                    meta["response_headers"] = _resp_headers
                 if adapter.key == "federal_register" and "watches" not in meta:
                     try:
                         meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])

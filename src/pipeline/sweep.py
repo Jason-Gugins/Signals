@@ -2,7 +2,9 @@
 
 v1 scope (binding decisions):
 - Accept a URL (registrable domain extracted) or a bare domain (contains a
-  dot). A bare company NAME (no dot) is refused — no fuzzy company search.
+  dot). A bare company NAME (no dot) is refused — no fuzzy company search;
+  bare-name discovery is available only via the explicit --discover flag,
+  which queues candidates for human review and never creates accounts.
 - No auto-discovery of CIK/blog_feed_url/linkedin_slug: sources whose
   ``requires`` the account lacks are reported as skipped with a reason.
 - Deepen is NOT triggered here (manual-only posture preserved); a reminder

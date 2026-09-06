@@ -220,6 +220,37 @@ class Orchestrator:
                         logger.warning("g2 resolve failed for {}: {}", acct.domain, exc)
             return out
 
+    def discover(self, name: str, ddg: bool = False) -> dict:
+        """Opt-in name->domain discovery waterfall (plan T4).
+
+        Cross-stage logic lives in src/identity/discover.py; this method only
+        supplies the shared HTTP fetcher + config and PERSISTS the outcome:
+        the merged ranked candidates go into the identity_candidates review
+        queue for every non-resolved run, and also for resolved runs that
+        still produced alternate candidates (store everything human review
+        might want). The resolved domain is returned for immediate use;
+        account creation stays an explicit domain-keyed `sweep <domain>`.
+        """
+        with RunContext(self.db, "discover") as ctx:
+            from src.identity.discover import discover_waterfall
+
+            result = discover_waterfall(
+                name,
+                self.fetcher or self._http_fetcher(ctx),
+                gkg_backend=getattr(self.config, "gkg_backend", "ekg"),
+                ddg_enabled=ddg,
+            )
+            candidates = result.get("candidates") or []
+            queued = result.get("status") != "resolved" or bool(candidates)
+            if queued:
+                from src.core.db import IdentityCandidateStore
+
+                IdentityCandidateStore(self.db).upsert_candidate(
+                    name, "domain", candidates, source="discover"
+                )
+            result["queued"] = queued
+            return result
+
     def collect(self, *, sources=None, cohort=None, domains=None, force=False, dry_run=False, limit=None) -> RunnerStats:
         with RunContext(self.db, "collect") as ctx:
             accounts = self._accounts(cohort=cohort, domains=domains, limit=limit)

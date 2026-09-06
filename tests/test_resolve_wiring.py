@@ -162,3 +162,57 @@ def test_cli_resolve_flags_forwarded():
     for flag in ("appstore", "bbb", "linkedin"):
         assert flag in params, f"missing --{flag} flag"
         assert params[flag].default is False
+
+
+# --------------------------------------------------------------- discover ---
+# Plan T4 default-off wiring contract (same Boom-fetcher pattern as above):
+# the name->domain discovery waterfall is a SEPARATE opt-in path — it must
+# never run inside resolve(), and the sweep verb must not discover unless
+# --discover is passed.
+
+def test_resolve_never_invokes_discovery_waterfall(tmp_path, monkeypatch):
+    from src.identity import discover as discover_mod
+    from tests.test_orchestrator import _orch
+
+    def boom_waterfall(*a, **kw):
+        raise AssertionError("discover_waterfall must not run inside resolve()")
+
+    monkeypatch.setattr(discover_mod, "discover_waterfall", boom_waterfall)
+
+    class Boom:
+        def get(self, task, **kw):
+            raise AssertionError("no network in default resolve()")
+
+    orch = _orch(tmp_path, fetcher=Boom())
+    orch.registry.upsert(Account(domain="acme.com", name="Acme"))
+    out = orch.resolve(ats=False, cik=False, feeds=False, icp=False)
+    assert out["accounts"] == 1
+
+
+def test_cli_sweep_without_discover_flag_is_default_off(monkeypatch):
+    from click.testing import CliRunner
+
+    from src.cli import main
+    from src.pipeline import sweep as sweep_mod
+    from src.pipeline.orchestrator import Orchestrator
+
+    def boom_discover(self, name, ddg=False):
+        raise AssertionError("discovery is opt-in: must not run without --discover")
+
+    monkeypatch.setattr(Orchestrator, "discover", boom_discover)
+    monkeypatch.setattr(
+        sweep_mod,
+        "run_sweep",
+        lambda url_or_name, **kw: {
+            "domain": "x.io",
+            "created": True,
+            "collected": {"fetched": 0, "signals_new": 0, "failed": 0},
+            "skipped": [],
+            "reminders": [],
+            "resolved": {},
+        },
+    )
+    monkeypatch.setattr(Orchestrator, "__init__", lambda self, *a, **k: None)
+
+    result = CliRunner().invoke(main, ["sweep", "https://x.io"])
+    assert result.exit_code == 0, result.output

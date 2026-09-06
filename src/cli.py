@@ -739,19 +739,93 @@ def deepen(ctx, domain, max_people, timeout):
     click.echo(f"deepen requested for {domain}")
 
 
+def _discover_label(cand: dict) -> str:
+    """Best display label across stage candidate shapes (wikidata label,
+    wikipedia/ddg title, gkg name)."""
+    return str(cand.get("label") or cand.get("title") or cand.get("name") or "")
+
+
+def _run_discover(ctx, names: list[str], *, ddg: bool = False) -> None:
+    """Opt-in name->domain discovery report (plan T4).
+
+    BYPASSES parse_target and the sweep pipeline entirely: nothing here
+    creates accounts — ranked candidates are queued in identity_candidates
+    and the human promotes one by rerunning `sweep <chosen-domain>`.
+    """
+    orch: Orchestrator = ctx.obj["get_orch"]()
+    for name in names:
+        try:
+            result = orch.discover(name, ddg=ddg)
+        except Exception as exc:
+            click.echo(f"{name}: discovery failed: {exc}", err=True)
+            continue
+        status = result.get("status")
+        domain = result.get("domain")
+        if status == "resolved" and domain:
+            agreement = result.get("agreement")
+            if agreement:
+                suffix = f" (agreement: {' + '.join(agreement)})"
+            else:
+                stages = result.get("stages") or {}
+                hit_stage = next(
+                    (s for s in stages if (stages.get(s) or {}).get("status") == "resolved"),
+                    None,
+                )
+                suffix = f" (via {hit_stage})" if hit_stage else ""
+            click.echo(f"{name}: resolved -> {domain}{suffix}")
+        else:
+            click.echo(f"{name}: {status} ({len(result.get('candidates') or [])} candidates)")
+        for cand in result.get("candidates") or []:
+            click.echo(
+                f"  {cand.get('score')}\t{cand.get('stage')}\t{cand.get('domain') or ''}"
+                f"\t{_discover_label(cand)}\t{cand.get('url') or cand.get('p856_url') or ''}"
+            )
+        if result.get("queued"):
+            top = next(
+                (c.get("domain") for c in result.get("candidates") or [] if c.get("domain")),
+                None,
+            )
+            hint = f"sweep {top}" if top else "sweep <chosen-domain>"
+            click.echo(f"queued to identity_candidates; promote with: {hint}")
+        elif status == "resolved" and domain:
+            click.echo(f"create the account with: sweep {domain}")
+
+
 @main.command()
-@click.argument("url_or_name")
+@click.argument("url_or_name", required=False)
 @click.option("--force", is_flag=True, help="Force recollection even if the account already exists.")
 @click.option("--deep", is_flag=True, help="Run the identity resolver pass (CIK/ATS/feeds/ICP) even for existing accounts.")
+@click.option(
+    "--discover",
+    "discover_names",
+    multiple=True,
+    help="Company-name discovery instead of a sweep: resolve NAME to a domain via the keyless "
+    "waterfall (Wikidata -> Wikipedia -> GKG) and queue ranked candidates in identity_candidates "
+    "for human review. Repeatable. Never creates accounts.",
+)
+@click.option(
+    "--ddg",
+    is_flag=True,
+    default=False,
+    help="Also try the DuckDuckGo SERP stage (resolve-time only, may be bot-gated).",
+)
 @click.pass_context
-def sweep(ctx, url_or_name, force, deep):
+def sweep(ctx, url_or_name, force, deep, discover_names, ddg):
     """One-command onboarding: seed-or-update the account, then collect.
 
     Accepts a URL (https://acme.io/about) or a bare domain (acme.io).
-    A bare company name without a dot is refused in v1.
+    A bare company name without a dot is refused in v1 — use
+    `sweep --discover "Company Name"` to queue domain candidates instead.
     """
     from src.pipeline import sweep as sweep_mod
 
+    if discover_names:
+        if url_or_name:
+            raise click.UsageError("pass either a target or --discover NAME, not both")
+        _run_discover(ctx, list(discover_names), ddg=ddg)
+        return
+    if not url_or_name:
+        raise click.UsageError("Missing argument 'URL_OR_NAME' (or pass --discover NAME).")
     try:
         result = sweep_mod.run_sweep(url_or_name, force_first_run=True if force else None, deep=deep)
     except sweep_mod.SweepError as exc:

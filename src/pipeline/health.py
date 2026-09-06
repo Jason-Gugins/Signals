@@ -136,6 +136,27 @@ def lint_source_config(cfg, sources_table: dict) -> list[tuple[str, str]]:
     return problems
 
 
+def _domain_in_file_refs(node) -> set[str]:
+    """Collect every distinct *_in_file list path referenced in a parsed doc.
+
+    Walks the whole document (icp.yaml rules/disqualifiers/any future
+    section), so extra or unknown list references are tolerated rather than
+    dropped. Only string values count — the same shape load_domain_list
+    consumes.
+    """
+    out: set[str] = set()
+    if isinstance(node, dict):
+        for key, val in node.items():
+            if isinstance(key, str) and key.endswith("_in_file") and isinstance(val, str):
+                out.add(val)
+            else:
+                out |= _domain_in_file_refs(val)
+    elif isinstance(node, list):
+        for item in node:
+            out |= _domain_in_file_refs(item)
+    return out
+
+
 def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, str]]:
     out = []
 
@@ -215,8 +236,31 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
             add(f"write:{d}", "OK", "writable")
         except Exception as exc:
             add(f"write:{d}", "FAIL", str(exc))
-    lists = Path(config.config_dir) / "lists"
-    add("lists", "OK" if lists.exists() else "WARN", str(lists))
+    # Referenced list files (plan T8): parse icp.yaml and WARN for every
+    # domain_in_file path that does not exist. Path resolution mirrors
+    # src/identity/lists.py load_domain_list (Path(ref): CWD-relative, absolute
+    # paths pass through) so the doctor and the ICP loader agree on what is
+    # missing — the loader itself fails open on a missing file, so this WARN is
+    # the visibility. Pure file reads: safe with check_network=False. A missing
+    # or unparseable icp.yaml skips the check gracefully; with no references at
+    # all, fall back to the legacy lists-directory existence check.
+    lists_dir = Path(config.config_dir) / "lists"
+    try:
+        icp_doc = config.load_yaml("icp")
+    except Exception:
+        add("lists", "OK", "icp.yaml not readable — referenced-list check skipped")
+    else:
+        refs = sorted(_domain_in_file_refs(icp_doc))
+        if refs:
+            missing = [ref for ref in refs if not Path(ref).exists()]
+            if missing:
+                add("lists", "WARN", "missing referenced list file(s): " + ", ".join(missing))
+            else:
+                add("lists", "OK", f"{len(refs)} referenced list file(s) present")
+        elif lists_dir.exists():
+            add("lists", "OK", str(lists_dir))
+        else:
+            add("lists", "WARN", str(lists_dir))
     # identity_candidates review queue (plan T2): pure db read — a human
     # backlog is a WARN, never a FAIL.
     try:

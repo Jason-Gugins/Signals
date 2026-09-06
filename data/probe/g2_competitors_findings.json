@@ -1,0 +1,65 @@
+{
+  "probe": "g2_competitors",
+  "task": "T5",
+  "date": "2026-09-06T03:46:50+00:00",
+  "target_url": "https://www.g2.com/products/slack/competitors/alternatives",
+  "optional_target_url": "https://www.g2.com/products/hubspot-marketing-hub/competitors/alternatives",
+  "budget": {
+    "max_g2_fetches": 3,
+    "g2_fetches_used": 1,
+    "spent_on": [
+      "plain:slack:attempt1"
+    ],
+    "pace_s_between_any_two_requests": 5.0,
+    "request_log": [
+      {
+        "label": "slack plain attempt 1",
+        "url": "https://www.g2.com/products/slack/competitors/alternatives",
+        "tier": "curl_cffi-chrome",
+        "g2_fetch": 1
+      }
+    ]
+  },
+  "overall_verdict": "NO-GO",
+  "parse_surface": null,
+  "rungs": [
+    {
+      "rung": "plain-curl",
+      "label": "slack",
+      "url": "https://www.g2.com/products/slack/competitors/alternatives",
+      "tier": "curl_cffi impersonate=chrome",
+      "status": 403,
+      "final_url": "https://www.g2.com/products/slack/competitors/alternatives",
+      "bytes": 1707,
+      "classification": {
+        "kind": "challenge",
+        "challenge_markers": [
+          "geo.captcha-delivery.com",
+          "captcha-delivery.com",
+          "captcha"
+        ],
+        "real_markers": {
+          "product-card": 0,
+          "link-product-card": 0
+        },
+        "product_hrefs": 0,
+        "title": "g2.com"
+      },
+      "artifact": "data/probe/g2_competitors_slack_plain.html",
+      "verdict": "CHALLENGE-BLOCKED"
+    },
+    {
+      "rung": "browser-patchright",
+      "label": "slack",
+      "url": "https://www.g2.com/products/slack/competitors/alternatives",
+      "tier": "patchright chromium headed + session cookies",
+      "cookies_injected": [
+        "cf_clearance",
+        "_g2_session_id",
+        "__cf_bm"
+      ],
+      "verdict": "NO-GO-for-now (browser launcher error)",
+      "launcher_error": "Error(\"BrowserType.launch: Executable doesn't exist at C:\\\\Users\\\\Jason\\\\AppData\\\\Local\\\\ms-playwright\\\\chromium-1161\\\\chrome-win\\\\chrome.exe\\n\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557\\n\u2551 Looks like Playwright was just installed or updated.       \u2551\\n\u2551 Please run the following command to download new browsers: \u2551\\n\u2551                                                            \u2551\\n\u2551"
+    }
+  ]
+}

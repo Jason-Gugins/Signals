@@ -35,6 +35,7 @@ TEMPLATES: dict[str, str] = {
     "federal_contract_award": "Federal award to {recipient} — {amount_display} ({observed_human})",
     "reputation_drop": "BBB rating {old_rating} → {new_rating} ({observed_human})",
     "insider_trade": "Form 4: {person_name} {tx_type} {shares_display} ({observed_human})",
+    "security_breach": "Security breach reported: {title} ({observed_human})",
 }
 
 _SPACES = re.compile(r" {2,}")

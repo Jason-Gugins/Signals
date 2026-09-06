@@ -132,7 +132,7 @@ line if you expect ranking and see none.
 
 ### Signal types emitted
 
-`funding_round`, `ipo_filing`, `ipo_pricing`, `ma_acquirer`, `ma_target`, `layoff`, `product_launch`, `office_open`, `award`, `certification`, `exec_hire`, `exec_departure`, `market_consolidation`, `competitor_outage`, `earnings_warning` — plus blog-derived signals via `company_feed` / `blog_to_candidates`.
+`funding_round`, `ipo_filing`, `ipo_pricing`, `ma_acquirer`, `ma_target`, `layoff`, `product_launch`, `office_open`, `award`, `certification`, `exec_hire`, `exec_departure`, `market_consolidation`, `competitor_outage`, `earnings_warning`, `security_breach` — plus blog-derived signals via `company_feed` / `blog_to_candidates`.
 
 ## Extending
 

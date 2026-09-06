@@ -25,6 +25,7 @@ POSITIVES = [
     ("exec_hire", "Acme appoints Jane Doe as CEO"),
     ("exec_departure", "Acme CFO resigns"),
     ("market_consolidation", "Acme in merger of equals talks"),
+    ("security_breach", "Acme discloses a data breach exposing customer records"),
     ("competitor_outage", "Acme reports a service disruption"),
     ("earnings_warning", "Acme cuts guidance for Q3"),
 ]
@@ -35,6 +36,7 @@ NEGATIVES = [
     ("layoff", "Acme cited in a layoff tracker report"),
     ("product_launch", "Acme launch party tonight"),
     ("ma_acquirer", "Acme customer acquisition cost drops"),
+    ("security_breach", "Acme data breach insurance premiums surge"),
 ]
 
 

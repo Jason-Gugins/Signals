@@ -25,6 +25,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from src.identity.competitor_news import (
+    COMPETITOR_CAP,
     CompetitorNewsPass,
     build_bing_alt_url,
     build_bing_vs_url,
@@ -437,6 +438,48 @@ def test_pass_clean_fetch_with_no_comparison_titles_is_no_match():
     assert out["status"] == "no_match"
     assert out["competitors"] == []
     assert out["errors"] == {}
+
+
+def test_pass_zero_item_feeds_record_notes_not_silence():
+    """Wave-2 review fix: a 200-OK feed that parses to zero items must be
+    distinguishable from a legitimately empty result (soft-block triage)."""
+    fetcher = FakeFetcher(
+        _routes(
+            vs_items=[("Stripe vs PayPal", "https://bing.example/1")],
+            alt_items=[],  # fetched ok, zero items
+            hn_hits=[],  # fetched ok, zero items
+        )
+    )
+    out = CompetitorNewsPass(fetcher).discover("Stripe")
+    assert out["status"] == "resolved_candidates"
+    assert out["notes"] == {
+        "bing_alt": "fetched ok, parsed 0 items (possible soft block or dry feed)",
+        "hn": "fetched ok, parsed 0 items (possible soft block or dry feed)",
+    }
+    assert "bing_vs" not in out["notes"]
+
+
+def test_pass_extract_output_capped_at_competitor_cap():
+    """Wave-2 review fix: explicit per-name output bound (first-seen wins)."""
+    titles = [
+        {"title": f"Stripe vs Rival{i}", "url": f"https://bing.example/{i}", "source": "bing_news"}
+        for i in range(40)
+    ]
+    out = extract_competitor_names(titles, "Stripe")
+    assert len(out) == COMPETITOR_CAP
+    assert out[0]["name"] == "rival0"
+    assert out[-1]["name"] == f"rival{COMPETITOR_CAP - 1}"
+
+
+def test_pass_budget_drift_fails_loudly_as_error(monkeypatch):
+    """Wave-2 review fix: adding a 4th source without raising the constant
+    must fail loudly, not silently spend a 4th GET."""
+    import src.identity.competitor_news as cn
+
+    monkeypatch.setattr(cn, "MAX_FETCHES_PER_NAME", 2)
+    out = CompetitorNewsPass(FakeFetcher(_routes())).discover("Stripe")
+    assert out["status"] == "no_match"
+    assert "budget drift" in out["errors"]["pass"]
 
 
 def test_pass_blank_name_short_circuits_without_fetch():

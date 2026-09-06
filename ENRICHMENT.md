@@ -34,7 +34,7 @@ Onboarding — one command, seed-or-update + run everything + report gaps:
 | `google_news` | — | funding_round, exec_hire, exec_departure, product_launch, ma_*, ipo_*, layoff, earnings_warning, office_open, award, certification, market_consolidation, competitor_outage | 12h | reranked (floor 0.35); keyword SERPs |
 | `news_rss` | — | same classifier (name query + Bing News) | 12h | |
 | `company_feed` | `blog_feed_url` | product_launch + blog-derived signals | 24h | the company's own blog |
-| `sec_edgar` | `cik` | ipo_filing, ipo_pricing, ma_*, annual_report_10k, exec_*, layoff, earnings_warning, bankruptcy_signal, contract_terminated | 24h | private cos = empty by design (no CIK); 8-K items 1.03 (bankruptcy, chapter captured) and 1.02 (agreement terminated) now mapped |
+| `sec_edgar` | `cik` | ipo_filing, ipo_pricing, ma_*, annual_report_10k, exec_*, layoff, earnings_warning, bankruptcy_signal, contract_terminated, insider_trade | 24h | private cos = empty by design (no CIK); 8-K items 1.03 (bankruptcy, chapter captured) and 1.02 (agreement terminated) mapped; Form 4 XML fanout (10 docs/cycle cap, net bought/sold); SC 13D/G stakes → ma_target (amendments unwatched) |
 | `sec_formd` | — | funding_form_d | 24h | global Form D fanout |
 | `federal_contracts` | — (matches on account name) | federal_contract_award | 168h | live usaspending.gov award search (keyless POST, trailing 12 months); never-guess recipient matching — ambiguous names emit nothing |
 | `marketplace_g2` | `g2_slug` | review/sentiment + reviewer signals | 168h | ships disabled; ≤2 req/host, ≥4s pacing |

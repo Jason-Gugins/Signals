@@ -297,6 +297,102 @@ natural-key dedupe, no silent-signal-loss paths).
 
 ---
 
+## Core-source insights roadmap (2026-09-05)
+
+**Status: DELIVERED (2026-09-05)** — all 16 tasks in five subagent waves plus
+parent-side prep, strict TDD per task, full offline suite green after each
+wave and at the final gate. Commits `5794876`…`49bc896` (24 task/fix commits).
+Plan: `.zcode/plans/2026-09-04_204432-core-source-insights.md`.
+
+### Prep — taxonomy
+- [x] **9 new signal types registered parent-side** (`5794876`, `6e34a10`,
+  `75ceaa3`) — positioning_change, bankruptcy_signal, contract_terminated,
+  new_subdomain, github_momentum, federal_contract_award, reputation_drop,
+  insider_trade (+ templates, counts 42→50, primary_types literal). Doing this
+  up front kept every wave off signals.yaml and absorbed the count-assertion
+  ripple in one place.
+
+### Batch 1 — already-paid-for insights
+- [x] **Wayback homepage positioning diff** (`ef6ff41`) — stored homepage
+  snapshots now diff title/meta-description → `positioning_change` (strictly
+  prior doc vs current, `poschg:{domain}:{today}`). Also fixed a latent crash:
+  `follow_tasks` fed snapshot HTML to the CDX JSON parser, aborting wayback
+  passes (pricing signals included).
+- [x] **Appstore review-trend wiring fix** (`b4d3e9a`) — the only enabled
+  review source's trend signal was dead (missing product_slug + the runner
+  garbling `appstore_reviews` → `iews`); also captures app version, and the
+  shared stats path now tolerates dict-shaped reviews.
+- [x] **8-K items 1.03 + 1.02** (`23f2f2d`) — bankruptcy (chapter captured)
+  → `bankruptcy_signal`; material-agreement termination →
+  `contract_terminated`.
+- [x] **WATCH_FORMS cleanup** (`48b93c9`) — 10-Q and SC 14D9 no longer
+  fetched-then-dropped.
+- [x] **usaspending.gov collector** (`97aaf69`) — new enabled `federal_contracts`
+  source: per-account POST award search (trailing 12 months), never-guess
+  recipient matching (ambiguous → nothing), `federal_contract_award` with
+  humanized amounts.
+
+### Batch 2 — dead types + new cheap sources
+- [x] **Dead types wired** (`b1212ed`, `97c9acd`, `af0a379`) —
+  `competitor_detected` from a fingerprints `competitors:` list (ships empty);
+  `tech_removed` from the runner's captured `upsert_technologies` gone list
+  (two missing runs); `backfill_open` from re-opened job titles (120d window).
+- [x] **Status-page polling** (`d0980d3` + review fix `49bc896`) — when the
+  persisted DNS evidence shows `status.<domain>` → `*.statuspage.io`, the
+  techstack pass polls `index.json` and emits `competitor_outage` per
+  unresolved incident. Gate reads the snapshot (plan stays pure); starts one
+  cycle after DNS evidence lands.
+- [x] **crt.sh subdomain delta** (`145260b`) — cycle-over-cycle new-subdomain
+  detection (`new_subdomain`, permanent keys, capped 50/cycle).
+- [x] **GitHub momentum** (`91cd810`) — new-repo / star-surge / archived
+  deltas from the already-fetched repo JSON (`github_momentum`, stats JSON
+  under filelock, monthly keys).
+- [x] **ATS job-text deepening** (`12ee5b8` + review fix) — case-insensitive
+  vendor allowlist, required-stack phrasing, all matches per job; restricted
+  to REAL migration pairs (a bare stack mention no longer renders "migrating
+  from  to X").
+- [x] **BBB rating delta** (`1715b35`) — grade downgrade / accreditation loss
+  → `reputation_drop` (first observation = baseline; sparse extra_data merge).
+
+### Batch 3 — SEC depth + marketplace family
+- [x] **SEC Form 4 + SC 13D/G** (`ed0a337`, `77e1891`) — Form 4 XML fanout
+  (10 docs/cycle cap, namespace-agnostic parser, net bought/sold) →
+  `insider_trade`; SC 13D/G stakes → `ma_target` (amendments unwatched).
+- [x] **funding_drought** (`6b6a1a1`) — 18-24 months silent after a
+  funding_form_d → runway-pressure signal (once per account; reports under
+  sec_formd).
+- [x] **Reviewer-ICP join** (`9c168f1`) — icp.yaml `reviewer_titles` matched
+  against persisted g2_reviews reviewer fields → `intent_2nd_marketplace`
+  candidates (dark-but-wired; marketplace adapters ship disabled). SA month-
+  precision dates fall back to today instead of being silently dropped.
+- [x] **Header evidence + DNS raw delta** (`d9c6f77`, `500fb3e`) —
+  FetchResult.headers → `meta["response_headers"]` → `header:` fingerprint
+  match type; DNS evidence snapshotted into extra_data, unclaimed spf_include
+  removals emit `tech_churn` (mail-vendor switch).
+- [x] **Software Advice / GetApp adapters** (`e76a9ae`) — fixture-built from
+  the live P3 spike (JSON-LD SSR), disabled by default, fall through the
+  existing marketplace review dispatch.
+
+### Review-fix ledger (2026-09-05, `f4514fd` + `49bc896`)
+BLOCKER-class: `_prev_homepage_html` picked an arbitrary same-batch snapshot
+as "previous" on the first wayback cycle — near-universal garbage
+`positioning_change` signals with possibly inverted old/new, locked in by the
+daily key. Fixed: the prior doc must be strictly older than the current
+fetch. Majors/minors: drought block once-per-account + sec_formd stats
+attribution; ICP month-precision observed_at validated (silent normalize
+drop); statuspage gate moved to the persisted snapshot (plan purity — the
+contract violation and nondeterministic dry-runs); harvest_tech statuspage
+guard; migration-type truthfulness; dns_evidence upsert churn; SA employer
+org out of reviewer_title. Also: runner-driven tests used local
+`date.today()` against the runner's UTC clock — latent TZ flakes that fire
+after ~18:00 local; all new test files now assert on the UTC date
+(`f4514fd`). A standalone quality reviewer verified the rest clean
+(FetchResult.headers constructor safety, both meta-merge sites, all ten
+natural-key namespaces, purity across new parse paths, extra_data merge
+coexistence).
+
+---
+
 ## Deferred — not scheduled
 
 - **Multi-user server / web UI** — thin read-only API + dashboard over SQLite.

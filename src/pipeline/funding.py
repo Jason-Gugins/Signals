@@ -1,4 +1,11 @@
-"""Form D funding tracker planners. plan() is pure."""
+"""Form D funding tracker planners. plan() is pure.
+
+``drought_candidates`` is the per-account derivation over PERSISTED
+``funding_form_d`` signals (the global fanout stores them with observed_at
+dates): 18-24 months of silence since the most recent raise is runway
+pressure -> the pre-registered ``funding_drought`` type, at most one
+monthly-deduped candidate per account. Pure — ``today`` is injected.
+"""
 
 from __future__ import annotations
 
@@ -27,6 +34,65 @@ SOURCE = "sec_formd"
 def homepage_url(domain: str) -> str:
     root = root_domain(domain) or domain
     return f"https://{root}/"
+
+
+DROUGHT_SIGNAL = "funding_drought"
+
+
+def _silent_months(last: date, today: date) -> int:
+    """Whole calendar months from ``last`` to ``today`` (day-of-month aware);
+    clamps to 0 when ``today`` precedes ``last``."""
+    months = (today.year - last.year) * 12 + (today.month - last.month)
+    if today.day < last.day:
+        months -= 1
+    return max(months, 0)
+
+
+def drought_candidates(
+    signals: list[dict],
+    *,
+    domain: str,
+    today: str,
+    silence_months: int = 18,
+    rearm_months: int = 24,
+) -> list[SignalCandidate]:
+    """Emit ``funding_drought`` when a prior Form D raise went silent.
+
+    ``signals`` are rows for THIS domain with ``signal_type="funding_form_d"``
+    (dicts with an ``observed_at`` ISO date). When the most recent raise is
+    between ``silence_months`` and ``rearm_months`` old -> exactly one
+    candidate (monthly natural key, so re-runs dedupe within the month).
+    Under ``silence_months`` the raise is still fresh; over ``rearm_months``
+    it is too stale to be news; no raises at all -> nothing. Unparseable
+    ``observed_at`` rows are skipped, never guessed.
+    """
+    dates: list[date] = []
+    for row in signals or []:
+        raw = (row or {}).get("observed_at")
+        try:
+            dates.append(date.fromisoformat(str(raw)[:10]))
+        except (TypeError, ValueError):
+            continue
+    try:
+        now = date.fromisoformat(str(today)[:10])
+    except (TypeError, ValueError):
+        return []
+    if not dates:
+        return []
+    last = max(dates)
+    months = _silent_months(last, now)
+    if months < silence_months or months > rearm_months:
+        return []
+    return [
+        SignalCandidate(
+            signal_type=DROUGHT_SIGNAL,
+            observed_at=now.isoformat(),
+            natural_key=f"drought:{domain}:{now.isoformat()[:7]}",
+            title=f"No fresh raise in {months} months",
+            confidence=0.6,
+            evidence_data={"last_funding": last.isoformat(), "months_silent": months},
+        )
+    ]
 
 
 def plan_company_queries(names: list[str], *, today: date, limit: int, size: int = 100) -> list[FetchTask]:

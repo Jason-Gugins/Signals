@@ -10,7 +10,7 @@ as the install/churn diff, and deduped by natural key on re-runs.
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timezone, timedelta
 
 from src.core.config import Config
 from src.core.db import Database
@@ -112,7 +112,7 @@ def _harness(tmp_path, first_seen_days_ago: dict):
     edges, so a midnight rollover cannot flip an assertion).
     """
     db = Database(tmp_path / "s.db")
-    today = date.today()
+    today = (datetime.now(timezone.utc).date())
     for vendor, days_ago in first_seen_days_ago.items():
         seen = (today - timedelta(days=days_ago)).isoformat()
         db.upsert(
@@ -152,7 +152,7 @@ def test_runner_emits_and_dedupes_renewal_window(tmp_path):
     row = rows[0]
     assert row["domain"] == "acme.com"
     assert row["source"] == "techstack"
-    hubspot_seen = date.today() - timedelta(days=300)
+    hubspot_seen = (datetime.now(timezone.utc).date()) - timedelta(days=300)
     assert row["title"] == f"hubspot renewal ~{hubspot_seen.replace(year=hubspot_seen.year + 1).isoformat()}"
     ev = json.loads(row["evidence_data"])
     assert ev["competitor"] == "hubspot"

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import calendar
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 
 from src.core.config import Config
 from src.core.db import Database
@@ -183,13 +183,13 @@ def _harness(tmp_path, seeded_months_silent: int | None):
     if seeded_months_silent is not None:
         cand = SignalCandidate(
             signal_type="funding_form_d",
-            observed_at=months_ago(date.today(), seeded_months_silent).isoformat(),
+            observed_at=months_ago((datetime.now(timezone.utc).date()), seeded_months_silent).isoformat(),
             natural_key="d-2025-02",
             title="Acme Form D",
             confidence=0.9,
         )
         valid, rej = normalize_batch(
-            [cand], account=account, source="sec_formd", taxonomy=tax, now=date.today().isoformat()
+            [cand], account=account, source="sec_formd", taxonomy=tax, now=(datetime.now(timezone.utc).date()).isoformat()
         )
         assert valid and not rej
         SignalStore(db, tax).upsert_many(valid)
@@ -213,7 +213,7 @@ def test_runner_persists_funding_drought_for_silent_account(tmp_path):
     assert row["source"] == "sec_formd"
     assert row["polarity"] == "negative"
     # natural_key is hashed into signal_id (sha256(domain|type|natural_key)).
-    month_key = f"drought:{DOMAIN}:{date.today().isoformat()[:7]}"
+    month_key = f"drought:{DOMAIN}:{(datetime.now(timezone.utc).date()).isoformat()[:7]}"
     assert row["signal_id"] == make_signal_id(DOMAIN, "funding_drought", month_key)
     ev = json.loads(row["evidence_data"])
     assert ev["months_silent"] == 19

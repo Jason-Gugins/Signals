@@ -59,7 +59,14 @@ RSS_ITEM_CAP = 10
 HN_HIT_CAP = 20
 
 # Hard per-name budget: bing vs + bing alt + HN = 3 GETs, never more.
+# Enforced by a length check against the actual source tuple in _discover so
+# adding a 4th source without raising the budget fails loudly.
 MAX_FETCHES_PER_NAME = 3
+
+# Output cap on competitor candidates per name (first-seen wins). Input caps
+# (10+10+20 items) already bound the worst case; this is the explicit
+# per-account bound carried over from the deferred G2 pass.
+COMPETITOR_CAP = 25
 
 
 # House style for fetch tasks outside src/sources/: local frozen-ish dataclass
@@ -283,13 +290,16 @@ def extract_competitor_names(titles: list[dict], self_name: str) -> list[dict]:
     Deduped by (source, name) keeping the first title. Empty/short (<3
     normalized chars) and all-noise sides are not names. The self name is
     NEVER returned and no name absent from a title is ever fabricated.
-    Score is always 1 — the lowest-confidence tier by design; the human gate
-    is mandatory.
+    Output is capped at the first COMPETITOR_CAP distinct (source, name)
+    candidates (first-seen order). Score is always 1 — the lowest-confidence
+    tier by design; the human gate is mandatory.
     """
     self_norm = normalize_entity(self_name)
     out: list[dict] = []
     seen: set[tuple[str, str]] = set()
     for item in titles or []:
+        if len(out) >= COMPETITOR_CAP:
+            break
         title = str((item or {}).get("title") or "").strip()
         if not title:
             continue
@@ -342,11 +352,14 @@ class CompetitorNewsPass:
         self.registry = registry
 
     def discover(self, name: str) -> dict:
-        """Name -> {"status", "name", "competitors", "errors"}. Never raises.
+        """Name -> {"status", "name", "competitors", "errors", "notes"}. Never raises.
 
         status is "resolved_candidates" when any competitor candidate was
-        mined, else "no_match"; "errors" maps source key -> failure detail
-        (empty when every source fetched cleanly).
+        mined, else "no_match"; "errors" maps source key -> failure detail;
+        "notes" maps source key -> non-fatal observations — notably
+        "fetched ok, parsed 0 items", which distinguishes a dry/empty feed
+        from a soft block serving 200-OK challenge HTML (same visible shape
+        as a legitimately empty result otherwise).
         """
         try:
             return self._discover(name)
@@ -359,18 +372,28 @@ class CompetitorNewsPass:
         if not term:
             return _no_match(name)
         errors: dict[str, str] = {}
+        notes: dict[str, str] = {}
         titles: list[dict] = []
-        for key, url, parser, source in (
+        sources = (
             ("bing_vs", build_bing_vs_url(term), parse_rss_titles, "bing_news"),
             ("bing_alt", build_bing_alt_url(term), parse_rss_titles, "bing_news"),
             ("hn", build_hn_url(term), parse_hn_hits, "hn_algolia"),
-        ):
+        )
+        if len(sources) != MAX_FETCHES_PER_NAME:
+            # Budget drift guard: a new source must raise the constant too.
+            raise RuntimeError(
+                f"source budget drift: {len(sources)} sources vs "
+                f"MAX_FETCHES_PER_NAME={MAX_FETCHES_PER_NAME}"
+            )
+        for key, url, parser, source in sources:
             try:
                 items = self._fetch_items(url, parser)
             except Exception as exc:  # one failing source never kills the pass
                 logger.warning("competitor_news: {} fetch failed for {!r}: {}", key, name, exc)
                 errors[key] = str(exc)
                 continue
+            if not items:
+                notes[key] = "fetched ok, parsed 0 items (possible soft block or dry feed)"
             for item in items:
                 titles.append(
                     {
@@ -385,6 +408,7 @@ class CompetitorNewsPass:
             "name": name,
             "competitors": competitors,
             "errors": errors,
+            "notes": notes,
         }
 
     def _fetch_items(self, url: str, parser) -> list[dict]:

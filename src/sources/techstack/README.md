@@ -183,8 +183,8 @@ Unknown hosts persist via `harvest_tech` → `technologies` as `host:…`.
 | `cf_bypass.py` | `CloudflareBypass` — 5-tier bypass waterfall (`attempt()`) |
 | `cf_solver.py` | 2Captcha/anti-captcha adapter — returns Turnstile token (not a cookie) |
 | `datadome.py` / `datadome_bypass.py` / `datadome_solver.py` | DataDome challenge detection, bypass waterfall, and 2Captcha solver (marketplace_g2-scoped — see the marketplace README) |
-| `dns_probe.py` | MX / SPF / CNAME probe — wired into `harvest_tech` (html-task-gated, fail-open; needs `dnspython`, a hard dependency) |
-| `http_probe.py` | re-export of HTTP extract |
+| `dns_probe.py` | MX / SPF / CNAME probe — wired into `harvest_tech` (html-task-gated, fail-open; needs `dnspython`, a hard dependency). The raw evidence is snapshotted into `extra_data["dns_evidence"]` each collect; a removed spf_include that no fingerprint rule claims emits `tech_churn` (mail-vendor switch, key `dnschurn:{domain}:{include}:{month}`) |
+| `http_probe.py` | re-export of HTTP extract. Response headers ride `FetchResult.headers` → `meta["response_headers"]`; `match: {header: {name: value}}` is a fingerprint evidence type (casefolded substring, any pair) |
 | `../../../src/core/browser.py` | `fetch(..., capture_network=True)` HAR-lite; `fetch(..., capture_html=True)` challenge-aware solve with fresh context |
 
 Runner: network tasks run on the collector thread. `_fetch_one` returns `None` when `browser` is missing. Duck-typed `harvest_tech` results are merged then upserted once.

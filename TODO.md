@@ -1,8 +1,9 @@
 # TODO — Project Roadmap
 
-Last reviewed: 2026-09-04. Baseline: **1,455 offline tests passing**. P1 fully delivered
+Last reviewed: 2026-09-05. Baseline: **1,835 offline tests passing**. P1 fully delivered
 (2026-08-31); **P2 fully delivered (2026-09-01)**; **P3 fully delivered
-(2026-09-02)** — see below. Legacy Cloudflare-bypass checklist archived at the
+(2026-09-02)** — see below. Keyless Clay/Exa clones roadmap delivered
+(2026-09-05). Legacy Cloudflare-bypass checklist archived at the
 bottom.
 
 Note from the P1 review sweep (P3 candidates): `flap_guard` persistence,
@@ -393,8 +394,139 @@ coexistence).
 
 ---
 
+## Keyless Clay/Exa clones roadmap (2026-09-05)
+
+**Status: DELIVERED (2026-09-05)** — 13 tasks across 4 waves, one subagent per
+task (sequential), two-stage review per wave (spec + quality) with review fixes
+applied before the next wave. Full offline suite green after every task and at
+the final gate (1,835 passing; `doctor --no-network` clean). Commits
+`9c44be0`…`8d03138` (18 task/fix/probe commits). Plan:
+`.zcode/plans/2026-09-05_205645-keyless-clay-exa-clones.md`. Product decision:
+clone Clay/Exa functionality natively — **no Exa/Clay APIs** (README:9 stance
+kept; free keyed accelerators GKG/GITHUB_TOKEN named as the exception class).
+
+### Wave 1 — identity discovery (Clay "find the company" clone)
+- [x] **T1 keyless identity probe spike** (`9c44be0`) — paced 6-rung probe:
+  Wikidata `wbsearchentities`+`wbgetclaims` P856 GO (stripe.com; 4/5 top-5
+  collisions force description-keyed picks), Wikipedia `prop=extlinks` GO,
+  EKG 401 CREDENTIALS_MISSING (schema probe PENDING-CREDENTIALS), legacy
+  kgsearch 403 gate confirmed, DDG ladder (plain 202-challenge dead; curl_cffi
+  chrome tier body-validated GO, stripe.com #1), robots status (Wikimedia
+  `/w/` disallows `/w/api.php` → scoped overrides). Verdict:
+  `data/probe/KEYLESS_IDENTITY_2026_09.md`.
+- [x] **T2 identity_candidates review queue** (`5a15aee`) — migration v7
+  `identity_candidates` (name, kind, candidates_json, chosen_domain,
+  pending|accepted|rejected, source), `IdentityCandidateStore`
+  (accepted-requires-domain validation), doctor `identity_candidates_pending`.
+- [x] **T3a Wikidata + Wikipedia resolvers** (`0216c75`) — house-style
+  (pure parse/pick, `_Task`, never-guess: exactly-one unambiguous survivor
+  auto-accepts, else ranked display-only candidates); business-term filter;
+  `robots_allow` scoped entries for both `/w/api.php` hosts.
+- [x] **T3b GKG stage** (`04d1753`) — thin `KnowledgeGraphClient`: EKG default
+  backend (`publicKnowledgeGraphEntities:Search`, service-account token,
+  deferred `google-auth` import, `[gkg]` optional extra) + legacy kgsearch
+  fallback (config-selected, off by default); derived-fields-only persistence
+  (Google ToS); `gkg_backend` config knob; `gkg_ids` rate 0.5.
+- [x] **T3c DDG stage** (`3916c00`) — `DdgSerpResolver` on the chrome-TLS
+  curl tier (body-validated — challenge pages ship with 200/202 alike),
+  strict #1+name-match auto-accept, process-wide `DDG_PACE_S` pacing,
+  resolve-time only, off by default.
+- [x] **T4 waterfall wiring** (`42dd6f8`) — `discover_waterfall`
+  (wikidata→wikipedia→gkg→ddg, first-hit early exit, 2-source apex agreement
+  promotion, per-stage error isolation) in `src/identity/discover.py`;
+  `Orchestrator.discover` persists ranked candidates (normalize_entity keys);
+  CLI `sweep --discover NAME [--ddg]` — never creates accounts; the binding
+  bare-name refusal stays.
+
+### Wave 2 — competitor intelligence (Clay find-similar clone)
+- [x] **T5 G2 competitors probe** (`d23bede` + rerun `505c0e5`) — URL shape
+  `/products/<slug>/competitors/alternatives`; plain curl tier 403 DataDome;
+  browser tier challenge-blocked on stale session cookies after the
+  chromium-1161 env fix; probing stopped at 3 fetches per the escalation
+  discipline.
+- [x] **T7 competitor news mining** (`867f292`) — Bing News RSS
+  (`"X" vs` / `"X" alternative to`) + HN Algolia co-mention extraction →
+  `CompetitorNewsPass` (3 GETs/name, per-source error isolation, score 1 =
+  lowest tier, human gate mandatory) → `identity_candidates` kind=competitor;
+  CLI `sweep --competitors NAME` (carries the deferred T6 mechanism).
+- [x] **T8 list activation scaffolding** (`a0e8d4e`) — `config/lists/competitors.txt`
+  (+ customers/dnc stubs, force-added) and the doctor `lists` check upgraded
+  to WARN per missing icp.yaml-referenced file (resolution byte-identical to
+  `load_domain_list`). Population is a human data step after approving queued
+  candidates; `competitor_detected` + ICP disqualifier then fire unchanged.
+- [x] **T6 (G2 page pass) DEFERRED** — needs a real DataDome capture (fresh
+  browser cookies or solver keys); parser must not be written against guessed
+  selectors. Recorded in `data/probe/G2_COMPETITORS_2026_09.md`.
+
+### Wave 3 — signal catalog (Clay signals clone)
+- [x] **T9 security_breach** (`05b2186`) — taxonomy 50→51 (both count pins;
+  catalyst secondary), new `trust_rebuild_pitch` play, NewsRule
+  (breach/ransomware/cyberattack/hacked/data-leak patterns; negatives for
+  contract/insurance senses; ordered before competitor_outage), evidence
+  template, emits tuple, news README, "data breach" serp keyword, real-path
+  persistence + idempotent re-upsert test.
+- [x] **T10 relocation emitter** (`713906e`) — `parse_bbb_profile` now extracts
+  address (JSON-LD PostalAddress primary, `bpr-overview-address` fallback;
+  verified on the real Avalara spike capture — the brief's named capture was a
+  404 page, honestly recorded); `_relocation_delta` mirrors `_rating_delta`
+  (extra_data baseline via task_meta, first observation silent, missing
+  address never compares/erases); key `reloc:{domain}:{stable_id(new)}`.
+
+### Wave 4 — delivery deltas (Clay delivery clone)
+- [x] **T11 slack destination alias** (`76c2eeee`) — `type: slack` in
+  `load_destinations` pins `format: "slack"` through the shared webhook path;
+  `WebhookDestination` gained a digest-string branch (the Protocol's other
+  documented shape previously crashed) reusing alerts primitives.
+- [x] **T12 webhook signature options** (`7730e1f`) — per-webhook
+  `signature: legacy|hub|stripe` (default byte-identical; hub = exact-body
+  HMAC under `X-Hub-Signature-256`; stripe = `Stripe-Signature: t=,v1=` over
+  `"<t>.<body>"` with injectable `now=` clock; unknown values warn + fall
+  back).
+- [x] **T13 docs + doctor sweep** (`f8090b6`) — README: identity-discovery
+  section (waterfall, queue semantics, GKG credential setup, `--competitors`
+  promotion), ethos line names the free keyed accelerators, DDG robots
+  exception owned in prose, slack/signature delivery docs, 51-type catalog;
+  `.env.example` GKG vars; doctor `gkg_credentials` check (WARN-only,
+  network-free). Honesty gate: sweep --help, env vars, config keys, 51 types,
+  v7 migration all verified against code (also fixed a stale "migrations v6"
+  claim).
+
+### Review-fix ledger
+- **Wave 1 review** (0 majors, 3 minors → `1811463`): DDG pacing was voided by
+  per-name resolver construction → process-wide bookkeeping + reset seam;
+  identity_candidates keys now normalize_entity form ("Acme Inc"/"acme" share
+  a row); dead resolved-branch in `_run_discover` removed and `--ddg` without
+  `--discover` is now a UsageError.
+- **Wave 2 review** (0 majors, 3 minors → `32a5423`): fetched-ok-but-0-items
+  sources now record `notes` (dry feed vs soft block triage); explicit
+  `COMPETITOR_CAP` output bound; `MAX_FETCHES_PER_NAME` budget-drift guard
+  (adding a 4th source fails loudly).
+- **Final review** (0 majors, 1 fix `8d03138`): security_breach verb-form
+  contract-dispute negatives ("breached its contract"). Ledger notes (no
+  action, deliberate): news natural key = shared link-hash scheme (house
+  convention; the plan's `breach:{domain}:{source_id}` sketch superseded);
+  digest-string webhook posts are unsigned by design (slack path carries no
+  secret — revisit if a digest-to-signed-webhook feature lands); relocation
+  compares raw one-line address strings (mirrors `_rating_delta`; normalize
+  if BBB re-render false positives appear).
+
+### Environment notes
+- patchright 1.51.3 pins chromium-1161 → `patchright install chromium` run
+  (headless shell downloaded). google-auth deliberately NOT installed in the
+  main venv (optional `[gkg]` extra; tests inject the token seam).
+
+---
+
 ## Deferred — not scheduled
 
+- **G2 competitor page pass (T6)** — blocked on a real DataDome capture: fresh
+  browser cookies exported to `data/g2_cookies.json` or the solver keys
+  (`DATADOME_SOLVER_API_KEY`); then rerun `scripts/probe_g2_competitors.py`
+  (fresh 3-fetch budget), pin the parse surface, build the pass.
+- **EKG first credentialed run** — enable the API + service account, capture
+  the entity-level response schema (undocumented), pin the url path in
+  `gkg_client.py`; the schema probe in `scripts/probe_wikidata_resolve.py`
+  rung 3 is ready.
 - **Multi-user server / web UI** — thin read-only API + dashboard over SQLite.
 - **Google Trends interest signal** — category demand timing.
 - **ASN IP→org enrichment** — hosting/CDN vendor resolution from IP ranges.

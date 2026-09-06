@@ -1,6 +1,6 @@
-# G2 Marketplace Scraper
+# Marketplace review sources (G2 / Capterra / TrustRadius / Software Advice / GetApp)
 
-A G2.com company profile and review scraper for the [Signals](../../README.md) sales intelligence platform.
+Marketplace review scrapers for the [Signals](../../README.md) sales intelligence platform: G2 (browser-tier DataDome), Capterra and TrustRadius (server-rendered HTTP behind Cloudflare), and the Gartner-network pair Software Advice / GetApp (server-rendered JSON-LD via the standard fetcher).
 
 Scrapes product reviews from `https://www.g2.com/products/{slug}/reviews`, extracts structured data
 (reviewer, rating, pros/cons, body text, verification status), persists them to SQLite, and exports
@@ -141,20 +141,24 @@ src/sources/marketplace/
     g2.py              Pure parser: G2Review dataclass + extract_g2_reviews (current elv-* DOM),
                        parse_g2_reviews (legacy itemprop fallback), g2_reviews_url /
                        g2_reviews_fragment_url URL builders, filter_deep_reviews
-                       (P3 deep-reviews extreme-rating bound)
+                       (deep-reviews extreme-rating bound)
     base.py            MarketplaceReview normalizing base — safe rating coercion
                        (str/int/None/junk -> float, never raises) shared by the parsers
     deep_reviews.py    Deep-reviews bounding helpers: should_expand / normalize_bound
                        ('extreme' default; explicit null = legacy bound-free)
     collector.py       MarketplaceG2Source adapter: plan/parse/harvest_reviews + upsert_g2_reviews
-                       (adopts legacy capterra rows on the natural key since the P3 id change)
+                       (adopts legacy capterra rows on the natural key when a legacy row exists)
     capterra.py        Capterra parser (server-rendered cards; g2_reviews rows with source='capterra';
                        review_id hashes the ISO-normalized posted date, OneTrust consent tolerant)
     trustradius.py     TrustRadius parser (0-10 → 0-5 rating normalization; source='trustradius')
+    sa_ga.py           Software Advice / GetApp parsers + adapters (JSON-LD SSR; keys
+                       marketplace_softwareadvice / marketplace_getapp; reviews land in g2_reviews
+                       via the runner's generic marketplace dispatch; disabled by default, opt-in
+                       via extra_data.sa_url / extra_data.getapp_url)
     trend.py           marketplace_review_trend — review count/rating deltas vs prior cycle
     empty_log.py       EmptyLog — per-slug consecutive-empty-cycle bookkeeping (drives backoff)
     selfcheck.py       Thin per-vendor wrappers over the shared five-state runner
-                       (src/core/selfcheck.py owns run_source_selfcheck since the T25 extraction)
+                       (src/core/selfcheck.py owns run_source_selfcheck)
     __init__.py         Exports MarketplaceG2Source
     README.md           This file
 
@@ -607,8 +611,9 @@ sites:
     max_review_pages: 5        # cap pagination via follow_tasks
     review_lookback_days: 90   # drop reviews older than this (config-driven)
     session_cookie_file: null  # path to a JSON cookie file for G2 sign-in (no automated login)
-                               # NOTE: the committed config/marketplace.yaml ships `session_cookie_file: data/g2_cookies.json`
-                               # for the g2 site — the shipped file may hold a real path; annotate, don't paste yours here
+                               # NOTE: the committed g2 site entry ships `session_cookie_file: data/g2_cookies.json` —
+                               # a local cookie-export path. Set it to `null` unless you are deliberately reusing
+                               # your own exported G2 session cookies, and NEVER commit a real cookie file.
 ```
 
 ### Environment variables
@@ -656,6 +661,11 @@ datadome:
 ---
 
 ## Quick Start
+
+> **Prerequisite for live G2 collection:** the DataDome solver env vars
+> (`DATADOME_SOLVER_PROVIDER`, `DATADOME_SOLVER_API_KEY`,
+> `DATADOME_RESIDENTIAL_PROXY` — see *DataDome protection* below and
+> `.env.example`). Capterra/TrustRadius/SA/GetApp need no solver.
 
 ### 1. Seed accounts with g2_slug
 
@@ -902,24 +912,23 @@ Options: `--slug` (default `sierra`), `--headless/--headed` (default: headed, wh
 |---|---|---|
 | `test_g2_extract.py` | 16 | `extract_g2_reviews` on live `elv-*` fragments (counts, field mapping, rating scale, verified tokens, NPS/helpful fields) |
 | `test_g2_parse.py` | 5 | Parser extracts all fields, handles anonymous reviewers, empty HTML |
-| `test_g2_adapter.py` | 4 | plan() requires g2_slug, returns correct URL; parse() returns candidates, filters old reviews |
+| `test_g2_adapter.py` | 16 | plan() requires g2_slug, returns correct URL; parse() returns candidates, filters old reviews |
 | `test_g2_harvest.py` | 1 | upsert_g2_reviews persists, idempotent (no duplicates on re-run) |
 | `test_g2_export.py` | 2 | JSON export decodes pros/cons to lists; CSV export flattens to semicolon strings |
 | `test_g2_slug.py` | 4 | Account.g2_slug field, to_db_row, from_db_row |
 | `test_g2_reviews_db.py` | 5 | g2_reviews table exists with all columns (incl. nps_score/helpful_votes + migration); upsert round-trip incl. NPS/helpful |
 | `test_cli_g2.py` | 2 | g2-export command exists, creates JSON + CSV files |
 | `test_runner_cf_g2.py` | 1 | Cloudflare bypass routes marketplace_g2 tasks |
-| `test_runner_g2.py` | 2 | runner `_fetch_g2_fragment` renders the reviews_and_filters fragment for G2 tasks |
+| `test_runner_g2.py` | 10 | runner `_fetch_g2_fragment` renders the reviews_and_filters fragment for G2 tasks |
 | `test_g2_e2e.py` | 1 | Full pipeline: plan -> parse -> harvest -> export -> idempotent upsert |
 | `test_capterra_parse.py` | 7 | `extract_capterra_reviews` on the live Capterra fixture — 25-card parity, field mapping, pros/cons, month-name dates, empty-HTML |
 | `test_capterra_adapter.py` | 14 | plan() multi-slug fan-out (`<id>/<Slug>` segments), parse/harvest on the fixture, follow_tasks pagination + cap, cookie headers |
 | `test_runner_capterra.py` | 4 | normal-fetch routing (no stealth browser), CF challenge → bypass fallback, follow-pass re-entry |
 | `test_capterra_db.py` | 5 | `source` column (NEW_COLUMNS migration), `upsert_capterra_reviews` round-trip + idempotency, G2 default source='g2' |
 | `test_trustradius_parse.py` | 7 | `extract_trustradius_reviews` on the live TrustRadius fixture — 3-card parity, 0-10→0-5 rating normalization, ISO dates, reviewer/company-size mapping, empty-HTML |
-| `test_trustradius_adapter.py` | 14 | plan() multi-slug fan-out, parse/harvest on the fixture, follow_tasks pagination + cap, cookie headers |
+| `test_trustradius_adapter.py` | 13 | plan() multi-slug fan-out, parse/harvest on the fixture, follow_tasks pagination + cap, cookie headers |
 | `test_trustradius_db.py` | 3 | `upsert_trustradius_reviews` source='trustradius' round-trip + idempotency, source isolation |
-| `test_g2_selfcheck.py` (capterra cases) | 5 | capterra self-check ok/empty/drift/challenge/error states with mocked fetchers |
-| `test_g2_selfcheck.py` (trustradius cases) | 5 | trustradius self-check ok/empty/drift/challenge/error states with mocked fetchers |
+| `test_g2_selfcheck.py` | 14 | per-vendor self-check ok/empty/drift/challenge/error states with mocked fetchers (g2 + capterra + trustradius wrappers) |
 
 ### Fixtures
 
@@ -947,7 +956,7 @@ Review 3 uses `<div itemprop="author">` instead of `<span>` to test both code pa
 ## How It Fits in Signals
 
 Signals is a sales signal enrichment engine that collects buying signals about target accounts
-from ~20 zero-cost sources, resolves them to an identity graph, scores and tiers them, and exports
+from 40+ zero-cost source keys, resolves them to an identity graph, scores and tiers them, and exports
 ranked account briefs.
 
 The G2 scraper is one source adapter. It contributes:
@@ -992,8 +1001,7 @@ The adapter is disabled by default (`enabled: false` in `config/sources.yaml`). 
 
 ## Features
 
-The adapter implements the capabilities below. Each maps to a feature that was previously a
-roadmap item; see the commit references in the project history.
+The G2 adapter implements the capabilities below; each maps to a shipped, test-pinned feature (see the test inventory at the bottom of this file).
 
 - **Review-velocity trend signals** — each collect diffs the per-slug review count/avg-rating
   against the prior cycle (`data/marketplace/stats.json`) and emits a `marketplace_review_trend`
@@ -1002,8 +1010,8 @@ roadmap item; see the commit references in the project history.
 
 - **Empty-since bookkeeping with cadence backoff** — `EmptyLog` tracks consecutive empty cycles
   per slug/source (atomic JSON, injectable clock); after 3 consecutive empties the planner skips
-  the slug ("empty since" date logged), and any cycle with reviews resets the counter. All three
-  marketplace adapters record into it: G2 via its fragment path, capterra/trustradius via the
+  the slug ("empty since" date logged), and any cycle with reviews resets the counter. All five
+  marketplace adapters record into it: G2 via its fragment path, the other four via the
   shared harvest-reviews path — so `_filter_backoff`'s empty-since backoff is fully wired for
   every marketplace source, not just G2.
 

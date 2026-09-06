@@ -36,10 +36,12 @@ git clone https://github.com/Jason-Gugins/Signals.git
 cd Signals
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -m pip install -e ".[rerank]"   # optional: cross-encoder rerank extra
 .\.venv\Scripts\python.exe -m playwright install chromium
 .\.venv\Scripts\python.exe -m patchright install chromium
 copy .env.example .env
 # set SIGNALS_CONTACT_EMAIL to a real address (SEC EDGAR 403s without it)
+# set GITHUB_TOKEN to raise community_github from 60 to 5,000 req/hr (optional)
 ```
 
 ## Verify
@@ -63,12 +65,14 @@ lane) plus a nightly live-parity lane — see
 ```
 
 `config/lists/` is gitignored — `init` creates the directory, but you must
-populate it (a human provides):
+populate it (a human provides — see
+[config/lists/README.md](config/lists/README.md) for the authoritative list):
 
+- `config/lists/competitors.txt` — domains we should never score as prospects
+- `config/lists/customers.txt` — existing customers (route to CS)
+- `config/lists/dnc.txt` — do-not-contact
 - `config/lists/champions.csv` — prior buyers (unlocks `champion_migration`;
-  load with `.\\.venv\\Scripts\\python.exe -m src.cli champions --load config/lists/champions.csv`)
-- `config/lists/exclusions.txt` — domains to skip
-- `config/lists/email_patterns.csv` — only if a pattern is *known*
+  load with `.\.venv\Scripts\python.exe -m src.cli champions --load config/lists/champions.csv`)
 - `data/inbox/owned/*.csv|*.jsonl` — first-party intent (web/ESP export)
 
 ## Everyday commands
@@ -79,15 +83,18 @@ populate it (a human provides):
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli seed --csv seeds.csv --linkedin --repvue
+#   --linkedin: also read the companion scraper's local DB (silent no-op
+#   without the ../Linkedin checkout); --repvue: seed from a local repvue DB
 .\.venv\Scripts\python.exe -m src.cli run --cohort canada-software
 .\.venv\Scripts\python.exe -m src.cli brief --domain acme.com
 .\.venv\Scripts\python.exe -m src.cli export --format csv
 .\.venv\Scripts\python.exe -m src.cli watch --once
 ```
 
-Also: `sweep <url-or-domain> [--force]` (one-command onboarding: seed-or-update
+Also: `sweep <url-or-domain> [--force] [--deep]` (one-command onboarding: seed-or-update
 the account from a URL or bare domain, then run every enabled source for it —
-`--force` recollects even if the account already exists; bare company names are
+`--force` recollects even if the account already exists; `--deep` extends the
+sweep to existing accounts: resolve pass + collect in one command; bare company names are
 refused — use `sweep --discover "Name"` / `sweep --competitors "Name"` for
 name-keyed discovery, see *Identity discovery* below — sources whose required
 account fields are missing are reported
@@ -210,22 +217,26 @@ and covers accounts with neither field set. Careers-page auto-detection
 collector-less boards (bamboohr, jazzhr, personio) deliberately set only
 `careers_url` so the careers-page fallback keeps firing for those accounts.
 
-- News / regulators: `news_rss`, `google_news`, `company_feed`, `federal_register`, `warn_notices`
+- News / regulators: `news_rss`, `google_news`, `company_feed`, `federal_register` (agency-rule watch over the Federal Register API), `warn_notices` (NY/CA collect live; NJ/FL/OH parsers ship but are not in the fanout; WA/TX/IL are recon stubs; MI deferred)
 
-`google_news` fetches keyword search RSS (per-account name) plus named section feeds (TECHNOLOGY, BUSINESS). Same `classify_news` pipeline — funding, exec hires, M&A, product launches. Configurable topics in `config/sources.yaml`. SERP manipulation: the account query is also run augmented with signal keywords (fundraising, new leadership, new GTM product, acquisition) for higher recall — see `serp_keywords` in `config/sources.yaml`.
+`google_news` fetches keyword search RSS (per-account name) plus named section feeds (TECHNOLOGY, BUSINESS — a class constant, not configurable). Same `classify_news` pipeline — funding, exec hires, M&A, product launches, security breaches. SERP manipulation: the account query is also run augmented with signal keywords (fundraising, new leadership, new GTM product, acquisition) for higher recall — see `serp_keywords` in `config/sources.yaml`. Full notes: [`src/sources/news/README.md`](src/sources/news/README.md).
 
-- Federal spend: `federal_contracts` (live usaspending.gov award search — keyless POST, trailing-12-month window, never-guess name matching)
-- Footprint: `techstack`, `wayback`, `crtsh`, `jobsignals`
-- Community: `community_hn`, `community_github`
-  (`community_github` authenticates with `GITHUB_TOKEN` from the environment
-  when set — 5,000 req/hr instead of the unauthenticated 60; the org login is
-  guessed from the domain label / account name with only the first guess
-  probed per cycle, so a GitHub login that differs from both is a known gap)
-- App stores / registry: `appstore_reviews` (live iTunes RSS reviews; set the
+- Federal spend: `federal_contracts` (live usaspending.gov award search — keyless POST, trailing-12-month window, never-guess name matching: ambiguous recipients emit nothing)
+- Footprint: `techstack` (observed third-party tech + DNS/header evidence — full notes below), `wayback` (archived homepage/pricing diffs), `crtsh` (certificate-transparency subdomains; hint labels + new-subdomain deltas), `jobsignals` (hiring trends derived from stored job postings)
+- Community: `community_hn` (Hacker News mentions via the Algolia API), `community_github`
+  (org repos/releases → `product_launch`, stagnation, `github_momentum` for new
+  repos / star surges / archived; authenticates with `GITHUB_TOKEN` from the
+  environment when set — 5,000 req/hr instead of the unauthenticated 60; the
+  org login is guessed from the domain label / account name with only the
+  first guess probed per cycle, so a GitHub login that differs from both is a
+  known gap)
+- App stores / registry: `appstore_reviews` (live iTunes RSS reviews + version capture; set the
   account's `app_store_id` — a seed CSV column or `deepen` update),
+  `content_itunes` (vendor podcast presence via the iTunes Search API),
   `bbb_profile` (live BBB business profiles; seed
-  `extra_data.bbb_url` per account — URLs are not derivable from name+domain)
-- Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db`, `content_itunes`.
+  `extra_data.bbb_url` per account — URLs are not derivable from name+domain;
+  grade downgrades emit `reputation_drop`)
+- Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db` (optional local sales-hiring DB; no live fetch).
   `linkedin_db` reads the companion LinkedIn scraper's local DB (read-only; live
   collection is manual via `deepen` — see `src/sources/linkedin_db/README.md`).
 
@@ -233,9 +244,12 @@ Disabled by default: `community_reddit` (live fetching blocked — www 403 block
 page + old.reddit login wall, P2 spike 2026-08-31), `yc_batch` (Y Combinator
 directory is a client-rendered Inertia shell; parser needs a browser-tier
 upgrade), `content_producthunt` (Cloudflare-blocked). Marketplace collection
-(`marketplace_g2`, `marketplace_capterra`, `marketplace_trustradius`) is
+(`marketplace_g2`, `marketplace_capterra`, `marketplace_trustradius`, plus the
+Gartner-network pair `marketplace_softwareadvice` / `marketplace_getapp` —
+server-rendered JSON-LD reviews, opt-in via `extra_data.sa_url` /
+`extra_data.getapp_url`) is
 opt-in — the adapter's `enabled` flag in `config/sources.yaml` is the enforced
-gate and all three ship `false`. The `sites.*` blocks in
+gate and they all ship `false`. The `sites.*` blocks in
 `config/marketplace.yaml` hold per-site options (cookie file, page limits) —
 setting a site's `enabled` there is documentation of intent, not an additional
 code-enforced gate.
@@ -249,7 +263,7 @@ notes for all three in `src/sources/marketplace/README.md`.
 
 ### Cloudflare bypass
 
-When `techstack` hits a Cloudflare challenge (403 or managed interstitial), a 5-tier bypass waterfall attempts to solve it: cached `cf_clearance` cookie reuse → headless Chromium JS solve → external solver (2Captcha Turnstile token, re-injected via browser as a `cf_clearance` cookie and polled for clearance) → headed manual fallback → honest hard stop (names `cloudflare`, invents nothing). Bypass is scoped to `techstack`, `marketplace_g2`, `marketplace_capterra`, and `marketplace_trustradius` (`_CF_BYPASS_SOURCES` in `src/pipeline/runner.py`); all other sources retain the 403 hard-stop. Cookies persist in `cloudflare_cookies` (UA + proxy bound). Enable the solver in `.env`:
+When `techstack` (or a marketplace source) hits a Cloudflare challenge (403 or managed interstitial), a 6-tier bypass waterfall attempts to solve it: cached `cf_clearance` cookie reuse → SignalsShadow native-engine request (when the antibot engine is built) → headless Chromium JS solve → external solver (2Captcha Turnstile token, re-injected via browser as a `cf_clearance` cookie and polled for clearance) → headed auto-solve fallback (no manual interaction) → honest hard stop (names `cloudflare`, invents nothing). Bypass is scoped to `techstack`, `marketplace_g2`, `marketplace_capterra`, and `marketplace_trustradius` (`_CF_BYPASS_SOURCES` in `src/pipeline/runner.py`); all other sources retain the 403 hard-stop. Cookies persist in `cloudflare_cookies` (UA + proxy bound). Enable the solver in `.env`:
 
 ```
 CLOUDFLARE_SOLVER_PROVIDER=2captcha
@@ -265,10 +279,20 @@ P2 added signal families beyond news: `pricing_change` (wayback snapshots of
 `/pricing` diffed each cycle — a plan/price change means budget is moving) and
 `hiring_surge` (open-role deltas from the ATS/job-board sources, with both a
 minimum percentage delta and an absolute-count floor so tiny boards don't
-fire). The catalog now holds **51 signal types** — newer additions:
+fire). The catalog holds **51 signal types** — newer additions:
 `security_breach` (news-classified breach detection; maps to the
-`trust_rebuild_pitch` play) and `relocation` (BBB business-profile address
-delta, fires only for accounts seeded with a `bbb_url`). Entity resolution
+`trust_rebuild_pitch` play), `relocation` (BBB business-profile address
+delta, fires only for accounts seeded with a `bbb_url`), and the core-source
+insights families: `positioning_change` (archived-homepage title/meta diff),
+`renewal_window` (vendor first-seen anniversaries), `github_momentum`
+(new repos / star surges / archived repos), `funding_drought` (18–24 months
+silent after a Form D raise), `federal_contract_award` (usaspending.gov),
+`new_subdomain` (crt.sh cycle-over-cycle), `bankruptcy_signal` /
+`contract_terminated` (8-K items 1.03/1.02), `insider_trade` (Form 4),
+`competitor_outage` (direct statuspage.io polling), `reputation_drop` (BBB
+grade downgrade), `tech_removed` / `competitor_detected` / `backfill_open`
+(now all wired), and mail-vendor churn from DNS evidence (`tech_churn` on
+removed SPF includes). Entity resolution
 (`normalize_entity` + fuzzy match, `config`
 `entity_aliases`) ties same-company variants across sources to one account,
 and `config/icp.yaml` scores accounts at seed time so tiering is real from
@@ -330,8 +354,10 @@ Chrome-like" — plus an in-house HTTP/2 stack (Akamai h2 byte-exact), temporal
 stealth (session resumption, pooling, 304 revalidation), and solve-and-bounce
 ghost orchestration with per-domain routing that learns clearance-cookie
 lifetimes (RouteState, `data/antibot/routing.json`). Falls back to
-`curl_cffi` when the engine isn't built. No CAPTCHA solving, no login
-bypass — honest limits are documented. Full notes: [`src/antibot/README.md`](src/antibot/README.md).
+`curl_cffi` when the engine isn't built. The antibot module itself does no
+CAPTCHA solving and no login bypass (the external-solver Cloudflare/DataDome
+tiers live in the source fetchers — see *Cloudflare bypass* above) — honest
+limits are documented. Full notes: [`src/antibot/README.md`](src/antibot/README.md).
 
 ## Scheduling, retention, and calibration (ops)
 
@@ -394,9 +420,10 @@ substantially more involved — see `src/sources/marketplace/README.md`.
 - Respect `robots.txt` unless you deliberately turn it off for a run.
 - Identify yourself. Set `SIGNALS_CONTACT_EMAIL` — SEC 403s a missing contact.
 - No auth bypass, no paywall circumvention, no personal non-work data.
-- Cloudflare bot-challenge bypass is scoped to `techstack`, `marketplace_g2`,
-  `marketplace_capterra`, and `marketplace_trustradius` (public
-  business/review pages). It solves JS/managed challenges to read that
+- Cloudflare and DataDome bot-challenge bypass is scoped to `techstack`,
+  `marketplace_g2`, `marketplace_capterra`, and `marketplace_trustradius`
+  (public business/review pages). It solves JS/managed challenges (external
+  Turnstile/DataDome solver tiers) to read that
   content — it does not bypass authentication, paywalls, or login-gated
   content.
 - G2 / Capterra / TrustRadius / LinkedIn ToS restrict automation — those

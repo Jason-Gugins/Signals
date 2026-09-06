@@ -99,7 +99,7 @@ Notes:
 # Always-on suites (engine config, HPACK round-trip, cookies, routing, ghost, integration):
 .\.venv\Scripts\python.exe -m pytest tests/test_antibot_engine.py tests/test_antibot_cookies.py tests/test_antibot_transport.py tests/test_antibot_ghost.py tests/test_antibot_routing.py tests/test_antibot_integration.py -q
 # (engine-file tests auto-skip via importorskip when the native engine isn't
-#  built — that's the expected healthy-unbuilt state; expect ~62 passing)
+#  built — that's the expected healthy-unbuilt state; expect all listed tests to pass (engine-file tests auto-skip when the native engine isn't built))
 
 # Live parity (opt-in, needs network — hits tls.peet.ws):
 .\.venv\Scripts\python.exe -m pytest tests/test_antibot_parity.py -v -m antibot_live

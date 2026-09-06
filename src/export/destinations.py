@@ -20,7 +20,16 @@ from typing import Protocol
 
 from loguru import logger
 
-from src.export.alerts import _NO_CLIENT, Alert, deliver_alerts, write_jsonl
+# _deliver_once/_validate_webhook_url are the shared POST primitive and URL
+# validation from the alerts delivery path — reused here, never re-implemented.
+from src.export.alerts import (
+    _NO_CLIENT,
+    _deliver_once,
+    _validate_webhook_url,
+    Alert,
+    deliver_alerts,
+    write_jsonl,
+)
 
 
 class Destination(Protocol):
@@ -72,7 +81,9 @@ class WebhookDestination:
 
     DRY: the actual POSTs, HMAC signing, retries, and dedupe all live in
     src/export/alerts.py (deliver_alerts/post_json_webhook) — this class only
-    maps config to that entry point.
+    maps config to that entry point. Digest-text items (the Destination
+    protocol's other shape) post as a single slack-style ``{"text": ...}``
+    message per webhook through the same POST primitive.
     """
 
     def __init__(
@@ -89,12 +100,45 @@ class WebhookDestination:
     def deliver(self, items, config) -> str:
         webhooks = self.webhooks if self.webhooks is not None else config.alert_webhooks
         routes = self.routes if self.routes is not None else config.alert_routes
+        if isinstance(items, str):
+            # Digest-text shape (the Destination protocol's other item kind):
+            # one slack-style {"text": ...} message per webhook, via the same
+            # POST primitive and URL validation as the alerts path. No tier
+            # routing, HMAC signing, or dedupe — a digest is regenerated
+            # wholesale, so re-delivery is intended.
+            return self._deliver_digest(items, webhooks, config)
         sent = deliver_alerts(
             list(items), webhooks, routes=routes or None,
             client=self._own_client if self._own_client is not None else _NO_CLIENT,
             timeout=float(getattr(config, "alert_webhook_timeout_s", 10.0)),
         )
         logger.info("webhook destination delivered {} alert(s)", sent)
+        return f"webhook:{sent}"
+
+    def _deliver_digest(self, text: str, webhooks, config) -> str:
+        timeout = float(getattr(config, "alert_webhook_timeout_s", 10.0))
+        own = self._own_client is None
+        if own:
+            import httpx
+
+            http_client = httpx.Client(timeout=timeout)
+        else:
+            http_client = self._own_client
+        sent = 0
+        try:
+            for wh in webhooks:
+                url = wh.get("url") if isinstance(wh, dict) else None
+                if not _validate_webhook_url(url):
+                    logger.warning(
+                        "webhook skipped: invalid URL {!r} (must be http/https with a host)", url
+                    )
+                    continue
+                if _deliver_once(http_client, url, {"text": text}, timeout):
+                    sent += 1
+        finally:
+            if own:
+                http_client.close()
+        logger.info("webhook destination delivered digest text to {} webhook(s)", sent)
         return f"webhook:{sent}"
 
 
@@ -120,6 +164,21 @@ def load_destinations(config) -> list[Destination]:
             out.append(FileDestination(**kwargs))
         elif dtype == "webhook":
             kwargs = {k: v for k, v in spec.items() if k in ("webhooks", "routes")}
+            out.append(WebhookDestination(**kwargs))
+        elif dtype == "slack":
+            # "slack" alias: the same webhook destination with format:"slack"
+            # pinned — for Slack-app incoming webhooks (the URL is the
+            # revocable secret; no channel override). Same optional keys as
+            # "webhook"; an explicit format key is overridden (simpler than
+            # erroring — the alias exists so operators never need the format
+            # option). Route webhook sets are operator-explicit and untouched.
+            kwargs = {k: v for k, v in spec.items() if k in ("webhooks", "routes")}
+            webhooks = kwargs.get("webhooks")
+            if webhooks is None:
+                webhooks = config.alert_webhooks
+            kwargs["webhooks"] = [
+                {**wh, "format": "slack"} if isinstance(wh, dict) else wh for wh in webhooks
+            ]
             out.append(WebhookDestination(**kwargs))
         else:
             logger.warning("export destination skipped: unknown type {!r}", dtype)

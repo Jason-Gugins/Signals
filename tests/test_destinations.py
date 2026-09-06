@@ -6,8 +6,9 @@ import os
 import pytest
 
 from src.core.config import Config
-from src.export.alerts import Alert
+from src.export.alerts import Alert, format_slack_text
 import src.export.alerts as alerts_mod
+import src.export.destinations as dest_mod
 from src.export.destinations import (
     FileDestination,
     WebhookDestination,
@@ -140,3 +141,109 @@ def test_load_destinations_webhook_type(tmp_path):
     dests = load_destinations(cfg)
     assert len(dests) == 1
     assert isinstance(dests[0], WebhookDestination)
+
+
+# ---------------------------------------------------------------------------
+# "slack" destination type alias (Plan Task T11): the webhook destination with
+# format:"slack" pinned, for Slack-app incoming webhooks.
+# ---------------------------------------------------------------------------
+
+
+def test_load_destinations_slack_type_pins_slack_format(tmp_path):
+    """type: slack builds the webhook destination with format:"slack" pinned —
+    including on the config.alert_webhooks fallback, so operators never touch
+    the format option."""
+    cfg = _config(tmp_path, destinations=[{"type": "slack"}])
+    cfg.alert_webhooks = [
+        {"url": "http://slack.example/hook", "format": "json", "secret_env": "S"}
+    ]
+    dests = load_destinations(cfg)
+    assert len(dests) == 1
+    assert isinstance(dests[0], WebhookDestination)
+    assert dests[0].webhooks == [
+        {"url": "http://slack.example/hook", "format": "slack", "secret_env": "S"}
+    ]
+
+
+def test_load_destinations_slack_overrides_explicit_format(tmp_path):
+    """An explicit format key with type: slack is overridden (pinned to slack);
+    unknown spec keys are ignored exactly like the webhook branch."""
+    cfg = _config(
+        tmp_path,
+        destinations=[
+            {
+                "type": "slack",
+                "webhooks": [{"url": "http://slack.example/hook", "format": "json"}],
+                "bogus_key": 1,
+            }
+        ],
+    )
+    dests = load_destinations(cfg)
+    assert len(dests) == 1
+    assert isinstance(dests[0], WebhookDestination)
+    assert dests[0].webhooks == [{"url": "http://slack.example/hook", "format": "slack"}]
+
+
+def test_slack_type_routes_through_slack_format_path(tmp_path, monkeypatch):
+    """type: slack deliver() fans out via the module's deliver_alerts seam with
+    format:"slack" webhooks (the same seam the webhook destination uses)."""
+    cfg = _config(
+        tmp_path,
+        destinations=[{"type": "slack", "webhooks": [{"url": "http://slack.example/hook"}]}],
+    )
+    seen = {}
+
+    def fake_deliver(alerts, webhooks, **kwargs):
+        seen["alerts"] = alerts
+        seen["webhooks"] = webhooks
+        return len(alerts)
+
+    monkeypatch.setattr(dest_mod, "deliver_alerts", fake_deliver)
+    dest = load_destinations(cfg)[0]
+    result = dest.deliver([_alert()], cfg)
+    assert result == "webhook:1"
+    assert seen["alerts"] == [_alert()]
+    assert seen["webhooks"] == [{"url": "http://slack.example/hook", "format": "slack"}]
+
+
+def test_slack_destination_delivers_slack_text_payload(tmp_path):
+    """A slack-format webhook (what type: slack pins) posts the {"text": ...}
+    slack shape — not the signed JSON envelope."""
+    cfg = _config(tmp_path)
+    client = RecordingClient()
+    dest = WebhookDestination(
+        webhooks=[{"url": "http://slack.example/hook", "format": "slack"}], client=client
+    )
+    result = dest.deliver([_alert()], cfg)
+    assert result == "webhook:1"
+    assert len(client.posts) == 1
+    url, payload, headers, body = client.posts[0]
+    assert url == "http://slack.example/hook"
+    assert payload == {"text": format_slack_text(_alert())}
+    assert headers is None and body is None
+
+
+def test_slack_destination_digest_string_delivered_as_text(tmp_path):
+    """Digest-text items (the Destination protocol's other shape) post as one
+    slack-style {"text": ...} message per webhook."""
+    cfg = _config(tmp_path)
+    client = RecordingClient()
+    dest = WebhookDestination(
+        webhooks=[{"url": "http://slack.example/hook", "format": "slack"}], client=client
+    )
+    result = dest.deliver("DIGEST BODY", cfg)
+    assert result == "webhook:1"
+    url, payload, headers, body = client.posts[0]
+    assert url == "http://slack.example/hook"
+    assert payload == {"text": "DIGEST BODY"}
+
+
+def test_slack_destination_missing_url_skipped_like_webhook(tmp_path):
+    """A webhook entry missing its url is skipped (warn, no post, webhook:0) —
+    same skip path as the webhook branch, for both item shapes."""
+    cfg = _config(tmp_path)
+    client = RecordingClient()
+    dest = WebhookDestination(webhooks=[{"format": "slack"}], client=client)
+    assert dest.deliver([_alert()], cfg) == "webhook:0"
+    assert dest.deliver("DIGEST BODY", cfg) == "webhook:0"
+    assert client.posts == []

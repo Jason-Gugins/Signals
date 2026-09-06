@@ -1,14 +1,15 @@
 {
   "probe": "g2_competitors",
   "task": "T5",
-  "date": "2026-09-06T03:46:50+00:00",
+  "date": "2026-09-06T03:52:12+00:00",
   "target_url": "https://www.g2.com/products/slack/competitors/alternatives",
   "optional_target_url": "https://www.g2.com/products/hubspot-marketing-hub/competitors/alternatives",
   "budget": {
     "max_g2_fetches": 3,
-    "g2_fetches_used": 1,
+    "g2_fetches_used": 2,
     "spent_on": [
-      "plain:slack:attempt1"
+      "plain:slack:attempt1",
+      "browser:slack:goto attempt 1"
     ],
     "pace_s_between_any_two_requests": 5.0,
     "request_log": [
@@ -17,6 +18,12 @@
         "url": "https://www.g2.com/products/slack/competitors/alternatives",
         "tier": "curl_cffi-chrome",
         "g2_fetch": 1
+      },
+      {
+        "label": "slack browser goto attempt 1",
+        "url": "https://www.g2.com/products/slack/competitors/alternatives",
+        "tier": "patchright-headed",
+        "g2_fetch": 2
       }
     ]
   },
@@ -58,8 +65,45 @@
         "_g2_session_id",
         "__cf_bm"
       ],
-      "verdict": "NO-GO-for-now (browser launcher error)",
-      "launcher_error": "Error(\"BrowserType.launch: Executable doesn't exist at C:\\\\Users\\\\Jason\\\\AppData\\\\Local\\\\ms-playwright\\\\chromium-1161\\\\chrome-win\\\\chrome.exe\\n\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557\\n\u2551 Looks like Playwright was just installed or updated.       \u2551\\n\u2551 Please run the following command to download new browsers: \u2551\\n\u2551                                                            \u2551\\n\u2551"
+      "url_after": "https://www.g2.com/products/slack/competitors/alternatives",
+      "title": "g2.com",
+      "bytes": 2580,
+      "render_wait_s": 30,
+      "render_marker": null,
+      "classification": {
+        "kind": "challenge",
+        "challenge_markers": [
+          "geo.captcha-delivery.com",
+          "captcha-delivery.com",
+          "datadome",
+          "captcha"
+        ],
+        "real_markers": {
+          "product-card": 0,
+          "link-product-card": 0
+        },
+        "product_hrefs": 0,
+        "title": "g2.com"
+      },
+      "artifact": "data/probe/g2_competitors_slack.html",
+      "verdict": "CHALLENGE-BLOCKED",
+      "xhr_netlog": [
+        {
+          "url": "https://www.g2.com/products/slack/competitors/alternatives",
+          "status": 403,
+          "ctype": "text/html"
+        },
+        {
+          "url": "https://geo.captcha-delivery.com/interstitial/?initialCid=AHrlqAAAAAMAbRIQPEBxAn0A-xeMFg%3D%3D&hash=229542D5C186C7F5A5BB092FBDD92B&cid=OHsW75n0MgyrJYE9W8TjqI2KW",
+          "status": 200,
+          "ctype": "text/html"
+        },
+        {
+          "url": "https://geo.captcha-delivery.com/captcha/?initialCid=AHrlqAAAAAMAbRIQPEBxAn0A-xeMFg==&cid=~j~d8~nHDqflMATdktrt5npBLLfgUyIypBDI~JAxOx1K~XTGggVxxUTWbV7Izss3MSbxEk",
+          "status": 200,
+          "ctype": "text/html"
+        }
+      ]
     }
   ]
 }

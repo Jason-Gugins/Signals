@@ -789,6 +789,35 @@ def _run_discover(ctx, names: list[str], *, ddg: bool = False) -> None:
             click.echo(f"queued to identity_candidates; promote with: {hint}")
 
 
+def _run_competitors(ctx, names: list[str]) -> None:
+    """Keyless competitor-candidate mining report (plan T7).
+
+    Same shape as _run_discover: BYPASSES parse_target and the sweep pipeline
+    entirely — nothing here creates accounts. Candidates are queued in
+    identity_candidates (kind=competitor) and the human promotes them by
+    editing config/lists/competitors.txt or config/fingerprints.yaml.
+    """
+    orch: Orchestrator = ctx.obj["get_orch"]()
+    for name in names:
+        try:
+            result = orch.discover_competitors(name)
+        except Exception as exc:
+            click.echo(f"{name}: competitor mining failed: {exc}", err=True)
+            continue
+        competitors = result.get("competitors") or []
+        click.echo(f"{name}: {len(competitors)} competitor candidates")
+        for cand in competitors:
+            click.echo(
+                f"  {cand.get('name') or ''}\t{cand.get('source') or ''}"
+                f"\t{cand.get('title') or ''}\t{cand.get('url') or ''}"
+            )
+        if result.get("queued"):
+            click.echo(
+                "queued to identity_candidates (kind=competitor); promote by "
+                "adding to config/lists/competitors.txt or fingerprints.yaml"
+            )
+
+
 @main.command()
 @click.argument("url_or_name", required=False)
 @click.option("--force", is_flag=True, help="Force recollection even if the account already exists.")
@@ -807,22 +836,38 @@ def _run_discover(ctx, names: list[str], *, ddg: bool = False) -> None:
     default=False,
     help="Also try the DuckDuckGo SERP stage (resolve-time only, may be bot-gated).",
 )
+@click.option(
+    "--competitors",
+    "competitor_names",
+    multiple=True,
+    help="Competitor-candidate mining instead of a sweep: mine comparison headlines "
+    "(Bing News RSS + HN Algolia, keyless) for NAME and queue them in identity_candidates "
+    "(kind=competitor) for human review. Repeatable. Never creates accounts.",
+)
 @click.pass_context
-def sweep(ctx, url_or_name, force, deep, discover_names, ddg):
+def sweep(ctx, url_or_name, force, deep, discover_names, ddg, competitor_names):
     """One-command onboarding: seed-or-update the account, then collect.
 
     Accepts a URL (https://acme.io/about) or a bare domain (acme.io).
     A bare company name without a dot is refused in v1 — use
-    `sweep --discover "Company Name"` to queue domain candidates instead.
+    `sweep --discover "Company Name"` to queue domain candidates instead,
+    or `sweep --competitors "Company Name"` to queue competitor candidates.
     """
     from src.pipeline import sweep as sweep_mod
 
+    if discover_names and competitor_names:
+        raise click.UsageError("pass either --discover NAME or --competitors NAME, not both")
     if ddg and not discover_names:
         raise click.UsageError("--ddg requires --discover NAME")
     if discover_names:
         if url_or_name:
             raise click.UsageError("pass either a target or --discover NAME, not both")
         _run_discover(ctx, list(discover_names), ddg=ddg)
+        return
+    if competitor_names:
+        if url_or_name:
+            raise click.UsageError("pass either a target or --competitors NAME, not both")
+        _run_competitors(ctx, list(competitor_names))
         return
     if not url_or_name:
         raise click.UsageError("Missing argument 'URL_OR_NAME' (or pass --discover NAME).")

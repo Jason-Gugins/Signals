@@ -256,6 +256,42 @@ class Orchestrator:
             result["queued"] = queued
             return result
 
+    def discover_competitors(self, name: str) -> dict:
+        """Keyless competitor-candidate mining into identity_candidates (T7).
+
+        Carries T6's candidate-store mechanism per the T5 probe re-scope
+        (data/probe/G2_COMPETITORS_2026_09.md): the G2 page pass is deferred
+        (DataDome NO-GO), so ranked kind=competitor candidates come from Bing
+        News RSS + HN Algolia co-mentions instead. Same contract as
+        discover(): candidates are queued for human review only — activation
+        stays an explicit human edit of config/lists/competitors.txt or
+        config/fingerprints.yaml. Nothing here ever auto-creates or edits
+        accounts.
+        """
+        with RunContext(self.db, "discover_competitors") as ctx:
+            from src.identity.competitor_news import CompetitorNewsPass
+
+            result = CompetitorNewsPass(
+                self.fetcher or self._http_fetcher(ctx), self.registry
+            ).discover(name)
+            competitors = result.get("competitors") or []
+            queued = bool(competitors)
+            if queued:
+                from src.core.db import IdentityCandidateStore
+                from src.identity.resolve import normalize_entity
+
+                # Store key is the normalize_entity form (the table's
+                # documented contract), mirroring discover(): "Stripe Inc"
+                # and "stripe" land in one review row; the raw name stays in
+                # the result for display.
+                key = normalize_entity(name) or name
+                IdentityCandidateStore(self.db).upsert_candidate(
+                    key, "competitor", competitors, source="competitor_news"
+                )
+            result["queued"] = queued
+            result.setdefault("errors", {})
+            return result
+
     def collect(self, *, sources=None, cohort=None, domains=None, force=False, dry_run=False, limit=None) -> RunnerStats:
         with RunContext(self.db, "collect") as ctx:
             accounts = self._accounts(cohort=cohort, domains=domains, limit=limit)

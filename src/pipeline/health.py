@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -278,6 +279,58 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
             add("identity_candidates_pending", "OK", "no pending identity candidates")
     except Exception as exc:
         add("identity_candidates_pending", "WARN", f"check skipped: {exc}")
+    # GKG identity-discovery credentials (plan T13): the gkg_ids waterfall
+    # stage is a credential-gated no-op — backend "ekg" (default) needs
+    # google-auth (the optional [gkg] extra) plus GOOGLE_APPLICATION_CREDENTIALS
+    # (and GKG_PROJECT_ID at call time); backend "kgsearch" needs
+    # GOOGLE_KGSEARCH_KEY. Pure env/import probes — safe with check_network=False.
+    try:
+        backend = getattr(config, "gkg_backend", "ekg") or "ekg"
+        if backend == "ekg":
+            try:
+                import google.auth  # noqa: F401
+
+                have_auth = True
+            except Exception:
+                have_auth = False
+            creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+            if have_auth and creds:
+                detail = "ekg: google-auth + GOOGLE_APPLICATION_CREDENTIALS present"
+                if not os.environ.get("GKG_PROJECT_ID"):
+                    detail += "; GKG_PROJECT_ID unset — EKG calls error until it is set"
+                add("gkg_credentials", "OK", detail)
+            else:
+                missing = []
+                if not have_auth:
+                    missing.append('google-auth (pip install -e ".[gkg]")')
+                if not creds:
+                    missing.append("GOOGLE_APPLICATION_CREDENTIALS")
+                add(
+                    "gkg_credentials",
+                    "WARN",
+                    "ekg backend unconfigured (missing "
+                    + ", ".join(missing)
+                    + ") — the GKG identity-discovery stage no-ops until configured",
+                )
+        elif backend == "kgsearch":
+            if os.environ.get("GOOGLE_KGSEARCH_KEY"):
+                add("gkg_credentials", "OK", "kgsearch: GOOGLE_KGSEARCH_KEY present")
+            else:
+                add(
+                    "gkg_credentials",
+                    "WARN",
+                    "kgsearch backend unconfigured (missing GOOGLE_KGSEARCH_KEY) — "
+                    "the GKG identity-discovery stage no-ops until configured",
+                )
+        else:
+            add(
+                "gkg_credentials",
+                "WARN",
+                f"unknown gkg_backend {backend!r} — expected 'ekg' or 'kgsearch'; "
+                "the GKG stage would be recorded as a stage error",
+            )
+    except Exception as exc:
+        add("gkg_credentials", "WARN", f"check skipped: {exc}")
     if check_network:
         try:
             import httpx

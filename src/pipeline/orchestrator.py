@@ -244,9 +244,14 @@ class Orchestrator:
             queued = result.get("status") != "resolved" or bool(candidates)
             if queued:
                 from src.core.db import IdentityCandidateStore
+                from src.identity.resolve import normalize_entity
 
+                # Store key is the normalize_entity form (the table's
+                # documented contract) so "Acme Inc" and "acme" land in one
+                # review row; the raw name stays in the result for display.
+                key = normalize_entity(name) or name
                 IdentityCandidateStore(self.db).upsert_candidate(
-                    name, "domain", candidates, source="discover"
+                    key, "domain", candidates, source="discover"
                 )
             result["queued"] = queued
             return result

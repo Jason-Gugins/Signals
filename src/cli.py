@@ -787,8 +787,6 @@ def _run_discover(ctx, names: list[str], *, ddg: bool = False) -> None:
             )
             hint = f"sweep {top}" if top else "sweep <chosen-domain>"
             click.echo(f"queued to identity_candidates; promote with: {hint}")
-        elif status == "resolved" and domain:
-            click.echo(f"create the account with: sweep {domain}")
 
 
 @main.command()
@@ -819,6 +817,8 @@ def sweep(ctx, url_or_name, force, deep, discover_names, ddg):
     """
     from src.pipeline import sweep as sweep_mod
 
+    if ddg and not discover_names:
+        raise click.UsageError("--ddg requires --discover NAME")
     if discover_names:
         if url_or_name:
             raise click.UsageError("pass either a target or --discover NAME, not both")

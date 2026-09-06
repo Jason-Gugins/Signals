@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import src.identity.ddg_ids as ddg
 from src.identity.ddg_ids import (
     DDG_PACE_S,
@@ -14,6 +16,14 @@ from src.identity.ddg_ids import (
     parse_results,
     pick_ddg_candidate,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_pace_state():
+    """DDG pacing state is process-wide; give every test a clean slate."""
+    ddg._reset_pace()
+    yield
+    ddg._reset_pace()
 
 
 class FakeResponse:
@@ -274,6 +284,21 @@ def test_pace_skips_sleep_after_interval_elapsed():
     resolver.discover("Stripe")
     assert sleeps == []
     assert len(fetcher.urls) == 2
+
+
+def test_pace_is_process_wide_across_resolver_instances():
+    """Wave-1 review fix: the waterfall builds a fresh resolver per name, so
+    pacing state must live at module level — a second instance inside the
+    window still sleeps instead of firing back-to-back requests."""
+    fetcher_a = FakeFetcher(_t1_success_html())
+    fetcher_b = FakeFetcher(_t1_success_html())
+    clock = FakeClock([100.0, 102.0])  # 2s apart, inside DDG_PACE_S
+    sleeps: list[float] = []
+    DdgSerpResolver(fetcher_a, clock=clock, sleep=lambda s: None).discover("Stripe")
+    DdgSerpResolver(fetcher_b, clock=clock, sleep=sleeps.append).discover("Stripe")
+    assert sleeps == [DDG_PACE_S - 2.0]
+    assert len(fetcher_a.urls) == 1
+    assert len(fetcher_b.urls) == 1
 
 
 def test_blank_name_short_circuits_without_fetch_or_clock():

@@ -42,9 +42,19 @@ from src.identity.names import name_matches_domain, name_tokens
 DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 
 # Minimum seconds between actual network calls (self-paced; the curl tier has
-# no RateLimiter). Last-request bookkeeping is instance-level with injected
-# clock/sleep (TokenBucket precedent), so tests stay offline and instant.
+# no RateLimiter). Last-request bookkeeping is PROCESS-WIDE with injected
+# clock/sleep (TokenBucket precedent), so tests stay offline and instant and
+# back-to-back names in one sweep --discover pass stay paced even though each
+# waterfall builds a fresh resolver instance.
 DDG_PACE_S = 5.0
+
+_LAST_REQUEST_AT: float | None = None
+
+
+def _reset_pace() -> None:
+    """Test seam: clear the process-wide DDG pacing state between tests."""
+    global _LAST_REQUEST_AT
+    _LAST_REQUEST_AT = None
 
 # Body-validation markers (case-insensitive scan). T1 probe: the plain tier
 # served "Unfortunately, bots use DuckDuckGo too." with HTTP 202, and DDG
@@ -303,7 +313,6 @@ class DdgSerpResolver:
         self.registry = registry
         self.clock = clock
         self.sleep = sleep
-        self._last_request_at: float | None = None
 
     def discover(self, name: str) -> dict:
         """Name -> {"status", "domain", "candidates"}. Never raises.
@@ -330,14 +339,20 @@ class DdgSerpResolver:
         return out
 
     def _pace(self) -> None:
-        """Enforce the DDG_PACE_S minimum interval before a network call."""
+        """Enforce the DDG_PACE_S minimum interval before a network call.
+
+        State is process-wide (not per-instance): the waterfall wiring builds
+        a fresh resolver per name, so instance-level state would never pace
+        between names in one ``sweep --discover A B C --ddg`` pass.
+        """
+        global _LAST_REQUEST_AT
         now = self.clock()
-        if self._last_request_at is not None:
-            remaining = DDG_PACE_S - (now - self._last_request_at)
+        if _LAST_REQUEST_AT is not None:
+            remaining = DDG_PACE_S - (now - _LAST_REQUEST_AT)
             if remaining > 0:
                 self.sleep(remaining)
                 now += remaining  # sleep advances the monotonic clock
-        self._last_request_at = now
+        _LAST_REQUEST_AT = now
 
     def _fetcher_instance(self):
         if self._fetcher is not None:

@@ -373,7 +373,9 @@ def test_orchestrator_discover_queues_ambiguous_run(tmp_path, monkeypatch):
     assert seen["backend"] == "ekg"
     assert seen["ddg"] is False
     row = orch.db.one("SELECT * FROM identity_candidates")
-    assert row["name"] == "Acme Corp"
+    # Wave-1 review fix: the store key is the normalize_entity form (the
+    # table's documented contract) so "Acme Inc"/"acme" variants share a row.
+    assert row["name"] == "acme"
     assert row["kind"] == "domain"
     assert row["source"] == "discover"
     assert row["status"] == "pending"
@@ -476,7 +478,7 @@ def test_orchestrator_discover_end_to_end_wikidata_first_hit(tmp_path):
     assert out["queued"] is True
     assert out["stages"]["wikipedia"] == {"status": "skipped"}
     assert out["stages"]["gkg"] == {"status": "skipped"}
-    row = orch.db.one("SELECT * FROM identity_candidates WHERE name = 'Acme Corp'")
+    row = orch.db.one("SELECT * FROM identity_candidates WHERE name = 'acme'")
     cands = json.loads(row["candidates_json"])
     assert cands[0]["domain"] == "acme.com"
     assert cands[0]["stage"] == "wikidata"

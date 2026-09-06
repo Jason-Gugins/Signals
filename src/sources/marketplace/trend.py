@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import date
 from pathlib import Path
 
@@ -25,6 +26,67 @@ from src.sources.base import SignalCandidate
 DEFAULT_STATS_PATH = "data/marketplace/stats.json"
 DEFAULT_MIN_COUNT_DELTA = 5
 DEFAULT_MIN_RATING_DELTA = 0.5
+
+_SIZE_BAND_RE = re.compile(r"^\s*(\d+)\s*(?:-|–|—|to)\s*(\d+)\s*$", re.IGNORECASE)
+_SINGLE_NUM_RE = re.compile(r"^\s*(\d+)\s*$")
+
+
+def size_midpoint(size: str | None) -> int | None:
+    """Midpoint of a marketplace company-size band like ``"51-200"``.
+
+    Commas are ignored (``"1,001-5,000"``); a lone number counts as both
+    bounds (``"200"`` -> 200). Returns ``None`` for anything without two
+    numeric bounds (``"10,000+"``, ``"Enterprise"``, empty, ``None``).
+    Pure: no I/O, no clock.
+    """
+    if size is None:
+        return None
+    text = str(size).replace(",", "")
+    m = _SIZE_BAND_RE.match(text)
+    if m:
+        lo, hi = int(m.group(1)), int(m.group(2))
+        if hi < lo:
+            lo, hi = hi, lo
+        return (lo + hi) // 2
+    m = _SINGLE_NUM_RE.match(text)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def reviewer_icp_matches(
+    title: str | None,
+    size: str | None,
+    target_titles: list[str],
+    size_band: tuple[int, int] | None,
+) -> bool:
+    """True when a marketplace reviewer looks like an ICP champion contact.
+
+    Title match: casefolded SUBSTRING in BOTH directions against any target
+    ("VP Sales & Marketing" matches "VP Sales"; "head of revenue operations"
+    matches "Head of Revenue"). When ``size_band`` is given, the reviewer's
+    ``reviewer_company_size`` token must also parse to a midpoint inside the
+    band — a missing/unparseable size then never matches (conservative).
+    With ``size_band=None`` the title alone decides. Blank/None titles and
+    empty target lists never match. Pure: no I/O, no clock.
+    """
+    t = (title or "").strip().casefold()
+    if not t or not target_titles:
+        return False
+    hit = any(
+        (needle := str(target).strip().casefold())
+        and (needle in t or t in needle)
+        for target in target_titles
+    )
+    if not hit:
+        return False
+    if size_band is None:
+        return True
+    mid = size_midpoint(size)
+    if mid is None:
+        return False
+    lo, hi = size_band
+    return lo <= mid <= hi
 
 
 def stats_key(source: str, product_slug: str) -> str:

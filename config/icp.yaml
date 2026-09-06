@@ -31,3 +31,13 @@ disqualifiers:
   - id: do_not_contact
     when: { domain_in_file: "config/lists/dnc.txt" }
     reason: "Do-not-contact list"
+
+# Reviewer-ICP join (optional): reviewer titles that count as champion-shaped
+# contacts. Marketplace reviews carry reviewer_title / reviewer_company_size;
+# when a reviewer's title matches one of these entries (casefolded substring,
+# both ways), the runner emits the family's intent_2nd_marketplace type with
+# icp_match evidence. Generic buying-role families only — extend with the
+# titles that actually buy for your ICP, e.g. "RevOps Lead", "Sales Director".
+reviewer_titles:
+  - "VP Sales"
+  - "Head of Revenue"

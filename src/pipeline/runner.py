@@ -406,6 +406,66 @@ class CollectorRunner:
                         else:
                             upsert_g2_reviews(self.db, revs, now=_iso(now),
                                               raw_ref=result.doc.doc_id)
+                        # Reviewer-ICP join (marketplace only): g2_reviews
+                        # rows carry reviewer_title / reviewer_company_size
+                        # that nothing read back. Match each reviewer's title
+                        # against the icp.yaml reviewer_titles list (loaded
+                        # via the Config YAML cache) and emit the family's
+                        # EXISTING intent_2nd_marketplace type with icp_match
+                        # evidence — the natural key dedupes forever, so no
+                        # g2_reviews schema migration is needed. The
+                        # marketplace adapters ship disabled; this lands
+                        # dark-but-wired. Fail-open like every harvest hook.
+                        if adapter.key.startswith("marketplace_"):
+                            icp_cands: list[SignalCandidate] = []
+                            try:
+                                from src.sources.marketplace.trend import (
+                                    reviewer_icp_matches,
+                                )
+
+                                icp_doc = self.config.load_yaml("icp") or {}
+                                target_titles = [
+                                    str(t).strip()
+                                    for t in (icp_doc.get("reviewer_titles") or [])
+                                    if str(t).strip()
+                                ]
+                                if target_titles:
+                                    for r in revs:
+                                        rid = getattr(r, "review_id", None)
+                                        r_title = getattr(r, "reviewer_title", None)
+                                        r_size = getattr(r, "reviewer_company_size", None)
+                                        if not rid or not reviewer_icp_matches(
+                                            r_title, r_size, target_titles, None
+                                        ):
+                                            continue
+                                        icp_cands.append(
+                                            SignalCandidate(
+                                                signal_type="intent_2nd_marketplace",
+                                                observed_at=getattr(r, "posted_at", None)
+                                                or _iso(now)[:10],
+                                                natural_key=f"icprev:{adapter.key}:{rid}",
+                                                title=f"ICP reviewer on "
+                                                f"{getattr(r, 'product_slug', None) or account.domain}: "
+                                                f"{r_title or ''}".strip(),
+                                                confidence=0.7,
+                                                evidence_data={
+                                                    "reviewer_title": r_title,
+                                                    "reviewer_company_size": r_size,
+                                                    "icp_match": True,
+                                                    "review_id": rid,
+                                                },
+                                            )
+                                        )
+                            except Exception:
+                                logger.exception(
+                                    "reviewer ICP match failed for {}", account.domain
+                                )
+                                icp_cands = []
+                            if icp_cands:
+                                added = self._persist(account, adapter.key, icp_cands, None)
+                                stats.signals_new += added
+                                stats._src(adapter.key)["signals_new"] += added
+                                stats.candidates += len(icp_cands)
                         # Track page-1 review stats per slug for the
                         # review-velocity trend signal (page 1 is the
                         # freshest page; consistent cycle-over-cycle).

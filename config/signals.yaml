@@ -441,6 +441,16 @@ types:
     half_life_days: 90
     play: support_pitch
     label: "Reputation drop"
+  security_breach:
+    category: negative
+    origin: internal
+    catalyst: secondary
+    polarity: negative
+    degree: 0
+    weight: 20
+    half_life_days: 45
+    play: trust_rebuild_pitch
+    label: "Security breach reported"
   insider_trade:
     category: financial
     origin: internal

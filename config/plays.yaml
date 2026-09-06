@@ -175,3 +175,11 @@ plays:
     t24: "Hi {first_name}, this is a cold note with a reason. {company} has been showing up around {department} in public. If that is noise, delete. If it is a live thread, I have one useful observation and then I will stop."
     cta: "Worth a sentence back?"
     loss_aversion: "Most cold notes have no reason. This one does, and it will not follow you around."
+  trust_rebuild_pitch:
+    name: "The Trust-Rebuild Pitch"
+    thesis: "A disclosed breach starts a clock: the buyer has to prove remediation to customers and regulators in weeks, not quarters."
+    required_vars: [department]
+    opener: "After a breach disclosure the burden is proving it is fixed — {department} usually carries that proof."
+    t24: "Hi {first_name}, saw the {company} breach disclosure. Teams in that seat usually have to show customers concrete {department} remediation within 30 days. Is that plan already staffed, or still being written?"
+    cta: "I can share the remediation checklist other teams used in the first 30 days."
+    loss_aversion: "Every week without a visible remediation story turns an incident into churned accounts."

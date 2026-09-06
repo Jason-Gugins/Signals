@@ -44,6 +44,14 @@ NEWS_RULES: list[NewsRule] = [
     NewsRule("exec_hire", [r"\bappoints?\b", r"\bhire[sd]\b.{0,20}\b(ceo|cto|cfo|cro|coo|cio)\b", r"\bnames?\b.{0,20}\bas (ceo|cto|cfo|cro)\b", r"\b(?:hires?|names?)\b.{0,40}\b(chief (?:revenue|product|technology) officer|vp (?:sales|product|engineering)|head of sales|c[tf]o|cro|cpo)\b"], [], 0.7, {}),
     NewsRule("exec_departure", [r"\bresigns?\b", r"\bsteps? down\b", r"\bdeparts?\b as\b"], [], 0.7, {}),
     NewsRule("market_consolidation", [r"\bconsolidat\w+\b", r"\bmerger of equals\b"], [], 0.5, {}),
+    # Before competitor_outage: a breach headline that also mentions an
+    # outage/disruption should classify as the cause (breach), not the symptom.
+    NewsRule("security_breach",
+             [r"\bdata breach\b", r"\bsecurity breach\b", r"\bbreached\b", r"\bransomware\b",
+              r"\bcyber ?attacks?\b", r"\bhack(?:ed|ers?)\b", r"\bsecurity incident\b",
+              r"\bexposed (?:\d[\d,.]*\s+)?(?:customer |user |patient )?records?\b", r"\bdata leak\b"],
+             [r"\bbreach of contract\b", r"\bbreach (?:insurance|prevention|protection)\b"],
+             0.65, {}),
     NewsRule("competitor_outage", [r"\boutage\b", r"\bdown for .{0,10}hours\b", r"\bservice disruption\b"], [], 0.6, {}),
     NewsRule("earnings_warning", [r"\bprofit warning\b", r"\bcuts? guidance\b", r"\bmisses? (?:q\d )?estimates\b"], [], 0.7, {}),
 ]

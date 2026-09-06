@@ -173,7 +173,7 @@ class GoogleNewsSource(SourceAdapter):
     emits = ("funding_round", "exec_hire", "exec_departure", "product_launch",
              "layoff", "ma_acquirer", "ma_target", "ipo_filing", "ipo_pricing",
              "office_open", "award", "certification", "earnings_warning",
-             "market_consolidation", "competitor_outage")
+             "market_consolidation", "security_breach", "competitor_outage")
 
     # Default topic sections to fetch alongside the keyword search.
     DEFAULT_TOPICS = ("TECHNOLOGY", "BUSINESS")

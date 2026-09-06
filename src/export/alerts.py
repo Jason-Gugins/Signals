@@ -266,13 +266,27 @@ def _json_payload(alert: Alert) -> dict:
     }
 
 
-def _sign_body(signing_secret: str | None, payload: dict) -> tuple[bytes, dict]:
+def _sign_body(
+    signing_secret: str | None,
+    payload: dict,
+    scheme: str = "legacy",
+    now: float | None = None,
+) -> tuple[bytes, dict]:
     """Serialize the payload ONCE and sign those exact bytes.
 
     Returns (body, headers): the caller must send ``body`` verbatim when
-    ``headers`` is non-empty, so X-Signature always matches the wire bytes.
+    ``headers`` is non-empty, so the signature always matches the wire bytes.
     (Signing a re-serialization of the payload would break verification
     whenever the HTTP client's JSON encoder differs from this one.)
+
+    ``scheme`` selects the signature flavor (the per-webhook ``signature``
+    option; already normalized by :func:`_normalize_signature_scheme`):
+    - "legacy": ``X-Signature: sha256=<hex HMAC-SHA256 of the body>`` (default).
+    - "hub": GitHub-style ``X-Hub-Signature-256: sha256=<hex HMAC-SHA256 of
+      the body>`` (same digest, different header name).
+    - "stripe": ``Stripe-Signature: t=<unix-seconds>,v1=<hex HMAC-SHA256 of
+      "<t>.<body>">`` replay-protection scheme; ``now`` (epoch seconds)
+      overrides time.time() as the clock (test seam).
     """
     if not signing_secret:
         return b"", {}
@@ -280,8 +294,36 @@ def _sign_body(signing_secret: str | None, payload: dict) -> tuple[bytes, dict]:
     import hmac as hmac_mod
 
     body = json.dumps(payload).encode("utf-8")
-    digest = hmac_mod.new(signing_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    key = signing_secret.encode("utf-8")
+    if scheme == "stripe":
+        t = int(now if now is not None else time.time())
+        # "<t>.<body>" — the exact wire bytes appended to the timestamp.
+        digest = hmac_mod.new(key, f"{t}.".encode("utf-8") + body, hashlib.sha256).hexdigest()
+        return body, {"Stripe-Signature": f"t={t},v1={digest}"}
+    digest = hmac_mod.new(key, body, hashlib.sha256).hexdigest()
+    if scheme == "hub":
+        return body, {"X-Hub-Signature-256": "sha256=" + digest}
     return body, {"X-Signature": "sha256=" + digest}
+
+
+_SIGNATURE_SCHEMES = ("legacy", "hub", "stripe")
+
+
+def _normalize_signature_scheme(value, *, url: str) -> str:
+    """Validate a per-webhook ``signature`` option; unknown -> "legacy" + warning.
+
+    Never raises and never drops the delivery: a config typo falls back to
+    today's legacy header with a one-line warning."""
+    if value in (None, "legacy"):
+        return "legacy"
+    if value in _SIGNATURE_SCHEMES:
+        return value
+    logger.warning(
+        "webhook {}: unknown signature option {!r} (expected legacy|hub|stripe) — using legacy",
+        url,
+        value,
+    )
+    return "legacy"
 
 
 # Sentinel distinguishing "no client passed" from "client=None means urllib".
@@ -383,6 +425,8 @@ def post_json_webhook(
     url: str,
     *,
     signing_secret: str | None = None,
+    signature: str = "legacy",
+    now: float | None = None,
     client=_NO_CLIENT,
     batch: int = 10,
     timeout: float = DEFAULT_WEBHOOK_TIMEOUT_S,
@@ -397,13 +441,23 @@ def post_json_webhook(
     Payload per alert: {"type", "account": {domain, company, tier, score},
     "signal": {evidence, url, at}, "why_now"}.
 
-    Optional HMAC: when ``signing_secret`` is provided, sends
-    ``X-Signature: sha256=<lowercase hex HMAC-SHA256 of the exact body bytes>``.
+    Optional HMAC (when ``signing_secret`` is provided), selected by the
+    per-webhook ``signature`` option:
+    - "legacy" (default): ``X-Signature: sha256=<lowercase hex HMAC-SHA256 of
+      the exact body bytes>`` — today's behavior, unchanged.
+    - "hub": GitHub-style — same digest under ``X-Hub-Signature-256``.
+    - "stripe": ``Stripe-Signature: t=<unix-seconds>,v1=<hex HMAC-SHA256 of
+      "<t>.<body>">``; ``now`` (epoch seconds) is an injectable clock for the
+      timestamp (tests), defaulting to time.time().
+    Unknown ``signature`` values fall back to "legacy" with a one-line
+    warning — the delivery itself is never dropped. Without a secret no
+    signature headers are sent, regardless of scheme.
     """
     if not _validate_webhook_url(url):
         logger.warning("webhook skipped: invalid URL {!r} (must be http/https with a host)", url)
         return 0
 
+    scheme = _normalize_signature_scheme(signature, url=url)
     pending = _filtered_pending(alerts, url, dedupe_window_h, dedupe_path=dedupe_path)
 
     own = client is _NO_CLIENT
@@ -420,7 +474,7 @@ def post_json_webhook(
             for a in chunk:
                 key = _natural_key(a)
                 payload = _json_payload(a)
-                body, headers = _sign_body(signing_secret, payload)
+                body, headers = _sign_body(signing_secret, payload, scheme=scheme, now=now)
                 for attempt in range(1, WEBHOOK_ATTEMPTS + 1):
                     try:
                         if _deliver_once(http_client, url, payload, timeout, headers=headers, body=body or None):
@@ -479,7 +533,11 @@ def deliver_alerts(
     dedupe_path: str | Path | None = None,
 ) -> int:
     """Dispatch alerts to every configured webhook (config.alert_webhooks shape:
-    list of {url, format: 'slack'|'json', secret_env?}).
+    list of {url, format: 'slack'|'json', secret_env?, signature?}).
+
+    The per-webhook ``signature`` option ("legacy" | "hub" | "stripe", default
+    "legacy") selects the outbound signature scheme on the json path; unknown
+    values fall back to "legacy" with a warning.
 
     Optional per-tier routing (Task 12): ``routes`` is a list of
     {min_tier, max_tier, webhooks: [...], digest?: bool}. An alert is delivered
@@ -543,6 +601,7 @@ def _deliver_to_webhooks(
         signing_secret = _resolve_secret(wh.get("secret_env"))
         if wh.get("secret_env") and signing_secret is None:
             continue
+        signature = wh.get("signature", "legacy")
         if fmt == "slack":
             sent += post_webhook(
                 alerts, url, client=client, batch=batch, timeout=timeout,
@@ -551,8 +610,8 @@ def _deliver_to_webhooks(
             )
         else:
             sent += post_json_webhook(
-                alerts, url, signing_secret=signing_secret, client=client,
-                batch=batch, timeout=timeout, sleep=sleep,
+                alerts, url, signing_secret=signing_secret, signature=signature,
+                client=client, batch=batch, timeout=timeout, sleep=sleep,
                 dedupe_window_h=dedupe_window_h, dedupe_path=dedupe_path,
             )
     return sent

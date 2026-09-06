@@ -149,3 +149,27 @@ JSON-LD LocalBusiness blob + `<dt>/<dd>` facts table + `bpr-header-*` rating/acc
 - **T9 App stores:** App Store RSS is a real GO (public JSON); Play Store is synthetic-only.
 - **T10 Product Hunt:** STUB fixture-only (CF challenge, not probed further).
 - **T11 BBB:** real GO — plain fetch + `<dt>/<dd>`/JSON-LD parse; complaints pagination unprobed.
+
+---
+
+## BBB address parse surface (T10)
+
+**Offline probe, 2026-09-05 — no new requests.** Plan T10 pointed at `data/probe/p2_spike_bbb-profile.html` as "the real profile page", but that file is the **BBB 404 page** for the guessed URL (verified: `<title>Page not found | Better Business Bureau®</title>`; greps for `address|street|postal|zip|mailing`, `application/ld+json`, `bpr-details`, `itemprop`: **0 hits each**). No selectors were guessed against it. The address surface below was instead verified on the SAME spike's real capture, `data/probe/p2_spike_bbb-avalara.html` (Avalara profile, **200 OK, 135.7 KB SSR**), which the T11 verdict above already blessed as the parse surface.
+
+**What exists (two independent, mutually consistent surfaces; no `<dt>` address row in the facts table):**
+
+1. **JSON-LD PostalAddress (primary, structured pieces)** — inside the one `application/ld+json` script, on the same `LocalBusiness` entry `parse_bbb_profile` already walks for `name`:
+   ```json
+   "address":{"@type":"PostalAddress","addressLocality":"Seattle","addressRegion":"WA",
+              "postalCode":"98104-1010","addressCountry":"USA","streetAddress":"906 Alaskan Way # 500"}
+   ```
+   Selector path: `script[type="application/ld+json"]` → `LocalBusiness.address` → `streetAddress` / `addressLocality` / `addressRegion` / `postalCode`.
+2. **HTML headquarters block (fallback, one occurrence)** — `div.bpr-overview-address`, exactly 1 hit in the 135.7 KB page (the other location cards use a different shape and `/addressId/` links):
+   ```html
+   <div class="bpr-overview-address"><p class="bds-body" translate="no">906 Alaskan Way # 500</p><p class="bds-body" translate="no">Seattle<!-- -->, <!-- -->WA<!-- --> <!-- -->98104-1010</p></div>
+   ```
+   Parse: first `<p>` = street; remaining `<p>` text (the `<!-- -->` comments are React render separators, not visible text — `get_text()` yields `Seattle, WA 98104-1010`) split with `^(?P<city>.+?),\s*(?P<state>[A-Z]{2})\s+(?P<zip>\S+)$`.
+
+**Sample extraction (both surfaces, agreeing):** street=`906 Alaskan Way # 500`, city=`Seattle`, state=`WA`, zip=`98104-1010`; one-line `906 Alaskan Way # 500, Seattle, WA 98104-1010`. The embedded page state (`"displayAddress":{"addressLine1":...,"stateCode":"WA","zipCode":"98104-1010"}`) carries the same values but is a minified non-JSON-LD blob — not parsed (regex over app-state is drift-prone; the two surfaces above suffice).
+
+**Verdict for T10: GO.** `parse_bbb_profile` gains `address` (one-line) + `address_street/city/state/zip` from surface 1, falling back to surface 2; the relocation emitter diffs the one-line address against the `extra_data['bbb_address']` baseline via the same registry mechanism as `_rating_delta`. Test fixture `tests/fixtures/bbb/bbb_avalara_address_snippet.html` carries both snippets **verbatim from this capture**.

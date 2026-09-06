@@ -26,8 +26,8 @@ def _index_names(conn: sqlite3.Connection) -> set[str]:
 
 
 class TestMigrationV6Indexes:
-    def test_user_version_is_6(self, db):
-        assert db.conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION == 6
+    def test_user_version_is_7(self, db):
+        assert db.conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION == 7
 
     def test_fetchlog_source_at_index_exists(self, db):
         assert "idx_fetchlog_source_at" in _index_names(db.conn)

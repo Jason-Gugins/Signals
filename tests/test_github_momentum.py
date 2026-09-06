@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 
 from src.core.models import Account
 from src.signals.normalize import make_signal_id, normalize_batch
@@ -304,7 +304,7 @@ def test_runner_persists_github_momentum_and_writes_stats(tmp_path, monkeypatch)
     ]
     stub = _GithubStub(repos)
     runner, db, ctx, stats_path = _runner(tmp_path, monkeypatch)
-    month = date.today().isoformat()[:7]
+    month = (datetime.now(timezone.utc).date()).isoformat()[:7]
     accounts = [Account(domain="acme.com", name="Acme")]
     try:
         # Cycle 1: no prior stats -> conservative; only the recently created
@@ -328,7 +328,7 @@ def test_runner_persists_github_momentum_and_writes_stats(tmp_path, monkeypatch)
         assert stats["acme.com"]["acme/tool"] == {
             "stars": 100,
             "archived": False,
-            "seen_at": date.today().isoformat(),
+            "seen_at": (datetime.now(timezone.utc).date()).isoformat(),
         }
         assert stats["acme.com"]["acme/beta"]["stars"] == 3
 

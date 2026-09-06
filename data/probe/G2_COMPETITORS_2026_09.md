@@ -81,6 +81,21 @@ Zero flake retries; zero requests to any other host. The rung driver refused not
 - **Expected yield: unproven.** If the rerun clears, expectation based on the G2 reviews-page precedent is a server-rendered page exposing ~10 competitor cards with `/products/<slug>` hrefs and product names in link text (the exact "Top 10 Alternatives" list T6 wants, plus rating snippets), capped per account and written to `identity_candidates` (kind=competitor) with human review per the plan.
 - **Next step:** `patchright install chromium` → rerun probe → fill the parse-surface section of this file's successor → then T6 GO/NO-GO is decidable on evidence.
 
+## Rerun (same day, after `patchright install chromium`) — browser tier CHALLENGE-BLOCKED
+
+Environment fixed (chromium-1161 headless shell downloaded), probe rerun with a fresh 3-fetch budget:
+
+| # | Rung | G2 fetches | Status | Verdict |
+|---|------|-----------|--------|---------|
+| 1 | plain (curl_cffi chrome) | 1 | 403, 1,707 bytes | **CHALLENGE-BLOCKED** (DataDome interstitial, identical to run 1) |
+| 2 | browser (patchright headed, stale `data/g2_cookies.json`) | 1 | page loaded, 2,580 bytes | **CHALLENGE-BLOCKED** — DataDome challenge body, `geo.captcha-delivery.com` markers, 0 real-markup markers |
+
+**Overall after two runs: NO-GO.** The browser tier reached G2 and was still served a DataDome challenge — the stored session cookies are stale (the jar holds `cf_clearance`/`_g2_session_id`/`__cf_bm` but no fresh `datadome` cookie). Per the anti-bot escalation discipline (stop after 2–3 captures; never hammer a gated host), probing STOPS here: 3 G2 fetches total across both runs.
+
+**Paths to a real capture (any one unblocks T6):** (a) the human's real browser exports a fresh `datadome` cookie into `data/g2_cookies.json`; (b) the optional DataDome solver keys (`DATADOME_SOLVER_API_KEY` / `DATADOME_RESIDENTIAL_PROXY`) are configured and the marketplace bypass waterfall runs once. Until then the parse-surface answer does not exist and the T6 parser must not be written against guessed selectors.
+
+**Re-scope decision (plan deviation, recorded):** T6's G2 competitor-discovery pass is DEFERRED pending a real capture; its mechanism (write ranked competitor candidates into `identity_candidates` kind=competitor, capped per account, human-gated) moves into T7's keyless mining pass (Bing News RSS + HN Algolia), which has no gating dependency. T8 (list activation + doctor WARN) proceeds after T7.
+
 ## Raw artifacts
 
 - `data/probe/g2_competitors_slack_plain.html` — plain-tier DataDome interstitial body (403, 1,707 bytes)

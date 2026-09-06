@@ -87,3 +87,11 @@ exports:
 rerank:
   enabled: true                # optional cross-encoder rerank (ms-marco-MiniLM); requires signals[rerank] extra
   floor: 0.35                  # drop news items scoring below this relevance (0..1)
+
+# Google Knowledge Graph backend for the gkg_ids identity-discovery stage
+# (waterfall stage 3). "ekg" = Enterprise Knowledge Graph (default; needs
+# GOOGLE_APPLICATION_CREDENTIALS + GKG_PROJECT_ID — OAuth2 service account,
+# bare API keys do not work); "kgsearch" = legacy key API (needs
+# GOOGLE_KGSEARCH_KEY), off by default. Both credentials absent = the stage
+# no-ops (status: unconfigured).
+gkg_backend: ekg

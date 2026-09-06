@@ -192,6 +192,10 @@ class Config:
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
     contact_email: Optional[str] = None
     github_token: Optional[str] = None
+    # GKG identity-discovery stage backend ("ekg" | "kgsearch"); the client
+    # itself reads GOOGLE_APPLICATION_CREDENTIALS + GKG_PROJECT_ID (ekg) or
+    # GOOGLE_KGSEARCH_KEY (kgsearch) — credentials absent = stage no-ops.
+    gkg_backend: str = "ekg"
     alert_webhook_url: Optional[str] = None
     alert_webhook_timeout_s: float = 10.0
     # Outbound alert webhooks: list of {url, format: "slack"|"json", secret_env?}.

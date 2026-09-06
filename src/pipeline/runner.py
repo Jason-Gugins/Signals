@@ -678,6 +678,31 @@ class CollectorRunner:
                     stats.signals_new += added
                     stats._src(adapter.key)["signals_new"] += added
                     stats.candidates += len(removed_cands)
+            # Funding-drought check (per-account, over PERSISTED signals):
+            # the sec_formd fanout stores funding_form_d rows with observed_at
+            # dates; a prior raise gone 18-24 months silent is runway pressure
+            # -> the pre-registered funding_drought type. Monthly natural key
+            # keeps re-runs and multi-adapter passes deduped. Fail-open like
+            # the renewal estimator above — the harvest must never block.
+            try:
+                from src.pipeline.funding import drought_candidates
+
+                fd_rows = self.db.query(
+                    "SELECT observed_at FROM signals "
+                    "WHERE domain=? AND signal_type='funding_form_d'",
+                    (account.domain,),
+                )
+                drought_cands = drought_candidates(
+                    fd_rows, domain=account.domain, today=_iso(now)[:10]
+                )
+            except Exception:
+                logger.exception("funding drought check failed for {}", account.domain)
+                drought_cands = []
+            if drought_cands:
+                added = self._persist(account, "sec_formd", drought_cands, None)
+                stats.signals_new += added
+                stats._src(adapter.key)["signals_new"] += added
+                stats.candidates += len(drought_cands)
             stats.candidates += len(all_cands)
             stats._src(adapter.key)["candidates"] += len(all_cands)
             new_n = self._persist(account, adapter.key, all_cands, last_doc)

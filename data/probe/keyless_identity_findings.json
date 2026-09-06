@@ -1,0 +1,338 @@
+{
+  "probe": "keyless_identity",
+  "date": "2026-09-05",
+  "script": "scripts/probe_wikidata_resolve.py",
+  "ua": "SignalsResearchBot/0.1 (+contact: jasongugins4@gmail.com)",
+  "pace_s": 5.0,
+  "rungs": [
+    {
+      "rung": 0,
+      "name": "robots",
+      "checks": [
+        {
+          "host": "www.wikidata.org",
+          "robots_url": "https://www.wikidata.org/robots.txt",
+          "path": "/w/api.php",
+          "status": 200,
+          "allowed": false,
+          "applicable_agents": [
+            "*"
+          ],
+          "matched_lines": [
+            "Disallow: /w/"
+          ]
+        },
+        {
+          "host": "en.wikipedia.org",
+          "robots_url": "https://en.wikipedia.org/robots.txt",
+          "path": "/w/api.php",
+          "status": 200,
+          "allowed": false,
+          "applicable_agents": [
+            "*"
+          ],
+          "matched_lines": [
+            "Disallow: /w/"
+          ]
+        },
+        {
+          "host": "www.bing.com",
+          "robots_url": "https://www.bing.com/robots.txt",
+          "path": "/news/search",
+          "status": 200,
+          "allowed": true,
+          "applicable_agents": [
+            "*"
+          ],
+          "matched_lines": [],
+          "note": "no rule in the applicable group matches the path -> allowed by default"
+        }
+      ],
+      "artifacts": [
+        "data/probe/keyless_identity_robots_www_wikidata_org.txt",
+        "data/probe/keyless_identity_robots_en_wikipedia_org.txt",
+        "data/probe/keyless_identity_robots_www_bing_com.txt"
+      ],
+      "verdict": "PARTIAL: 2 path(s) robots-DISALLOWED for our UA (scoped robots_allow override needed)"
+    },
+    {
+      "rung": 1,
+      "name": "wikidata",
+      "urls": [
+        "https://www.wikidata.org/w/api.php?action=wbsearchentities&search=Stripe&language=en&type=item&format=json&limit=5",
+        "https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=Q7624104&property=P856&format=json"
+      ],
+      "artifacts": [
+        "data/probe/keyless_identity_wikidata_search.json",
+        "data/probe/keyless_identity_wikidata_claims.json"
+      ],
+      "evidence": {
+        "top5": [
+          {
+            "id": "Q7624104",
+            "label": "Stripe",
+            "description": "Irish-American payment technology company"
+          },
+          {
+            "id": "Q3421342",
+            "label": "stripe",
+            "description": "long, narrow band of color, often in alternating sets"
+          },
+          {
+            "id": "Q127900502",
+            "label": "Stripe",
+            "description": "fictional character in the Gremlins franchise"
+          },
+          {
+            "id": "Q117454382",
+            "label": "Stripe",
+            "description": "South African progamer"
+          },
+          {
+            "id": "Q297115",
+            "label": "Meloidae",
+            "description": "family of beetles"
+          }
+        ],
+        "pick_method": "first top-5 entity whose label/description matches payments hints",
+        "picked": {
+          "id": "Q7624104",
+          "label": "Stripe",
+          "description": "Irish-American payment technology company"
+        },
+        "collisions_in_top5": [
+          {
+            "id": "Q3421342",
+            "label": "stripe",
+            "description": "long, narrow band of color, often in alternating sets"
+          },
+          {
+            "id": "Q127900502",
+            "label": "Stripe",
+            "description": "fictional character in the Gremlins franchise"
+          },
+          {
+            "id": "Q117454382",
+            "label": "Stripe",
+            "description": "South African progamer"
+          },
+          {
+            "id": "Q297115",
+            "label": "Meloidae",
+            "description": "family of beetles"
+          }
+        ],
+        "qid": "Q7624104",
+        "p856_value": "https://stripe.com/",
+        "p856_claim_count": 1
+      },
+      "verdict": "GO: Q7624104 P856 -> https://stripe.com/"
+    },
+    {
+      "rung": 2,
+      "name": "wikipedia",
+      "urls": [
+        "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=Stripe%2C%20Inc.&format=json&srlimit=3",
+        "https://en.wikipedia.org/w/api.php?action=query&titles=Stripe%2C%20Inc.&prop=extlinks&ellimit=50&format=json"
+      ],
+      "artifacts": [
+        "data/probe/keyless_identity_wikipedia_search.json",
+        "data/probe/keyless_identity_wikipedia_extlinks.json"
+      ],
+      "evidence": {
+        "top_titles": [
+          "Stripe, Inc.",
+          "OpenRouter",
+          "Frontier Climate"
+        ],
+        "top_title": "Stripe, Inc.",
+        "extlink_count": 50,
+        "extlinks_sample": [
+          "https://stripe.com/",
+          "https://techcrunch.com/2011/03/28/stealth-payment-startup-stripe-paypal/",
+          "https://techcrunch.com/2018/04/18/stripe-debuts-radar-anti-fraud-ai-tools-for-big-businesses-says-it-has-halted-4b-in-fraud-to-date/",
+          "https://techcrunch.com/2018/04/05/stripe-launches-a-new-billing-tool-to-tap-demand-from-online-businesses/",
+          "https://beta.techcrunch.com/2016/02/24/stripe-expands-startup-tools-with-atlas-a-way-for-global-companies-to-incorporate-in-delaware/",
+          "https://techcrunch.com/2016/03/18/stripes-startup-toolkit-atlas-opens-for-business-in-cuba/",
+          "https://www.bloomberg.com/news/articles/2018-07-26/stripe-starts-issuing-credit-cards",
+          "https://stripe.com/blog/atlas-llc"
+        ],
+        "stripe_com_links": [
+          "https://stripe.com/",
+          "https://stripe.com/blog/atlas-llc",
+          "https://stripe.com/blog/terminal",
+          "https://stripe.com/blog/terminal-in-person-payments"
+        ]
+      },
+      "verdict": "GO: 4 stripe.com extlink(s) on 'Stripe, Inc.'"
+    },
+    {
+      "rung": 3,
+      "name": "ekg",
+      "artifacts": [
+        "data/probe/keyless_identity_ekg_error.json"
+      ],
+      "evidence": {
+        "error_status": "UNAUTHENTICATED",
+        "error_message": "Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.",
+        "error_code": 401
+      },
+      "url": "https://enterpriseknowledgegraph.googleapis.com/v1/projects/test-project/locations/global/publicKnowledgeGraphEntities:Search?query=Stripe&types=Organization&languages=en&limit=5",
+      "status": 401,
+      "verdict": "PENDING-CREDENTIALS (unauthenticated shape documented; needs GOOGLE_APPLICATION_CREDENTIALS)"
+    },
+    {
+      "rung": 4,
+      "name": "kgsearch",
+      "artifacts": [
+        "data/probe/keyless_identity_kgsearch_error.json"
+      ],
+      "evidence": {
+        "error_status": "PERMISSION_DENIED",
+        "error_message": "Method doesn't allow unregistered callers (callers without established identity). Please use API Key or other form of API consumer identity to call this API."
+      },
+      "url": "https://kgsearch.googleapis.com/v1/entities:search?query=Stripe&types=Organization&languages=en&limit=1",
+      "status": 403,
+      "verdict": "GATE-CONFIRMED: keyless call -> 403 PERMISSION_DENIED (with a key: itemListElement[].result.url)"
+    },
+    {
+      "rung": 5,
+      "name": "ddg-ladder",
+      "artifacts": [
+        "data/probe/keyless_identity_ddg_plain.html",
+        "data/probe/keyless_identity_ddg_curl.html"
+      ],
+      "evidence": {},
+      "url": "https://html.duckduckgo.com/html/?q=stripe+inc+official+website",
+      "query": "stripe inc official website",
+      "plain": {
+        "status": 202,
+        "bytes": 14228,
+        "classification": "challenge",
+        "challenge_marker": "unfortunately, bots use duckduckgo"
+      },
+      "plain_verdict": "CHALLENGED: unfortunately, bots use duckduckgo",
+      "curl": {
+        "status": 200,
+        "bytes": 30972,
+        "classification": "results",
+        "challenge_marker": "class=\"result__a\"",
+        "result__a_anchor_count": 10,
+        "top3_results": [
+          "https://stripe.com/",
+          "https://stripe.com/payments",
+          "https://dashboard.stripe.com/"
+        ],
+        "stripe_is_first": true
+      },
+      "curl_verdict": "GO: real result markup (10 result__a anchors); stripe.com #1 = True",
+      "browser": "untested, reserved",
+      "verdict": "GO for curl tier"
+    }
+  ],
+  "request_budget": {
+    "per_host_per_rung_limit": 3,
+    "observed": {
+      "rung0:www.wikidata.org": 1,
+      "rung0:en.wikipedia.org": 1,
+      "rung0:www.bing.com": 1,
+      "rung1:www.wikidata.org": 2,
+      "rung2:en.wikipedia.org": 2,
+      "rung3:enterpriseknowledgegraph.googleapis.com": 1,
+      "rung4:kgsearch.googleapis.com": 1,
+      "rung5:html.duckduckgo.com": 2
+    },
+    "total_requests": 11,
+    "request_log": [
+      {
+        "rung": 0,
+        "host": "www.wikidata.org",
+        "url": "https://www.wikidata.org/robots.txt",
+        "attempt": 1,
+        "status": 200,
+        "ms": 170
+      },
+      {
+        "rung": 0,
+        "host": "en.wikipedia.org",
+        "url": "https://en.wikipedia.org/robots.txt",
+        "attempt": 1,
+        "status": 200,
+        "ms": 140
+      },
+      {
+        "rung": 0,
+        "host": "www.bing.com",
+        "url": "https://www.bing.com/robots.txt",
+        "attempt": 1,
+        "status": 200,
+        "ms": 140
+      },
+      {
+        "rung": 1,
+        "host": "www.wikidata.org",
+        "url": "https://www.wikidata.org/w/api.php?action=wbsearchentities&search=Stripe&language=en&type=item&format=json&limit=5",
+        "attempt": 1,
+        "status": 200,
+        "ms": 234
+      },
+      {
+        "rung": 1,
+        "host": "www.wikidata.org",
+        "url": "https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=Q7624104&property=P856&format=json",
+        "attempt": 1,
+        "status": 200,
+        "ms": 62
+      },
+      {
+        "rung": 2,
+        "host": "en.wikipedia.org",
+        "url": "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=Stripe%2C%20Inc.&format=json&srlimit=3",
+        "attempt": 1,
+        "status": 200,
+        "ms": 312
+      },
+      {
+        "rung": 2,
+        "host": "en.wikipedia.org",
+        "url": "https://en.wikipedia.org/w/api.php?action=query&titles=Stripe%2C%20Inc.&prop=extlinks&ellimit=50&format=json",
+        "attempt": 1,
+        "status": 200,
+        "ms": 78
+      },
+      {
+        "rung": 3,
+        "host": "enterpriseknowledgegraph.googleapis.com",
+        "url": "https://enterpriseknowledgegraph.googleapis.com/v1/projects/test-project/locations/global/publicKnowledgeGraphEntities:Search?query=Stripe&types=Organization&languages=en&limit=5",
+        "attempt": 1,
+        "status": 401,
+        "ms": 234
+      },
+      {
+        "rung": 4,
+        "host": "kgsearch.googleapis.com",
+        "url": "https://kgsearch.googleapis.com/v1/entities:search?query=Stripe&types=Organization&languages=en&limit=1",
+        "attempt": 1,
+        "status": 403,
+        "ms": 358
+      },
+      {
+        "rung": 5,
+        "host": "html.duckduckgo.com",
+        "url": "https://html.duckduckgo.com/html/?q=stripe+inc+official+website",
+        "attempt": 1,
+        "status": 202,
+        "ms": 187
+      },
+      {
+        "rung": 5,
+        "host": "html.duckduckgo.com",
+        "url": "https://html.duckduckgo.com/html/?q=stripe+inc+official+website",
+        "attempt": 1,
+        "status": 200,
+        "ms": 656
+      }
+    ]
+  },
+  "runtime_s": 51.1
+}

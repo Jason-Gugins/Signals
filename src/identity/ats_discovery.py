@@ -1,4 +1,9 @@
-"""ATS vendor + board-token discovery. detect_ats is pure."""
+"""ATS vendor + board-token discovery. detect_ats and the sitemap parsers are pure.
+
+Careers-page lookup order (see ``AtsDiscovery.discover``): an existing
+``careers_url`` -> the site's own sitemap map (``src/identity/sitemap_careers``)
+-> homepage link hop -> hardcoded path guesses.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +14,19 @@ from typing import TYPE_CHECKING, Optional
 from urllib.parse import urljoin, urlparse
 
 from src.core.models import Account
+from src.identity.sitemap_careers import SitemapCareersFinder, fetcher_for
 
 if TYPE_CHECKING:
     from src.core.http import HttpFetcher
     from src.identity.registry import AccountRegistry
 
+
+# Per-account request ceiling for AtsDiscovery.discover. The sitemap stage is
+# greedy by design (robots.txt -> <=2 root sitemaps -> <=3 children -> the
+# careers page), so the budget is larger than the old 4: the map stages run
+# first and the leftover budget is what the homepage hop and the hardcoded
+# guesses get. Rate limiting (1 req/s/host) still bounds wall-clock cost.
+MAX_DISCOVERY_REQUESTS = 10
 
 ATS_PATTERNS: dict[str, list[re.Pattern]] = {
     "greenhouse": [
@@ -119,6 +132,8 @@ def detect_ats(html: str, base_url: str) -> list[AtsMatch]:
 
 
 def careers_url_candidates(domain: str) -> list[str]:
+    """PURE. Last-resort hardcoded guesses — only used after the sitemap stage
+    and the homepage hop both failed to produce a careers page."""
     d = domain.casefold().removeprefix("www.")
     return [
         f"https://{d}/careers",
@@ -141,42 +156,60 @@ class AtsDiscovery:
 
     def discover(self, account: Account) -> Optional[AtsMatch]:
         used = 0
-        max_req = 4
+        max_req = MAX_DISCOVERY_REQUESTS
+        raw_get = fetcher_for(self.fetcher, account.domain, source="ats_discovery")
 
-        def fetch(url: str):
+        def fetch(url: str) -> Optional[str]:
+            """Budgeted fetch: returns HTML text or None. Never raises."""
             nonlocal used
             if used >= max_req:
                 return None
             used += 1
-            from src.identity.edgar_ids import _Task
-
-            return self.fetcher.get(_Task(source="ats_discovery", url=url, domain=account.domain))
+            return raw_get(url)
 
         pages: list[tuple[str, str]] = []
+        sitemap_careers_url: Optional[str] = None
+
+        # Stage 1: an already-known careers URL is authoritative — verify only.
         if account.careers_url:
-            res = fetch(account.careers_url)
-            if res and res.ok and res.doc and res.doc.body:
-                pages.append((account.careers_url, res.doc.body.decode("utf-8", "replace")))
-        else:
+            html = fetch(account.careers_url)
+            if html:
+                pages.append((account.careers_url, html))
+
+        # Stage 2: the site's own map — robots.txt -> sitemaps -> best careers URL.
+        if not pages:
+            lookup = SitemapCareersFinder(
+                fetch, max_requests=max(0, max_req - used)
+            ).find(account.domain)
+            if lookup.careers_url:
+                sitemap_careers_url = lookup.careers_url
+                html = fetch(lookup.careers_url)
+                if html:
+                    pages.append((lookup.careers_url, html))
+
+        # Stage 3: homepage + first careers-looking link (legacy path).
+        if not any(detect_ats(html, url) for url, html in pages):
             home = f"https://{account.domain}/"
-            res = fetch(home)
-            if res and res.ok and res.doc and res.doc.body:
-                html = res.doc.body.decode("utf-8", "replace")
+            html = fetch(home)
+            if html:
                 pages.append((home, html))
                 hop = _first_careers_link(html, home)
                 if hop:
-                    res2 = fetch(hop)
-                    if res2 and res2.ok and res2.doc and res2.doc.body:
-                        pages.append((hop, res2.doc.body.decode("utf-8", "replace")))
-            if not any(detect_ats(h, u) for u, h in pages):
-                for cand in careers_url_candidates(account.domain):
-                    res = fetch(cand)
-                    if not res or not res.ok or not res.doc or not res.doc.body:
-                        continue
-                    html = res.doc.body.decode("utf-8", "replace")
-                    pages.append((cand, html))
-                    if detect_ats(html, cand):
-                        break
+                    hop_html = fetch(hop)
+                    if hop_html:
+                        pages.append((hop, hop_html))
+
+        # Stage 4: last-resort hardcoded guesses.
+        if not any(detect_ats(html, url) for url, html in pages):
+            for cand in careers_url_candidates(account.domain):
+                if used >= max_req:
+                    break
+                html = fetch(cand)
+                if not html:
+                    continue
+                pages.append((cand, html))
+                if detect_ats(html, cand):
+                    break
 
         best: Optional[AtsMatch] = None
         careers_url = account.careers_url
@@ -200,6 +233,12 @@ class AtsDiscovery:
                 account.ats_vendor = best.vendor
                 account.ats_token = token
             account.careers_url = careers_url
+            self.registry.upsert(account, source="ats_discovery")
+        elif sitemap_careers_url and sitemap_careers_url != account.careers_url:
+            # No ATS on the site, but we still learned where the careers index
+            # actually lives — persist it so ats_careers_page stops scraping a
+            # guessed /careers. Vendor/token stay empty on purpose (see above).
+            account.careers_url = sitemap_careers_url
             self.registry.upsert(account, source="ats_discovery")
         return best
 

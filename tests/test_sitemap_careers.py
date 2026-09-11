@@ -106,3 +106,49 @@ def test_pick_careers_url_prefers_shallow_and_is_stable():
 def test_pick_careers_url_none_without_signal():
     assert pick_careers_url(["https://acme.com/", "https://acme.com/pricing"]) is None
     assert pick_careers_url([]) is None
+
+
+def test_finder_walks_robots_then_index_then_careers_child():
+    fetch = FakeFetch(
+        {
+            "https://acme.com/robots.txt": "Sitemap: https://acme.com/sitemap.xml\n",
+            "https://acme.com/sitemap.xml": INDEX,
+            "https://acme.com/sitemap-pages.xml": URLSET,
+        }
+    )
+    lookup = SitemapCareersFinder(fetch).find("acme.com")
+    assert lookup.careers_url == "https://acme.com/careers"
+    assert lookup.source == "robots_sitemap"
+    assert fetch.seen[0] == "https://acme.com/robots.txt"
+    # career-ish child sitemap is tried before the generic pages sitemap
+    assert fetch.seen.index("https://acme.com/sitemap-jobs.xml") < fetch.seen.index(
+        "https://acme.com/sitemap-pages.xml"
+    )
+
+
+def test_finder_falls_back_to_root_sitemap_without_robots():
+    fetch = FakeFetch({"https://acme.com/sitemap.xml": URLSET})
+    lookup = SitemapCareersFinder(fetch).find("acme.com")
+    assert lookup.careers_url == "https://acme.com/careers"
+    assert lookup.source == "root_sitemap"
+    assert fetch.seen == ["https://acme.com/robots.txt", "https://acme.com/sitemap.xml"]
+
+
+def test_finder_none_without_sitemaps():
+    fetch = FakeFetch({})
+    lookup = SitemapCareersFinder(fetch).find("acme.com")
+    assert lookup.careers_url is None
+    assert lookup.source == "none"
+    assert lookup.requests == 2  # robots.txt + the /sitemap.xml fallback
+
+
+def test_finder_respects_max_requests():
+    fetch = FakeFetch(
+        {
+            "https://acme.com/robots.txt": "Sitemap: https://acme.com/sitemap.xml\n",
+            "https://acme.com/sitemap.xml": INDEX,
+        }
+    )
+    lookup = SitemapCareersFinder(fetch, max_requests=2).find("acme.com")
+    assert len(fetch.seen) == 2
+    assert lookup.careers_url is None

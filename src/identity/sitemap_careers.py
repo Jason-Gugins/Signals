@@ -191,7 +191,14 @@ class CareersLookup:
 
 
 def fetcher_for(fetcher, domain: str, *, source: str = "careers_discovery") -> FetchText:
-    """Adapter: HttpFetcher -> Callable[[url], html | None]. Never raises."""
+    """Adapter: HttpFetcher -> Callable[[url], html | None].
+
+    Returns None for a genuine fetch failure (404, robots-blocked, or a
+    transport error, which is logged at warning level). Re-raises ConfigError:
+    a misconfigured config fails every fetch identically, and swallowing it
+    once made the CLI print a confident "no careers page" for a site we had
+    never actually contacted.
+    """
 
     def _get(url: str) -> Optional[str]:
         from loguru import logger

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from itertools import islice as _islice
 from typing import Callable, Iterable, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -44,6 +45,7 @@ def parse_robots_sitemaps(text: str, base_url: str) -> list[str]:
 _LOC = re.compile(r"<loc>\s*(.*?)\s*</loc>", re.I | re.S)
 _ROOT_TAG = re.compile(r"<\s*(sitemapindex|urlset)\b", re.I)
 _BARE_URL_LINE = re.compile(r"^\s*https?://\S+\s*$", re.I | re.M)
+MAX_LOCS_PER_SITEMAP = 50_000
 
 
 @dataclass(frozen=True)
@@ -61,20 +63,31 @@ def parse_sitemap(xml_text: str) -> SitemapDoc:
     per line) are accepted as kind="text". Never raises: malformed or
     gzip-compressed bodies yield kind="unknown" with empty tuples.
     """
+    xml_text = xml_text.lstrip("\ufeff")
     if not xml_text:
         return SitemapDoc("unknown")
     head = xml_text[:2000]
     found = _ROOT_TAG.search(head)
     kind = found.group(1).casefold() if found else None
-    locs = tuple(loc.strip() for loc in _LOC.findall(xml_text) if loc.strip())
+    locs = tuple(
+        loc
+        for loc in (
+            match.group(1).strip()
+            for match in _islice(_LOC.finditer(xml_text), MAX_LOCS_PER_SITEMAP)
+        )
+        if loc
+    )
     if kind is None:
         if locs:
             kind = "urlset"
         else:
             lines = tuple(
-                line.strip()
-                for line in xml_text.splitlines()
-                if line.strip().startswith("http")
+                line
+                for line in (
+                    raw.strip()
+                    for raw in _islice(xml_text.splitlines(), MAX_LOCS_PER_SITEMAP)
+                )
+                if line.startswith("http")
             )
             if _BARE_URL_LINE.search(xml_text) and lines:
                 return SitemapDoc("text", urls=lines)
@@ -167,6 +180,7 @@ class CareersLookup:
     careers_url: Optional[str] = None
     source: str = "none"  # robots_sitemap | root_sitemap | none
     requests: int = 0
+    # ATTEMPTED fetches: a failed or unparsable sitemap still appears here.
     sitemaps_fetched: list[str] = field(default_factory=list)
     pages_seen: int = 0
 
@@ -194,6 +208,7 @@ class SitemapCareersFinder:
     ``fetch_text`` is injected (see ``fetcher_for``). Request accounting is
     internal and reported on the result so callers sharing one budget can
     decide what to do next; it never exceeds ``max_requests``.
+    Child sitemaps are read one level deep and gzipped children are skipped.
     """
 
     def __init__(
@@ -243,7 +258,11 @@ class SitemapCareersFinder:
                 pending_children.extend(doc.sitemaps)
 
         children = sorted(
-            dict.fromkeys(pending_children),
+            (
+                child
+                for child in dict.fromkeys(pending_children)
+                if not urlparse(child).path.casefold().endswith(".gz")
+            ),
             key=lambda u: (0 if _CAREERISH_SITEMAP.search(u) else 1, u),
         )
         for child in children[: self.max_sitemaps]:

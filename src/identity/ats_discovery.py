@@ -22,8 +22,8 @@ if TYPE_CHECKING:
 
 
 # Per-account request ceiling for AtsDiscovery.discover. The sitemap stage is
-# greedy by design (robots.txt -> <=2 root sitemaps -> <=3 children -> the
-# careers page), so the budget is larger than the old 4: the map stages run
+# greedy by design (robots.txt -> <=3 root sitemaps -> <=3 child sitemaps ->
+# the careers page), so the budget is larger than the old 4: the map stages run
 # first and the leftover budget is what the homepage hop and the hardcoded
 # guesses get. Rate limiting (1 req/s/host) still bounds wall-clock cost.
 MAX_DISCOVERY_REQUESTS = 10
@@ -149,6 +149,51 @@ def careers_url_candidates(domain: str) -> list[str]:
 _CAREER_HREF = re.compile(r"/(careers|jobs|join-us|company/careers)(?:/|$)", re.I)
 
 
+def _is_site_root(url: Optional[str]) -> bool:
+    """PURE. True for a bare origin URL (no path, or just '/')."""
+    return urlparse(url or "").path in ("", "/")
+
+
+def find_careers_url(fetch_text, domain: str, *, max_requests: int = MAX_DISCOVERY_REQUESTS):
+    """I/O via injected fetch_text. Full careers ladder, no registry writes.
+
+    Rungs, first hit wins: the site's own sitemap map, then the homepage's
+    first careers-looking link, then the hardcoded path candidates. The rung
+    that hit is reported on CareersLookup.source as one of robots_sitemap,
+    root_sitemap, homepage_link, candidate, or none.
+    """
+    used = 0
+
+    def fetch(url: str) -> Optional[str]:
+        nonlocal used
+        if used >= max_requests:
+            return None
+        used += 1
+        return fetch_text(url)
+
+    lookup = SitemapCareersFinder(fetch, max_requests=max(0, max_requests - used)).find(domain)
+    if lookup.careers_url:
+        lookup.requests = used
+        return lookup
+    home = f"https://{domain}/"
+    html = fetch(home)
+    if html:
+        hop = _first_careers_link(html, home)
+        if hop:
+            lookup.careers_url = hop
+            lookup.source = "homepage_link"
+            lookup.requests = used
+            return lookup
+    for candidate in careers_url_candidates(domain):
+        if fetch(candidate):
+            lookup.careers_url = candidate
+            lookup.source = "candidate"
+            lookup.requests = used
+            return lookup
+    lookup.requests = used
+    return lookup
+
+
 class AtsDiscovery:
     def __init__(self, fetcher: "HttpFetcher", registry: "AccountRegistry"):
         self.fetcher = fetcher
@@ -182,9 +227,12 @@ class AtsDiscovery:
                 fetch, max_requests=max(0, max_req - used)
             ).find(account.domain)
             if lookup.careers_url:
-                sitemap_careers_url = lookup.careers_url
                 html = fetch(lookup.careers_url)
                 if html:
+                    # Only a URL we actually fetched counts as discovered:
+                    # persisting an unverified sitemap guess would replace a
+                    # stored careers_url with something that 404s.
+                    sitemap_careers_url = lookup.careers_url
                     pages.append((lookup.careers_url, html))
 
         # Stage 3: homepage + first careers-looking link (legacy path).
@@ -212,12 +260,18 @@ class AtsDiscovery:
                     break
 
         best: Optional[AtsMatch] = None
-        careers_url = account.careers_url
+        best_url: Optional[str] = None
         for url, html in pages:
             matches = detect_ats(html, url)
             if matches and (best is None or matches[0].confidence > best.confidence):
                 best = matches[0]
-                careers_url = url
+                best_url = url
+        # Persist a real careers index in preference to the bare site root: a
+        # footer or inline ATS link on the homepage must not discard the careers
+        # page this feature exists to find (ats_careers_page scrapes it).
+        careers_url = best_url or account.careers_url
+        if _is_site_root(best_url):
+            careers_url = account.careers_url or sitemap_careers_url or best_url
         if best:
             token = best.token
             if best.vendor == "workday" and best.extra.get("tenant"):

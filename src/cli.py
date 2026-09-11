@@ -124,7 +124,7 @@ def find_careers(ctx, domain):
     lookup = orch.find_careers(domain)
     click.echo(
         f"domain={domain} careers_url={lookup.careers_url or ''} "
-        f"source={lookup.source} sitemaps={len(lookup.sitemaps_fetched)} "
+        f"source={lookup.source} sitemaps_attempted={len(lookup.sitemaps_fetched)} "
         f"pages_seen={lookup.pages_seen} requests={lookup.requests}"
     )
     if not lookup.careers_url:

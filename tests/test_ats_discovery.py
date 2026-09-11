@@ -182,3 +182,31 @@ def test_discover_known_careers_url_skips_sitemap(tmp_path):
     assert disc.discover(reg.get("acme.com")) is None
     assert "https://acme.com/robots.txt" not in fake.seen
     assert reg.get("acme.com").careers_url == "https://acme.com/old-careers"
+
+
+def test_discover_keeps_stored_careers_url_when_both_fetches_fail(tmp_path):
+    pages = {
+        "https://acme.com/robots.txt": ROBOTS_TXT,
+        "https://acme.com/sitemap.xml": SITEMAP_INDEX,
+        "https://acme.com/sitemap-jobs.xml": SITEMAP_CAREERS,
+    }
+    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    acct.careers_url = "https://acme.com/good-careers"
+    reg.upsert(acct)
+    assert disc.discover(reg.get("acme.com")) is None
+    assert reg.get("acme.com").careers_url == "https://acme.com/good-careers"
+
+
+def test_discover_keeps_careers_index_when_ats_link_is_on_homepage(tmp_path):
+    pages = {
+        "https://acme.com/robots.txt": ROBOTS_TXT,
+        "https://acme.com/sitemap.xml": SITEMAP_CAREERS,
+        "https://acme.com/company/careers": "<html><body>No openings</body></html>",
+        "https://acme.com/": CAREERS_HTML_LEVER,
+    }
+    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    match = disc.discover(acct)
+    assert match is not None and match.vendor == "lever"
+    stored = reg.get("acme.com")
+    assert stored.ats_vendor == "lever"
+    assert stored.careers_url == "https://acme.com/company/careers"

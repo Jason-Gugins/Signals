@@ -152,3 +152,32 @@ def test_finder_respects_max_requests():
     lookup = SitemapCareersFinder(fetch, max_requests=2).find("acme.com")
     assert len(fetch.seen) == 2
     assert lookup.careers_url is None
+
+
+def test_finder_skips_gzipped_children():
+    fetch = FakeFetch(
+        {
+            "https://acme.com/robots.txt": "Sitemap: https://acme.com/sitemap.xml\n",
+            "https://acme.com/sitemap.xml": (
+                "<sitemapindex>"
+                "<sitemap><loc>https://acme.com/sm.xml.gz</loc></sitemap>"
+                "<sitemap><loc>https://acme.com/sitemap-jobs.xml</loc></sitemap>"
+                "</sitemapindex>"
+            ),
+            "https://acme.com/sitemap-jobs.xml": URLSET,
+        }
+    )
+    lookup = SitemapCareersFinder(fetch).find("acme.com")
+    assert lookup.careers_url == "https://acme.com/careers"
+    assert "https://acme.com/sm.xml.gz" not in fetch.seen
+
+
+def test_parse_sitemap_caps_loc_entries():
+    from src.identity.sitemap_careers import MAX_LOCS_PER_SITEMAP
+
+    body = "<urlset>" + "".join(
+        f"<url><loc>https://acme.com/p/{i}</loc></url>" for i in range(MAX_LOCS_PER_SITEMAP + 500)
+    ) + "</urlset>"
+    doc = parse_sitemap(body)
+    assert doc.kind == "urlset"
+    assert len(doc.urls) == MAX_LOCS_PER_SITEMAP

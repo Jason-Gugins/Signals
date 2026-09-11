@@ -730,6 +730,18 @@ class Orchestrator:
                 continue
         return out
 
+    def find_careers(self, domain: str):
+        """Resolve a domain's careers index via robots.txt + sitemaps.
+
+        Returns a ``src.identity.sitemap_careers.CareersLookup``. Read-only
+        apart from the raw-store fetch log; never writes the registry.
+        """
+        with RunContext(self.db, "find_careers") as ctx:
+            from src.identity.sitemap_careers import SitemapCareersFinder, fetcher_for
+
+            fetcher = self.fetcher or self._http_fetcher(ctx)
+            return SitemapCareersFinder(fetcher_for(fetcher, domain)).find(domain)
+
     def _http_fetcher(self, ctx):
         from src.core.http import HttpFetcher
 

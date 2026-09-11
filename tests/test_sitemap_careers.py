@@ -181,3 +181,33 @@ def test_parse_sitemap_caps_loc_entries():
     doc = parse_sitemap(body)
     assert doc.kind == "urlset"
     assert len(doc.urls) == MAX_LOCS_PER_SITEMAP
+
+
+def test_finder_prioritises_page_sitemaps_over_taxonomies():
+    fetch = FakeFetch(
+        {
+            "https://acme.com/robots.txt": "Sitemap: https://acme.com/sitemap_index.xml\n",
+            "https://acme.com/sitemap_index.xml": (
+                "<sitemapindex>"
+                "<sitemap><loc>https://acme.com/category-sitemap.xml</loc></sitemap>"
+                "<sitemap><loc>https://acme.com/ai_101-sitemap.xml</loc></sitemap>"
+                "<sitemap><loc>https://acme.com/topic-sitemap.xml</loc></sitemap>"
+                "<sitemap><loc>https://acme.com/page-sitemap.xml</loc></sitemap>"
+                "</sitemapindex>"
+            ),
+            "https://acme.com/page-sitemap.xml": (
+                "<urlset><url><loc>https://acme.com/careers/</loc></url></urlset>"
+            ),
+        }
+    )
+    lookup = SitemapCareersFinder(fetch).find("acme.com")
+    assert lookup.careers_url == "https://acme.com/careers/"
+    assert "https://acme.com/page-sitemap.xml" in fetch.seen
+    # With DEFAULT_MAX_SITEMAPS=3 and four children the budget still reaches the
+    # first taxonomy child; the guarantee is that the page sitemap comes first
+    # (the old alphabetical ordering fetched ai_101/category and missed it), and
+    # that the lowest-ranked taxonomy child is dropped.
+    assert fetch.seen.index("https://acme.com/page-sitemap.xml") < fetch.seen.index(
+        "https://acme.com/category-sitemap.xml"
+    )
+    assert "https://acme.com/topic-sitemap.xml" not in fetch.seen

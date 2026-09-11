@@ -117,3 +117,27 @@ def test_find_careers_url_prefers_sitemap():
     lookup = find_careers_url(fetch, "acme.com")
     assert lookup.careers_url == "https://acme.com/company/careers"
     assert lookup.source == "root_sitemap"
+
+
+def test_fetcher_for_reraises_config_error():
+    import pytest
+
+    from src.core.config import ConfigError
+    from src.identity.ats_discovery import fetcher_for
+
+    class Boom:
+        def get(self, task, **kw):
+            raise ConfigError("User-Agent still contains REPLACE_ME")
+
+    with pytest.raises(ConfigError):
+        fetcher_for(Boom(), "acme.com")("https://acme.com/robots.txt")
+
+
+def test_fetcher_for_returns_none_on_transport_error():
+    from src.identity.ats_discovery import fetcher_for
+
+    class Boom:
+        def get(self, task, **kw):
+            raise RuntimeError("connection reset")
+
+    assert fetcher_for(Boom(), "acme.com")("https://acme.com/robots.txt") is None

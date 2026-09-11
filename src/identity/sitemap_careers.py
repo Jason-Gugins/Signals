@@ -172,6 +172,11 @@ def pick_careers_url(urls: Iterable[str]) -> Optional[str]:
 DEFAULT_MAX_SITEMAPS = 3
 DEFAULT_MAX_REQUESTS = 6
 _CAREERISH_SITEMAP = re.compile(r"(career|job|position|hiring|vacanc)", re.I)
+_GENERIC_PAGE_CHILD = re.compile(r"(^|[/_-])(page|pages)[-_]", re.I)
+_TAXONOMY_CHILD = re.compile(
+    r"^(category|topic|tag|author|glossary|industry|location|resource_type|integration_type|post_tag)[-_]",
+    re.I,
+)
 FetchText = Callable[[str], Optional[str]]
 
 
@@ -189,11 +194,19 @@ def fetcher_for(fetcher, domain: str, *, source: str = "careers_discovery") -> F
     """Adapter: HttpFetcher -> Callable[[url], html | None]. Never raises."""
 
     def _get(url: str) -> Optional[str]:
+        from loguru import logger
+
+        from src.core.config import ConfigError
         from src.identity.edgar_ids import _Task
 
         try:
             res = fetcher.get(_Task(source=source, url=url, domain=domain))
-        except Exception:
+        except ConfigError:
+            # A configuration error would fail every subsequent fetch
+            # identically; surface it instead of reporting "no careers page".
+            raise
+        except Exception as exc:
+            logger.warning("careers fetch failed for {}: {}", url, exc)
             return None
         if res and res.ok and res.doc and res.doc.body:
             return res.doc.body.decode("utf-8", "replace")
@@ -257,13 +270,20 @@ class SitemapCareersFinder:
             elif doc.kind == "sitemapindex":
                 pending_children.extend(doc.sitemaps)
 
+        def _child_rank(u: str) -> int:
+            if _CAREERISH_SITEMAP.search(u):
+                return 0
+            if _GENERIC_PAGE_CHILD.search(u):
+                return 1
+            return 3 if _TAXONOMY_CHILD.search(u) else 2
+
         children = sorted(
             (
                 child
                 for child in dict.fromkeys(pending_children)
                 if not urlparse(child).path.casefold().endswith(".gz")
             ),
-            key=lambda u: (0 if _CAREERISH_SITEMAP.search(u) else 1, u),
+            key=lambda u: (_child_rank(u), u),
         )
         for child in children[: self.max_sitemaps]:
             if lookup.requests >= self.max_requests:

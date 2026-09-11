@@ -2,8 +2,23 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from src.core.db import Database
 from src.pipeline.health_report import source_health
+
+
+def _ago(hours: float) -> str:
+    """UTC timestamp ``hours`` before now, in SQLite's datetime format.
+
+    ``source_health`` filters with SQLite's ``datetime('now', '-N hours')``,
+    which is UTC, so fixtures have to be UTC-relative as well. Hardcoded dates
+    expire silently once the window rolls past them: these fixtures did, and
+    every CI run from 2026-09-07 onward failed on them.
+    """
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
 
 
 def _seed(db: Database, rows: list[dict]) -> None:
@@ -30,14 +45,33 @@ def _seed(db: Database, rows: list[dict]) -> None:
 
 def test_counts_and_rates(tmp_path):
     db = Database(tmp_path / "h.db")
+    gh_recent, gh_older, gh_challenge, hn_ok, hn_timeout = (
+        _ago(2),
+        _ago(3),
+        _ago(4),
+        _ago(5),
+        _ago(6),
+    )
     _seed(
         db,
         [
-            {"source": "gh", "status": 200, "cached": 1, "at": "2026-08-30 10:00:00"},
-            {"source": "gh", "status": 200, "cached": 0, "at": "2026-08-30 09:00:00"},
-            {"source": "gh", "status": 403, "error": "forbidden", "error_class": "challenge", "at": "2026-08-30 08:00:00"},
-            {"source": "hn", "status": 200, "at": "2026-08-30 07:00:00"},
-            {"source": "hn", "status": None, "error": "timed out", "error_class": "timeout", "at": "2026-08-30 06:00:00"},
+            {"source": "gh", "status": 200, "cached": 1, "at": gh_recent},
+            {"source": "gh", "status": 200, "cached": 0, "at": gh_older},
+            {
+                "source": "gh",
+                "status": 403,
+                "error": "forbidden",
+                "error_class": "challenge",
+                "at": gh_challenge,
+            },
+            {"source": "hn", "status": 200, "at": hn_ok},
+            {
+                "source": "hn",
+                "status": None,
+                "error": "timed out",
+                "error_class": "timeout",
+                "at": hn_timeout,
+            },
         ],
     )
     rows = {r["source"]: r for r in source_health(db, since_hours=24 * 365)}
@@ -45,14 +79,14 @@ def test_counts_and_rates(tmp_path):
     assert gh["fetched"] == 3
     assert gh["cached"] == 1
     assert gh["failed"] == 1
-    assert gh["last_success"] == "2026-08-30 10:00:00"
+    assert gh["last_success"] == gh_recent
     assert gh["success_rate"] == round(1 - 1 / 3, 2)
     assert gh["error_class"] == {"challenge": 1}
     hn = rows["hn"]
     assert hn["fetched"] == 2
     assert hn["cached"] == 0
     assert hn["failed"] == 1
-    assert hn["last_success"] == "2026-08-30 07:00:00"
+    assert hn["last_success"] == hn_ok
     assert hn["error_class"] == {"timeout": 1}
 
 
@@ -63,11 +97,12 @@ def test_empty_log(tmp_path):
 
 def test_window_filters_old_rows(tmp_path):
     db = Database(tmp_path / "h.db")
+    recent = _ago(2)
     _seed(
         db,
         [
-            {"source": "old", "status": 500, "error": "boom", "at": "2020-01-01 00:00:00"},
-            {"source": "new", "status": 200, "at": "2026-08-30 10:00:00"},
+            {"source": "old", "status": 500, "error": "boom", "at": _ago(24 * 30)},
+            {"source": "new", "status": 200, "at": recent},
         ],
     )
     rows = source_health(db, since_hours=168)
@@ -79,8 +114,20 @@ def test_challenge_class_in_histogram(tmp_path):
     _seed(
         db,
         [
-            {"source": "pn", "status": 403, "error": "px challenge", "error_class": "challenge", "at": "2026-08-30 10:00:00"},
-            {"source": "pn", "status": 403, "error": "px challenge", "error_class": "challenge", "at": "2026-08-30 11:00:00"},
+            {
+                "source": "pn",
+                "status": 403,
+                "error": "px challenge",
+                "error_class": "challenge",
+                "at": _ago(3),
+            },
+            {
+                "source": "pn",
+                "status": 403,
+                "error": "px challenge",
+                "error_class": "challenge",
+                "at": _ago(2),
+            },
         ],
     )
     rows = source_health(db)

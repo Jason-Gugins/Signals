@@ -103,7 +103,9 @@ as skipped, and LinkedIn deepen stays a separate manual `deepen` call), `init`,
 marketplace's search; `--cik`/`--ats`/`--feeds`/`--icp` always-on resolvers;
 opt-in `--appstore` via iTunes Search, `--bbb` via BBB search API, and
 `--linkedin` — slug discovery through the companion scraper's `discover`
-subprocess; human-triggered posture, no automated login), `collect`,
+human-triggered posture, no automated login), `find-careers DOMAIN` (careers-page
+discovery for one domain - sitemap-first, prints the URL and which rung found
+it), `collect`,
 `reparse`, `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
 `capterra-selfcheck`, `prune` (retention: delete old fetch_log/documents/runs
@@ -212,8 +214,15 @@ Enabled adapters live in `config/sources.yaml`:
 **Making an ATS source fire:** set the account's `ats_vendor` and `ats_token`
 (Feed Me CSV columns at seed time, or `deepen` for per-account updates);
 `ats_careers_page` then stays quiet for that account (no duplicate job rows)
-and covers accounts with neither field set. Careers-page auto-detection
-(`resolve`/sweep resolver pass) covers all 11 collected vendors; detections of
+and covers accounts with neither field set.
+Careers-page auto-detection is sitemap-first: the resolver reads the site's
+robots.txt `Sitemap:` directives, walks the sitemap (or sitemap index) and
+scores every URL for careers-index shape before falling back to a homepage
+link hop and then the hardcoded path guesses
+(`src/identity/sitemap_careers.py`; `resolve --ats` and the sweep resolver pass
+both use it). A sitemap-discovered `careers_url` is persisted even when no ATS
+is detected, so the `ats_careers_page` fallback scrapes the real index instead
+of a guessed path. Detection covers all 11 collected vendors; detections of
 collector-less boards (bamboohr, jazzhr, personio) deliberately set only
 `careers_url` so the careers-page fallback keeps firing for those accounts.
 

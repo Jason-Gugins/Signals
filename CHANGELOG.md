@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Careers-page discovery is sitemap-first
+- `AtsDiscovery` now reads robots.txt `Sitemap:` directives and walks the sitemap (or sitemap index), scoring every URL for careers-index shape, before falling back to a homepage link hop and then the hardcoded path guesses. New pure module: `src/identity/sitemap_careers.py`.
+- The discovered careers URL is persisted even when no ATS is detected, so `ats_careers_page` scrapes the real index instead of a guessed path.
+- New CLI command: `signals find-careers` (exported as `python -m src.cli find-careers`), which reports the URL and the rung that found it: robots_sitemap, root_sitemap, homepage_link or candidate.
+- Sitemap-index children are ranked career-ish first, then generic page sitemaps (WordPress/Yoast `page-sitemap.xml`), then everything else, with taxonomy sitemaps last; gzipped children are skipped.
+
 ## v0.2.0 — 2026-09-02 (P3 Polish delivery)
 
 P3 roadmap complete: 16 polish items shipped after the P2 platform delivery

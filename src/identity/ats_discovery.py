@@ -62,6 +62,31 @@ ATS_PATTERNS: dict[str, list[re.Pattern]] = {
 }
 
 
+RESERVED_ATS_TOKENS = frozenset(
+    {
+        "www",
+        "apply",
+        "jobs",
+        "job",
+        "api",
+        "careers",
+        "career",
+        "status",
+        "help",
+        "support",
+        "resources",
+        "static",
+        "assets",
+        "cdn",
+        "blog",
+    }
+)
+# Infrastructure labels that are never a board token. Deliberately small: a
+# false negative here only leaves ats_vendor/ats_token empty, so the
+# ats_careers_page fallback keeps collecting; a false positive silently stops
+# hiring collection for that account.
+
+
 @dataclass
 class AtsMatch:
     vendor: str
@@ -115,6 +140,12 @@ def detect_ats(html: str, base_url: str) -> list[AtsMatch]:
                             token, extra = _workday_extra(m)
                         else:
                             token = m.group(1)
+                        # Subdomain-style patterns match the HOST label, so a
+                        # reserved label yields a garbage token ("apply" from
+                        # apply.workable.com) that would be stamped as ats_token
+                        # and point the collector at a nonexistent board.
+                        if token.casefold() in RESERVED_ATS_TOKENS:
+                            continue
                         key = (vendor, token.casefold())
                         evidence = url if url != html else base_url
                         if len(evidence) > 500:
@@ -152,6 +183,32 @@ _CAREER_HREF = re.compile(r"/(careers|jobs|join-us|company/careers)(?:/|$)", re.
 def _is_site_root(url: Optional[str]) -> bool:
     """PURE. True for a bare origin URL (no path, or just '/')."""
     return urlparse(url or "").path in ("", "/")
+
+
+def _best_match_page(
+    pages: list[tuple[str, str]],
+) -> tuple[Optional[AtsMatch], Optional[str]]:
+    """PURE. Best (match, page_url) across fetched pages; (None, None) if none."""
+    best: Optional[AtsMatch] = None
+    best_url: Optional[str] = None
+    for url, html in pages:
+        matches = detect_ats(html, url)
+        if matches and (best is None or matches[0].confidence > best.confidence):
+            best = matches[0]
+            best_url = url
+    return best, best_url
+
+
+def _has_careers_shape_page(pages: list[tuple[str, str]]) -> bool:
+    """PURE. True when a page OTHER than the bare site root matched.
+
+    A match on the root is not a careers page (ATS links usually sit in homepage
+    markup), so discovery must keep probing the legacy rungs for a better URL.
+    """
+    for url, html in pages:
+        if detect_ats(html, url) and not _is_site_root(url):
+            return True
+    return False
 
 
 def find_careers_url(fetch_text, domain: str, *, max_requests: int = MAX_DISCOVERY_REQUESTS):
@@ -214,12 +271,18 @@ class AtsDiscovery:
 
         pages: list[tuple[str, str]] = []
         sitemap_careers_url: Optional[str] = None
+        # Careers-shaped URLs found by the legacy rungs (homepage hop, path
+        # candidates), recorded only AFTER a successful fetch so they are safe
+        # to persist - unlike a sitemap guess we never contacted.
+        ladder_careers_url: Optional[str] = None
+        stored_careers_ok = False
 
         # Stage 1: an already-known careers URL is authoritative — verify only.
         if account.careers_url:
             html = fetch(account.careers_url)
             if html:
                 pages.append((account.careers_url, html))
+                stored_careers_ok = True
 
         # Stage 2: the site's own map — robots.txt -> sitemaps -> best careers URL.
         if not pages:
@@ -246,9 +309,12 @@ class AtsDiscovery:
                     hop_html = fetch(hop)
                     if hop_html:
                         pages.append((hop, hop_html))
+                        ladder_careers_url = ladder_careers_url or hop
 
-        # Stage 4: last-resort hardcoded guesses.
-        if not any(detect_ats(html, url) for url, html in pages):
+        # Stage 4: last-resort hardcoded guesses. Also runs when the ONLY match
+        # so far is on the bare site root - a root match is not a careers page,
+        # so keep probing while the budget allows.
+        if not _has_careers_shape_page(pages):
             for cand in careers_url_candidates(account.domain):
                 if used >= max_req:
                     break
@@ -256,22 +322,22 @@ class AtsDiscovery:
                 if not html:
                     continue
                 pages.append((cand, html))
+                ladder_careers_url = ladder_careers_url or cand
                 if detect_ats(html, cand):
                     break
 
-        best: Optional[AtsMatch] = None
-        best_url: Optional[str] = None
-        for url, html in pages:
-            matches = detect_ats(html, url)
-            if matches and (best is None or matches[0].confidence > best.confidence):
-                best = matches[0]
-                best_url = url
-        # Persist a real careers index in preference to the bare site root: a
+        best, best_url = _best_match_page(pages)
+        # Never record the bare site root when a careers-shaped URL is known: a
         # footer or inline ATS link on the homepage must not discard the careers
         # page this feature exists to find (ats_careers_page scrapes it).
         careers_url = best_url or account.careers_url
         if _is_site_root(best_url):
-            careers_url = account.careers_url or sitemap_careers_url or best_url
+            careers_url = (
+                account.careers_url
+                or sitemap_careers_url
+                or ladder_careers_url
+                or best_url
+            )
         if best:
             token = best.token
             if best.vendor == "workday" and best.extra.get("tenant"):
@@ -288,12 +354,18 @@ class AtsDiscovery:
                 account.ats_token = token
             account.careers_url = careers_url
             self.registry.upsert(account, source="ats_discovery")
-        elif sitemap_careers_url and sitemap_careers_url != account.careers_url:
+        elif (sitemap_careers_url or ladder_careers_url) and (
+            not account.careers_url or not stored_careers_ok
+        ):
             # No ATS on the site, but we still learned where the careers index
-            # actually lives — persist it so ats_careers_page stops scraping a
-            # guessed /careers. Vendor/token stay empty on purpose (see above).
-            account.careers_url = sitemap_careers_url
-            self.registry.upsert(account, source="ats_discovery")
+            # lives - persist it so ats_careers_page stops scraping a guessed
+            # /careers. Every URL recorded here was fetched successfully, and a
+            # working stored value is never replaced (that would flap between
+            # two valid URLs on every run). Vendor/token stay empty on purpose.
+            discovered = sitemap_careers_url or ladder_careers_url
+            if discovered != account.careers_url:
+                account.careers_url = discovered
+                self.registry.upsert(account, source="ats_discovery")
         return best
 
 

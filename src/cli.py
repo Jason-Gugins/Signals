@@ -110,6 +110,27 @@ def resolve(ctx, cik, ats, feeds, icp, g2, capterra, appstore, bbb, linkedin, li
         click.echo(f"resolve degraded: {exc}")
 
 
+@main.command(name="find-careers")
+@click.argument("domain")
+@click.pass_context
+def find_careers(ctx, domain):
+    """Find DOMAIN's careers page via robots.txt + XML sitemaps.
+
+    Prints the discovered careers URL and how it was found (robots_sitemap =
+    the sitemap came from robots.txt, root_sitemap = /sitemap.xml fallback).
+    Exits 1 when no careers index could be located.
+    """
+    orch: Orchestrator = ctx.obj["get_orch"]()
+    lookup = orch.find_careers(domain)
+    click.echo(
+        f"domain={domain} careers_url={lookup.careers_url or ''} "
+        f"source={lookup.source} sitemaps_attempted={len(lookup.sitemaps_fetched)} "
+        f"pages_seen={lookup.pages_seen} requests={lookup.requests}"
+    )
+    if not lookup.careers_url:
+        raise SystemExit(1)
+
+
 def _append_segment(existing: str | None, segment: str) -> str:
     """Append a Capterra segment to a comma-separated g2_slug value. PURE."""
     parts = [p.strip() for p in (existing or "").split(",") if p.strip()]

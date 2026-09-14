@@ -299,3 +299,38 @@ def test_reparse_sec_formd_xml_does_not_need_empty_meta(tmp_path):
     assert stats.failed == 0
     assert stats.candidates >= 1
     assert orch.db.one("SELECT COUNT(*) AS n FROM signals WHERE signal_type='funding_form_d'")["n"] >= 1
+
+
+def test_pick_adapters_threads_include_disabled(monkeypatch):
+    from src.core.config import Config
+    from src.pipeline.orchestrator import Orchestrator
+    from src.sources.base import SourceAdapter
+    from src.sources.registry import SOURCES, register
+
+    @register
+    class OffAdapter(SourceAdapter):
+        key = "dummy_pick_off"
+        tier = "http"
+
+        def plan(self, account, cursor):
+            return []
+
+        def parse(self, doc, account, task_meta):
+            return []
+
+    try:
+        cfg = Config()
+        monkeypatch.setattr(
+            cfg, "load_yaml",
+            lambda name: {"sources": {"dummy_pick_off": {"enabled": False}}},
+        )
+        orch = Orchestrator.__new__(Orchestrator)
+        orch._adapters = None
+        orch.config = cfg
+
+        assert orch._pick_adapters(None) == []
+        assert orch._pick_adapters(["dummy_pick_off"]) == []
+        picked = orch._pick_adapters(["dummy_pick_off"], include_disabled={"dummy_pick_off"})
+        assert [a.key for a in picked] == ["dummy_pick_off"]
+    finally:
+        SOURCES.pop("dummy_pick_off", None)

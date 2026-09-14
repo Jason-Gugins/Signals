@@ -21,7 +21,19 @@ def get_source(key: str) -> type[SourceAdapter]:
     return SOURCES[key]
 
 
-def enabled_sources(config: Config) -> list[SourceAdapter]:
+def enabled_sources(
+    config: Config, *, include_disabled: set[str] | None = None
+) -> list[SourceAdapter]:
+    """Return the instantiated source adapters enabled for this config.
+
+    Entries are included when the configured ``enabled`` value is true, OR when
+    the exact key is listed in ``include_disabled`` (an explicit per-key opt-in
+    used by the intel command). The registration check and the tier=='browser'
+    master-switch check still apply to every entry, so ``include_disabled`` can
+    never bypass ``config.browser.enabled``. ``include_disabled`` does NOT mean
+    "all disabled sources".
+    """
+    include = include_disabled or set()
     table = config.load_yaml("sources")
     entries = table.get("sources", table)
     defaults = table.get("defaults") or {}
@@ -30,7 +42,7 @@ def enabled_sources(config: Config) -> list[SourceAdapter]:
         if not isinstance(entry, dict):
             continue
         enabled = entry.get("enabled", defaults.get("enabled", True))
-        if not enabled:
+        if not enabled and key not in include:
             continue
         cls = SOURCES.get(key)
         if cls is None:

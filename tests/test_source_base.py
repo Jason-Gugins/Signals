@@ -132,3 +132,88 @@ def test_sources_for_account_filters_requires():
     ready = Account(domain="a.com", ats_token="acme")
     assert [a.key for a in sources_for_account(bare, adapters)] == ["news"]
     assert [a.key for a in sources_for_account(ready, adapters)] == ["needs_token", "news"]
+
+
+def test_include_disabled_selects_one_explicit_key(monkeypatch):
+    @register
+    class OffSrc(SourceAdapter):
+        key = "dummy_optin"
+        tier = "http"
+
+        def plan(self, account, cursor):
+            return []
+
+        def parse(self, doc, account, task_meta):
+            return []
+
+    @register
+    class OnSrc(SourceAdapter):
+        key = "dummy_on"
+        tier = "http"
+
+        def plan(self, account, cursor):
+            return []
+
+        def parse(self, doc, account, task_meta):
+            return []
+
+    try:
+        cfg = Config()
+        cfg.browser.enabled = False
+
+        def fake_yaml(name: str):
+            return {
+                "sources": {
+                    "dummy_on": {"enabled": True},
+                    "dummy_optin": {"enabled": False},
+                }
+            }
+
+        monkeypatch.setattr(cfg, "load_yaml", fake_yaml)
+        assert {s.key for s in enabled_sources(cfg)} == {"dummy_on"}
+        keys = {s.key for s in enabled_sources(cfg, include_disabled={"dummy_optin"})}
+        assert keys == {"dummy_on", "dummy_optin"}
+        # a named key alone must not drag in other disabled entries
+        assert {s.key for s in enabled_sources(cfg, include_disabled={"nope"})} == {"dummy_on"}
+    finally:
+        _cleanup("dummy_optin", "dummy_on")
+
+
+def test_include_disabled_cannot_bypass_browser_master_switch(monkeypatch):
+    @register
+    class BrowserOff(SourceAdapter):
+        key = "dummy_optin_browser"
+        tier = "browser"
+
+        def plan(self, account, cursor):
+            return []
+
+        def parse(self, doc, account, task_meta):
+            return []
+
+    try:
+        cfg = Config()
+        cfg.browser.enabled = False
+
+        def fake_yaml(name: str):
+            return {"sources": {"dummy_optin_browser": {"enabled": False}}}
+
+        monkeypatch.setattr(cfg, "load_yaml", fake_yaml)
+        assert enabled_sources(cfg, include_disabled={"dummy_optin_browser"}) == []
+        cfg.browser.enabled = True
+        keys = {s.key for s in enabled_sources(cfg, include_disabled={"dummy_optin_browser"})}
+        assert keys == {"dummy_optin_browser"}
+    finally:
+        _cleanup("dummy_optin_browser")
+
+
+def test_shipped_marketplace_adapters_stay_disabled_by_default():
+    from src.sources.registry import enabled_sources as _enabled
+
+    cfg = Config()
+    keys = {s.key for s in _enabled(cfg)}
+    assert "marketplace_g2" not in keys
+    assert "marketplace_capterra" not in keys
+    assert "marketplace_trustradius" not in keys
+    assert "marketplace_softwareadvice" not in keys
+    assert "marketplace_getapp" not in keys

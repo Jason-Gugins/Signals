@@ -132,7 +132,14 @@ class CollectorRunner:
         dry_run: bool = False,
         max_passes: int = 2,
         limit_per_source: int | None = None,
+        local_context: dict | None = None,
     ) -> RunnerStats:
+        """Run the given adapters over the given accounts.
+
+        ``local_context`` supplies extra keys for each local source's task_meta.
+        Extra keys are ADDED to the runner's base mapping; the runner's own keys
+        (today, registry, raw_store) always win and can never be overridden.
+        """
         stats = RunnerStats()
         now = _now()
         try:
@@ -215,7 +222,7 @@ class CollectorRunner:
                     continue
                 for account in eligible:
                     try:
-                        self._run_pair(adapter, account, stats, force=force, dry_run=dry_run, max_passes=max_passes, limit_per_source=limit_per_source, now=now)
+                        self._run_pair(adapter, account, stats, force=force, dry_run=dry_run, max_passes=max_passes, limit_per_source=limit_per_source, now=now, local_context=local_context)
                     except Exception as exc:
                         logger.exception("adapter {} failed for {}", adapter.key, account.domain)
                         self._record_fail(adapter.key, account.domain, exc, cadence_hours=getattr(adapter, "cadence_hours", 24))
@@ -232,7 +239,7 @@ class CollectorRunner:
                     logger.warning("stealth browser close() failed")
         return stats
 
-    def _run_pair(self, adapter, account, stats, *, force, dry_run, max_passes, limit_per_source, now):
+    def _run_pair(self, adapter, account, stats, *, force, dry_run, max_passes, limit_per_source, now, local_context=None):
         key = _ckey(adapter, account)
         # Ledger: snapshot this adapter's counters so the end of the cycle can
         # report what THIS (source, key) pair did, not the whole run.
@@ -882,13 +889,15 @@ class CollectorRunner:
         # would close earlier pages' jobs (each call only sees its own keys).
         if cycle_jobs:
             self._persist_jobs(adapter, account, cycle_jobs, now, more_pages=False)
+        meta = {
+            "today": now.date().isoformat(),
+            "registry": self.registry,
+            "raw_store": self.store,
+        }
+        for extra_key, extra_value in (local_context or {}).items():
+            meta.setdefault(extra_key, extra_value)
         extra = adapter.local_harvest(
-            db=self.db, account=account, today=now.date(),
-            task_meta={
-                "today": now.date().isoformat(),
-                "registry": self.registry,
-                "raw_store": self.store,
-            },
+            db=self.db, account=account, today=now.date(), task_meta=meta,
         ) or []
         if extra:
             added = self._persist(account, adapter.key, extra, None)

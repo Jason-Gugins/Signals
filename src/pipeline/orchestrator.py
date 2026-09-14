@@ -324,6 +324,7 @@ class Orchestrator:
         dry_run=False,
         limit=None,
         include_disabled_sources: set[str] | None = None,
+        local_context: dict | None = None,
     ) -> RunnerStats:
         with RunContext(self.db, "collect") as ctx:
             accounts = self._accounts(cohort=cohort, domains=domains, limit=limit)
@@ -474,7 +475,10 @@ class Orchestrator:
                     stealth_browser=stealth_browser,
                     routing=routing,
                 )
-                rest = runner.run(adapters, accounts, force=force, dry_run=dry_run)
+                rest = runner.run(
+                    adapters, accounts, force=force, dry_run=dry_run,
+                    local_context=local_context,
+                )
             finally:
                 if browser is not None:
                     browser.close()

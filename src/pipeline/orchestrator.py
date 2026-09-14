@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -45,6 +46,27 @@ def _today() -> date:
 
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def merge_runner_stats(outer: RunnerStats, inner: RunnerStats) -> RunnerStats:
+    """Fold a runner's stats into the outer collect() stats.
+
+    Sums the six scalar counters (tasks, fetched, cached, failed, skipped,
+    candidates, signals_new — sum every one the runner exposes), extends
+    outcomes with the inner rows, and merges by_source per-counter. The
+    per-source detail is what the intel coverage report reads, so it must
+    survive the fold.
+    """
+    for f in fields(RunnerStats):
+        if f.name in ("by_source", "outcomes"):
+            continue
+        setattr(outer, f.name, getattr(outer, f.name) + getattr(inner, f.name, 0))
+    outer.outcomes.extend(inner.outcomes)
+    for key, row in inner.by_source.items():
+        target = outer._src(key)
+        for counter, value in row.items():
+            target[counter] = int(target.get(counter, 0)) + int(value)
+    return outer
 
 
 class Orchestrator:
@@ -457,12 +479,7 @@ class Orchestrator:
                 if browser is not None:
                     browser.close()
                 self._save_cookie_jars(jars)
-            stats.fetched += rest.fetched
-            stats.signals_new += rest.signals_new
-            stats.failed += rest.failed
-            stats.skipped += rest.skipped
-            stats.cached += rest.cached
-            stats.candidates += rest.candidates
+            merge_runner_stats(stats, rest)
             ctx.bump(accounts=len(accounts), signals_new=stats.signals_new)
             return stats
 

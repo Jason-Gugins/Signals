@@ -884,7 +884,11 @@ class CollectorRunner:
             self._persist_jobs(adapter, account, cycle_jobs, now, more_pages=False)
         extra = adapter.local_harvest(
             db=self.db, account=account, today=now.date(),
-            task_meta={"today": now.date().isoformat(), "registry": self.registry},
+            task_meta={
+                "today": now.date().isoformat(),
+                "registry": self.registry,
+                "raw_store": self.store,
+            },
         ) or []
         if extra:
             added = self._persist(account, adapter.key, extra, None)

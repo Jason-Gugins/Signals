@@ -203,6 +203,35 @@ def _required_stack(desc: str, vocab: list[tuple[str, re.Pattern]]) -> list[str]
     return out
 
 
+def extract_required_stack_demands(
+    desc: str, vocab: list[tuple[str, re.Pattern]]
+) -> list[dict]:
+    """Explicit required-stack demands: canonical vendor plus the verbatim phrase.
+
+    Returns one row per (vendor, phrase) pair, deduped by vendor, in the
+    order the vendors appear in the text. Row keys: "vendor" (casefolded
+    canonical allowlist name) and "phrase" (the exact substring of desc
+    that matched that vendor inside a required-stack pattern).
+    Allowlist-only: a capitalized name that is not in vocab is ignored.
+    PURE - no I/O, no clock.
+    """
+    hits: dict[int, tuple[str, str]] = {}
+    for pat in _REQUIRED_STACK_PATTERNS:
+        for m in pat.finditer(desc):
+            base = m.start(1)
+            for pos, end, raw in _vendors_in(m.group(1), vocab):
+                hits.setdefault(base + pos, (raw.casefold(), desc[base + pos:base + end]))
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for pos in sorted(hits):
+        vendor, phrase = hits[pos]
+        if vendor in seen:
+            continue
+        seen.add(vendor)
+        rows.append({"vendor": vendor, "phrase": phrase})
+    return rows
+
+
 def _migration_pairs(desc: str, vocab: list[tuple[str, re.Pattern]]) -> list[tuple[str, str]]:
     """All migration (from, to) pairs in a description, deduped casefold-wise.
 

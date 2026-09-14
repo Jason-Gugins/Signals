@@ -292,10 +292,22 @@ class Orchestrator:
             result.setdefault("errors", {})
             return result
 
-    def collect(self, *, sources=None, cohort=None, domains=None, force=False, dry_run=False, limit=None) -> RunnerStats:
+    def collect(
+        self,
+        *,
+        sources=None,
+        cohort=None,
+        domains=None,
+        force=False,
+        dry_run=False,
+        limit=None,
+        include_disabled_sources: set[str] | None = None,
+    ) -> RunnerStats:
         with RunContext(self.db, "collect") as ctx:
             accounts = self._accounts(cohort=cohort, domains=domains, limit=limit)
-            adapters = self._pick_adapters(sources)
+            adapters = self._pick_adapters(
+                sources, include_disabled=include_disabled_sources
+            )
             cookie_jar = self._cookie_jar("http")
             fetcher = self.fetcher or self._http_fetcher(ctx)
             if cookie_jar is not None and getattr(fetcher, "cookie_jar", "missing") == "missing":
@@ -697,10 +709,13 @@ class Orchestrator:
         rows = self.db.query("SELECT * FROM contacts WHERE domain = ?", (domain,))
         return [Contact.from_db_row(r) for r in rows]
 
-    def _pick_adapters(self, sources):
+    def _pick_adapters(self, sources, *, include_disabled: set[str] | None = None):
         if self._adapters is not None and not sources:
             return list(self._adapters)
-        adapters = list(self._adapters or enabled_sources(self.config))
+        adapters = list(
+            self._adapters
+            or enabled_sources(self.config, include_disabled=include_disabled)
+        )
         if sources:
             wanted = set(sources)
             adapters = [a for a in adapters if a.key in wanted]

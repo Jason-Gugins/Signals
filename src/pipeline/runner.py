@@ -154,12 +154,28 @@ class CollectorRunner:
                     if not _requires_met(adapter, account):
                         stats.skipped += 1
                         stats._src(adapter.key)["skipped"] += 1
-                        stats.mark(
-                            adapter.key,
-                            _ckey(adapter, account),
-                            "missing_requires",
-                            f"missing {_missing_field(adapter, account)}",
-                        )
+                        field_name = _missing_field(adapter, account)
+                        if field_name:
+                            stats.mark(
+                                adapter.key,
+                                _ckey(adapter, account),
+                                "missing_requires",
+                                f"missing {field_name}",
+                            )
+                        elif adapter.key == "ats_careers_page":
+                            stats.mark(
+                                adapter.key,
+                                _ckey(adapter, account),
+                                "ineligible_ats_vendor",
+                                "careers fallback requires empty ats_vendor and ats_token",
+                            )
+                        else:
+                            stats.mark(
+                                adapter.key,
+                                _ckey(adapter, account),
+                                "ineligible_ats_vendor",
+                                f"ats vendor gate: ats_vendor={account.ats_vendor!r}, token_present={str(bool(account.ats_token))}",
+                            )
                         continue
                     cur = self._cursor(adapter.key, _ckey(adapter, account))
                     if not force and cur:

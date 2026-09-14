@@ -83,4 +83,7 @@ sources:
     cadence_hours: 12
     surge_min_roles: 5
     surge_window_days: 60
+  needs:
+    enabled: true
+    cadence_hours: 24
 

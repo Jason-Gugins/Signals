@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Profile-matched needs source (`needs`)
+- New local-tier source `needs`: it promotes only the observations that match the selected seller-market profile, and cites the evidence verbatim.
+- Part 1 — `need_statement`: first-party `company_feed` sentences that say the company is building / rolling out / standing up / migrating / consolidating / expanding / hiring, matched against the profile's served-problem phrases; the quote, doc id, url and offering are carried as evidence.
+- Part 2 — `required_stack_demand`: open job postings that explicitly require a vendor (the jobsignals required-stack extractor) whose vendor is in the profile's served set; the job key, url, verbatim phrase and department are carried as evidence.
+- No raw store or no market profile promotes nothing (never everything as a fallback); the source never reads the `technologies` table and never claims absence — an unobserved tool is simply not emitted.
+- Registered in `src/sources/__init__.py`, enabled in `config/sources.yaml` (24h cadence) and documented in README/ENRICHMENT.
+
 ### Careers-page discovery is sitemap-first
 - `AtsDiscovery` now reads robots.txt `Sitemap:` directives and walks the sitemap (or sitemap index), scoring every URL for careers-index shape, before falling back to a homepage link hop and then the hardcoded path guesses. New pure module: `src/identity/sitemap_careers.py`.
 - The discovered careers URL is persisted even when no ATS is detected, so `ats_careers_page` scrapes the real index instead of a guessed path.

@@ -1,6 +1,7 @@
 # TODO — Project Roadmap
 
-Last reviewed: 2026-09-05. Baseline: **1,835 offline tests passing**. P1 fully delivered
+Last reviewed: 2026-09-14. Baseline: **1,962 tests collected, offline lane:
+1,954 passed, 8 deselected** (live-marked tests excluded). P1 fully delivered
 (2026-08-31); **P2 fully delivered (2026-09-01)**; **P3 fully delivered
 (2026-09-02)** — see below. Keyless Clay/Exa clones roadmap delivered
 (2026-09-05). Legacy Cloudflare-bypass checklist archived at the
@@ -514,6 +515,76 @@ kept; free keyed accelerators GKG/GITHUB_TOKEN named as the exception class).
 - patchright 1.51.3 pins chromium-1161 → `patchright install chromium` run
   (headless shell downloaded). google-auth deliberately NOT installed in the
   main venv (optional `[gkg]` extra; tests inject the token seam).
+
+## Intel master intelligence flow + needs source (delivered)
+
+**Status: DELIVERED (2026-09-14)** — 16 commits `ede8153`…`e6001a7`
+(`git log --oneline 6b67e1b..HEAD`).
+
+The `intel` master flow ships as one command over five ordered stages —
+identity → collect → derive → score → package — coordinating the existing
+capabilities behind a single account (`bdc057d`, `d6c76c5`). The package stage
+writes a portable, evidence-linked dossier (`abffdbb`): `manifest.json`,
+`dossier.json`, `dossier.md`, `evidence.jsonl` and `prompt.md`, where every
+claim cites an evidence record. A new local-tier `needs` source emits
+`need_statement` (first-party `company_feed` operational statements, `ba9544d`,
+`c57711f`) and `required_stack_demand` (open postings requiring a served
+vendor, `b55dd76`), promoting only observations that match the selected
+seller-market profile (`ede8153`, `config/markets.yaml` + `src/intel/market.py`;
+profile-matched signal types declared in `bef1b24`). The flow reports one
+terminal outcome per source (`443c703`, `src/intel/coverage.py`) and consumes
+the authoritative scoring snapshot exposed by `score(return_snapshots=True)`
+(`617baed`) rather than re-deriving from the mutable tables. Verified end to end
+offline (`e6001a7`).
+
+### Run it offline
+
+```bash
+signals intel <domain> --name "<Company Name>"
+```
+
+`--dry-run` requires an account that already exists and only plans collection
+(no collect/derive/score/package). Live-marked tests are deselected in the
+offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
+
+### Deferred
+
+- [ ] **Fill in `config/markets.yaml`** — the shipped default profile is
+  **empty on purpose**, so nothing is promoted until the seller's offerings,
+  buyer departments, served-problem phrases and served vendors are written in.
+  This is the user's product decision, not missing code.
+- [ ] **Embeddings / neural search over the stored evidence** — now that need
+  text is persisted this becomes worth doing; not attempted here.
+- [ ] **Generalise need extraction beyond first-party `company_feed`
+  documents** — news bodies and careers-page HTML are not yet covered.
+- [ ] **Automatic alias / name-variant discovery from EDGAR/news strings** —
+  the highest wrong-company attribution risk; deliberately not attempted.
+- [ ] **New scoring combos + re-pricing `need_statement` /
+  `required_stack_demand`** with `plays_calibrate`, once real profile-matched
+  examples have fired. **No new combos were added in this delivery.**
+- [ ] **Stale historical `play_assignments` cleanup** — `score()` upserts new
+  assignments but never deletes ones that ceased to apply, so a later consumer
+  querying that table can still see obsolete rows. The dossier avoids this by
+  consuming the snapshot instead, but the table itself is unclean.
+- [ ] **Parent/child run-log linkage** — `intel` does not create a parent
+  `runs` row; resolve/collect/score create their own rows.
+- [ ] **Marketplace parity** — `marketplace_softwareadvice` and
+  `marketplace_getapp` need seeded identifiers in `extra_data`, and
+  `marketplace_g2`/`capterra`/`trustradius` are browser-tier, so they
+  additionally require `browser.enabled` — an opt-in flag alone cannot enable
+  them. LinkedIn stays human-triggered because of the companion account's
+  restriction history.
+- [ ] **Decide whether any co-occurrence deserves to become a visible persisted
+  signal** rather than a combo bonus.
+- [ ] **A runnable lint lane** — `ruff` is configured in `pyproject`
+  (line-length 100) but is not installed in this venv, and CI's ruff step is
+  warn-only and pip-installs it, so lint cannot be verified offline. This is
+  **not** gate-enforced.
+- [ ] **Coverage status vocabulary note** — `missing_requires` is run-scoped (a
+  configured source did not run this pass because the account lacked a field it
+  requires); it does **not** mean a tool or fact is absent. The end-to-end test
+  tolerates exactly that key in `coverage.summary` and forbids any
+  missing-style key in the analysis sections.
 
 ---
 

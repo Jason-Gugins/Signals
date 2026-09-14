@@ -22,6 +22,9 @@
 - New CLI command: `signals find-careers` (exported as `python -m src.cli find-careers`), which reports the URL and the rung that found it: robots_sitemap, root_sitemap, homepage_link or candidate.
 - Sitemap-index children are ranked career-ish first, then generic page sitemaps (WordPress/Yoast `page-sitemap.xml`), then everything else, with taxonomy sitemaps last; gzipped children are skipped.
 
+### Verified (offline lane)
+- Full offline suite measured 2026-09-14: **1,962 tests collected — 1,954 passed, 8 deselected** with `-m "not antibot_live and not allow_network and not live_fetch"`. The live-marked tests (`antibot_live`, `allow_network`, `live_fetch`) are deselected in that lane.
+
 ## v0.2.0 — 2026-09-02 (P3 Polish delivery)
 
 P3 roadmap complete: 16 polish items shipped after the P2 platform delivery

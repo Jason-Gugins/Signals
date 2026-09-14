@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Master intelligence command (`intel`)
+- New CLI command `intel <target>` (also `python -m src.cli intel`): one account, every capability, one dossier. The five stages run in order — `identity` → `collect` → `derive` → `score` → `package` — with `--skip STAGE` (repeatable) to drop any of them and `--force` to ignore source cadences.
+- The package stage writes a portable package directory under the configured dossiers dir (`data/dossiers/` by default) containing `manifest.json`, `dossier.json`, `dossier.md`, `evidence.jsonl` and `prompt.md`; every claim cites an evidence record. `--no-write` builds the dossier without writing it, and `--max-signals N` caps the active signals.
+- Dry-run semantics: planning only, and it requires an account that already exists — an unknown domain is refused with `intel refused: ...` on stderr and a non-zero exit.
+- Opt-in posture: LinkedIn slug resolution (`--with-linkedin-resolve`, human-triggered) and the marketplace adapters (`--with-marketplaces`, anti-bot paced) are off by default and surface as coverage gaps when not requested; the single ATS/careers discovery ladder is capped at 10 requests. Seller-market relevance (`needs` / `required_stack_demand`) comes from the seller-market profile in `config/markets.yaml`, which ships empty — nothing is promoted until it is filled in.
+- Documented in README (command reference and the master-flow section) and ENRICHMENT.md (Flow H, with `sweep` kept as the lighter onboarding path).
+
 ### Profile-matched needs source (`needs`)
 - New local-tier source `needs`: it promotes only the observations that match the selected seller-market profile, and cites the evidence verbatim.
 - Part 1 — `need_statement`: first-party `company_feed` sentences that say the company is building / rolling out / standing up / migrating / consolidating / expanding / hiring, matched against the profile's served-problem phrases; the quote, doc id, url and offering are carried as evidence.

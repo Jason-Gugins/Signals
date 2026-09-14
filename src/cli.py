@@ -926,6 +926,62 @@ def sweep(ctx, url_or_name, force, deep, discover_names, ddg, competitor_names):
 
 
 @main.command()
+@click.argument("target")
+@click.option("--name", default=None, help="Company name for name-matching sources")
+@click.option("--market-profile", "market_profile", default=None, help="Seller-market relevance profile id from config/markets.yaml")
+@click.option("--skip", "skip", multiple=True, type=click.Choice(["identity", "collect", "derive", "score", "package"]), help="Stage(s) to skip")
+@click.option("--force", is_flag=True, help="Ignore source cadences")
+@click.option("--with-marketplaces", is_flag=True, help="Also run the opt-in marketplace adapters (anti-bot paced)")
+@click.option("--with-linkedin-resolve", is_flag=True, help="Resolve the LinkedIn slug (human-triggered posture)")
+@click.option("--no-write", is_flag=True, help="Build the dossier but do not write the package")
+@click.option("--max-signals", type=int, default=None, help="Cap active signals in the package")
+@click.pass_context
+def intel(ctx, target, name, market_profile, skip, force, with_marketplaces, with_linkedin_resolve, no_write, max_signals):
+    """Master intelligence flow: one account, every capability, one dossier."""
+    from src.pipeline import intel as intel_mod
+
+    try:
+        result = intel_mod.run_intel(
+            target,
+            name=name,
+            market_profile_id=market_profile,
+            skip=tuple(skip),
+            force=force,
+            dry_run=bool(ctx.obj.get("dry_run")),
+            with_marketplaces=with_marketplaces,
+            with_linkedin_resolve=with_linkedin_resolve,
+            write=not no_write,
+            max_signals=max_signals,
+            config=ctx.obj.get("config"),
+            orch=ctx.obj.get("get_orch")(),
+        )
+    except ValueError as exc:
+        click.echo(f"intel refused: {exc}", err=True)
+        ctx_exit(2)
+        return
+    stages = result.get("stages") or {}
+    for stage in intel_mod.STAGES:
+        info = stages.get(stage)
+        if not info:
+            continue
+        line = f"{stage}: {info.get('status', 'unknown')}"
+        detail = info.get("note") or info.get("reason")
+        if detail:
+            line = f"{line} ({detail})"
+        click.echo(line)
+    paths = result.get("paths") or {}
+    for key in sorted(paths):
+        click.echo(f"wrote: {paths[key]}")
+    gaps = result.get("gaps") or []
+    if gaps:
+        click.echo(f"gaps: {len(gaps)}")
+    errors = result.get("errors") or {}
+    for stage in intel_mod.STAGES:
+        if stage in errors:
+            click.echo(f"error: {stage}: {errors[stage]}", err=True)
+
+
+@main.command()
 @click.option("--cohort", default=None)
 @click.option("--skip-collect", is_flag=True)
 @click.option("--strict", is_flag=True)

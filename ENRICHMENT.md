@@ -21,11 +21,24 @@ outreach angles. Every command here exists in the CLI (verified against
 - **Classify/score/tier** turn raw candidates into ranked signals;
   **plays/digests** deliver them per account.
 
-Onboarding — one command, seed-or-update + run everything + report gaps:
+Onboarding has two paths, and both stay documented:
+
+**`sweep` — the lighter onboarding path** (one command, seed-or-update + run
+every eligible source + report gaps):
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli sweep https://acme.com
 ```
+
+**`intel` — the full-picture path** (the five-stage master intelligence flow for
+one account, ending in a portable evidence-linked dossier — see Flow H):
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli intel acme.com
+```
+
+`sweep` stays the quick way in; `intel` is what you run when you want the whole
+picture for one account.
 
 ## 1. Source inventory
 
@@ -190,7 +203,39 @@ What you get: every source the account qualifies for, one digest — plus a
 "New Form D issuers (unmatched)" section on non-domain digests listing
 newly-funded companies the registry doesn't know yet.
 
+### Flow H — Master intelligence flow (the full-picture path)
+
+Prereqs: nothing for a new domain. A filled-in seller-market profile
+(`config/markets.yaml`) if you want `needs` / `required_stack_demand` to promote
+anything — the file ships empty, so nothing is promoted until you fill it in.
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli intel acme.com --name "Acme Inc"
+# the opt-in capabilities, only when you actually want them:
+.\.venv\Scripts\python.exe -m src.cli intel acme.com --with-linkedin-resolve
+.\.venv\Scripts\python.exe -m src.cli intel acme.com --with-marketplaces
+# planning only, for an account that already exists:
+.\.venv\Scripts\python.exe -m src.cli --dry-run intel acme.com
+```
+
+What you get: the whole picture in one pass and one artifact. The five stages
+run in order — `identity` → `collect` → `derive` → `score` → `package` — and
+land a portable package directory under the configured dossiers dir
+(`data/dossiers/`) holding `manifest.json`, `dossier.json`, `dossier.md`,
+`evidence.jsonl` and `prompt.md`, where every claim cites an evidence record.
+
+Caveats: **`sweep` remains the lighter onboarding path** (Flow A / Flow G:
+seed-or-update, run every eligible source, report gaps — no derive/score/package
+and no dossier); `intel` is the full-picture path layered on the same sources,
+not a replacement. LinkedIn and the marketplace adapters are OFF by default and
+appear as coverage gaps when not requested; the ATS/careers discovery ladder is
+capped at 10 requests.
+
 ## 3. Combination recipes
+
+The co-occurrence angles below are the existing combos layer in
+`config/scoring.yaml` (the `combos:` list) — `intel` surfaces them through the
+same scoring path and adds no new angle logic of its own.
 
 | Signals | Sales angle | Verify first |
 |---|---|---|

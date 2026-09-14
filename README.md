@@ -124,6 +124,56 @@ Outputs land in `data/exports/`, `data/briefs/`, `data/digests/`, and
 rotation, configured via `logging.logs_dir`).
 Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
 
+## Master intelligence flow (`intel`)
+
+`intel` is the master intelligence flow: one account, every capability, one
+dossier.
+
+```powershell
+.\\.venv\\Scripts\\python.exe -m src.cli intel acme.com
+.\\.venv\\Scripts\\python.exe -m src.cli intel acme.com --name "Acme Inc" --force
+.\\.venv\\Scripts\\python.exe -m src.cli --dry-run intel acme.com
+```
+
+Five stages, always in this order:
+
+1. `identity` — the CIK/ATS/feeds/ICP resolver pass for the domain
+2. `collect` — every enabled source the account qualifies for (cadence-aware)
+3. `derive` — the local derived pass (`jobsignals` + `needs`) against the
+   seller-market profile
+4. `score` — classify, score and tier the account
+5. `package` — build and write the dossier
+
+Flags: `--name NAME` (company name for name-matching sources),
+`--market-profile ID` (a profile id from `config/markets.yaml`), `--skip STAGE`
+(repeatable; any of `identity`/`collect`/`derive`/`score`/`package`), `--force`
+(ignore source cadences), `--max-signals N` (cap the active signals in the
+package), `--no-write` (build the dossier but write nothing),
+`--with-linkedin-resolve` and `--with-marketplaces` (the opt-in postures below).
+
+**Output.** The package is a portable directory under the configured dossiers
+dir (`data/dossiers/` by default) holding `manifest.json`, `dossier.json`,
+`dossier.md`, `evidence.jsonl` and `prompt.md` — every claim in it cites an
+evidence record.
+
+**Dry run.** `--dry-run` goes before the subcommand, like every command. It
+requires an account that already exists (an unknown domain is refused with
+`intel refused: ...` and a non-zero exit) and performs planning only: it plans
+the collection and writes nothing.
+
+**Opt-in posture.** The LinkedIn slug resolver (`--with-linkedin-resolve`,
+human-triggered discover posture, no automated login) and the marketplace
+adapters (`--with-marketplaces`, the anti-bot paced G2/Capterra/TrustRadius/
+SoftwareAdvice/GetApp set) are OFF by default. When they are not requested they
+appear as coverage gaps rather than silent holes. The single ATS/careers
+discovery ladder is capped at 10 requests.
+
+**Seller-market profiles.** `needs` / `required_stack_demand` come from the
+seller-market profile selected by `--market-profile`, read from
+`config/markets.yaml` — which ships empty. Until it is filled in, those sources
+promote nothing and `intel` reports a "no relevance vocabulary configured" gap;
+nothing is promoted until then.
+
 ## Identity discovery
 
 `sweep --discover "Company Name"` resolves a bare company name to a domain

@@ -101,3 +101,57 @@ def test_runner_records_failed_when_plan_raises(tmp_path):
     assert len(rows) == 1
     assert rows[0]["status"] == "failed"
     assert isinstance(rows[0]["reason"], str) and rows[0]["reason"]
+
+
+def test_missing_required_field_is_reported_by_name(tmp_path):
+    from src.sources.base import SourceAdapter
+
+    class NeedsCikOnly(SourceAdapter):
+        key = "needs_cik_ledger"
+        tier = "http"
+        requires = ("cik",)
+
+        def plan(self, account, cursor):
+            return []
+
+        def parse(self, doc, account, task_meta):
+            return []
+
+    acct = Account(domain="acme.com", name="Acme")
+    _, stats, _ = _harness(tmp_path, [acct], [NeedsCikOnly()], {})
+    rows = [r for r in stats.outcomes if r["source"] == "needs_cik_ledger" and r["key"] == "acme.com"]
+    assert len(rows) == 1
+    assert rows[0]["status"] == "missing_requires"
+    assert isinstance(rows[0]["reason"], str)
+    assert "cik" in rows[0]["reason"]
+
+
+def test_ats_vendor_gate_rejection_is_not_missing_requires(tmp_path):
+    from src.sources.base import SourceAdapter
+
+    class AtsLever(SourceAdapter):
+        key = "ats_lever"
+        tier = "http"
+        requires = ()
+
+        def plan(self, account, cursor):
+            return []
+
+        def parse(self, doc, account, task_meta):
+            return []
+
+    acct = Account(
+        domain="acme.com",
+        name="Acme",
+        ats_vendor="greenhouse",
+        ats_token="gh-token",
+    )
+    _, stats, _ = _harness(tmp_path, [acct], [AtsLever()], {})
+    rows = [r for r in stats.outcomes if r["source"] == "ats_lever" and r["key"] == "acme.com"]
+    assert len(rows) == 1
+    assert rows[0]["status"] == "ineligible_ats_vendor"
+    assert rows[0]["status"] != "missing_requires"
+    reason = rows[0]["reason"]
+    assert isinstance(reason, str) and reason
+    assert "missing NULL" not in reason
+    assert "missing None" not in reason

@@ -109,7 +109,7 @@ class LocalCaptureAdapter(SourceAdapter):
         return []
 
 
-def _runner_harness(tmp_path, adapters, accounts):
+def _runner_harness(tmp_path, adapters, accounts, local_context=None):
     """Same construction pattern as tests/test_runner.py::_harness."""
     db = Database(tmp_path / "s.db")
     cfg = Config()
@@ -121,7 +121,7 @@ def _runner_harness(tmp_path, adapters, accounts):
     runner = CollectorRunner(
         cfg, db, AccountRegistry(db), store, NullFetch(), SignalStore(db, tax), tax, ctx
     )
-    stats = runner.run(adapters, accounts, force=True)
+    stats = runner.run(adapters, accounts, force=True, local_context=local_context)
     ctx.__exit__(None, None, None)
     return runner, stats, db, store
 
@@ -199,3 +199,38 @@ def test_collect_exposes_runner_outcomes(tmp_path, monkeypatch):
     assert stats.outcomes[0] is row
     assert stats.by_source["dummy_http"]["signals_new"] == 2
     assert stats.by_source["dummy_http"]["fetched"] == 5
+
+
+# --------------------------------------------------------------------------
+# Change 3: local_context passthrough (extra keys only, never overriding)
+# --------------------------------------------------------------------------
+
+
+def test_local_context_keys_reach_local_harvest(tmp_path):
+    adapter = LocalCaptureAdapter()
+    acct = Account(domain="acme.com", name="Acme")
+    _, _, _, _ = _runner_harness(
+        tmp_path, [adapter], [acct], local_context={"market_profile": "SENTINEL"}
+    )
+
+    assert adapter.kwargs is not None, "local_harvest was never called"
+    task_meta = adapter.kwargs["task_meta"]
+    assert "market_profile" in task_meta, "local_context key did not reach local_harvest"
+    assert task_meta["market_profile"] == "SENTINEL"
+
+
+def test_local_context_cannot_override_runner_keys(tmp_path):
+    adapter = LocalCaptureAdapter()
+    acct = Account(domain="acme.com", name="Acme")
+    runner, _, _, store = _runner_harness(
+        tmp_path,
+        [adapter],
+        [acct],
+        local_context={"raw_store": "HIJACK", "registry": "HIJACK", "today": "HIJACK"},
+    )
+
+    assert adapter.kwargs is not None, "local_harvest was never called"
+    task_meta = adapter.kwargs["task_meta"]
+    assert task_meta["raw_store"] is store, "local_context clobbered raw_store"
+    assert task_meta["registry"] is runner.registry, "local_context clobbered registry"
+    assert task_meta["today"] != "HIJACK", "local_context clobbered today"

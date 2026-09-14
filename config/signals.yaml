@@ -349,6 +349,26 @@ types:
     half_life_days: 120
     play: infrastructure_pitch
     label: "Relocation"
+  need_statement:
+    category: operational
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 18
+    half_life_days: 90
+    play: growth_pitch
+    label: "Profile-matched operational need"
+  required_stack_demand:
+    category: operational
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 18
+    half_life_days: 120
+    play: growth_pitch
+    label: "Profile-matched required-stack demand"
   certification:
     category: operational
     origin: internal

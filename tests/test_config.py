@@ -130,11 +130,11 @@ def test_resolved_user_agent_raises_when_placeholder_unresolved(tmp_path, monkey
         cfg.resolved_user_agent()
 
 
-def test_load_yaml_signals_has_51_types():
+def test_load_yaml_signals_has_53_types():
     cfg = Config()
     cfg.config_dir = str(ROOT / "config")
     data = cfg.load_yaml("signals")
-    assert len(data["types"]) == 51
+    assert len(data["types"]) == 53
     # cache: same object on second load
     assert cfg.load_yaml("signals") is data
 

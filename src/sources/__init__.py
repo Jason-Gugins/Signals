@@ -9,6 +9,7 @@ import src.sources.ats.breezy  # noqa: F401  (ats_breezy)
 import src.sources.ats.teamtailor  # noqa: F401  (ats_teamtailor)
 import src.sources.ats.careers_page  # noqa: F401  (ats_careers_page — no-ATS fallback)
 import src.sources.jobsignals.collector  # noqa: F401
+import src.sources.needs.collector  # noqa: F401  (needs — local-tier derived, profile-matched)
 import src.sources.news.collector  # noqa: F401
 import src.sources.regulatory.collector  # noqa: F401
 import src.sources.warn.source  # noqa: F401

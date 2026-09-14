@@ -1,0 +1,203 @@
+"""Profile-matched needs: first-party need statements + explicit stack demands.
+
+Two evidence sets feed this source, and both are *explicit*:
+
+  * Part 1 promotes first-party ``company_feed`` sentences that say the
+    company is building / rolling out / standing up / migrating /
+    consolidating / expanding / hiring (see
+    :mod:`src.sources.needs.extract`). The verbatim sentence is the evidence.
+  * Part 2 promotes open job postings that explicitly require a vendor, via
+    the jobsignals required-stack extractor. The verbatim phrase is the
+    evidence.
+
+A candidate is emitted only when :func:`match_relevance` says the observation
+matches the seller's selected market profile. With no raw store or no market
+profile there is no relevance vocabulary, so nothing is promoted -- never
+everything as a fallback.
+
+The source never reads the ``technologies`` table and never claims absence.
+The claim is only "this quote says X and X is in the seller's served set" or
+"this job explicitly demands Y and Y is in the seller's served set"; an
+unobserved tool is simply not emitted. No network, no clock beyond the
+passed-in ``today``, no filesystem access except through the injected
+``raw_store``.
+"""
+
+from __future__ import annotations
+
+import re
+
+from src.core.models import Account
+from src.core.textutil import sha256_hex
+from src.intel.market import match_relevance
+from src.sources.base import SignalCandidate, SourceAdapter
+from src.sources.jobsignals.analyze import (
+    _vendor_vocab,
+    extract_required_stack_demands,
+)
+from src.sources.needs.extract import extract_need_statements
+from src.sources.registry import register
+
+#: Title truncation, shared by both parts.
+_TITLE_CHARS = 160
+
+#: Natural-key hash length for need statements.
+_KEY_HASH_CHARS = 12
+
+#: Confidence stamped on every promoted observation.
+_CONFIDENCE = 0.7
+
+
+def _normalise_vocab(vocab) -> list[tuple[str, re.Pattern]]:
+    """Accept vocab pairs ("name", compiled) or bare strings ("name")."""
+    pairs: list[tuple[str, re.Pattern]] = []
+    for item in vocab or ():
+        if isinstance(item, (tuple, list)) and len(item) == 2:
+            name, pattern = item
+            pairs.append((str(name), pattern))
+        else:
+            name = str(item).casefold()
+            pairs.append((name, re.compile(rf"\b{re.escape(name)}\b", re.I)))
+    return pairs
+
+
+def _decode(body) -> str:
+    """Body bytes -> text with a replacement policy; never raises."""
+    if body is None:
+        return ""
+    if isinstance(body, (bytes, bytearray)):
+        return bytes(body).decode("utf-8", errors="replace")
+    return str(body)
+
+
+@register
+class NeedsSource(SourceAdapter):
+    key = "needs"
+    tier = "local"
+    cadence_hours = 24
+    emits = ("need_statement", "required_stack_demand")
+
+    def plan(self, account: Account, cursor):
+        return []
+
+    def parse(self, doc, account, task_meta):
+        return []
+
+    def local_harvest(self, *, db, account, today, task_meta):
+        meta = task_meta or {}
+        raw_store = meta.get("raw_store")
+        profile = meta.get("market_profile")
+        # No relevance vocabulary means nothing is promoted. Never promote
+        # everything as a fallback.
+        if raw_store is None or profile is None:
+            return []
+
+        vocab = meta.get("vendor_vocab")
+        vocab = _normalise_vocab(vocab) if vocab is not None else _vendor_vocab()
+
+        observed_at = today.isoformat()
+        out: list[SignalCandidate] = []
+        out.extend(self._need_candidates(raw_store, account, profile, observed_at))
+        out.extend(self._demand_candidates(db, account, profile, vocab, observed_at))
+        return out
+
+    # -- Part 1: need statements from first-party documents ---------------
+
+    def _need_candidates(self, raw_store, account, profile, observed_at):
+        """iter_docs yields metadata only, so load each body via get()."""
+        out: list[SignalCandidate] = []
+        for meta in raw_store.iter_docs(source="company_feed", domain=account.domain):
+            try:
+                doc = raw_store.get(meta.doc_id)
+            except Exception:
+                continue  # unreadable body: skip, never raise
+            if doc is None:
+                continue
+            text = _decode(getattr(doc, "body", None))
+            if not text.strip():
+                continue
+            for row in extract_need_statements(text):
+                quote = row.get("quote") or ""
+                if not quote:
+                    continue
+                match = match_relevance(
+                    text=quote,
+                    department=None,
+                    signal_type="need_statement",
+                    vendors=[],
+                    profile=profile,
+                )
+                if match is None:
+                    continue
+                evidence = {
+                    "quote": quote,
+                    "matched_phrase": row.get("matched_phrase"),
+                    "doc_id": doc.doc_id,
+                    "url": getattr(doc, "url", None),
+                    "source": getattr(doc, "source", None),
+                    "offering_id": match.offering_id,
+                    "reasons": list(match.reasons),
+                }
+                fetched_at = getattr(doc, "fetched_at", None)
+                if fetched_at:
+                    evidence["fetched_at"] = fetched_at
+                out.append(
+                    SignalCandidate(
+                        "need_statement",
+                        observed_at,
+                        f"need:{account.domain}:{doc.doc_id}:"
+                        f"{sha256_hex(quote)[:_KEY_HASH_CHARS]}",
+                        title=quote[:_TITLE_CHARS],
+                        confidence=_CONFIDENCE,
+                        evidence_data=evidence,
+                    )
+                )
+        return out
+
+    # -- Part 2: explicit required-stack demands from open jobs -----------
+
+    def _demand_candidates(self, db, account, profile, vocab, observed_at):
+        rows = db.query(
+            """SELECT job_key, title, department, url, description FROM jobs
+               WHERE domain=? AND closed_at IS NULL""",
+            (account.domain,),
+        )
+        out: list[SignalCandidate] = []
+        for row in rows:
+            description = row.get("description") or ""
+            if not description.strip():
+                continue
+            for demand in extract_required_stack_demands(description, vocab):
+                vendor = demand.get("vendor")
+                if not vendor:
+                    continue
+                match = match_relevance(
+                    text=description,
+                    department=row.get("department"),
+                    signal_type="required_stack_demand",
+                    vendors=[vendor],
+                    profile=profile,
+                )
+                if match is None:
+                    continue
+                title = row.get("title") or vendor
+                out.append(
+                    SignalCandidate(
+                        "required_stack_demand",
+                        observed_at,
+                        f"stack-demand:{account.domain}:{row.get('job_key')}:{vendor}",
+                        title=str(title)[:_TITLE_CHARS],
+                        confidence=_CONFIDENCE,
+                        evidence_data={
+                            "job_key": row.get("job_key"),
+                            "job_url": row.get("url"),
+                            "phrase": demand.get("phrase"),
+                            "vendor": vendor,
+                            "department": row.get("department"),
+                            "offering_id": match.offering_id,
+                            "reasons": list(match.reasons),
+                            "title": row.get("title"),
+                        },
+                    )
+                )
+        return out

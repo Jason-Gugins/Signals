@@ -231,7 +231,7 @@ collector-less boards (bamboohr, jazzhr, personio) deliberately set only
 `google_news` fetches keyword search RSS (per-account name) plus named section feeds (TECHNOLOGY, BUSINESS — a class constant, not configurable). Same `classify_news` pipeline — funding, exec hires, M&A, product launches, security breaches. SERP manipulation: the account query is also run augmented with signal keywords (fundraising, new leadership, new GTM product, acquisition) for higher recall — see `serp_keywords` in `config/sources.yaml`. Full notes: [`src/sources/news/README.md`](src/sources/news/README.md).
 
 - Federal spend: `federal_contracts` (live usaspending.gov award search — keyless POST, trailing-12-month window, never-guess name matching: ambiguous recipients emit nothing)
-- Footprint: `techstack` (observed third-party tech + DNS/header evidence — full notes below), `wayback` (archived homepage/pricing diffs), `crtsh` (certificate-transparency subdomains; hint labels + new-subdomain deltas), `jobsignals` (hiring trends derived from stored job postings)
+- Footprint: `techstack` (observed third-party tech + DNS/header evidence — full notes below), `wayback` (archived homepage/pricing diffs), `crtsh` (certificate-transparency subdomains; hint labels + new-subdomain deltas), `jobsignals` (hiring trends derived from stored job postings), `needs` (derives profile-matched operational needs from first-party docs and explicit job stack demands)
 - Community: `community_hn` (Hacker News mentions via the Algolia API), `community_github`
   (org repos/releases → `product_launch`, stagnation, `github_momentum` for new
   repos / star surges / archived; authenticates with `GITHUB_TOKEN` from the

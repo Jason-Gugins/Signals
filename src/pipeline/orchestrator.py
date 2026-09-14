@@ -18,6 +18,7 @@ from src.export.briefs import render_brief, write_brief
 from src.identity.icp import evaluate_icp
 from src.identity.registry import AccountRegistry
 from src.identity.seeds import SeedStats, seed_from_csv, seed_from_linkedin_db, seed_from_repvue_db
+from src.intel.snapshot import IntelligenceSnapshot, build_intelligence_snapshot
 from src.pipeline.runner import CollectorRunner, RunnerStats
 from src.signals.combos import evaluate_combos
 from src.signals.lifecycle import load_supersede_map, partition_signals
@@ -554,28 +555,47 @@ class Orchestrator:
             ctx.bump(signals_new=stats.signals_new)
             return stats
 
-    def score(self, *, cohort=None, domains=None) -> dict:
+    def score(self, *, cohort=None, domains=None, return_snapshots: bool = False) -> dict:
         with RunContext(self.db, "score") as ctx:
             scoring = self.config.load_yaml("scoring")
             plays_cfg = self.config.load_yaml("plays")
             supersede_map = load_supersede_map(self._signals_yaml())
             calibration_stats = load_stats(self.db)
+            try:
+                icp_rules = self.config.load_yaml("icp") or {}
+            except Exception:
+                icp_rules = {}
             today = _today()
             n = 0
+            snapshots: dict[str, IntelligenceSnapshot] = {}
             for acct in self._accounts(cohort=cohort, domains=domains):
                 signals = self.signal_store.for_account(acct.domain)
-                # Soft-filter superseded signals: expired ones stay in the DB untouched,
-                # but only active signals contribute to combos/score/tier/plays.
-                signals, _expired = partition_signals(
-                    signals, today=today, supersede_days_by_type=supersede_map
-                )
-                combos = evaluate_combos(signals, scoring.get("combos") or [], today=today)
-                result = score_account(acct, signals, taxonomy=self.taxonomy, cfg=scoring, today=today, combos=combos, calibration_stats=calibration_stats)
-                tier = assign_tier(signals, result, taxonomy=self.taxonomy, cfg=scoring, today=today)
                 contacts = self._contacts(acct.domain)
-                plays = assign_plays(acct, signals, result, tier, taxonomy=self.taxonomy, plays_cfg=plays_cfg, contacts=contacts, today=today)
+                # One authoritative calculation; expired signals are excluded
+                # from combos/score/tier/plays and never persisted.
+                snapshot = build_intelligence_snapshot(
+                    account=acct,
+                    signals=signals,
+                    taxonomy=self.taxonomy,
+                    scoring_cfg=scoring,
+                    plays_cfg=plays_cfg,
+                    icp_rules=icp_rules,
+                    contacts=contacts,
+                    today=today,
+                    supersede_days_by_type=supersede_map,
+                    calibration_stats=calibration_stats,
+                )
+                result = snapshot.score
+                tier = snapshot.tier
+                plays = snapshot.plays
                 as_of = today.isoformat()
-                self.registry.set_scores(acct.domain, score=result.score, tier=tier.tier, buying_window=tier.buying_window, scored_at=as_of)
+                self.registry.set_scores(
+                    acct.domain,
+                    score=result.score,
+                    tier=tier.tier,
+                    buying_window=tier.buying_window,
+                    scored_at=as_of,
+                )
                 self.db.upsert(
                     "score_history",
                     {
@@ -604,9 +624,14 @@ class Orchestrator:
                         },
                         pk=("domain", "play_id", "signal_id"),
                     )
+                if return_snapshots:
+                    snapshots[acct.domain] = snapshot
                 n += 1
             ctx.bump(accounts=n)
-            return {"scored": n}
+            out = {"scored": n}
+            if return_snapshots:
+                out["snapshots"] = snapshots
+            return out
 
     def brief(self, *, cohort=None, domains=None, tier_max=2) -> list[str]:
         with RunContext(self.db, "brief") as ctx:

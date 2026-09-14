@@ -140,6 +140,7 @@ class StorageConfig:
     alerts_dir: str = "data/alerts"
     digests_dir: str = "data/digests"
     recon_dir: str = "data/recon"
+    dossiers_dir: str = "data/dossiers"
     keep_raw_days: int = 400
     raw_quota_mb: float | None = None  # null = disabled
 

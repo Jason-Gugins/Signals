@@ -29,11 +29,43 @@ class RunnerStats:
     candidates: int = 0
     signals_new: int = 0
     by_source: dict = field(default_factory=dict)
+    outcomes: list[dict] = field(default_factory=list)
 
     def _src(self, key: str) -> dict:
         return self.by_source.setdefault(
             key, {"tasks": 0, "fetched": 0, "cached": 0, "failed": 0, "skipped": 0, "candidates": 0, "signals_new": 0}
         )
+
+    def _out(self, source: str, key: str) -> dict:
+        """Ledger row for a (source, key) pair, creating it on first use."""
+        for row in self.outcomes:
+            if row["source"] == source and row["key"] == key:
+                return row
+        row = {
+            "source": source,
+            "key": key,
+            "status": "ran_empty",
+            "reason": None,
+            "tasks": 0,
+            "fetched": 0,
+            "cached": 0,
+            "failed": 0,
+            "candidates": 0,
+            "signals_new": 0,
+        }
+        self.outcomes.append(row)
+        return row
+
+    def mark(self, source: str, key: str, status: str, reason: str | None = None) -> dict:
+        """Record the terminal status for a (source, key) pair this run.
+
+        The status is terminal for that pair for this run; the caller passes
+        the reason from the branch that made the decision.
+        """
+        row = self._out(source, key)
+        row["status"] = status
+        row["reason"] = reason
+        return row
 
 
 def _now() -> datetime:
@@ -122,17 +154,36 @@ class CollectorRunner:
                     if not _requires_met(adapter, account):
                         stats.skipped += 1
                         stats._src(adapter.key)["skipped"] += 1
+                        stats.mark(
+                            adapter.key,
+                            _ckey(adapter, account),
+                            "missing_requires",
+                            f"missing {_missing_field(adapter, account)}",
+                        )
                         continue
                     cur = self._cursor(adapter.key, _ckey(adapter, account))
                     if not force and cur:
-                        if int(cur.get("fail_count") or 0) >= 5:
+                        fail_count = int(cur.get("fail_count") or 0)
+                        if fail_count >= 5:
                             stats.skipped += 1
                             stats._src(adapter.key)["skipped"] += 1
+                            stats.mark(
+                                adapter.key,
+                                _ckey(adapter, account),
+                                "backed_off",
+                                f"fail_count={fail_count}",
+                            )
                             continue
                         due = cur.get("next_due_at")
                         if due and due > _iso(now):
                             stats.skipped += 1
                             stats._src(adapter.key)["skipped"] += 1
+                            stats.mark(
+                                adapter.key,
+                                _ckey(adapter, account),
+                                "cadence_not_due",
+                                f"next_due_at={due}",
+                            )
                             continue
                     eligible.append(account)
                 if getattr(adapter, "fanout", False) and eligible:
@@ -143,6 +194,7 @@ class CollectorRunner:
                         self._record_fail(adapter.key, "global", exc, cadence_hours=getattr(adapter, "cadence_hours", 24))
                         stats.failed += 1
                         stats._src(adapter.key)["failed"] += 1
+                        stats.mark(adapter.key, "global", "failed", str(exc)[:200])
                         self.ctx.bump(errors=1)
                     continue
                 for account in eligible:
@@ -153,6 +205,7 @@ class CollectorRunner:
                         self._record_fail(adapter.key, account.domain, exc, cadence_hours=getattr(adapter, "cadence_hours", 24))
                         stats.failed += 1
                         stats._src(adapter.key)["failed"] += 1
+                        stats.mark(adapter.key, account.domain, "failed", str(exc)[:200])
                         self.ctx.bump(errors=1)
         finally:
             stealth = getattr(self, "stealth_browser", None)
@@ -165,6 +218,9 @@ class CollectorRunner:
 
     def _run_pair(self, adapter, account, stats, *, force, dry_run, max_passes, limit_per_source, now):
         key = _ckey(adapter, account)
+        # Ledger: snapshot this adapter's counters so the end of the cycle can
+        # report what THIS (source, key) pair did, not the whole run.
+        before = dict(stats._src(adapter.key))
         cursor_row = self._cursor(adapter.key, key) or {}
         cursor = cursor_row.get("cursor")
         pending_follow: list[FetchTask] = []
@@ -215,6 +271,8 @@ class CollectorRunner:
                 stats.tasks += len(tasks)
                 stats._src(adapter.key)["tasks"] += len(tasks)
                 logger.info("dry_run {} {} {} tasks", adapter.key, account.domain, len(tasks))
+                row = stats.mark(adapter.key, key, "dry_run_planned")
+                row["tasks"] = len(tasks)
                 return
             results = self._execute_tasks(adapter, tasks, cursor_row, stats)
             last_doc = None
@@ -817,6 +875,18 @@ class CollectorRunner:
             stats.signals_new += added
             stats._src(adapter.key)["signals_new"] += added
             stats.candidates += len(extra)
+        # Ledger: terminal outcome for this (source, key) pair. A source that
+        # planned zero HTTP tasks and emitted nothing is still a SUCCESS --
+        # _record_success already ran above -- so it reads "ran_empty", never
+        # "failed" and never absent.
+        after = stats._src(adapter.key)
+        row = stats._out(adapter.key, key)
+        for counter in ("tasks", "fetched", "cached", "failed", "candidates", "signals_new"):
+            row[counter] = int(after.get(counter, 0) or 0) - int(before.get(counter, 0) or 0)
+        if any(row[counter] > 0 for counter in ("tasks", "fetched", "cached", "candidates", "signals_new")):
+            row["status"] = "ran_data"
+        else:
+            row["status"] = "ran_empty"
 
     def _run_fanout(self, adapter, accounts, stats, *, force, dry_run, now):
         # one plan from the first account; parse per account
@@ -824,6 +894,8 @@ class CollectorRunner:
         tasks = adapter.plan(accounts[0], cursor_row.get("cursor"))
         if dry_run:
             stats.tasks += len(tasks)
+            row = stats.mark(adapter.key, "global", "dry_run_planned")
+            row["tasks"] = len(tasks)
             return
         results = self._execute_tasks(adapter, tasks, cursor_row, stats)
         last_doc = None
@@ -1371,3 +1443,11 @@ def _requires_met(adapter, account) -> bool:
         if not getattr(account, field_name, None):
             return False
     return _ats_vendor_ok(adapter, account)
+
+
+def _missing_field(adapter, account) -> str | None:
+    """First required account field the adapter is missing, or None."""
+    for field_name in getattr(adapter, "requires", ()) or ():
+        if getattr(account, field_name, None) in (None, ""):
+            return field_name
+    return None

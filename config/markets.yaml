@@ -1,0 +1,14 @@
+# Seller-market relevance profiles for `signals intel`.
+#
+# A profile describes what the SELLER offers, so the intel flow can separate
+# "interesting public evidence" from "evidence that matters to this market".
+# Fill `default` with the real offering before trusting production output:
+# an empty vocabulary matches nothing on purpose and intel reports it as a gap.
+#
+# Full offering schema is exercised in tests/test_market_profile.py.
+# NOTE: this is NOT config/marketplace.yaml (anti-bot marketplace settings).
+
+profiles:
+  default:
+    seller: ""
+    offerings: []

@@ -24,6 +24,7 @@ def _dirs(cfg: Config) -> list[Path]:
         Path(cfg.storage.briefs_dir),
         Path(cfg.storage.alerts_dir),
         Path(cfg.storage.recon_dir),
+        Path(cfg.storage.dossiers_dir),
         Path("data/logs"),
         Path("data/inbox/owned"),
         Path("config/lists"),

@@ -61,6 +61,7 @@ storage:
   alerts_dir: "data/alerts"
   digests_dir: "data/digests"
   recon_dir: "data/recon"
+  dossiers_dir: "data/dossiers"
   keep_raw_days: 400
   raw_quota_mb: null          # data/raw byte_size quota in MB; null = disabled
 

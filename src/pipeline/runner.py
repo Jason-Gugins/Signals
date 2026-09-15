@@ -76,6 +76,11 @@ def _iso(dt: datetime) -> str:
     return dt.replace(microsecond=0).isoformat()
 
 
+def job_identity(adapter, account, job) -> str:
+    """Stable identity for a harvested posting, matching ats.common.job_key."""
+    return f"{adapter.key}:{getattr(account, 'ats_token', None) or ''}:{getattr(job, 'external_id', '')}"
+
+
 class CollectorRunner:
     def __init__(self, config, db, registry, store, fetcher, signal_store, taxonomy, ctx: RunContext, browser=None, cloudflare_bypass=None, datadome_bypass=None, stealth_browser=None, routing=None):
         self.config = config
@@ -250,22 +255,25 @@ class CollectorRunner:
         # Per-domain open-role counts for the hiring-velocity trend signal,
         # accumulated across ALL pagination passes: every page's jobs land
         # here unconditionally so the final snapshot is the FULL cycle
-        # count, not total-minus-page-1. The trend COMPUTE step below is
-        # gated on no-follow-remaining instead of the accumulation.
-        job_harvests: dict[str, list] = {}
+        # count, not total-minus-page-1. Keyed by job identity (see
+        # job_identity) so the same posting harvested from several docs --
+        # the Workday list pass and its detail pass -- counts once. The
+        # trend COMPUTE step below is gated on no-follow-remaining instead
+        # of the accumulation.
+        job_harvests: dict[str, dict] = {}
         # Per-domain repo snapshots for the GitHub momentum signal, gathered
         # from the duck-typed harvest_repos hook across the pass loop (the
         # community_github adapter yields the parsed repo dicts for
         # kind == "repos" docs). Diffed against the stats file after the
         # pass loop, exactly like the review/jobs trend signals.
         repo_harvests: dict[str, list] = {}
-        # ALL jobs harvested this cycle (every pass, every task). ATS
-        # persistence (upsert + mark_closed + snapshot) is deferred to ONE
-        # call after the pass loop using this complete set: marking closed
-        # per page/task would close earlier pages' jobs (each call only
-        # knows its own keys) — a pre-existing paginated-ATS bug that this
-        # accumulation also fixes.
-        cycle_jobs: list = []
+        # ALL jobs harvested this cycle (every pass, every task), keyed by
+        # job identity. ATS persistence (upsert + mark_closed + snapshot) is
+        # deferred to ONE call after the pass loop using this complete set:
+        # marking closed per page/task would close earlier pages' jobs (each
+        # call only knows its own keys) — a pre-existing paginated-ATS bug
+        # that this accumulation also fixes.
+        cycle_jobs: dict = {}
         # Per-source pagination budget: sites.<site>.max_review_pages drives
         # how many follow passes the runner allows for this marketplace source
         # (g2 default 5, capterra default 3 -> max_passes = pages + 1).
@@ -430,14 +438,20 @@ class CollectorRunner:
                 all_cands.extend(cands)
                 follow.extend(adapter.follow_tasks(result.doc, account, meta) or [])
                 jobs = adapter.harvest_jobs(result.doc, account, meta) or []
-                # Accumulate EVERY page's jobs for the hiring-velocity trend
-                # signal — pagination passes are additive, so the snapshot
-                # after the final pass is the full open-role count. ATS
-                # persistence is deferred to the single end-of-cycle call
-                # below (mark_closed must see the complete key set).
+                # Accumulate EVERY page's jobs for the hiring-velocity trend,
+                # but key on job identity: the Workday detail pass re-describes
+                # postings the list pass already harvested, and
+                # jobsignals.trend.compute_stats is a bare len(jobs), so
+                # duplicates would inflate the count and trip hiring_surge
+                # (min_delta_pct 25 / min_count 5). ATS persistence is deferred
+                # to the single end-of-cycle call below (mark_closed must see
+                # the complete key set).
                 if jobs:
-                    job_harvests.setdefault(account.domain, []).extend(jobs)
-                    cycle_jobs.extend(jobs)
+                    bucket = job_harvests.setdefault(account.domain, {})
+                    for job in jobs:
+                        bucket[job_identity(adapter, account, job)] = job
+                    for job in jobs:
+                        cycle_jobs[job_identity(adapter, account, job)] = job
                 harvest = getattr(adapter, "harvest_tech", None)
                 if callable(harvest):
                     tech_harvests.append(harvest(result.doc, account, meta) or [])
@@ -668,7 +682,8 @@ class CollectorRunner:
                 # manually running `collect` via the fail-open state lock.
                 with exclusive_lock(JOBSIGNALS_STATS_PATH):
                     stats_state = load_stats()
-                    for domain, jobs in job_harvests.items():
+                    for domain, bucket in job_harvests.items():
+                        jobs = list(bucket.values())
                         curr = compute_stats(jobs)
                         key = stats_key(domain)
                         cand = hiring_trend_signal(
@@ -888,7 +903,9 @@ class CollectorRunner:
         # job set, then mark_closed + snapshot. Doing this per page/task
         # would close earlier pages' jobs (each call only sees its own keys).
         if cycle_jobs:
-            self._persist_jobs(adapter, account, cycle_jobs, now, more_pages=False)
+            self._persist_jobs(
+                adapter, account, list(cycle_jobs.values()), now, more_pages=False
+            )
         meta = {
             "today": now.date().isoformat(),
             "registry": self.registry,

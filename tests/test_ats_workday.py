@@ -1,5 +1,9 @@
+import json
 from datetime import date
 from pathlib import Path
+
+from src.core.models import Account, Document
+from src.sources.ats.collector import WorkdaySource
 from src.sources.ats.workday import (
     parse_workday,
     parse_workday_detail,
@@ -9,6 +13,7 @@ from src.sources.ats.workday import (
 )
 
 _DETAIL_FIXTURE = Path(__file__).parent / "fixtures" / "ats" / "workday_job_detail.json"
+_WORKDAY_ENDPOINT = workday_endpoint("acme", "wd5", "acme")
 
 
 def test_workday_endpoint_and_body():
@@ -91,3 +96,159 @@ def test_parse_workday_detail_partial():
     assert got["start_date"] is None
     assert got["external_url"] is None
     assert got["department"] is None
+
+
+# ---------------------------------------------------------------------------
+# C3: follow capped Workday detail URLs (descriptions live only behind the CXS
+# job URL: base + externalPath).
+# ---------------------------------------------------------------------------
+
+_LIST_BASE = "https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/acme"
+
+
+def _list_page(n: int = 12) -> bytes:
+    """In-memory list page: `total` forces pagination, n postings feed details."""
+    return json.dumps(
+        {
+            "total": 45,
+            "jobPostings": [
+                {
+                    "title": f"Role {i}",
+                    "externalPath": f"/job/R{i}",
+                    "locationsText": "Austin, TX",
+                    "postedOn": "Posted 3 Days Ago",
+                }
+                for i in range(n)
+            ],
+        }
+    ).encode()
+
+
+def _list_doc() -> Document:
+    return Document(doc_id="w", source="ats_workday", url=_WORKDAY_ENDPOINT, body=_list_page())
+
+
+def _acct() -> Account:
+    return Account(domain="acme.com", ats_vendor="workday", ats_token="acme/wd5/acme")
+
+
+def _meta() -> dict:
+    return {
+        "today": "2026-08-16",
+        "base": _LIST_BASE,
+        "token": "acme/wd5/acme",
+    }
+
+
+def test_workday_follow_tasks_emits_pagination_and_details():
+    src = WorkdaySource()
+    follows = src.follow_tasks(_list_doc(), _acct(), _meta())
+    posts = [t for t in follows if t.method == "POST"]
+    details = [t for t in follows if t.method == "GET"]
+    assert [t.json_body["offset"] for t in posts] == [o for o in workday_offsets(45, 20) if o != 0]
+    assert len(details) == 10  # detail_follow_max default = 10
+    assert all(t.meta["detail"] is True for t in details)
+    assert all(t.headers["Accept"] == "application/json" for t in details)
+    assert [t.meta["external_id"] for t in details] == [f"/job/R{i}" for i in range(10)]
+    assert all(t.url == _LIST_BASE + t.meta["external_id"] for t in details)
+    assert all(t.meta["base"] == _LIST_BASE and t.meta["token"] == "acme/wd5/acme" for t in details)
+    assert [t.meta["title"] for t in details] == [f"Role {i}" for i in range(10)]
+
+
+def test_workday_follow_tasks_cap_zero(monkeypatch):
+    import src.sources.ats.collector as collector
+
+    monkeypatch.setattr(collector, "load_ats_workday_cfg", lambda: {"detail_follow_max": 0})
+    src = collector.WorkdaySource()
+    follows = src.follow_tasks(_list_doc(), _acct(), _meta())
+    assert [t for t in follows if t.method == "GET"] == []
+    assert [t.json_body["offset"] for t in follows] == [o for o in workday_offsets(45, 20) if o != 0]
+
+
+def test_workday_follow_tasks_cap_reads_config(monkeypatch):
+    import src.sources.ats.collector as collector
+
+    monkeypatch.setattr(collector, "load_ats_workday_cfg", lambda: {"detail_follow_max": 3})
+    follows = collector.WorkdaySource().follow_tasks(_list_doc(), _acct(), _meta())
+    assert [t.meta["external_id"] for t in follows if t.method == "GET"] == ["/job/R0", "/job/R1", "/job/R2"]
+
+
+def test_workday_detail_doc_yields_no_follow_tasks():
+    src = WorkdaySource()
+    doc = Document(
+        doc_id="d",
+        source="ats_workday",
+        url=_LIST_BASE + "/job/R0",
+        body=_DETAIL_FIXTURE.read_bytes(),
+    )
+    assert src.follow_tasks(doc, _acct(), {"detail": True, "external_id": "/job/R0"}) == []
+
+
+def test_workday_harvest_jobs_detail_branch():
+    src = WorkdaySource()
+    doc = Document(
+        doc_id="d",
+        source="ats_workday",
+        url=_LIST_BASE + "/job/x",
+        body=_DETAIL_FIXTURE.read_bytes(),
+    )
+    meta = {"detail": True, "external_id": "/job/x", "title": "Account Executive"}
+    posts = src.harvest_jobs(doc, _acct(), meta)
+    assert len(posts) == 1
+    post = posts[0]
+    assert post.description and len(post.description) > 1000
+    assert post.posted_at is None
+    assert post.title == "Account Executive"
+    assert post.department is None
+    assert post.external_id == "/job/x"
+    assert post.url == _LIST_BASE + "/job/x"
+
+
+def test_workday_harvest_jobs_detail_missing_title_is_none():
+    src = WorkdaySource()
+    doc = Document(
+        doc_id="d",
+        source="ats_workday",
+        url=_LIST_BASE + "/job/x",
+        body=_DETAIL_FIXTURE.read_bytes(),
+    )
+    posts = src.harvest_jobs(doc, _acct(), {"detail": True, "external_id": "/job/x"})
+    assert len(posts) == 1
+    assert posts[0].title is None  # never "" — COALESCE would blank the stored title
+    assert posts[0].description
+
+
+def test_workday_harvest_jobs_detail_malformed():
+    src = WorkdaySource()
+    doc = Document(doc_id="d", source="ats_workday", url=_LIST_BASE + "/job/x", body=b"not json")
+    assert src.harvest_jobs(doc, _acct(), {"detail": True, "external_id": "/job/x"}) == []
+
+
+def test_workday_detail_url_is_the_job_endpoint():
+    src = WorkdaySource()
+    follows = src.follow_tasks(_list_doc(), _acct(), _meta())
+    first = next(t for t in follows if t.method == "GET")
+    assert first.url == _LIST_BASE + "/job/R0"
+    assert first.meta["external_id"] == "/job/R0"
+
+
+def test_workday_follow_tasks_uses_real_list_fixture():
+    src = WorkdaySource()
+    doc = Document(
+        doc_id="w",
+        source="ats_workday",
+        url=_WORKDAY_ENDPOINT,
+        body=(Path(__file__).parent / "fixtures/ats/workday_jobs.json").read_bytes(),
+    )
+    follows = src.follow_tasks(doc, _acct(), _meta())
+    details = [t for t in follows if t.method == "GET"]
+    assert [t.url for t in details] == [_LIST_BASE + "/job/SWE-1", _LIST_BASE + "/job/REC-1"]
+    assert [t.meta["title"] for t in details] == ["Software Engineer", "Recruiter"]
+    assert [t for t in follows if t.method == "POST"] == []  # total 2 -> offsets [0] only
+
+
+def test_workday_follow_tasks_no_body_or_bad_body():
+    src = WorkdaySource()
+    assert src.follow_tasks(Document(doc_id="e", source="ats_workday", body=None), _acct(), _meta()) == []
+    bad = Document(doc_id="b", source="ats_workday", body=b"not json")
+    assert src.follow_tasks(bad, _acct(), _meta()) == []

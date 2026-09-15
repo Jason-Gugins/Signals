@@ -24,7 +24,7 @@ sources:
   ats_smartrecruiters: { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["ats_token"] }
   ats_workable:   { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["ats_token"] }
   ats_recruitee:  { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["ats_token"] }
-  ats_workday:    { enabled: true, cadence_hours: 24, rate_per_host: 0.5, requires: ["ats_token"] }
+  ats_workday:    { enabled: true, cadence_hours: 24, rate_per_host: 0.5, requires: ["ats_token"], detail_follow_max: 10 }
   news_rss:       { enabled: true, cadence_hours: 12, rate_per_host: 0.5 }
   google_news:
     enabled: true

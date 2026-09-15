@@ -16,7 +16,9 @@ class SecFormDSource(SourceAdapter):
     tier = "http"
     cadence_hours = 24
     requires: tuple[str, ...] = ()
-    fanout = False
+    # fanout: the tracker sweeps the WHOLE SEC Form D universe, so it plans
+    # globally; a single-account flow must opt in with --include-fanout.
+    fanout = True
     emits = ("funding_form_d",)
 
     def plan(self, account, cursor):

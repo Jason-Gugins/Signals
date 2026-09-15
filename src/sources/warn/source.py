@@ -15,6 +15,8 @@ class WarnNoticesSource(SourceAdapter):
     key = "warn_notices"
     tier = "http"
     cadence_hours = 24
+    # fanout: one index per jurisdiction is swept globally, so a
+    # single-account flow must opt in with --include-fanout.
     fanout = True
 
     def plan(self, account, cursor):

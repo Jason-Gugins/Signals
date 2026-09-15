@@ -203,6 +203,31 @@ def _jobs_summary(db, domain: str) -> dict | None:
     }
 
 
+def _account_count(orc) -> int | None:
+    """Rows in the ``accounts`` table, or ``None`` when it cannot be read.
+
+    Used to report how many accounts the global fanout seeded during a run
+    (the measured Finding 6 defect: +60 accounts for one company). Never
+    raises: a db problem degrades to ``None``.
+    """
+    db = getattr(orc, "db", None)
+    if db is None:
+        return None
+    try:
+        row = db.one("SELECT COUNT(*) AS n FROM accounts")
+    except Exception:
+        row = None
+    if row is not None:
+        try:
+            return int(row["n"] if hasattr(row, "__getitem__") else row)
+        except Exception:
+            return None
+    try:
+        return len(db.query("SELECT domain FROM accounts"))
+    except Exception:
+        return None
+
+
 def run_intel(
     target: str,
     *,
@@ -213,6 +238,7 @@ def run_intel(
     dry_run: bool = False,
     with_marketplaces: bool = False,
     with_linkedin_resolve: bool = False,
+    include_fanout: bool = False,
     write: bool = True,
     max_signals: int | None = None,
     config=None,
@@ -303,6 +329,12 @@ def run_intel(
 
     # -- collect ------------------------------------------------------------
     include_disabled = set(MARKETPLACE_SOURCE_KEYS) if with_marketplaces else None
+    # Finding 6: the three global fanout adapters are opt-in. Count the
+    # accounts table around the PRIMARY pass so an included fanout can report
+    # how many accounts it seeded.
+    accounts_before = (
+        _account_count(orc) if (include_fanout and not dry_run) else None
+    )
     if "collect" in skip:
         record("collect", "skipped", note="skipped by request")
     else:
@@ -315,6 +347,7 @@ def run_intel(
                 limit=None,
                 include_disabled_sources=include_disabled,
                 local_context=None,
+                skip_fanout=not include_fanout,
             )
             outcomes.extend(_outcomes(stats))
             if dry_run:
@@ -337,6 +370,25 @@ def run_intel(
             errors["collect"] = str(exc)
             record("collect", "failed", reason=str(exc))
             gaps.append(f"collect stage failed: {exc}")
+
+    # -- fanout honesty (Finding 6) ------------------------------------------
+    # The dossier must say which posture this run took: the globals were
+    # skipped (opt in next time) or ran and seeded N unrelated accounts.
+    if include_fanout:
+        accounts_after = _account_count(orc)
+        if accounts_before is None or accounts_after is None:
+            delta = None
+        else:
+            delta = accounts_after - accounts_before
+        gaps.append(
+            "fanout sources ran (sec_formd, federal_register, warn_notices) "
+            f"- accounts created during collect: {delta if delta is not None else 'unknown'}"
+        )
+    else:
+        gaps.append(
+            "fanout sources skipped (sec_formd, federal_register, warn_notices) "
+            "- pass --include-fanout"
+        )
 
     # -- derive -------------------------------------------------------------
     # The market profile is loaded FIRST: it is the relevance vocabulary the

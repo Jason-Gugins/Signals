@@ -339,11 +339,13 @@ class Orchestrator:
         limit=None,
         include_disabled_sources: set[str] | None = None,
         local_context: dict | None = None,
+        skip_fanout: bool = False,
     ) -> RunnerStats:
         with RunContext(self.db, "collect") as ctx:
             accounts = self._accounts(cohort=cohort, domains=domains, limit=limit)
             adapters = self._pick_adapters(
-                sources, include_disabled=include_disabled_sources
+                sources, include_disabled=include_disabled_sources,
+                skip_fanout=skip_fanout,
             )
             cookie_jar = self._cookie_jar("http")
             fetcher = self.fetcher or self._http_fetcher(ctx)
@@ -768,16 +770,22 @@ class Orchestrator:
         rows = self.db.query("SELECT * FROM contacts WHERE domain = ?", (domain,))
         return [Contact.from_db_row(r) for r in rows]
 
-    def _pick_adapters(self, sources, *, include_disabled: set[str] | None = None):
+    def _pick_adapters(self, sources, *, include_disabled: set[str] | None = None,
+                       skip_fanout: bool = False):
         if self._adapters is not None and not sources:
-            return list(self._adapters)
-        adapters = list(
-            self._adapters
-            or enabled_sources(self.config, include_disabled=include_disabled)
-        )
-        if sources:
-            wanted = set(sources)
-            adapters = [a for a in adapters if a.key in wanted]
+            adapters = list(self._adapters)
+        else:
+            adapters = list(
+                self._adapters
+                or enabled_sources(self.config, include_disabled=include_disabled)
+            )
+            if sources:
+                wanted = set(sources)
+                adapters = [a for a in adapters if a.key in wanted]
+        if skip_fanout and not sources:
+            # intel opt-in (Finding 6): drop the global fanout adapters. An
+            # explicit sources= list is the caller's intent and wins.
+            adapters = [a for a in adapters if not getattr(a, "fanout", False)]
         return adapters
 
     def _source_rate_overrides(self) -> dict[str, float]:

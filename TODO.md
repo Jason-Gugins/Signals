@@ -612,7 +612,7 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 Live `intel` runs against `glow.security` and `darktrace.com` found these issues; the
 offline suite could not. Fix order agreed: 1 → 4 → 3 → 2 (plan: `.hermes/plans/`).
 
-### 1. `needs` cannot see dedupe-relabelled documents — FIXING (Wave A)
+### 1. `needs` cannot see dedupe-relabelled documents — FIXED by 05fd5a0 (plus the Wave D follow/capture work)
 `documents.source` records only the FIRST writer of a content hash
 (`src/core/rawstore.py:49-64`); `feed_discovery` fetched Darktrace's RSS 12 s before
 `company_feed`, so the row says `feed_discovery` and `iter_docs(source="company_feed")`
@@ -621,19 +621,25 @@ body IS there; `SELECT count(*) FROM documents WHERE source='company_feed'` is 0
 Action: resolve first-party doc ids from `fetch_log` provenance, UNIONed with the
 `company_feed`-labelled rows (prune deletes fetch_log rows past `--keep-days`).
 
-### 2. `company_feed` text is teaser copy, not first-person prose — FIXING (Wave D)
+### 2. `company_feed` text is teaser copy, not first-person prose — FIXED by ab31c28 + 50abdfd
 Stored Darktrace RSS: 91,783 bytes / 91,670 chars / 100 items / 0 `need_statement` rows;
 item summaries are ~200 chars each. Titles plus teaser copy, no "we are building" prose.
 Action: follow a capped number of feed item links, store the article bodies, strip HTML
 before extraction.
 
-### 3. Workday job descriptions are never fetched — FIXING (Wave C)
+### 3. Workday job descriptions are never fetched — STILL OPEN (Wave C parked)
 76/76 Darktrace jobs have `description IS NULL` and no job anywhere has a description
 >200 chars. `ats_workday` stores only the list endpoint; `parse_workday`
 (`src/sources/ats/workday.py:49-74`) reads title/externalPath/locationsText/postedOn.
 Consequence: `required_stack_demand`, `job_department` and the pre-existing jobsignals
 required-stack work are all inert — a latent gap this feature exposed, not a regression.
 Action: fetch each posting's CXS detail URL (already stored as `jobs.url`) under a cap.
+
+Status 2026-09-15: Wave C is parked pending approval of the single live C1 call — the one
+step that must call Workday's live CXS API to capture a real detail payload. Verified on
+disk: the DB holds 4 Workday documents, all list pages under `.../jobs`, and 0 of 2087
+stored raw bodies contain `jobPostingInfo`, so C1 cannot be substituted with offline
+evidence.
 
 ### 4. `upsert_jobs` blocking detail fields — WITHDRAWN, not a defect
 Investigated and disproved. `src/sources/ats/common.py:163-164` writes
@@ -643,7 +649,7 @@ non-empty description ALREADY lands on an existing row (probed directly). The re
 edge is an EMPTY STRING (`COALESCE` treats `''` as present), handled by a non-empty-title
 guard in the detail branch. Kept here so nobody re-investigates it.
 
-### 5. Killed runs strand `running` rows — FIXING (Wave B)
+### 5. Killed runs strand `running` rows — FIXED by 135333b + f14acab + f29977c
 `RunContext.__exit__` (`src/core/runlog.py:74`) never runs when the process is killed.
 `b676e311` (collect, 2026-08-24T15:34:13+00:00) is still `running` today; `5d838b5e`
 (2026-09-15) was stranded by a tool timeout and finalized by hand during the smoke, and
@@ -673,6 +679,14 @@ normalise the age reference to UTC. Touches scoring/decay semantics → needs th
 `documents.source` is a first-writer label over content-addressed storage; any consumer
 filtering documents by `source` shares finding 1's blind spot. Grep for `iter_docs(` and
 `FROM documents WHERE source` before adding another one.
+
+### Delivery record (2026-09-15)
+
+- **Delivered** — offline part of `.hermes/plans/2026-09-15_102154-smoke-findings-fixes.md` (Revision 2), 9 commits: `a967335` filed these findings (Wave 0); `05fd5a0` resolved first-party documents by fetch provenance (Wave A / finding 1); `135333b` + `f14acab` detect, report and surface stale `running` rows (B1/B2) and `f29977c` finalizes them during retention (B3 / finding 5); `dc5630e` added a pure `html_to_text` helper (C0); `ab31c28` follows capped first-party article links and `50abdfd` extracts from rendered text (D1/D2 / finding 2); `701bc56` proves an article body becomes a promoted need (D3).
+- **New baseline** — `pytest --collect-only` → 2003 tests collected; `pytest tests/ -o addopts="" -q -m "not antibot_live and not allow_network and not live_fetch"` → 1995 passed, 8 deselected, 0 failed (~96 s). Previous collected baseline: 1968.
+- **Known flake (pre-existing)** — `tests/test_antibot_engine.py::test_probe_fingerprint_returns_endpoint_json` is an UNMARKED live TLS probe to `tls.peet.ws`: it passed inside the broad run and failed when run alone (`RuntimeError: tls handshake, os error 10060`). That file was last modified at `01e4bdd` and is untouched by these commits — a network flake, not a regression.
+- **Blast radius** — 3 source files, 1 config value (`article_follow_max: 5`), 1 lint allowlist entry in `src/pipeline/health.py`, 1 orchestrator helper (`_company_feed_kind`), plus tests/fixtures. The new capped follow means a `company_feed` cycle can now fetch up to `article_follow_max` extra pages per account.
+- **Outstanding** — Wave C (finding 3) is the only item still pending a live call.
 
 ## Manual checklists (human setup, not code)
 

@@ -252,3 +252,229 @@ def test_workday_follow_tasks_no_body_or_bad_body():
     assert src.follow_tasks(Document(doc_id="e", source="ats_workday", body=None), _acct(), _meta()) == []
     bad = Document(doc_id="b", source="ats_workday", body=b"not json")
     assert src.follow_tasks(bad, _acct(), _meta()) == []
+
+
+# ---------------------------------------------------------------------------
+# C5: integration -- list pass + detail pass, through the REAL Runner, into
+# storage, out to the demand extractor.
+#
+# C2 built the detail parser, C3 made the adapter follow the capped CXS detail
+# URLs, C4 proved the runner's posting dedupe keeps the trend count honest.
+# Still unproven was the CHAIN: one real Workday list page plus the real
+# committed detail payload (darktrace.com job JR102301) driven through the
+# actual Runner must leave ONE stored job row that keeps the list pass's own
+# fields AND gains the detail pass's description.
+# ---------------------------------------------------------------------------
+
+_WORKDAY_TOKEN = "darktrace/wd3/DarktraceExternal"
+# "tenant/wd/site", split exactly as WorkdaySource.plan() does:
+# https://darktrace.wd3.myworkdayjobs.com/wday/cxs/darktrace/DarktraceExternal/jobs
+_WORKDAY_LIST_URL = workday_endpoint("darktrace", "wd3", "DarktraceExternal")
+# The CXS detail URL is the jobPostingSite base + the posting's externalPath.
+_JOB_EXTERNAL_PATH = "/job/Amsterdam-Office-Netherlands/Account-Executive_JR102301"
+_WORKDAY_DETAIL_URL = _WORKDAY_LIST_URL.rsplit("/jobs", 1)[0] + _JOB_EXTERNAL_PATH
+
+
+def _real_list_body() -> bytes:
+    """In-memory list page whose externalPath MATCHES the detail fixture's job.
+
+    The committed tests/fixtures/ats/workday_jobs.json holds SWE-1/REC-1, not
+    JR102301, and the two passes only share a `job_key` when the list posting's
+    externalPath equals the detail fixture's path -- so the list body is built
+    here instead of reusing that fixture. The REAL detail fixture carries no
+    externalPath of its own (verified: no such key in its jobPostingInfo), so
+    the posting's identity can only come from this list posting. total=1 keeps
+    pagination out of the cycle.
+    """
+    return json.dumps(
+        {
+            "total": 1,
+            "jobPostings": [
+                {
+                    "title": "Account Executive",
+                    "externalPath": _JOB_EXTERNAL_PATH,
+                    "locationsText": "Amsterdam, Netherlands",
+                    "postedOn": "Posted 6 Days Ago",
+                }
+            ],
+        }
+    ).encode()
+
+
+class _JsonFakeFetch:
+    """FakeFetch pattern from tests/test_runner.py, with the JSON content-type.
+
+    Copied rather than imported (test modules stay independent) and made
+    strict: an unexpected URL fails loudly instead of being handed a b"ok"
+    placeholder that could let the test pass for the wrong reason.
+    """
+
+    def __init__(self, by_url: dict):
+        self.by_url = by_url
+        self.calls: list[tuple[str, str]] = []
+
+    def get(self, task, *, etag=None, last_modified=None):
+        from src.core.http import FetchResult
+
+        self.calls.append((task.method, task.url))
+        if task.url not in self.by_url:
+            raise AssertionError(f"unexpected fetch: {task.method} {task.url}")
+        doc = Document(
+            doc_id=f"d{len(self.calls)}",
+            source=task.source,
+            url=task.url,
+            domain=task.domain,
+            body=bytes(self.by_url[task.url]),
+            status=200,
+            content_type="application/json",
+        )
+        return FetchResult(True, 200, doc, False, None, 1)
+
+
+def _run_cycle(tmp_path, accounts, adapters, by_url, **cfg_kw):
+    """_harness() pattern from tests/test_runner.py (copied, not imported)."""
+    from src.core.config import Config
+    from src.core.db import Database
+    from src.core.rawstore import RawStore
+    from src.core.runlog import RunContext
+    from src.identity.registry import AccountRegistry
+    from src.pipeline.runner import CollectorRunner
+    from src.signals.store import SignalStore
+    from src.signals.taxonomy import Taxonomy
+
+    db = Database(tmp_path / "s.db")
+    cfg = Config()
+    cfg.http.max_workers = int(cfg_kw.pop("max_workers", 1))
+    cfg.http.respect_robots = False
+    store = RawStore(db, tmp_path / "raw")
+    tax = Taxonomy.load()
+    ctx = RunContext(db, "collect")
+    ctx.__enter__()
+    runner = CollectorRunner(
+        cfg,
+        db,
+        AccountRegistry(db),
+        store,
+        _JsonFakeFetch(by_url),
+        SignalStore(db, tax),
+        tax,
+        ctx,
+    )
+    stats = runner.run(adapters, accounts, **cfg_kw)
+    ctx.__exit__(None, None, None)
+    return runner, stats, db
+
+
+def test_runner_list_and_detail_reach_storage_and_the_demand_extractor(tmp_path, monkeypatch):
+    """A real list page + the real detail payload, through the real Runner:
+
+    ONE stored job row, carrying the detail pass's description AND the list
+    pass's posted_at / location / title (the COALESCE merge), and whatever the
+    production demand extractor genuinely makes of that stored description.
+    """
+    from datetime import datetime, timezone
+
+    import src.sources.ats.collector as collector_module
+    import src.sources.jobsignals.trend as trend_module
+    from src.sources.ats.common import job_key
+    from src.sources.ats.workday import _posted_on
+    from src.sources.jobsignals.analyze import _vendor_vocab, extract_required_stack_demands
+
+    acct = Account(
+        domain="darktrace.com",
+        name="Darktrace",
+        ats_vendor="workday",
+        ats_token=_WORKDAY_TOKEN,
+    )
+    by_url = {
+        _WORKDAY_LIST_URL: _real_list_body(),
+        _WORKDAY_DETAIL_URL: _DETAIL_FIXTURE.read_bytes(),
+    }
+    # The shared hiring-trend state file must never be written by a test:
+    # capture the save instead (same pattern as test_runner.py's C4 test).
+    saved: dict = {}
+    monkeypatch.setattr(trend_module, "load_stats", lambda *a, **k: {})
+    monkeypatch.setattr(trend_module, "save_stats", lambda stats, *a, **k: saved.update(stats))
+
+    runner, stats, db = _run_cycle(
+        tmp_path, [acct], [WorkdaySource()], by_url, max_passes=2, force=True
+    )
+    assert stats.failed == 0
+    # Pass 0 planned the list POST url; pass 1 fetched the detail GET url. Both
+    # really happened -- and nothing else did.
+    assert set(runner.fetcher.calls) == {
+        ("POST", _WORKDAY_LIST_URL),
+        ("GET", _WORKDAY_DETAIL_URL),
+    }
+
+    key = job_key("ats_workday", _WORKDAY_TOKEN, _JOB_EXTERNAL_PATH)
+    stored = db.one("SELECT * FROM jobs WHERE job_key = ?", (key,))
+    assert stored is not None, f"no stored job row for {key}"
+    row = dict(stored)
+
+    # -- the detail pass landed -------------------------------------------
+    assert isinstance(row["description"], str)
+    assert row["description"]
+    assert "<" not in row["description"]
+    assert len(row["description"]) > 1000  # the real fixture renders ~4 KB
+
+    # -- the list pass's own fields survived (COALESCE) --------------------
+    # posted_at can only come from the list posting: WorkdaySource's detail
+    # branch passes posted_at=None deliberately, and the detail payload carries
+    # only human text / a boolean. (_posted_on mirrors the runner's own clock:
+    # the runner injects meta["today"] = its UTC date.)
+    expected_posted = _posted_on("Posted 6 Days Ago", datetime.now(timezone.utc).date())[0]
+    assert row["posted_at"] == expected_posted
+    assert row["location_raw"] == "Amsterdam, Netherlands"
+    assert row["city"] == "Amsterdam"
+    assert row["title"] == "Account Executive"
+    # The real CXS detail payload has no department (jobFamily/jobCategory)
+    # field at all, so asserting a value here would assert a fiction.
+    assert row["department"] is None
+    assert row["first_seen_at"]
+    assert row["closed_at"] is None
+
+    # -- the stored description reaches the production demand extractor ----
+    # Run against the production vocabulary (_vendor_vocab(): the techstack
+    # fingerprint vendor keys + the supplemental B2B set) and the ACTUAL stored
+    # text. No allowlisted vendor term appears anywhere in the rendered fixture
+    # (nor inside the one required-stack phrase it contains, "experience in a
+    # high-growth business environment"), so the honest assertion is that the
+    # call returns a list -- and what it returns is recorded, not invented.
+    demands = extract_required_stack_demands(row["description"], _vendor_vocab())
+    assert isinstance(demands, list)
+    assert demands == []  # observed: no allowlisted vendor in the real text
+
+    # -- characterization: upsert_jobs needed NO change for this ------------
+    # src/core/db.py's upsert(..., coalesce=True) writes
+    # COALESCE(excluded.col, jobs.col) for every column NOT named in
+    # `overwrite`, and src/sources/ats/common.py's upsert_jobs passes
+    # overwrite={"last_seen_at"} -- so the detail pass's description merged into
+    # the list pass's row, and a later description-less pass can only refresh
+    # last_seen_at: it cannot blank the stored text.
+    monkeypatch.setattr(
+        collector_module, "load_ats_workday_cfg", lambda: {"detail_follow_max": 0}
+    )
+    _, stats2, _ = _run_cycle(
+        tmp_path,
+        [acct],
+        [WorkdaySource()],
+        {_WORKDAY_LIST_URL: _real_list_body()},
+        max_passes=2,
+        force=True,
+    )
+    assert stats2.failed == 0
+    row2 = dict(db.one("SELECT * FROM jobs WHERE job_key = ?", (key,)))
+    assert row2["description"] == row["description"]
+    assert row2["posted_at"] == row["posted_at"]
+    assert row2["location_raw"] == row["location_raw"]
+    assert row2["first_seen_at"] == row["first_seen_at"]
+    assert row2["last_seen_at"] >= row["last_seen_at"]
+
+    # -- C4's guarantee through the real adapter: count ONCE ---------------
+    # The detail pass re-described a posting the list pass already harvested,
+    # so the domain's hiring-trend count must stay at the LIST-ONLY count (1),
+    # never 2 -- pre-C4 the detail pass doubled it and could fake a surge.
+    assert saved.get("darktrace.com", {}).get("count") == 1
+    snap = db.one("SELECT open_count FROM job_snapshots WHERE domain='darktrace.com'")
+    assert snap is not None and snap["open_count"] == 1

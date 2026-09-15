@@ -21,7 +21,22 @@ def _run(db, run_id, started_at, status="running"):
 
 
 def _at(hours: int = 0, *, seconds: int = 0) -> str:
+    """Timestamp relative to the FIXED NOW - for tests that inject now=... ."""
     return (NOW - timedelta(hours=hours, seconds=seconds)).replace(microsecond=0).isoformat()
+
+
+def _real(*, hours: int = 0, minutes: int = 0) -> str:
+    """Timestamp relative to the REAL clock.
+
+    status_report()/render_status() cannot take an injected `now`, so any test
+    that goes through them must anchor rows to wall-clock time. Anchoring to the
+    fixed NOW made the "fresh" row age with the real clock: run this file after
+    ~17:55 UTC and a 5-minute-old-by-NOW row is 6+ hours old in reality, so the
+    detector legitimately flags it and the "no stale line" assertion fails.
+    """
+    return (datetime.now(timezone.utc) - timedelta(hours=hours, minutes=minutes)).replace(
+        microsecond=0
+    ).isoformat()
 
 
 def test_fresh_running_row_is_not_stale(db):
@@ -87,20 +102,20 @@ def test_status_report_exposes_the_stale_count(db):
     assert status_report(db, taxonomy=None)["runs"]["stale_running"] == 1
 
     fresh_db = Database(db.db_path.parent / "fresh.db")
-    _run(fresh_db, "fresh", _at(seconds=300))
+    _run(fresh_db, "fresh", _real(minutes=5))
     assert status_report(fresh_db, taxonomy=None)["runs"]["stale_running"] == 0
 
 
 def test_render_status_prints_the_stale_line(db):
     from src.pipeline.health import render_status, status_report
 
-    _run(db, "old", _at(hours=48))
+    _run(db, "old", _real(hours=48))
     text = render_status(status_report(db, taxonomy=None))
     assert "stale" in text
     assert "prune" in text
 
     fresh_db = Database(db.db_path.parent / "fresh.db")
-    _run(fresh_db, "fresh", _at(seconds=300))
+    _run(fresh_db, "fresh", _real(minutes=5))
     clean = render_status(status_report(fresh_db, taxonomy=None))
     assert "stale" not in clean
     assert "prune" not in clean

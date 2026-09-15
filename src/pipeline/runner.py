@@ -267,13 +267,23 @@ class CollectorRunner:
         # kind == "repos" docs). Diffed against the stats file after the
         # pass loop, exactly like the review/jobs trend signals.
         repo_harvests: dict[str, list] = {}
-        # ALL jobs harvested this cycle (every pass, every task), keyed by
-        # job identity. ATS persistence (upsert + mark_closed + snapshot) is
-        # deferred to ONE call after the pass loop using this complete set:
-        # marking closed per page/task would close earlier pages' jobs (each
-        # call only knows its own keys) — a pre-existing paginated-ATS bug
-        # that this accumulation also fixes.
-        cycle_jobs: dict = {}
+        # ALL jobs harvested this cycle (every pass, every task), in PASS ORDER
+        # and deliberately NOT deduped. ATS persistence (upsert + mark_closed +
+        # snapshot) is deferred to ONE call after the pass loop using this
+        # complete set: marking closed per page/task would close earlier pages'
+        # jobs (each call only knows its own keys) — a pre-existing paginated-ATS
+        # bug that this accumulation also fixes.
+        #
+        # It must stay a plain list: the Workday detail pass re-describes
+        # postings the list pass already harvested, and passing BOTH posts lets
+        # upsert_jobs' second call merge into the list post's row via db.upsert's
+        # COALESCE(excluded, jobs) (ats/common.py overwrites only last_seen_at).
+        # Keying this by job identity left only the LAST post - the detail one,
+        # whose posted_at/location_raw/city are None - so the first cycle
+        # INSERTED the row with those columns NULL and lost the list pass's
+        # fields (probed: posted_at 2026-09-09 -> None). Only job_harvests, the
+        # trend count, needs deduping.
+        cycle_jobs: list = []
         # Per-source pagination budget: sites.<site>.max_review_pages drives
         # how many follow passes the runner allows for this marketplace source
         # (g2 default 5, capterra default 3 -> max_passes = pages + 1).
@@ -450,8 +460,11 @@ class CollectorRunner:
                     bucket = job_harvests.setdefault(account.domain, {})
                     for job in jobs:
                         bucket[job_identity(adapter, account, job)] = job
-                    for job in jobs:
-                        cycle_jobs[job_identity(adapter, account, job)] = job
+                    # NOT deduped: every pass's post must reach upsert_jobs so the
+                    # detail post merges into the list post's row (see the
+                    # cycle_jobs comment above). Duplicate keys in mark_closed's
+                    # NOT IN (...) list are harmless.
+                    cycle_jobs.extend(jobs)
                 harvest = getattr(adapter, "harvest_tech", None)
                 if callable(harvest):
                     tech_harvests.append(harvest(result.doc, account, meta) or [])
@@ -904,7 +917,7 @@ class CollectorRunner:
         # would close earlier pages' jobs (each call only sees its own keys).
         if cycle_jobs:
             self._persist_jobs(
-                adapter, account, list(cycle_jobs.values()), now, more_pages=False
+                adapter, account, cycle_jobs, now, more_pages=False
             )
         meta = {
             "today": now.date().isoformat(),

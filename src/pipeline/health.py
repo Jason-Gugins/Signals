@@ -101,7 +101,10 @@ def status_report(db, *, taxonomy, raw_quota_mb: float | None = None) -> dict:
         "accounts": {"total": len(accounts), "by_tier": by_tier, "disqualified": dq},
         "signals": {"total": len(sigs), "by_category": by_cat, "newest": newest},
         "sources": sources,
-        "runs": {"last_5": [dict(r) for r in runs]},
+        "runs": {
+            "last_5": [dict(r) for r in runs],
+            "stale_running": len(stale_running_runs(db)),
+        },
         "storage": storage,
     }
 
@@ -112,6 +115,11 @@ def render_status(report: dict) -> str:
         f"signals {report['signals']['total']}  newest {report['signals']['newest']}",
         f"docs {report['storage']['docs']}",
     ]
+    stale = (report.get("runs") or {}).get("stale_running", 0)
+    if stale:
+        lines.append(
+            f"stale_running {stale}  (repair: python -m src.cli prune)"
+        )
     for key, info in sorted((report.get("sources") or {}).items()):
         lines.append(f"source {key} docs={info.get('docs', 0)} fail={info.get('fail_count', 0)}")
     return "\n".join(lines) + "\n"
@@ -394,6 +402,17 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
             )
     except Exception as exc:
         add("raw_quota", "WARN", f"quota check skipped: {exc}")
+    try:
+        stale = len(stale_running_runs(db))
+        if stale:
+            add(
+                "stale_runs",
+                "WARN",
+                f"{stale} run(s) still marked 'running' past the cutoff "
+                "(repair: python -m src.cli prune)",
+            )
+    except Exception as exc:
+        add("stale_runs", "WARN", f"check skipped: {exc}")
     for _, status, _ in out:
         assert status in {"OK", "WARN", "FAIL"}
     return out

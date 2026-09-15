@@ -78,3 +78,64 @@ def test_cutoff_boundary(db):
     _run(db, "older", (NOW - timedelta(hours=6, seconds=1)).replace(microsecond=0).isoformat())
     rows = stale_running_runs(db, now=NOW)
     assert [r["run_id"] for r in rows] == ["older"]
+
+
+def test_status_report_exposes_the_stale_count(db):
+    from src.pipeline.health import status_report
+
+    _run(db, "old", _at(hours=48))
+    assert status_report(db, taxonomy=None)["runs"]["stale_running"] == 1
+
+    fresh_db = Database(db.db_path.parent / "fresh.db")
+    _run(fresh_db, "fresh", _at(seconds=300))
+    assert status_report(fresh_db, taxonomy=None)["runs"]["stale_running"] == 0
+
+
+def test_render_status_prints_the_stale_line(db):
+    from src.pipeline.health import render_status, status_report
+
+    _run(db, "old", _at(hours=48))
+    text = render_status(status_report(db, taxonomy=None))
+    assert "stale" in text
+    assert "prune" in text
+
+    fresh_db = Database(db.db_path.parent / "fresh.db")
+    _run(fresh_db, "fresh", _at(seconds=300))
+    clean = render_status(status_report(fresh_db, taxonomy=None))
+    assert "stale" not in clean
+    assert "prune" not in clean
+
+
+def test_doctor_reports_a_warn_row(tmp_path):
+    import unittest.mock as mock
+
+    from src.core.config import Config
+    from src.pipeline.health import doctor
+
+    cfg = Config()
+    cfg.contact_email = "x@y.z"
+    cfg.config_dir = str(tmp_path / "cfg")
+    cfg.storage.raw_dir = str(tmp_path / "raw")
+    cfg.storage.export_dir = str(tmp_path / "ex")
+    cfg.storage.briefs_dir = str(tmp_path / "br")
+    cfg.external_dbs.linkedin_db = str(tmp_path / "m1.db")
+    cfg.external_dbs.repvue_db = str(tmp_path / "m2.db")
+
+    real_load = Config.load_yaml
+
+    def fake_load(self, name):
+        return real_load(self, name)
+
+    db = Database(tmp_path / "s.db")
+    _run(db, "old", _at(hours=48))
+
+    with mock.patch.object(Config, "load_yaml", fake_load):
+        rows = doctor(cfg, db, check_network=False)
+
+    stale_rows = [(n, s, d) for n, s, d in rows if n == "stale_runs"]
+    assert len(stale_rows) == 1
+    name, status, detail = stale_rows[0]
+    assert status == "WARN"
+    assert "prune" in detail
+    assert all(s in {"OK", "WARN", "FAIL"} for _, s, _ in rows)
+

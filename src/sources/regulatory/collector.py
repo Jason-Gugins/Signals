@@ -16,6 +16,8 @@ class FederalRegisterSource(SourceAdapter):
     key = "federal_register"
     tier = "http"
     cadence_hours = 24
+    # fanout: the query is global (one search across all agencies), so a
+    # single-account flow must opt in with --include-fanout.
     fanout = True
 
     def plan(self, account, cursor):

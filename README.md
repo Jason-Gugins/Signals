@@ -149,7 +149,8 @@ Flags: `--name NAME` (company name for name-matching sources),
 (repeatable; any of `identity`/`collect`/`derive`/`score`/`package`), `--force`
 (ignore source cadences), `--max-signals N` (cap the active signals in the
 package), `--no-write` (build the dossier but write nothing),
-`--with-linkedin-resolve` and `--with-marketplaces` (the opt-in postures below).
+`--with-linkedin-resolve`, `--with-marketplaces` and `--include-fanout` (the
+opt-in postures below).
 
 **Output.** The package is a portable directory under the configured dossiers
 dir (`data/dossiers/` by default) holding `manifest.json`, `dossier.json`,
@@ -166,7 +167,11 @@ human-triggered discover posture, no automated login) and the marketplace
 adapters (`--with-marketplaces`, the anti-bot paced G2/Capterra/TrustRadius/
 SoftwareAdvice/GetApp set) are OFF by default. When they are not requested they
 appear as coverage gaps rather than silent holes. The single ATS/careers
-discovery ladder is capped at 10 requests.
+discovery ladder is capped at 10 requests. The global fanout sources
+(`sec_formd`, `federal_register`, `warn_notices`) plan the whole filing
+universe rather than one account, so they are OFF for `intel` unless
+`--include-fanout` is passed; a skipped run records a gap naming them, and an
+included run reports how many accounts the fanout seeded.
 
 **Seller-market profiles.** `needs` / `required_stack_demand` come from the
 seller-market profile selected by `--market-profile`, read from

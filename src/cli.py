@@ -937,9 +937,10 @@ def sweep(ctx, url_or_name, force, deep, discover_names, ddg, competitor_names):
 @click.option("--with-marketplaces", is_flag=True, help="Also run the opt-in marketplace adapters (anti-bot paced)")
 @click.option("--with-linkedin-resolve", is_flag=True, help="Resolve the LinkedIn slug (human-triggered posture)")
 @click.option("--no-write", is_flag=True, help="Build the dossier but do not write the package")
+@click.option("--include-fanout", is_flag=True, help="Also run the global fanout sources (sec_formd, federal_register, warn_notices) - they plan globally, not per account.")
 @click.option("--max-signals", type=int, default=None, help="Cap active signals in the package")
 @click.pass_context
-def intel(ctx, target, name, market_profile, skip, force, with_marketplaces, with_linkedin_resolve, no_write, max_signals):
+def intel(ctx, target, name, market_profile, skip, force, with_marketplaces, with_linkedin_resolve, no_write, include_fanout, max_signals):
     """Master intelligence flow: one account, every capability, one dossier."""
     from src.pipeline import intel as intel_mod
 
@@ -953,6 +954,7 @@ def intel(ctx, target, name, market_profile, skip, force, with_marketplaces, wit
             dry_run=bool(ctx.obj.get("dry_run")),
             with_marketplaces=with_marketplaces,
             with_linkedin_resolve=with_linkedin_resolve,
+            include_fanout=include_fanout,
             write=not no_write,
             max_signals=max_signals,
             config=ctx.obj.get("config"),

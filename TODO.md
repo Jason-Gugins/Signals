@@ -627,7 +627,7 @@ item summaries are ~200 chars each. Titles plus teaser copy, no "we are building
 Action: follow a capped number of feed item links, store the article bodies, strip HTML
 before extraction.
 
-### 3. Workday job descriptions are never fetched — STILL OPEN (Wave C parked)
+### 3. Workday job descriptions are never fetched — FIXED by 3875894 + c4c1496 + 1a38195 + 085ef27 + b0c4200
 76/76 Darktrace jobs have `description IS NULL` and no job anywhere has a description
 >200 chars. `ats_workday` stores only the list endpoint; `parse_workday`
 (`src/sources/ats/workday.py:49-74`) reads title/externalPath/locationsText/postedOn.
@@ -635,11 +635,24 @@ Consequence: `required_stack_demand`, `job_department` and the pre-existing jobs
 required-stack work are all inert — a latent gap this feature exposed, not a regression.
 Action: fetch each posting's CXS detail URL (already stored as `jobs.url`) under a cap.
 
-Status 2026-09-15: Wave C is parked pending approval of the single live C1 call — the one
-step that must call Workday's live CXS API to capture a real detail payload. Verified on
-disk: the DB holds 4 Workday documents, all list pages under `.../jobs`, and 0 of 2087
-stored raw bodies contain `jobPostingInfo`, so C1 cannot be substituted with offline
-evidence.
+Status 2026-09-15 (delivered): the live C1 probe captured a real payload (`3875894`,
+`tests/fixtures/ats/workday_job_detail.json`, 200 + `application/json`, 6,176 bytes) after
+verifying no offline substitute existed (4 Workday docs, all list pages under `.../jobs`;
+0 of 2087 stored raw bodies contained `jobPostingInfo`). `parse_workday_detail` renders
+`jobPostingInfo.jobDescription` to 4,056 clean chars (`c4c1496`); the adapter follows up to
+`detail_follow_max: 10` detail URLs per list page, with the loader in
+`src/sources/ats/thresholds.py`, the config value and its lint allowlist (`1a38195`); the
+detail branch carries `posted_at=None` so COALESCE keeps the list pass's date.
+
+Two corrections the live payload forced, worth remembering: there is NO
+`jobFamily`/`jobFamilyGroup`/`jobCategory` key, so `department` stays None — i.e.
+`job_department` remains inert for Workday by DATA, not by bug; and `posted` is a BOOLEAN
+(`true`), not a date — mapping it would have written `True` into `posted_at`.
+
+C4's trend dedupe (`973c4d0`) stops a doubled count firing a false `hiring_surge`, but its
+first cut keyed `cycle_jobs` too and lost the list pass's posted_at/location on first
+insert; `085ef27` restored the merge (both passes' posts reach `upsert_jobs`) and `b0c4200`
+proves the chain end to end.
 
 ### 4. `upsert_jobs` blocking detail fields — WITHDRAWN, not a defect
 Investigated and disproved. `src/sources/ats/common.py:163-164` writes
@@ -683,10 +696,11 @@ filtering documents by `source` shares finding 1's blind spot. Grep for `iter_do
 ### Delivery record (2026-09-15)
 
 - **Delivered** — offline part of `.hermes/plans/2026-09-15_102154-smoke-findings-fixes.md` (Revision 2), 9 commits: `a967335` filed these findings (Wave 0); `05fd5a0` resolved first-party documents by fetch provenance (Wave A / finding 1); `135333b` + `f14acab` detect, report and surface stale `running` rows (B1/B2) and `f29977c` finalizes them during retention (B3 / finding 5); `dc5630e` added a pure `html_to_text` helper (C0); `ab31c28` follows capped first-party article links and `50abdfd` extracts from rendered text (D1/D2 / finding 2); `701bc56` proves an article body becomes a promoted need (D3).
-- **New baseline** — `pytest --collect-only` → 2003 tests collected; `pytest tests/ -o addopts="" -q -m "not antibot_live and not allow_network and not live_fetch"` → 1995 passed, 8 deselected, 0 failed (~96 s). Previous collected baseline: 1968.
+- **Wave C delivered (finding 3)** — `3875894` captured the real CXS detail payload (live, one GET); `c4c1496` parses it; `1a38195` follows capped detail URLs (`detail_follow_max: 10` + `src/sources/ats/thresholds.py` + lint allowlist); `973c4d0` dedupes postings for the hiring-trend count; `085ef27` restored the list+detail merge that C4's first cut broke; `b0c4200` is the end-to-end proof that a description lands while `posted_at` survives.
+- **New baseline** — `pytest --collect-only` → 2021 tests collected; `pytest tests/ -o addopts="" -q -m "not antibot_live and not allow_network and not live_fetch"` → 2012 passed, 8 deselected, 1 failed (~106 s) — the single failure is the known unmarked antibot flake below; GitHub CI on the final push (`b0c4200`) concluded SUCCESS, so it is local-only. Previous collected baseline: 1968.
 - **Known flake (pre-existing)** — `tests/test_antibot_engine.py::test_probe_fingerprint_returns_endpoint_json` is an UNMARKED live TLS probe to `tls.peet.ws`: it passed inside the broad run and failed when run alone (`RuntimeError: tls handshake, os error 10060`). That file was last modified at `01e4bdd` and is untouched by these commits — a network flake, not a regression.
 - **Blast radius** — 3 source files, 1 config value (`article_follow_max: 5`), 1 lint allowlist entry in `src/pipeline/health.py`, 1 orchestrator helper (`_company_feed_kind`), plus tests/fixtures. The new capped follow means a `company_feed` cycle can now fetch up to `article_follow_max` extra pages per account.
-- **Outstanding** — Wave C (finding 3) is the only item still pending a live call.
+- **Outstanding** — the offline plan is fully delivered. The only remaining item is the OPTIONAL live `intel darktrace.com` re-run (E2) to confirm findings 1/2/3/5 on real data; findings 6 and 7 stay DECISION OPEN.
 
 ## Manual checklists (human setup, not code)
 

@@ -139,3 +139,56 @@ def test_doctor_reports_a_warn_row(tmp_path):
     assert "prune" in detail
     assert all(s in {"OK", "WARN", "FAIL"} for _, s, _ in rows)
 
+
+def _cli_prune(tmp_path, monkeypatch, argv):
+    from types import SimpleNamespace
+
+    from click.testing import CliRunner
+
+    from src.cli import main
+
+    cfg = SimpleNamespace(
+        storage=SimpleNamespace(db_path=str(tmp_path / "signals.db"), raw_dir=str(tmp_path / "raw")),
+    )
+    monkeypatch.setattr("src.cli.Config.load", lambda *a, **k: cfg)
+    res = CliRunner().invoke(main, argv)
+    return res, cfg
+
+
+def _recent(*, hours: int = 0, minutes: int = 0):
+    """ISO timestamp relative to real now — the CLI cannot inject `now`."""
+    return (datetime.now(timezone.utc) - timedelta(hours=hours, minutes=minutes)).replace(microsecond=0).isoformat()
+
+
+def test_cli_prune_finalizes_stale_rows(tmp_path, monkeypatch):
+    db = Database(tmp_path / "signals.db")
+    _run(db, "old", _recent(hours=48))
+    _run(db, "fresh", _recent(minutes=5))
+
+    res, cfg = _cli_prune(tmp_path, monkeypatch, ["prune", "--keep-days", "30"])
+    assert res.exit_code == 0, res.output
+    assert "stale_runs_finalized=1" in res.output
+
+    check = Database(cfg.storage.db_path)
+    old = check.one("SELECT status, notes, finished_at FROM runs WHERE run_id='old'")
+    assert old["status"] == "failed"
+    assert old["notes"]
+    assert old["finished_at"]
+    fresh = check.one("SELECT status FROM runs WHERE run_id='fresh'")
+    assert fresh["status"] == "running"
+
+
+def test_prune_stale_run_hours_option_is_honoured(tmp_path, monkeypatch):
+    db = Database(tmp_path / "signals.db")
+    _run(db, "recent", _recent(hours=12))
+
+    res, cfg = _cli_prune(
+        tmp_path, monkeypatch, ["prune", "--keep-days", "30", "--stale-run-hours", "48"]
+    )
+    assert res.exit_code == 0, res.output
+    assert "stale_runs_finalized=0" in res.output
+
+    check = Database(cfg.storage.db_path)
+    assert check.one("SELECT status FROM runs WHERE run_id='recent'")["status"] == "running"
+
+

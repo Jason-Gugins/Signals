@@ -483,20 +483,23 @@ class _RawShim:
 
 @main.command()
 @click.option("--keep-days", default=90, show_default=True, help="Delete rows/files older than N days.")
+@click.option("--stale-run-hours", default=6, show_default=True, help="Age after which a 'running' run row is considered dead.")
 @click.option("--vacuum", is_flag=True, help="Also VACUUM the database to reclaim space.")
 @click.pass_context
-def prune(ctx, keep_days, vacuum):
+def prune(ctx, keep_days, vacuum, stale_run_hours):
     """Enforce data retention: fetch_log/documents/runs + raw store files."""
     from src.core.db import prune_all
+    from src.pipeline.health import finalize_stale_runs
 
     cfg = ctx.obj["config"]
     db = Database(cfg.storage.db_path)
     raw_store = RawStore(db, cfg.storage.raw_dir)
+    finalized = finalize_stale_runs(db, max_age_hours=stale_run_hours)
     counts = prune_all(db, keep_days=keep_days, raw_store=raw_store)
     if vacuum:
         db.conn.execute("VACUUM")
         db.conn.commit()
-    click.echo(str(counts))
+    click.echo(f"{counts} stale_runs_finalized={finalized}")
 
 
 @main.command(name="g2-selfcheck")

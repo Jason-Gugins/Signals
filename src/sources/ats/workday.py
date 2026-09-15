@@ -11,6 +11,7 @@ import re
 from datetime import date, timedelta
 
 from src.sources.ats.common import JobPost, parse_location
+from src.sources.news.feeds import html_to_text
 
 
 def workday_endpoint(tenant: str, wd: str, site: str) -> str:
@@ -72,3 +73,50 @@ def parse_workday(body: bytes, *, base: str, today: date) -> list[JobPost]:
         )
     out.sort(key=lambda x: x.external_id)
     return out
+
+
+def _text_field(info: dict, key: str) -> str | None:
+    """Best-effort str field: None for absent, non-str, or blank values."""
+    try:
+        value = info.get(key)
+    except Exception:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value
+
+
+def parse_workday_detail(body: bytes) -> dict:
+    """Description/department/hiring fields from a CXS job-detail payload.
+
+    Returns description (plain text via html_to_text), department,
+    employment_type, start_date, external_url -- each None when absent.
+    Never raises: a malformed body returns {} so one bad posting cannot
+    fail a cycle.
+
+    Shape verified live 2026-09-15 against tests/fixtures/ats/workday_job_detail.json:
+    the payload has NO jobFamily/jobFamilyGroup/jobCategory key, so department is
+    always None; `posted` is a BOOLEAN (not a date) and `postedOn` is human text
+    ("Posted 6 Days Ago"), so neither is mapped; only `startDate` is ISO.
+    """
+    try:
+        raw = json.loads(body)
+    except Exception:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    info = raw.get("jobPostingInfo")
+    if not isinstance(info, dict):
+        info = {}
+    try:
+        raw_desc = info.get("jobDescription")
+        desc = html_to_text(raw_desc) if isinstance(raw_desc, str) and raw_desc.strip() else None
+    except Exception:
+        desc = None
+    return {
+        "description": desc or None,
+        "department": None,
+        "employment_type": _text_field(info, "timeType"),
+        "start_date": _text_field(info, "startDate"),
+        "external_url": _text_field(info, "externalUrl"),
+    }

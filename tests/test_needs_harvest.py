@@ -145,6 +145,59 @@ def test_unrelated_quote_is_not_promoted(tmp_path):
     assert _harvest(db, account, meta) == []
 
 
+def test_html_paragraph_yields_verbatim_sentence(tmp_path):
+    db, store, account, meta = _harness(tmp_path)
+    store.put(
+        source="company_feed",
+        url="https://acme.com/blog/data-platform",
+        domain=DOMAIN,
+        body=b"<p>We are consolidating data across teams.</p>",
+        content_type="text/html",
+        status=200,
+    )
+
+    needs = [c for c in _harvest(db, account, meta) if c.signal_type == "need_statement"]
+
+    assert len(needs) == 1
+    quote = needs[0].evidence_data["quote"]
+    assert "<" not in quote, f"raw markup leaked into the quote: {quote!r}"
+    assert quote == "We are consolidating data across teams."
+
+
+def test_sentence_only_inside_script_is_ignored(tmp_path):
+    db, store, account, meta = _harness(tmp_path)
+    store.put(
+        source="company_feed",
+        url="https://acme.com/blog/scripts",
+        domain=DOMAIN,
+        body=b"<script>We are consolidating data across teams.</script>"
+        b"<p>Unrelated copy.</p>",
+        content_type="text/html",
+        status=200,
+    )
+
+    assert [
+        c.signal_type for c in _harvest(db, account, meta)
+    ].count("need_statement") == 0
+
+
+def test_plain_text_body_is_unchanged_by_rendering(tmp_path):
+    db, store, account, meta = _harness(tmp_path)
+    store.put(
+        source="company_feed",
+        url="https://acme.com/blog/plain",
+        domain=DOMAIN,
+        body=b"We are consolidating data across teams.",
+        content_type="text/html",
+        status=200,
+    )
+
+    needs = [c for c in _harvest(db, account, meta) if c.signal_type == "need_statement"]
+
+    assert len(needs) == 1
+    assert needs[0].evidence_data["quote"] == "We are consolidating data across teams."
+
+
 def test_missing_body_is_skipped_without_raising(tmp_path):
     db, store, account, meta = _harness(tmp_path)
     ghost = Document(

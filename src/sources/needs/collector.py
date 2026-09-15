@@ -36,6 +36,7 @@ from src.sources.jobsignals.analyze import (
     extract_required_stack_demands,
 )
 from src.sources.needs.extract import extract_need_statements
+from src.sources.news.feeds import html_to_text
 from src.sources.registry import register
 
 #: Title truncation, shared by both parts.
@@ -152,7 +153,8 @@ class NeedsSource(SourceAdapter):
     # -- Part 1: need statements from first-party documents ---------------
 
     def _need_candidates(self, raw_store, account, profile, observed_at, db):
-        """Bodies are loaded for provenance-resolved doc ids.
+        """Bodies are rendered to text before extraction (html_to_text is
+        idempotent on plain text), then loaded for provenance-resolved doc ids.
 
         Metadata-only iter_docs is no longer used here: documents.source records
         only the first writer of a content hash, so a first-party feed labelled
@@ -168,7 +170,7 @@ class NeedsSource(SourceAdapter):
                 continue  # unreadable body: skip, never raise
             if doc is None:
                 continue
-            text = _decode(getattr(doc, "body", None))
+            text = html_to_text(_decode(getattr(doc, "body", None)))
             if not text.strip():
                 continue
             for row in extract_need_statements(text):

@@ -10,7 +10,7 @@ from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.content.blog import blog_to_candidates
 from src.sources.news.classify import _strip_source_attribution, classify_news
 from src.sources.news.feeds import NewsItem, bing_news_url, google_news_search_url, google_news_topic_url, google_news_url, parse_feed
-from src.sources.news.serp_config import load_google_news_cfg
+from src.sources.news.serp_config import load_company_feed_cfg, load_google_news_cfg
 from src.sources.registry import register
 
 
@@ -159,9 +159,38 @@ class CompanyFeedSource(SourceAdapter):
     def plan(self, account, cursor):
         return [FetchTask(source=self.key, url=account.blog_feed_url, domain=account.domain)]
 
+    def follow_tasks(self, doc, account, task_meta):
+        """Store up to N article bodies behind the feed's own links.
+
+        The feed carries titles + teaser summaries only (measured: 100 items,
+        ~200 chars of summary each, 0 first-person need sentences), so the
+        article page is the only place a company's own operational-need language
+        appears. Bodies are stored for the `needs` source; this method emits no
+        signals.
+        """
+        meta = task_meta or {}
+        if not doc.body or meta.get("kind") == "article":
+            return []                       # never re-follow an article page
+        cap = int((load_company_feed_cfg() or {}).get("article_follow_max", 5) or 0)
+        if cap <= 0:
+            return []
+        out, seen = [], set()
+        for item in parse_feed(doc.body):
+            link = (item.link or "").strip()
+            if not link.startswith(("http://", "https://")) or link in seen:
+                continue
+            seen.add(link)
+            out.append(FetchTask(source=self.key, url=link, domain=account.domain,
+                                 meta={"kind": "article", "link": link}))
+            if len(out) >= cap:
+                break
+        return out
+
     def parse(self, doc, account, task_meta):
         if not doc.body:
             return []
+        if (task_meta or {}).get("kind") == "article":
+            return []       # stored for `needs`; emits no signals of its own
         return blog_to_candidates(parse_feed(doc.body), account, today=date.fromisoformat(task_meta["today"]))
 
 

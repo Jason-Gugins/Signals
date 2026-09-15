@@ -607,6 +607,73 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 - **Headed-fallback unattended path** — DataDome tier 4 auto-retry with session capture.
 - **ML-DSA sig-alg support** — track BoringSSL upstream; post-quantum sig-algs when supported.
 
+## Intel live-smoke findings (2026-09-15)
+
+Live `intel` runs against `glow.security` and `darktrace.com` found these issues; the
+offline suite could not. Fix order agreed: 1 → 4 → 3 → 2 (plan: `.hermes/plans/`).
+
+### 1. `needs` cannot see dedupe-relabelled documents — FIXING (Wave A)
+`documents.source` records only the FIRST writer of a content hash
+(`src/core/rawstore.py:49-64`); `feed_discovery` fetched Darktrace's RSS 12 s before
+`company_feed`, so the row says `feed_discovery` and `iter_docs(source="company_feed")`
+(`src/sources/needs/collector.py:109`) sees nothing. sha256(stored body) == doc_id, so the
+body IS there; `SELECT count(*) FROM documents WHERE source='company_feed'` is 0.
+Action: resolve first-party doc ids from `fetch_log` provenance, UNIONed with the
+`company_feed`-labelled rows (prune deletes fetch_log rows past `--keep-days`).
+
+### 2. `company_feed` text is teaser copy, not first-person prose — FIXING (Wave D)
+Stored Darktrace RSS: 91,783 bytes / 91,670 chars / 100 items / 0 `need_statement` rows;
+item summaries are ~200 chars each. Titles plus teaser copy, no "we are building" prose.
+Action: follow a capped number of feed item links, store the article bodies, strip HTML
+before extraction.
+
+### 3. Workday job descriptions are never fetched — FIXING (Wave C)
+76/76 Darktrace jobs have `description IS NULL` and no job anywhere has a description
+>200 chars. `ats_workday` stores only the list endpoint; `parse_workday`
+(`src/sources/ats/workday.py:49-74`) reads title/externalPath/locationsText/postedOn.
+Consequence: `required_stack_demand`, `job_department` and the pre-existing jobsignals
+required-stack work are all inert — a latent gap this feature exposed, not a regression.
+Action: fetch each posting's CXS detail URL (already stored as `jobs.url`) under a cap.
+
+### 4. `upsert_jobs` blocking detail fields — WITHDRAWN, not a defect
+Investigated and disproved. `src/sources/ats/common.py:163-164` writes
+`overwrite={"last_seen_at"}` and every other column falls through to `db.upsert`'s
+`COALESCE(excluded.col, jobs.col)` (`src/core/db.py:591-594`), so a detail pass with a
+non-empty description ALREADY lands on an existing row (probed directly). The remaining
+edge is an EMPTY STRING (`COALESCE` treats `''` as present), handled by a non-empty-title
+guard in the detail branch. Kept here so nobody re-investigates it.
+
+### 5. Killed runs strand `running` rows — FIXING (Wave B)
+`RunContext.__exit__` (`src/core/runlog.py:74`) never runs when the process is killed.
+`b676e311` (collect, 2026-08-24T15:34:13+00:00) is still `running` today; `5d838b5e`
+(2026-09-15) was stranded by a tool timeout and finalized by hand during the smoke, and
+`902c16ff` was seen running during the 2026-09-15 review.
+Action: read-only detector in `health.py`, surfaced by `status`/`doctor`, repaired by
+`signals prune` with a configurable age cutoff.
+
+### 6. Global fanout sources are unbounded for a single-account run — DECISION OPEN
+As of 2026-09-15 the DB holds 329 accounts, 291 of them `cik%` stubs stamped
+`seed_source='sec_formd'`. One `intel glow.security` pass (`sec_formd` is fanout: one
+global plan, parsed per filer) appears to have created ~93 of them — that per-pass
+attribution is UNVERIFIED after the fact (`sec_formd` now holds 1,136 documents, so the
+pass cannot be isolated). `intel <domain>` is not domain-scoped for fanout sources
+(`sec_formd`, `federal_register`, `warn_notices`).
+Options: (a) leave as designed; (b) exclude fanout sources from `intel` by default with
+`--include-fanout`; (c) keep them but report the seeded count as a gap.
+Recommendation: (b) or (c).
+
+### 7. Raw `(today - observed).days` can be negative in five modules — DECISION OPEN
+`src/signals/score.py:62` (decay), `tier.py:31` (buying window), `evidence.py:58`,
+`combos.py:30`, `lifecycle.py:43` (the `>` guard is safe). Observed with `today` = local
+2026-09-14 against `observed_at` = 2026-09-15 (UTC ahead). Only the artifact age was
+clamped (`dff1b9a`). Options: clamp at each site (with one injected-time test each) or
+normalise the age reference to UTC. Touches scoring/decay semantics → needs the user's call.
+
+### Cross-cutting note
+`documents.source` is a first-writer label over content-addressed storage; any consumer
+filtering documents by `source` shares finding 1's blind spot. Grep for `iter_docs(` and
+`FROM documents WHERE source` before adding another one.
+
 ## Manual checklists (human setup, not code)
 
 - **2Captcha provider setup** — create account, key in `.env`, verify `TurnstileTaskProxyless` vs `AntiCloudflareTaskProxyless` against a real managed challenge, test headed fallback (`CLOUDFLARE_HEADED_FALLBACK=true`).

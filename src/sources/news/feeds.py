@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from html import unescape
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, urljoin, urlparse, quote_plus
 
@@ -22,6 +24,28 @@ FEED_GUESSES = [
     "/news/rss",
     "/press/feed",
 ]
+
+
+_TAG = re.compile(r"<[^>]+>")
+_DROP = re.compile(r"<(script|style)\b.*?</\1>", re.I | re.S)
+_BREAK = re.compile(r"</?(p|div|li|br|tr|h[1-6])\b[^>]*>", re.I)
+
+
+def html_to_text(html: str) -> str:
+    """Crude, pure HTML -> text: drops script/style, keeps readable words.
+
+    Deliberately not a full parser: the consumer is sentence extraction, which
+    only needs prose. Stdlib only, never raises, and idempotent on plain text
+    (a string with no '<' comes back unchanged apart from whitespace collapse).
+    """
+    if not html:
+        return ""
+    text = _DROP.sub(" ", str(html))
+    text = _BREAK.sub("\n", text)
+    text = _TAG.sub("", text)
+    text = unescape(text)
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    return "\n".join(line for line in lines if line).strip()
 
 
 @dataclass(frozen=True)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -22,6 +23,48 @@ def raw_quota_check(raw_mb: float, quota_mb: float | None) -> dict | None:
     quota_mb = float(quota_mb)
     status = "WARN" if raw_mb > quota_mb else "OK"
     return {"status": status, "used_mb": round(raw_mb, 1), "quota_mb": quota_mb}
+
+
+#: A run older than this (hours) that is still 'running' cannot be alive.
+#: Must exceed the longest expected run; `signals prune --stale-run-hours`
+#: overrides it. runs.started_at is always aware-UTC isoformat written by
+#: RunContext (src/core/runlog.py:42-43), which is what makes the string
+#: comparison below valid; a space-separated naive writer would break it.
+DEFAULT_STALE_RUN_HOURS = 6
+
+
+def stale_running_runs(db, *, now=None, max_age_hours: int = DEFAULT_STALE_RUN_HOURS) -> list[dict]:
+    """runs rows still marked running whose start is older than the cutoff.
+
+    A killed process never reaches RunContext.__exit__ (runlog.py:74), so the
+    row stays 'running' forever and misleads status/doctor. Read-only: the
+    caller decides whether to repair.
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - timedelta(hours=max_age_hours)).replace(microsecond=0).isoformat()
+    return db.query(
+        "SELECT run_id, stage, started_at FROM runs WHERE status='running' AND started_at < ? "
+        "ORDER BY started_at",
+        (cutoff,),
+    )
+
+
+def finalize_stale_runs(db, *, now=None, max_age_hours: int = DEFAULT_STALE_RUN_HOURS) -> int:
+    """Mark stale running rows failed; returns how many were finalized.
+
+    Safe to re-run: the UPDATE is guarded on status='running', so a live
+    process that finishes in the meantime is never touched.
+    """
+    now = now or datetime.now(timezone.utc)
+    stamp = now.replace(microsecond=0).isoformat()
+    rows = stale_running_runs(db, now=now, max_age_hours=max_age_hours)
+    for row in rows:
+        db.execute(
+            "UPDATE runs SET status='failed', finished_at=?, notes=? "
+            "WHERE run_id=? AND status='running'",
+            (stamp, "finalized by prune: process did not complete", row["run_id"]),
+        )
+    return len(rows)
 
 
 def status_report(db, *, taxonomy, raw_quota_mb: float | None = None) -> dict:

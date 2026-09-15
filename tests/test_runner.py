@@ -582,6 +582,83 @@ def test_filter_backoff_derives_source_per_adapter(tmp_path):
     assert out2 == [task]
 
 
+# ── C4: the Workday job-DETAIL pass must not inflate the hiring-trend count ─
+
+
+_LIST_JOBS = 6
+
+
+class DetailPassAdapter(OkAdapter):
+    """Workday-style board: the LIST pass harvests every posting, then a
+    capped DETAIL pass re-describes the SAME postings (same ``external_id``,
+    richer ``description``) — exactly what commit 1a38195 introduced."""
+
+    key = "ats_workday"
+    requires = ()
+
+    def harvest_jobs(self, doc, account, task_meta):
+        from src.sources.ats.common import JobPost
+
+        detail = doc.url.endswith("/detail")
+        return [
+            JobPost(
+                external_id=f"j{i}",
+                title=f"Role {i}",
+                url=f"https://x/{i}",
+                posted_at="2026-08-01",
+                description=("full detail body" if detail else None),
+            )
+            for i in range(_LIST_JOBS)
+        ]
+
+    def follow_tasks(self, doc, account, task_meta):
+        if doc.url.endswith("/detail"):
+            return []
+        return [
+            FetchTask(
+                source=self.key,
+                url="https://ok.test/acme.com/detail",
+                domain=account.domain,
+            )
+        ]
+
+    def parse(self, doc, account, task_meta):
+        return []
+
+
+def test_detail_pass_does_not_inflate_hiring_trend(tmp_path, monkeypatch):
+    """A posting harvested from TWO docs (list + detail) counts ONCE.
+
+    Pre-fix the accumulators were plain lists, so the detail pass doubled the
+    per-domain count (6 -> 12) and, against a 6-role baseline, fired a FALSE
+    ``hiring_surge`` (min_delta_pct 25 / min_count 5)."""
+    import src.sources.jobsignals.trend as trend_mod
+
+    saved: dict = {}
+    monkeypatch.setattr(
+        trend_mod, "load_stats", lambda *a, **k: {"acme.com": {"count": _LIST_JOBS}}
+    )
+    monkeypatch.setattr(
+        trend_mod, "save_stats", lambda stats, *a, **k: saved.update(stats)
+    )
+
+    acct = Account(domain="acme.com", ats_vendor="workday", ats_token="boardtok")
+    by_url = {
+        "https://ok.test/acme.com": b"list",
+        "https://ok.test/acme.com/detail": b"detail",
+    }
+    _, _, db = _harness(tmp_path, [acct], [DetailPassAdapter()], by_url, max_passes=2)
+
+    # The detail pass re-describes postings the list pass already harvested:
+    # the trend count must stay at the LIST-ONLY count.
+    assert saved.get("acme.com", {}).get("count") == _LIST_JOBS
+    snap = db.one("SELECT open_count FROM job_snapshots WHERE domain='acme.com'")
+    assert snap is not None and snap["open_count"] == _LIST_JOBS
+    # ...and the duplicated count must not fake a surge off a real baseline.
+    types = {r["signal_type"] for r in db.query("SELECT signal_type FROM signals")}
+    assert "hiring_surge" not in types
+
+
 def test_filter_backoff_still_keys_g2_under_g2(tmp_path):
     from types import SimpleNamespace
 

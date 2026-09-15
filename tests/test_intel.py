@@ -13,6 +13,7 @@ No network, no filesystem writes through the writer.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from types import SimpleNamespace
 
@@ -308,3 +309,64 @@ def test_dry_run_never_fetches_or_writes(monkeypatch):
     for stage in ("identity", "derive", "score", "package"):
         assert result["stages"][stage]["status"] == "skipped"
         assert "dry-run" in result["stages"][stage]["note"]
+
+
+# ---------------------------------------------------------------------------
+# Invocation id (defect found by the live run: the package carried none)
+# ---------------------------------------------------------------------------
+
+#: An 8-character lowercase hex id, exactly what uuid4().hex[:8] produces.
+_INVOCATION_ID_RE = re.compile(r"[0-9a-f]{8}\Z")
+
+
+def _patch_invocation_seams(monkeypatch, *, into_dossier: bool):
+    """Patch the package seams; record the invocation id seen by each.
+
+    ``into_dossier`` mirrors ``build_dossier``'s real contract of carrying the
+    id into the dossier it returns.
+    """
+    rec = {"ids": [], "dossier": None}
+
+    def recorder(snapshot, **kw):
+        invocation_id = kw.get("invocation_id")
+        rec["ids"].append(invocation_id)
+        dossier = {"domain": getattr(snapshot, "domain", None)}
+        if into_dossier:
+            dossier["invocation_id"] = invocation_id
+        return dossier
+
+    def fake_write(dossier, *, out_dir):
+        rec["dossier"] = dossier
+        rec["out_dir"] = out_dir
+        return {"package_dir": "pkg"}
+
+    monkeypatch.setattr(intel, "build_coverage", lambda **kw: [])
+    monkeypatch.setattr(intel, "build_dossier", recorder)
+    monkeypatch.setattr(intel, "write_intel_package", fake_write)
+    return rec
+
+
+def test_run_intel_passes_a_unique_invocation_id(monkeypatch):
+    rec = _patch_invocation_seams(monkeypatch, into_dossier=True)
+
+    for _ in range(2):
+        orch = _existing()
+        intel.run_intel(DOMAIN, config=orch.config, orch=orch)
+
+    assert len(rec["ids"]) == 2
+    for invocation_id in rec["ids"]:
+        assert isinstance(invocation_id, str), invocation_id
+        assert _INVOCATION_ID_RE.match(invocation_id), invocation_id
+    assert rec["ids"][0] != rec["ids"][1], "the invocation id must be per-run"
+
+
+def test_package_directory_and_manifest_carry_the_invocation_id(monkeypatch):
+    rec = _patch_invocation_seams(monkeypatch, into_dossier=True)
+    orch = _existing()
+
+    intel.run_intel(DOMAIN, config=orch.config, orch=orch)
+
+    invocation_id = rec["ids"][0]
+    assert _INVOCATION_ID_RE.match(invocation_id or ""), invocation_id
+    assert rec["dossier"] is not None
+    assert rec["dossier"]["invocation_id"] == invocation_id

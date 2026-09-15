@@ -49,6 +49,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _company_feed_kind(doc, account) -> str:
+    """'blog' for the feed itself, 'article' for a followed article page.
+
+    reparse rebuilds task_meta from the row, so the collector's kind='article'
+    marker is gone by then; re-deriving it from the document keeps an article
+    body out of blog_to_candidates (which would emit junk product_launch
+    candidates from page chrome). The feed URL is the only 'blog' document.
+    """
+    feed = (getattr(account, "blog_feed_url", None) or "").strip()
+    url = (getattr(doc, "url", None) or "").strip()
+    return "blog" if feed and url == feed else "article"
+
+
 def merge_runner_stats(outer: RunnerStats, inner: RunnerStats) -> RunnerStats:
     """Fold a runner's stats into the outer collect() stats.
 
@@ -539,7 +552,7 @@ class Orchestrator:
                         except Exception:
                             meta["watches"] = []
                     if adapter.key == "company_feed":
-                        meta.setdefault("kind", "blog")
+                        meta.setdefault("kind", _company_feed_kind(doc, account))
                     cands = adapter.parse(doc, account, meta)
                 except Exception as exc:
                     logger.warning("reparse {} {}: {}", row["source"], row["doc_id"], exc)

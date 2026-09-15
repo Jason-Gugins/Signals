@@ -25,6 +25,7 @@ collection planning call with ``dry_run=True``.
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 from loguru import logger
@@ -224,6 +225,12 @@ def run_intel(
     """
     domain = parse_target(target)
     skip = tuple(skip or ())
+
+    # A per-invocation correlation id, minted once here and carried into the
+    # dossier (and therefore into the package directory and manifest) by
+    # ``build_dossier``. It correlates ARTIFACTS from this run only; it is not
+    # a parent/child run-log id (see the module docstring).
+    invocation_id = uuid.uuid4().hex[:8]
 
     cfg = config if config is not None else _load_config()
     orc = orch if orch is not None else _build_orchestrator(cfg)
@@ -428,6 +435,7 @@ def run_intel(
                 jobs_summary=jobs_summary,
                 gaps=gaps,
                 max_signals=max_signals,
+                invocation_id=invocation_id,
             )
             if write:
                 paths = write_intel_package(

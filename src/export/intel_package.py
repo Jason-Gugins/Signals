@@ -85,11 +85,19 @@ def _bound(text) -> str:
 
 
 def _age_days(observed_at, today: date):
+    """Whole days since an observation, clamped at 0; ``None`` if unparseable.
+
+    ``observed_at`` is derived from stored UTC timestamps while ``today`` is the
+    run's LOCAL date, so a UTC-ahead observation can look like it happened in
+    the future; the age is clamped at 0 rather than allowed to go negative. The
+    snapshot's ``today`` is deliberately NOT adjusted, because scoring and decay
+    depend on it.
+    """
     iso = to_iso_date(observed_at)
     if not iso:
         return None
     try:
-        return (today - date.fromisoformat(iso[:10])).days
+        return max(0, (today - date.fromisoformat(iso[:10])).days)
     except ValueError:
         return None
 
@@ -618,6 +626,11 @@ def write_intel_package(dossier: dict, *, out_dir) -> dict:
     directory name carries the domain, a UTC timestamp and the invocation id,
     and is uniquified so two same-stamp writes never collide. Returns a dict of
     the written paths, including ``package_dir``.
+
+    ``invocation_id`` is read from the dossier; the coordinator
+    (``src.pipeline.intel.run_intel``) always supplies one. The
+    ``"noinvocation"`` fallback exists only for direct callers that build a
+    dossier without an id.
     """
     base = Path(out_dir)
     base.mkdir(parents=True, exist_ok=True)

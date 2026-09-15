@@ -339,3 +339,62 @@ def test_markdown_sections_render_from_dossier():
     ):
         assert heading.lower() in md.lower()
     assert "acme.com" in md
+
+
+# 12 ------------------------------------------------------------------------
+# Invocation id (defect found by the live run: the manifest carried null and
+# the package directory ended in '-noinvocation')
+
+
+def test_invocation_id_appears_in_directory_and_manifest(tmp_path):
+    dossier = _dossier(invocation_id="abcd1234")
+    assert dossier["invocation_id"] == "abcd1234"
+
+    result, _ = _write(dossier, tmp_path)
+    package_dir = Path(result["package_dir"])
+    assert package_dir.is_dir()
+    assert package_dir.name.endswith("abcd1234"), package_dir.name
+
+    manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["invocation_id"] == "abcd1234"
+
+
+# 13 ------------------------------------------------------------------------
+# Signal age is never negative: observed_at comes from stored UTC timestamps
+# while `today` is the run's LOCAL date.
+
+
+def _entry(dossier, signal_id):
+    for bucket in ("active", "expired"):
+        for entry in dossier["signals"][bucket]:
+            if entry["signal_id"] == signal_id:
+                return entry
+    raise AssertionError(f"{signal_id} missing from the dossier")
+
+
+def test_age_days_is_zero_for_a_utc_ahead_observation():
+    # TODAY is 2026-08-16; a UTC-ahead observation lands on 2026-08-17 and used
+    # to render age_days -1 (the exact live symptom).
+    ahead = _sig("ahead-1", "funding_round", "2026-08-17")
+    dossier = build_dossier(_snapshot([ahead]), coverage=_coverage_rows())
+
+    entry = _entry(dossier, "ahead-1")
+    assert entry["age_days"] == 0
+    assert entry["age_days"] != -1
+
+
+def test_age_days_counts_past_observations_normally():
+    past = _sig("past-1", "funding_round", "2026-08-06")  # 10 days before TODAY
+    dossier = build_dossier(_snapshot([past]), coverage=_coverage_rows())
+
+    assert _entry(dossier, "past-1")["age_days"] == 10
+
+
+def test_age_days_is_none_for_unparseable_observation():
+    junk = _sig("junk-1", "funding_round", "not-a-date")
+    empty = _sig("empty-1", "funding_round", "")
+    dossier = build_dossier(_snapshot([junk, empty]), coverage=_coverage_rows())
+
+    assert _entry(dossier, "junk-1")["age_days"] is None
+    assert _entry(dossier, "empty-1")["age_days"] is None
+    assert dossier["signals"]["counts"]["active"] == 2

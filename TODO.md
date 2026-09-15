@@ -670,16 +670,39 @@ guard in the detail branch. Kept here so nobody re-investigates it.
 Action: read-only detector in `health.py`, surfaced by `status`/`doctor`, repaired by
 `signals prune` with a configurable age cutoff.
 
-### 6. Global fanout sources are unbounded for a single-account run — DECISION OPEN
+### 6. Global fanout sources are unbounded for a single-account run — DECISION OPEN (measured)
 As of 2026-09-15 the DB holds 329 accounts, 291 of them `cik%` stubs stamped
 `seed_source='sec_formd'`. One `intel glow.security` pass (`sec_formd` is fanout: one
 global plan, parsed per filer) appears to have created ~93 of them — that per-pass
 attribution is UNVERIFIED after the fact (`sec_formd` now holds 1,136 documents, so the
 pass cannot be isolated). `intel <domain>` is not domain-scoped for fanout sources
 (`sec_formd`, `federal_register`, `warn_notices`).
+**E2 measurement 2026-09-15 (one `intel darktrace.com --force` run):** accounts went
+**329 -> 389 (+60)**, `sec_formd`-seeded **291 -> 356**, and the cycle made **189 live
+`sec_formd` requests** -- the entire SEC filing universe -- for ONE company. The dossier's
+coverage section does not mention any of it.
 Options: (a) leave as designed; (b) exclude fanout sources from `intel` by default with
 `--include-fanout`; (c) keep them but report the seeded count as a gap.
-Recommendation: (b) or (c).
+Recommendation: **(b)+(c)** -- `intel` is a single-account flow, so the three global sources
+(`sec_formd`, `federal_register`, `warn_notices`) should be opt-in, with a gap line reporting the
+skip and, when included, the accounts created.
+
+### 8. Workday detail coverage is positional -- 10 of 83 per cycle -- DECISION OPEN
+E2 measured descriptions **0 -> 10**, exactly `detail_follow_max`, but the board holds 83
+postings. Cause: details are emitted per page, yet `max_passes` defaults to 2, so only page 0's
+detail tasks execute -- pages 1-3's details are queued in pass 1 and dropped when the loop ends.
+Because the slice `postings[:cap]` is positional, the SAME leading postings win every cycle, so
+the remaining ~73 roles may never receive a description.
+Options: (i) accept 10/cycle; (ii) raise the ATS pass budget so every fetched page's details
+execute (~30-40 GETs/cycle); (iii) rotate/select the detail slice across cycles (via the source
+cursor, or by preferring postings that still lack a description) so all postings are covered over
+time at no extra per-cycle cost. Recommendation: (iii).
+
+### 9. The dossier does not say why `needs` promoted nothing -- OPEN
+E2: the dossier prints `market profile: -` but no gap states that a first-party need was seen and
+NOT promoted for lack of a configured profile, so a reader cannot distinguish "no evidence" from
+"no profile configured". Cheap fix: add a gap line naming the empty `config/markets.yaml` profile
+plus the count of first-party documents in scope.
 
 ### 7. Raw `(today - observed).days` can be negative in five modules — DECISION OPEN
 `src/signals/score.py:62` (decay), `tier.py:31` (buying window), `evidence.py:58`,
@@ -700,7 +723,8 @@ filtering documents by `source` shares finding 1's blind spot. Grep for `iter_do
 - **New baseline** — `pytest --collect-only` → 2021 tests collected; `pytest tests/ -o addopts="" -q -m "not antibot_live and not allow_network and not live_fetch"` → 2012 passed, 8 deselected, 1 failed (~106 s) — the single failure is the known unmarked antibot flake below; GitHub CI on the final push (`b0c4200`) concluded SUCCESS, so it is local-only. Previous collected baseline: 1968.
 - **Known flake (pre-existing)** — `tests/test_antibot_engine.py::test_probe_fingerprint_returns_endpoint_json` is an UNMARKED live TLS probe to `tls.peet.ws`: it passed inside the broad run and failed when run alone (`RuntimeError: tls handshake, os error 10060`). That file was last modified at `01e4bdd` and is untouched by these commits — a network flake, not a regression.
 - **Blast radius** — 3 source files, 1 config value (`article_follow_max: 5`), 1 lint allowlist entry in `src/pipeline/health.py`, 1 orchestrator helper (`_company_feed_kind`), plus tests/fixtures. The new capped follow means a `company_feed` cycle can now fetch up to `article_follow_max` extra pages per account.
-- **Outstanding** — the offline plan is fully delivered. The only remaining item is the OPTIONAL live `intel darktrace.com` re-run (E2) to confirm findings 1/2/3/5 on real data; findings 6 and 7 stay DECISION OPEN.
+- **E2 live re-run 2026-09-15** (`intel darktrace.com --name "Darktrace" --force`, run `f8e81e8e`, 19:51->20:00 UTC, exit 0, dossier `data/dossiers/darktrace.com-20260915T200032474363Z-c5a49a76`): **finding 1** confirmed -- the provenance resolver returns 7 first-party docs, including one stored under `feed_discovery` that the old label filter could never see; **finding 2** confirmed -- `company_feed` documents 0 -> 6 (feed + exactly 5 articles = `article_follow_max`); **finding 3** confirmed -- descriptions 0 -> 10 (= `detail_follow_max`), `department` 0 as C1 predicted, `posted_at` present on 82/83 jobs (the C4 merge regression verified on live data); **finding 5** confirmed -- `stale_running: 1` correctly flags `b676e311` from 2026-08-24; the hiring trend recorded **76**, not 86/152, and emitted **no** `hiring_surge`. Two per-source failures (`crtsh` robots, `federal_contracts` HTTP 500) were logged and reported in the dossier as `failed: 2` -- correct, not a defect. See findings 6, 8 and 9 for what E2 exposed.
+- **Outstanding** -- findings 6 (fanout scope, recommendation (b)+(c)), 8 (Workday detail coverage, recommendation (iii)) and 9 (dossier empty-profile gap) are open decisions; finding 7 (negative day deltas) remains open.
 
 ## Manual checklists (human setup, not code)
 

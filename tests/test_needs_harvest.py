@@ -236,6 +236,51 @@ def test_demands_do_not_depend_on_observed_technologies_and_never_claim_absence(
             assert forbidden not in blob, f"evidence claims absence via {forbidden!r}"
 
 
+# --------------------------------------------------------------------------
+# Part 1b: first-party resolution by fetch provenance, not documents.source
+# --------------------------------------------------------------------------
+
+
+def test_first_party_doc_is_found_even_when_another_source_stored_it(tmp_path):
+    db, raw, account, meta = _harness(tmp_path)
+    url = "https://acme.com/blog/rss.xml"
+    body = b"We are consolidating data across teams."
+    raw.put(source="feed_discovery", url=url, body=body,
+            content_type="application/rss+xml", status=200, domain=DOMAIN)
+    db.execute(
+        "INSERT INTO fetch_log(run_id, source, domain, url, status, bytes, at) VALUES (?,?,?,?,?,?,?)",
+        ("t1", "company_feed", DOMAIN, url, 200, len(body), "2026-09-15T01:12:51+00:00"),
+    )
+    out = _harvest(db, account, meta)
+    assert [c.signal_type for c in out].count("need_statement") == 1
+
+
+def test_provenance_does_not_leak_across_domains(tmp_path):
+    db, raw, account, meta = _harness(tmp_path)
+    url = "https://other.example/blog/rss.xml"
+    body = b"We are consolidating data across teams."
+    raw.put(source="feed_discovery", url=url, body=body,
+            content_type="application/rss+xml", status=200, domain="other.example")
+    db.execute(
+        "INSERT INTO fetch_log(run_id, source, domain, url, status, bytes, at) VALUES (?,?,?,?,?,?,?)",
+        ("t2", "company_feed", "other.example", url, 200, len(body), "2026-09-15T01:12:51+00:00"),
+    )
+    assert [c.signal_type for c in _harvest(db, account, meta)].count("need_statement") == 0
+
+
+def test_non_2xx_provenance_is_not_first_party(tmp_path):
+    db, raw, account, meta = _harness(tmp_path)
+    url = "https://acme.com/blog/rss.xml"
+    body = b"We are consolidating data across teams."
+    raw.put(source="feed_discovery", url=url, body=body,
+            content_type="application/rss+xml", status=200, domain=DOMAIN)
+    db.execute(
+        "INSERT INTO fetch_log(run_id, source, domain, url, status, bytes, at) VALUES (?,?,?,?,?,?,?)",
+        ("t3", "company_feed", DOMAIN, url, 404, 0, "2026-09-15T01:12:51+00:00"),
+    )
+    assert [c.signal_type for c in _harvest(db, account, meta)].count("need_statement") == 0
+
+
 def test_harvest_is_idempotent_by_natural_key(tmp_path):
     db, store, account, meta = _harness(tmp_path)
     store.put(

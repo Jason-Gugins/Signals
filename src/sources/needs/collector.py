@@ -70,6 +70,54 @@ def _decode(body) -> str:
     return str(body)
 
 
+def _first_party_doc_ids(db, domain: str) -> list[str]:
+    """Doc ids for first-party text this account's company_feed fetched.
+
+    documents.source records only the FIRST writer of a content hash, so a
+    feed that feed_discovery fetched seconds earlier is stored under that
+    label and iter_docs(source="company_feed") never sees it (live case:
+    darktrace.com 2026-09-15 - sha256(body) == doc_id, source='feed_discovery').
+    fetch_log keeps the (source, domain, url) provenance, so resolve URLs from
+    there and map them to documents by URL.
+
+    The company_feed-labelled rows are UNIONed in because prune deletes
+    fetch_log rows past --keep-days: provenance must not become the only way
+    to see a legitimately-labelled document. documents.url has no index
+    (src/core/db.py:171-172), so the exact domain-scoped match runs first and
+    the normalised compare is only a fallback for trailing-slash variants.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(doc_id: str | None) -> None:
+        if doc_id and doc_id not in seen:
+            seen.add(doc_id)
+            out.append(doc_id)
+
+    for row in db.query(
+        "SELECT doc_id FROM documents WHERE source='company_feed' AND domain=?", (domain,)
+    ):
+        _add(row.get("doc_id"))
+    for row in db.query(
+        "SELECT url FROM fetch_log WHERE source='company_feed' AND domain=? "
+        "AND status >= 200 AND status < 300 ORDER BY at DESC",
+        (domain,),
+    ):
+        url = (row.get("url") or "").strip()
+        if not url:
+            continue
+        stripped = url.rstrip("/")
+        doc = db.one(
+            "SELECT doc_id FROM documents WHERE domain=? AND (url=? OR url=? OR url=?)",
+            (domain, url, stripped, stripped + "/"),
+        ) or db.one(
+            "SELECT doc_id FROM documents WHERE domain=? AND rtrim(url,'/') = rtrim(?,'/')",
+            (domain, url),
+        )
+        _add(doc.get("doc_id") if doc else None)
+    return out
+
+
 @register
 class NeedsSource(SourceAdapter):
     key = "needs"
@@ -97,18 +145,25 @@ class NeedsSource(SourceAdapter):
 
         observed_at = today.isoformat()
         out: list[SignalCandidate] = []
-        out.extend(self._need_candidates(raw_store, account, profile, observed_at))
+        out.extend(self._need_candidates(raw_store, account, profile, observed_at, db))
         out.extend(self._demand_candidates(db, account, profile, vocab, observed_at))
         return out
 
     # -- Part 1: need statements from first-party documents ---------------
 
-    def _need_candidates(self, raw_store, account, profile, observed_at):
-        """iter_docs yields metadata only, so load each body via get()."""
+    def _need_candidates(self, raw_store, account, profile, observed_at, db):
+        """Bodies are loaded for provenance-resolved doc ids.
+
+        Metadata-only iter_docs is no longer used here: documents.source records
+        only the first writer of a content hash, so a first-party feed labelled
+        'feed_discovery' would otherwise be invisible. doc ids come from
+        _first_party_doc_ids(), which resolves them from fetch_log provenance
+        UNIONed with the company_feed label.
+        """
         out: list[SignalCandidate] = []
-        for meta in raw_store.iter_docs(source="company_feed", domain=account.domain):
+        for doc_id in _first_party_doc_ids(db, account.domain):
             try:
-                doc = raw_store.get(meta.doc_id)
+                doc = raw_store.get(doc_id)
             except Exception:
                 continue  # unreadable body: skip, never raise
             if doc is None:

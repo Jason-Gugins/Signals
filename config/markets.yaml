@@ -12,3 +12,51 @@ profiles:
   default:
     seller: ""
     offerings: []
+
+  # ===========================================================================
+  # MOCK profile - DEMO/EXPERIMENT ONLY. "Northwind Security Analytics" is a
+  # FICTIONAL seller invented to exercise the flow; it is NOT a real offering
+  # and nothing else in the repo depends on it.
+  #
+  # Use it with:
+  #   ./.venv/Scripts/python.exe -m src.cli intel <domain> --name "<Name>" \
+  #       --market-profile sample_soc_platform
+  #
+  # It is deliberately modelled on vocabulary that ALREADY EXISTS in the store
+  # for darktrace.com, so the demo fires on real evidence rather than on
+  # invented matches. Matching notes (src/intel/market.py):
+  #   * served_problem_phrases are plain substring tests on the casefolded text,
+  #     so keep them lower-case and prefer stems ("integrat", not "integrating").
+  #   * relevant_signal_types must contain the incoming type or the offering is
+  #     skipped. `needs` only ever sends need_statement and required_stack_demand.
+  #   * required_vendors is only consulted on the required_stack_demand path, and
+  #     only for vendors the 46-name _vendor_vocab() already extracted.
+  # ===========================================================================
+  sample_soc_platform:
+    seller: "Northwind Security Analytics (FICTIONAL - demo only)"
+    offerings:
+      # Fires on need_statement. Verified present in the first-party quotes
+      # already stored for darktrace.com: "...supporting security investigation
+      # and response, and helping defenders identify risky behavior across
+      # enterprise AI systems and agents."
+      - id: ai-agent-observability
+        served_problem_phrases:
+          - security investigation
+          - risky behavior
+          - enterprise ai systems
+        relevant_signal_types: [need_statement]
+        buyer_departments: [security, engineering]
+        # Carried on the Offering but NOT consulted by match_relevance today;
+        # listed so the schema shape is visible.
+        competitor_vendors: [splunk, crowdstrike]
+
+      # Fires on required_stack_demand. Verified in the stored job descriptions
+      # (extraction yields workday x2, salesforce x1 across the 77 postings),
+      # which the vendor extractor can only see because they are names in its
+      # own 46-name vocabulary.
+      - id: platform-integration
+        required_vendors:
+          - workday
+          - salesforce
+        relevant_signal_types: [required_stack_demand]
+        buyer_departments: [it, operations]

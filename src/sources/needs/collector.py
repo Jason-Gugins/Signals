@@ -26,6 +26,7 @@ passed-in ``today``, no filesystem access except through the injected
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 
 from src.core.models import Account
 from src.core.textutil import sha256_hex
@@ -47,6 +48,37 @@ _KEY_HASH_CHARS = 12
 
 #: Confidence stamped on every promoted observation.
 _CONFIDENCE = 0.7
+
+#: Undated documents rank oldest, so a timestamped copy always wins.
+_EPOCH_MIN = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _normalise_quote(quote: str) -> str:
+    """Whitespace-collapse a quote: the identity of a need claim.
+
+    Storage renders the same sentence with different dynamic bytes (markup
+    wrappers, trailing whitespace), so whitespace-only differences must not
+    read as different claims.
+    """
+    return " ".join(str(quote or "").split())
+
+
+def _fetched_at_rank(doc) -> datetime:
+    """Sort key: ``fetched_at`` as an aware UTC datetime; never raises.
+
+    Unparsable or absent timestamps rank at datetime.min so a dated copy
+    always wins over an undated one.
+    """
+    raw = str(getattr(doc, "fetched_at", None) or "").strip()
+    if not raw:
+        return _EPOCH_MIN
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return _EPOCH_MIN
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _normalise_vocab(vocab) -> list[tuple[str, re.Pattern]]:
@@ -161,8 +193,18 @@ class NeedsSource(SourceAdapter):
         'feed_discovery' would otherwise be invisible. doc ids come from
         _first_party_doc_ids(), which resolves them from fetch_log provenance
         UNIONed with the company_feed label.
+
+        Dedupe rule: at most ONE candidate per distinct NORMALISED quote text
+        (``" ".join(quote.split())``). Content-addressed storage mints a new
+        document row whenever the body bytes differ at all, so one boilerplate
+        sentence can be stored N times; promoting per document turned that
+        into N identical signals (the live darktrace.com run: 15 signals for
+        one sentence). The winner -- the newest ``fetched_at``, ties broken by
+        the lexicographically LARGEST ``doc_id`` -- keeps its doc_id/url/source
+        in evidence, so every signal still cites real provenance.
         """
-        out: list[SignalCandidate] = []
+        winner_of: dict[str, tuple[tuple, SignalCandidate]] = {}
+        order: list[str] = []
         for doc_id in _first_party_doc_ids(db, account.domain):
             try:
                 doc = raw_store.get(doc_id)
@@ -177,6 +219,9 @@ class NeedsSource(SourceAdapter):
                 quote = row.get("quote") or ""
                 if not quote:
                     continue
+                normalised = _normalise_quote(quote)
+                if not normalised:
+                    continue
                 match = match_relevance(
                     text=quote,
                     department=None,
@@ -185,6 +230,10 @@ class NeedsSource(SourceAdapter):
                     profile=profile,
                 )
                 if match is None:
+                    continue
+                rank = (_fetched_at_rank(doc), str(getattr(doc, "doc_id", "") or ""))
+                current = winner_of.get(normalised)
+                if current is not None and current[0] >= rank:
                     continue
                 evidence = {
                     "quote": quote,
@@ -198,18 +247,23 @@ class NeedsSource(SourceAdapter):
                 fetched_at = getattr(doc, "fetched_at", None)
                 if fetched_at:
                     evidence["fetched_at"] = fetched_at
-                out.append(
-                    SignalCandidate(
-                        "need_statement",
-                        observed_at,
-                        f"need:{account.domain}:{doc.doc_id}:"
-                        f"{sha256_hex(quote)[:_KEY_HASH_CHARS]}",
-                        title=quote[:_TITLE_CHARS],
-                        confidence=_CONFIDENCE,
-                        evidence_data=evidence,
-                    )
+                # The quote is the CLAIM; the document is only its PROVENANCE.
+                # doc_id is therefore NOT part of the natural key: a re-stored
+                # copy of the same sentence is the same signal, so re-runs are
+                # idempotent and a later copy never mints a second signal.
+                candidate = SignalCandidate(
+                    "need_statement",
+                    observed_at,
+                    f"need:{account.domain}:"
+                    f"{sha256_hex(normalised)[:_KEY_HASH_CHARS]}",
+                    title=quote[:_TITLE_CHARS],
+                    confidence=_CONFIDENCE,
+                    evidence_data=evidence,
                 )
-        return out
+                winner_of[normalised] = (rank, candidate)
+                if current is None:
+                    order.append(normalised)
+        return [winner_of[key][1] for key in order]
 
     # -- Part 2: explicit required-stack demands from open jobs -----------
 

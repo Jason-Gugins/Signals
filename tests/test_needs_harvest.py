@@ -16,6 +16,7 @@ from pathlib import Path
 from src.core.db import Database
 from src.core.models import Account, Document
 from src.core.rawstore import RawStore
+from src.core.textutil import sha256_hex
 from src.intel.market import load_market_profile
 from src.sources.needs.collector import NeedsSource
 
@@ -91,6 +92,11 @@ def _evidence_blob(candidate) -> str:
     return " | ".join(parts).lower()
 
 
+def _quote_key(quote: str) -> str:
+    """The quote-scoped natural key: normalised quote text, no doc_id."""
+    return f"need:{DOMAIN}:{sha256_hex(' '.join(quote.split()))[:12]}"
+
+
 # --------------------------------------------------------------------------
 # Part 1: need statements from first-party documents
 # --------------------------------------------------------------------------
@@ -124,9 +130,11 @@ def test_matching_need_is_emitted_with_document_provenance(tmp_path):
     assert ev.get("reasons")
     assert "phrase:consolidating data" in ev["reasons"]
     assert ev["fetched_at"] == "2026-09-13T10:00:00+00:00"
-    assert cand.natural_key.startswith(
-        f"need:{DOMAIN}:{doc.doc_id}:"
-    )
+    # The quote is the claim and the document is only its provenance, so the
+    # key is quote-scoped: a re-stored copy of the same sentence is the SAME
+    # signal, not a new one.
+    assert cand.natural_key == _quote_key(ev["quote"])
+    assert doc.doc_id not in cand.natural_key
     assert cand.observed_at == TODAY.isoformat()
     assert cand.confidence == 0.7
 
@@ -356,3 +364,150 @@ def test_harvest_is_idempotent_by_natural_key(tmp_path):
     assert len(first) == len(second)
     assert [c.natural_key for c in first] == [c.natural_key for c in second]
     assert len(first) == 2
+
+
+# --------------------------------------------------------------------------
+# Part 1c (F10): quote-level duplication is NOT signal volume.
+#
+# Content-addressed storage mints a new documents row whenever the body bytes
+# differ at all, so one company sentence can be stored N times. The signal is
+# the QUOTE; the document is only its provenance. At most one need_statement
+# per distinct normalised quote text is promoted per harvest.
+# --------------------------------------------------------------------------
+
+QUOTE_SENTENCE = "We are consolidating data across teams."
+
+
+def _quote_docs(store, *, url, body, fetched_at):
+    return store.put(
+        source="company_feed",
+        url=url,
+        domain=DOMAIN,
+        body=body,
+        content_type="text/html",
+        status=200,
+        fetched_at=fetched_at,
+    )
+
+
+def _needs(out):
+    return [c for c in out if c.signal_type == "need_statement"]
+
+
+def test_three_documents_with_the_same_sentence_promote_one_need(tmp_path):
+    db, store, account, meta = _harness(tmp_path)
+    # Same sentence, three different bodies (markup / whitespace only), so
+    # content-addressed storage creates three distinct documents rows.
+    _quote_docs(
+        store, url="https://acme.com/blog/a",
+        body=b"<p>We are consolidating data across teams.</p>",
+        fetched_at="2026-09-10T10:00:00+00:00",
+    )
+    _quote_docs(
+        store, url="https://acme.com/blog/b",
+        body=b"<div>We are consolidating data across teams.</div>\n",
+        fetched_at="2026-09-13T10:00:00+00:00",
+    )
+    _quote_docs(
+        store, url="https://acme.com/blog/c",
+        body=b"<p>We are consolidating data  across teams.</p>",
+        fetched_at="2026-09-11T10:00:00+00:00",
+    )
+
+    needs = _needs(_harvest(db, account, meta))
+
+    assert len(needs) == 1, [c.evidence_data.get("quote") for c in needs]
+
+
+def test_newest_document_wins_and_its_provenance_is_cited(tmp_path):
+    db, store, account, meta = _harness(tmp_path)
+    _quote_docs(
+        store, url="https://acme.com/blog/old",
+        body=b"<p>We are consolidating data across teams.</p>",
+        fetched_at="2026-09-10T10:00:00+00:00",
+    )
+    newest = _quote_docs(
+        store, url="https://acme.com/blog/new",
+        body=b"<div>We are consolidating data across teams.</div>",
+        fetched_at="2026-09-13T10:00:00+00:00",
+    )
+    _quote_docs(
+        store, url="https://acme.com/blog/mid",
+        body=b"<p>We are consolidating data across teams.</p> ",
+        fetched_at="2026-09-11T10:00:00+00:00",
+    )
+
+    needs = _needs(_harvest(db, account, meta))
+
+    assert len(needs) == 1
+    ev = needs[0].evidence_data
+    assert ev["doc_id"] == newest.doc_id
+    assert ev["url"] == "https://acme.com/blog/new"
+    assert ev["fetched_at"] == "2026-09-13T10:00:00+00:00"
+    assert ev["quote"] == QUOTE_SENTENCE
+
+
+def test_same_fetched_at_ties_break_deterministically_by_doc_id(tmp_path):
+    db, store, account, meta = _harness(tmp_path)
+    same = "2026-09-12T10:00:00+00:00"
+    first = _quote_docs(
+        store, url="https://acme.com/blog/one",
+        body=b"<p>We are consolidating data across teams.</p>", fetched_at=same,
+    )
+    second = _quote_docs(
+        store, url="https://acme.com/blog/two",
+        body=b"<div>We are consolidating data across teams.</div>", fetched_at=same,
+    )
+
+    needs = _needs(_harvest(db, account, meta))
+
+    assert len(needs) == 1
+    # Documented tie-break: the LEXICOGRAPHICALLY LARGEST doc_id wins, so the
+    # winner does not depend on row order (stable across runs and machines).
+    assert needs[0].evidence_data["doc_id"] == max(first.doc_id, second.doc_id)
+
+
+def test_a_later_copy_of_the_same_sentence_does_not_add_a_signal(tmp_path):
+    db, store, account, meta = _harness(tmp_path)
+    _quote_docs(
+        store, url="https://acme.com/blog/v1",
+        body=b"<p>We are consolidating data across teams.</p>",
+        fetched_at="2026-09-10T10:00:00+00:00",
+    )
+
+    first = _needs(_harvest(db, account, meta))
+    assert len(first) == 1
+    key = first[0].natural_key
+
+    # The page's dynamic bytes change -> a NEW document row for the SAME
+    # sentence (the exact live mechanism, 2026-09-16).
+    later = _quote_docs(
+        store, url="https://acme.com/blog/v2",
+        body=b"<p>We are consolidating data across teams.</p><!-- r2 -->",
+        fetched_at="2026-09-14T10:00:00+00:00",
+    )
+
+    second = _needs(_harvest(db, account, meta))
+    assert len(second) == 1, [c.evidence_data.get("url") for c in second]
+    assert second[0].natural_key == key, "the key must not depend on the copy"
+    # Provenance still tracks the newest copy.
+    assert second[0].evidence_data["doc_id"] == later.doc_id
+
+
+def test_two_distinct_sentences_still_promote_two_needs(tmp_path):
+    db, store, account, meta = _harness(tmp_path)
+    _quote_docs(
+        store, url="https://acme.com/blog/build",
+        body=b"<p>We are building a new pipeline while consolidating data across teams.</p>",
+        fetched_at="2026-09-10T10:00:00+00:00",
+    )
+    _quote_docs(
+        store, url="https://acme.com/blog/consolidate",
+        body=b"<p>We are consolidating data across teams.</p>",
+        fetched_at="2026-09-11T10:00:00+00:00",
+    )
+
+    needs = _needs(_harvest(db, account, meta))
+
+    assert len(needs) == 2, [c.evidence_data.get("quote") for c in needs]
+    assert len({c.natural_key for c in needs}) == 2

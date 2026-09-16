@@ -173,3 +173,49 @@ def test_feed_markup_never_reaches_the_extractor(tmp_path):
     )
 
     assert _needs(_harvest(db, account, meta)) == []
+
+
+# --------------------------------------------------------------------------
+# F10: the SAME article stored twice (dynamic page bytes -> two documents
+# rows) is one sentence, therefore one signal -- the live darktrace.com defect
+# where one boilerplate block became 15 identical need_statement signals.
+# --------------------------------------------------------------------------
+
+BOILERPLATE = "We are consolidating data across teams."
+
+
+def test_one_article_stored_twice_promotes_one_need(tmp_path):
+    db, raw, account, meta = _harness(tmp_path)
+    first_body = b"<article><p>We are consolidating data across teams.</p></article>"
+    second_body = (
+        b"<article><p>We are consolidating data across teams.</p>"
+        b"<!-- dynamic byte --></article>"
+    )
+    first = raw.put(
+        source="company_feed", url=ARTICLE_URL, domain=DOMAIN, body=first_body,
+        content_type="text/html", status=200,
+        fetched_at="2026-09-10T01:00:00+00:00",
+    )
+    second = raw.put(
+        source="company_feed", url=ARTICLE_URL, domain=DOMAIN, body=second_body,
+        content_type="text/html", status=200,
+        fetched_at="2026-09-15T01:00:00+00:00",
+    )
+    assert first.doc_id != second.doc_id, "the two copies must be separate rows"
+    for at in ("2026-09-10T01:00:00+00:00", "2026-09-15T01:00:00+00:00"):
+        db.execute(
+            "INSERT INTO fetch_log(run_id, source, domain, url, status, bytes, at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            ("t3", "company_feed", DOMAIN, ARTICLE_URL, 200, len(first_body), at),
+        )
+
+    out = _harvest(db, account, meta)
+
+    needs = _needs(out)
+    assert len(needs) == 1, [c.evidence_data.get("url") for c in needs]
+    ev = needs[0].evidence_data
+    # The newest copy is the cited provenance; the sentence is the claim.
+    assert ev["doc_id"] == second.doc_id
+    assert ev["url"] == ARTICLE_URL
+    assert BOILERPLATE in ev["quote"]
+    assert second.doc_id not in needs[0].natural_key

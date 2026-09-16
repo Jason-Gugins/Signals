@@ -134,6 +134,28 @@ def _fmt(value) -> str:
     return str(value)
 
 
+def _profile_reason_text(need: dict) -> str:
+    """WHY THE PROFILE matched (evidence["reasons"]), never the extractor's
+    own phrase. `matched_phrase` is what the need extractor spotted in the
+    quote; the profile reason is what made the offering relevant. Printing the
+    former under a `matched:` label made readers conclude the profile had
+    matched on "we're building" (live defect, 2026-09-16)."""
+    reasons = [str(r) for r in (need.get("match_reasons") or []) if str(r).strip()]
+    return ", ".join(reasons) if reasons else "—"
+
+
+def _extractor_phrase_adds_information(phrase, reasons) -> bool:
+    """True only when the extractor phrase says something the profile reasons
+    do not already carry, so the line never merely repeats itself."""
+    folded = " ".join(str(phrase or "").split()).casefold()
+    if not folded:
+        return False
+    for reason in reasons or ():
+        if folded in " ".join(str(reason).split()).casefold():
+            return False
+    return True
+
+
 def build_dossier(
     snapshot,
     *,
@@ -495,8 +517,14 @@ def render_markdown(dossier: dict) -> str:
         lines.append(f"- \"{_fmt(need.get('quote'))}\"")
         lines.append(
             f"  - offering: {_fmt(need.get('offering_id'))}"
-            f" · matched: {_fmt(need.get('matched_phrase'))}"
+            f" · profile reason: {_profile_reason_text(need)}"
         )
+        if _extractor_phrase_adds_information(
+            need.get("matched_phrase"), need.get("match_reasons")
+        ):
+            lines.append(
+                f"  - extractor_phrase: {_fmt(need.get('matched_phrase'))}"
+            )
         lines.append(
             f"  - source: {_fmt(need.get('source'))} · url: {_fmt(need.get('url'))}"
         )

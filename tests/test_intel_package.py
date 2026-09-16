@@ -398,3 +398,62 @@ def test_age_days_is_none_for_unparseable_observation():
     assert _entry(dossier, "junk-1")["age_days"] is None
     assert _entry(dossier, "empty-1")["age_days"] is None
     assert dossier["signals"]["counts"]["active"] == 2
+
+
+# 14 ------------------------------------------------------------------------
+# F10: the Operational-needs line must show WHY THE PROFILE matched
+# (evidence["reasons"]), not the need extractor's own phrase. The live run
+# printed `matched: we're building`, which reads as "the profile matched on
+# we're building" -- the extractor phrase, not a served-problem phrase.
+
+
+def _need_signal(sid, *, matched_phrase, reasons, quote):
+    return _sig(
+        sid, "need_statement", "2026-08-10", evidence="",
+        evidence_data={
+            "quote": quote,
+            "matched_phrase": matched_phrase,
+            "doc_id": "doc-darktrace-1",
+            "url": "https://darktrace.com/blog/ai-security",
+            "source": "company_feed",
+            "offering_id": "offering_soc_platform",
+            "reasons": reasons,
+        },
+    )
+
+
+def test_markdown_need_line_shows_the_profile_reason_not_the_extractor_phrase():
+    quote = (
+        "Our work is focused on two areas: supporting security investigation "
+        "and response, and helping defenders identify risky behavior."
+    )
+    need = _need_signal(
+        "need-1", matched_phrase="we're building",
+        reasons=["phrase:security investigation"], quote=quote,
+    )
+    dossier = build_dossier(_snapshot(_basic_signals() + [need]), coverage=_coverage_rows())
+
+    md = render_markdown(dossier)
+
+    # The profile's own reason is what a reader needs, with the offering id.
+    assert "profile reason: phrase:security investigation" in md
+    assert "offering_soc_platform" in md
+    # `matched: <extractor phrase>` must never be presented as the profile match.
+    assert "matched: we're building" not in md
+    assert "· matched:" not in md
+    # The extractor phrase is kept, but unambiguously labelled.
+    assert "extractor_phrase: we're building" in md
+
+
+def test_markdown_omits_the_extractor_phrase_when_it_adds_nothing():
+    need = _need_signal(
+        "need-2", matched_phrase="we are building",
+        reasons=["phrase:we are building a real-time pricing engine"],
+        quote="We are building a real-time pricing engine.",
+    )
+    dossier = build_dossier(_snapshot(_basic_signals() + [need]), coverage=_coverage_rows())
+
+    md = render_markdown(dossier)
+
+    assert "profile reason: phrase:we are building a real-time pricing engine" in md
+    assert "extractor_phrase" not in md

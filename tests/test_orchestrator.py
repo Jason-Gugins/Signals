@@ -213,21 +213,19 @@ def test_run_all_continues_unless_strict(tmp_path):
     assert raised
 
 
-def test_collect_sec_formd_empty_registry_runs_tracker(tmp_path, monkeypatch):
+def test_collect_sec_formd_empty_registry_runs_tracker(tmp_path):
     from datetime import date as real_date
 
     from src.pipeline.funding import plan_funding
+    from src.pipeline.orchestrator import set_today
     from src.sources.sec.formd_source import SecFormDSource
     from src.sources.sec.fts import hit_to_filing, parse_fts_response
 
     today = real_date(2026, 8, 22)
-
-    class FrozenDate(real_date):
-        @classmethod
-        def today(cls):
-            return today
-
-    monkeypatch.setattr("src.pipeline.orchestrator.date", FrozenDate)
+    # The age reference comes from the supported injection hook; this test used
+    # to pin the module's LOCAL clock, which the _today()-routed path (Finding
+    # 7) no longer reads (tests/conftest.py resets the hook afterwards).
+    set_today(today)
     fts = Path("tests/fixtures/sec/fts_formd_recent.json").read_bytes()
     xml = Path("tests/fixtures/sec/form_d_primary_doc.xml").read_bytes()
     efts_url = plan_funding("recent", today=today, days=30, size=100, limit=100)[0].url

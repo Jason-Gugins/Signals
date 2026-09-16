@@ -14,6 +14,7 @@ from src.core.models import Contact
 from src.core.ratelimit import RateLimiter
 from src.core.rawstore import RawStore
 from src.core.runlog import RunContext
+from src.core.timeutil import utc_today
 from src.export.briefs import render_brief, write_brief
 from src.identity.icp import evaluate_icp
 from src.identity.registry import AccountRegistry
@@ -42,7 +43,13 @@ def set_today(d: date | None) -> None:
 
 
 def _today() -> date:
-    return _INJECTED_TODAY or date.today()
+    """The age reference for this run.
+
+    The injected hook (tests/reproducibility) wins; the FALLBACK is the UTC
+    date, because every ``observed_at`` is an aware-UTC ISO string (a local
+    fallback made fresh signals age-negative after local midnight).
+    """
+    return _INJECTED_TODAY or utc_today()
 
 
 def _now() -> str:
@@ -387,7 +394,7 @@ class Orchestrator:
                     )
                     tstats = tracker.run(
                         "recent",
-                        today=date.today(),
+                        today=_today(),
                         days=days,
                         filt=filt,
                         persist=not dry_run,

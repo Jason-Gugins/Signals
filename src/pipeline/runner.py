@@ -296,6 +296,59 @@ class CollectorRunner:
                 max_passes = int(site_cfg.get("max_review_pages", pages_default)) + 1
             except Exception:
                 max_passes = pages_default + 1
+        # Generic opt-in: an adapter whose follow tasks are emitted PER PAGE
+        # (Workday) needs one more pass wave than the default 2-wave model
+        # gives it -- pass 0 lists page 0, pass 1 fetches the pagination pages
+        # AND page 0's details, and pass 2 is what finally executes the detail
+        # tasks emitted while fetching pages 1..N. Duck-typed like the other
+        # adapter hooks; every adapter that does not define follow_passes is
+        # untouched.
+        _follow = getattr(adapter, "follow_passes", None)
+        if callable(_follow):
+            try:
+                _follow = _follow()
+            except Exception:
+                logger.exception("follow_passes hook failed for {}", adapter.key)
+                _follow = None
+        if isinstance(_follow, int) and not isinstance(_follow, bool):
+            max_passes = max(max_passes, _follow)
+        # Detail rotation (opt-in via detail_selection): the set of postings
+        # this (adapter, account) has ALREADY described, computed ONCE per
+        # cycle -- the cycle's own detail harvests only reach the DB at
+        # end-of-cycle, so a per-pass query would never see them anyway. On any
+        # failure an EMPTY set is injected: the adapter then behaves
+        # positionally, i.e. exactly as it did before F8, rather than crashing.
+        described_external_ids: Optional[set] = None
+        if getattr(adapter, "detail_selection", False):
+            described_external_ids = set()
+            try:
+                rows = self.db.query(
+                    "SELECT external_id FROM jobs WHERE domain=? AND source=? "
+                    "AND description IS NOT NULL AND description <> ''",
+                    (account.domain, adapter.key),
+                )
+                described_external_ids = {
+                    str(r["external_id"]) for r in rows if r["external_id"]
+                }
+            except Exception:
+                logger.exception(
+                    "described-jobs lookup failed for {} ({})",
+                    adapter.key, account.domain,
+                )
+        # Per-cycle detail budget (opt-in via detail_budget): at most N
+        # detail-marked fetches per (adapter, account) per cycle, in queue
+        # order. An explicit 0 means "no details at all". NaN/None/garbage and
+        # adapters without the attribute mean "unbounded" (the old behaviour).
+        detail_budget: Optional[int] = None
+        try:
+            _raw_budget = getattr(adapter, "detail_budget", None)
+            if _raw_budget is not None:
+                detail_budget = int(_raw_budget)
+        except Exception:
+            logger.exception("detail_budget hook failed for {}", adapter.key)
+            detail_budget = None
+        detail_allowed = 0
+        detail_dropped = 0
         # The funding-drought check is per-ACCOUNT over persisted signals, not
         # per adapter pass — run it once per _run_pair, not once per pagination
         # pass (marketplace adapters can pass 6x).
@@ -308,6 +361,18 @@ class CollectorRunner:
                 tasks = self._filter_backoff(adapter, adapter.plan(account, cursor))
             if limit_per_source:
                 tasks = tasks[:limit_per_source]
+            if detail_budget is not None:
+                kept = []
+                for t in tasks:
+                    if not (t.meta or {}).get("detail"):
+                        kept.append(t)
+                        continue
+                    if detail_allowed < detail_budget:
+                        detail_allowed += 1
+                        kept.append(t)
+                    else:
+                        detail_dropped += 1
+                tasks = kept
             if dry_run:
                 stats.tasks += len(tasks)
                 stats._src(adapter.key)["tasks"] += len(tasks)
@@ -374,6 +439,13 @@ class CollectorRunner:
                 _resp_headers = getattr(result, "headers", None)
                 if _resp_headers:
                     meta["response_headers"] = _resp_headers
+                # Adapter-specific injection, mirroring the wayback/crtsh ones
+                # below: the described-set computed ONCE per cycle above, so
+                # follow_tasks can rotate to the postings this account does not
+                # have a description for yet instead of re-picking the same
+                # positional slice every cycle.
+                if described_external_ids is not None:
+                    meta["described_external_ids"] = described_external_ids
                 # Propagate the cloudflare_unsolved flag set by _fetch_one
                 # when a challenge was detected and the bypass was attempted.
                 if _cf_unsolved is not None:
@@ -912,6 +984,14 @@ class CollectorRunner:
             if pass_i + 1 < max_passes and cursor and last_doc is not None:
                 continue
             break
+        # Never drop detail tasks silently: one line per cycle with the count
+        # that exceeded the per-cycle budget.
+        if detail_dropped:
+            logger.info(
+                "detail budget for {} ({}): dropped {} detail task(s) over the "
+                "per-cycle budget of {}",
+                adapter.key, account.domain, detail_dropped, detail_budget,
+            )
         # End-of-cycle ATS persistence: ONE upsert with the COMPLETE cycle
         # job set, then mark_closed + snapshot. Doing this per page/task
         # would close earlier pages' jobs (each call only sees its own keys).

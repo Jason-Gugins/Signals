@@ -146,31 +146,110 @@ def test_workday_follow_tasks_emits_pagination_and_details():
     posts = [t for t in follows if t.method == "POST"]
     details = [t for t in follows if t.method == "GET"]
     assert [t.json_body["offset"] for t in posts] == [o for o in workday_offsets(45, 20) if o != 0]
-    assert len(details) == 10  # detail_follow_max default = 10
+    # F8: the ADAPTER applies no per-page cap any more -- every posting on the
+    # page that still lacks a description gets a detail task, and the RUNNER
+    # enforces the per-cycle budget (see detail_budget below and
+    # tests/test_runner.py's rotation tests).
+    assert len(details) == 12
     assert all(t.meta["detail"] is True for t in details)
     assert all(t.headers["Accept"] == "application/json" for t in details)
-    assert [t.meta["external_id"] for t in details] == [f"/job/R{i}" for i in range(10)]
+    assert [t.meta["external_id"] for t in details] == [f"/job/R{i}" for i in range(12)]
     assert all(t.url == _LIST_BASE + t.meta["external_id"] for t in details)
     assert all(t.meta["base"] == _LIST_BASE and t.meta["token"] == "acme/wd5/acme" for t in details)
-    assert [t.meta["title"] for t in details] == [f"Role {i}" for i in range(10)]
+    assert [t.meta["title"] for t in details] == [f"Role {i}" for i in range(12)]
+
+
+def test_workday_follow_tasks_skips_described_postings():
+    """Rotation: postings the runner says are ALREADY described are skipped.
+
+    Same page, mixture of both, described ids in arbitrary positions -- the
+    survivors keep page order and keep their own titles (no index shift).
+    """
+    meta = _meta()
+    meta["described_external_ids"] = {"/job/R0", "/job/R3", "/job/R9"}
+    follows = WorkdaySource().follow_tasks(_list_doc(), _acct(), meta)
+    details = [t for t in follows if t.method == "GET"]
+    skipped = (0, 3, 9)
+    assert [t.meta["external_id"] for t in details] == [
+        f"/job/R{i}" for i in range(12) if i not in skipped
+    ]
+    assert [t.meta["title"] for t in details] == [
+        f"Role {i}" for i in range(12) if i not in skipped
+    ]
+    # pagination is untouched by the described-set filter
+    posts = [t for t in follows if t.method == "POST"]
+    assert [t.json_body["offset"] for t in posts] == [o for o in workday_offsets(45, 20) if o != 0]
+
+
+def test_workday_follow_tasks_all_described_emits_no_details():
+    meta = _meta()
+    meta["described_external_ids"] = [f"/job/R{i}" for i in range(12)]
+    follows = WorkdaySource().follow_tasks(_list_doc(), _acct(), meta)
+    assert [t for t in follows if t.method == "GET"] == []
+    assert [t.json_body["offset"] for t in follows if t.method == "POST"] == [o for o in workday_offsets(45, 20) if o != 0]
+
+
+def test_workday_follow_tasks_ignores_described_ids_from_other_pages():
+    """A described id that is not on THIS page changes nothing here."""
+    meta = _meta()
+    meta["described_external_ids"] = ["/job/OTHER-1", "/job/OTHER-2"]
+    follows = WorkdaySource().follow_tasks(_list_doc(), _acct(), meta)
+    assert len([t for t in follows if t.method == "GET"]) == 12
+
+
+def test_workday_follow_tasks_no_per_page_cap():
+    """The deliberate semantic change, asserted explicitly.
+
+    30 postings on one page, none described -> 30 detail tasks. The old
+    positional slice `postings[:detail_follow_max]` produced exactly 10, and
+    that is what left 73 of 83 postings without a description forever.
+    """
+    doc = Document(doc_id="w", source="ats_workday", url=_WORKDAY_ENDPOINT, body=_list_page(30))
+    details = [t for t in WorkdaySource().follow_tasks(doc, _acct(), _meta()) if t.method == "GET"]
+    assert len(details) == 30
+    assert [t.meta["external_id"] for t in details] == [f"/job/R{i}" for i in range(30)]
+    assert all(t.headers["Accept"] == "application/json" for t in details)
 
 
 def test_workday_follow_tasks_cap_zero(monkeypatch):
+    """`detail_follow_max: 0` no longer silences the ADAPTER.
+
+    The meaning moved from "per list page" to "per account per cycle", and the
+    adapter no longer reads the number while building tasks at all: it emits
+    every undescribed posting and reports the configured number to the runner
+    (which is what drops them -- see test_runner.py's budget tests). Both
+    halves of the contract are asserted here, so the update is a widening, not
+    a weakening.
+    """
     import src.sources.ats.collector as collector
 
     monkeypatch.setattr(collector, "load_ats_workday_cfg", lambda: {"detail_follow_max": 0})
     src = collector.WorkdaySource()
     follows = src.follow_tasks(_list_doc(), _acct(), _meta())
-    assert [t for t in follows if t.method == "GET"] == []
-    assert [t.json_body["offset"] for t in follows] == [o for o in workday_offsets(45, 20) if o != 0]
+    # the adapter: uncapped, all 12 postings
+    assert [t.meta["external_id"] for t in follows if t.method == "GET"] == [
+        f"/job/R{i}" for i in range(12)
+    ]
+    assert [t.json_body["offset"] for t in follows if t.method == "POST"] == [o for o in workday_offsets(45, 20) if o != 0]
+    # ... and the runner-facing opt-in it hands over
+    assert src.detail_budget == 0
+    assert src.detail_selection is True
+    assert src.follow_passes == 3
 
 
 def test_workday_follow_tasks_cap_reads_config(monkeypatch):
+    """The loader is still the single source for the number, read at CALL time."""
     import src.sources.ats.collector as collector
 
     monkeypatch.setattr(collector, "load_ats_workday_cfg", lambda: {"detail_follow_max": 3})
-    follows = collector.WorkdaySource().follow_tasks(_list_doc(), _acct(), _meta())
-    assert [t.meta["external_id"] for t in follows if t.method == "GET"] == ["/job/R0", "/job/R1", "/job/R2"]
+    src = collector.WorkdaySource()
+    follows = src.follow_tasks(_list_doc(), _acct(), _meta())
+    # the adapter itself is uncapped ...
+    assert [t.meta["external_id"] for t in follows if t.method == "GET"] == [
+        f"/job/R{i}" for i in range(12)
+    ]
+    # ... it only REPORTS the configured per-cycle budget to the runner.
+    assert src.detail_budget == 3
 
 
 def test_workday_detail_doc_yields_no_follow_tasks():

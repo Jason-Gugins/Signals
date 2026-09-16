@@ -675,3 +675,288 @@ def test_filter_backoff_still_keys_g2_under_g2(tmp_path):
     )
     assert out == []
     assert log.entry("sierra", "g2").get("cycles") == 3
+
+
+# ── F8: generic detail-rotation hooks ───────────────────────────────────────
+#
+# Measured on a live run (83 postings, 10 described): details are emitted per
+# LIST page, so with the default 2-wave pass budget only page 0's details ever
+# executed; and the adapter's slice was POSITIONAL, so the same 10 postings won
+# every cycle and the other 73 could never be reached. The runner now offers
+# three GENERIC, opt-in hooks (all gated on class attributes, so no other
+# adapter changes behaviour):
+#   follow_passes     -> raise max_passes (page 1..N's details need a 3rd wave)
+#   detail_selection  -> inject the described-set so the adapter can rotate
+#   detail_budget     -> cap the detail-marked fetches per (adapter, account)
+# The board below speaks the Workday shape (a list page emits one pagination
+# task per remaining page plus one detail task per UNDESCRIBED posting) but is
+# driven purely by URLs/meta, so no fixture parsing is involved.
+
+_BOARD_PAGE = 10  # postings per page in the fake board
+
+
+def _board_list_url(domain: str, offset: int) -> str:
+    return f"https://board.test/{domain}/jobs?offset={offset}"
+
+
+def _board_detail_url(domain: str, page: int, i: int) -> str:
+    return f"https://board.test/{domain}/job?page={page}&i={i}"
+
+
+class RotationBoardAdapter(OkAdapter):
+    """Workday-shaped board: paginated list pages + per-page detail tasks."""
+
+    key = "ats_workday"
+    requires = ()
+    follow_passes = 3
+    detail_selection = True
+    detail_budget = 10
+
+    def __init__(self, pages: int = 3, budget: int | None = None, page_size: int = _BOARD_PAGE):
+        self.pages = pages
+        self.page_size = page_size
+        self.total = pages * page_size
+        self.meta_seen: list[dict] = []
+        if budget is not None:
+            self.detail_budget = budget
+
+    def _posting_id(self, page: int, i: int) -> str:
+        return f"/job/P{page}-{i}"
+
+    def plan(self, account, cursor):
+        return [
+            FetchTask(
+                source=self.key,
+                url=_board_list_url(account.domain, 0),
+                domain=account.domain,
+                method="POST",
+            )
+        ]
+
+    def follow_tasks(self, doc, account, task_meta):
+        self.meta_seen.append(dict(task_meta or {}))
+        if "/job?" in doc.url:
+            return []  # a detail payload carries no page: never re-fetch
+        page = int(doc.url.split("offset=")[1]) // self.page_size
+        described = {
+            str(x) for x in ((task_meta or {}).get("described_external_ids") or ())
+        }
+        out: list[FetchTask] = []
+        # Pagination FIRST, exactly like WorkdaySource.
+        if page == 0:
+            for off in range(self.page_size, self.total, self.page_size):
+                out.append(
+                    FetchTask(
+                        source=self.key,
+                        url=_board_list_url(account.domain, off),
+                        domain=account.domain,
+                        method="POST",
+                    )
+                )
+        for i in range(self.page_size):
+            ext = self._posting_id(page, i)
+            if ext in described:
+                continue
+            out.append(
+                FetchTask(
+                    source=self.key,
+                    url=_board_detail_url(account.domain, page, i),
+                    domain=account.domain,
+                    meta={"detail": True, "external_id": ext},
+                )
+            )
+        return out
+
+    def harvest_jobs(self, doc, account, task_meta):
+        from src.sources.ats.common import JobPost
+
+        if "/job?" in doc.url:
+            ext = (task_meta or {}).get("external_id") or ""
+            return [
+                JobPost(
+                    external_id=ext,
+                    title=ext,
+                    url=doc.url,
+                    posted_at="2026-08-01",
+                    description=f"full body of {ext}",
+                )
+            ]
+        page = int(doc.url.split("offset=")[1]) // self.page_size
+        return [
+            JobPost(
+                external_id=self._posting_id(page, i),
+                title=self._posting_id(page, i),
+                url=doc.url,
+                posted_at="2026-08-01",
+            )
+            for i in range(self.page_size)
+        ]
+
+    def parse(self, doc, account, task_meta):
+        return []
+
+
+class PlainBoardAdapter(RotationBoardAdapter):
+    """The same board WITHOUT any of the opt-ins: the shape every other
+    source adapter has. Its three hooks are explicitly non-opt-in, so it is
+    also the guard against a truthiness bug in the runner's gating."""
+
+    key = "ats_greenhouse"
+    requires = ()
+    follow_passes = None
+    detail_selection = False
+    detail_budget = None
+
+
+def _board_account(key: str) -> Account:
+    return Account(
+        domain="acme.com",
+        ats_vendor=key[len("ats_"):],
+        ats_token="boardtok",
+    )
+
+
+def _silence_jobsignals_stats(monkeypatch) -> None:
+    """The shared hiring-trend state file must never be written by a test
+    (same pattern as the C4 test above)."""
+    import src.sources.jobsignals.trend as trend_mod
+
+    monkeypatch.setattr(trend_mod, "load_stats", lambda *a, **k: {})
+    monkeypatch.setattr(trend_mod, "save_stats", lambda stats, *a, **k: None)
+
+
+def _detail_pairs(runner) -> list[tuple[int, int]]:
+    """(page, index) of every DETAIL fetch this cycle made, in request order."""
+    out: list[tuple[int, int]] = []
+    for url in runner.fetcher.calls:
+        if "/job?" not in url:
+            continue
+        params = dict(
+            kv.split("=", 1) for kv in url.split("?", 1)[1].split("&") if "=" in kv
+        )
+        out.append((int(params["page"]), int(params["i"])))
+    return out
+
+
+def test_detail_budget_caps_fetches_per_cycle_and_logs_the_drop(tmp_path, monkeypatch):
+    """Budget: 30 postings, budget 10 -> EXACTLY 10 detail fetches in one cycle,
+    and the surplus is logged (never dropped silently)."""
+    from loguru import logger
+
+    _silence_jobsignals_stats(monkeypatch)
+    adapter = RotationBoardAdapter(pages=3, budget=10)
+    messages: list[str] = []
+    sink = logger.add(messages.append, level="INFO", format="{message}")
+    try:
+        runner, stats, _ = _harness(
+            tmp_path, [_board_account("ats_workday")], [adapter], {},
+            max_passes=2, max_workers=1, force=True,
+        )
+    finally:
+        logger.remove(sink)
+    assert stats.failed == 0
+    details = _detail_pairs(runner)
+    assert len(details) == 10
+    # the first wave of detail tasks is page 0's, in page order
+    assert details == [(0, i) for i in range(10)]
+    # pages 1 and 2's 20 detail tasks were queued and dropped -> logged once
+    dropped = [m for m in messages if "dropped" in str(m) and "detail" in str(m)]
+    assert dropped, messages
+    assert any("20" in m for m in dropped)
+
+
+def test_detail_rotation_converges_and_never_refetches_a_described_posting(tmp_path, monkeypatch):
+    """Convergence: cycle 2 details the NEXT batch, with ZERO overlap.
+
+    Cycle 1 gets page 0's 10 (the budget); cycle 2 must move on to page 1 and
+    must not re-request a posting that now carries a description.
+    """
+    _silence_jobsignals_stats(monkeypatch)
+    adapter = RotationBoardAdapter(pages=3, budget=10)
+    acct = _board_account("ats_workday")
+
+    runner1, stats1, db = _harness(
+        tmp_path, [acct], [adapter], {}, max_passes=2, max_workers=1, force=True
+    )
+    cycle1 = _detail_pairs(runner1)
+    assert stats1.failed == 0
+    assert cycle1 == [(0, i) for i in range(10)]
+
+    runner2, stats2, db = _harness(
+        tmp_path, [acct], [adapter], {}, max_passes=2, max_workers=1, force=True
+    )
+    cycle2 = _detail_pairs(runner2)
+    assert stats2.failed == 0
+    assert cycle2 == [(1, i) for i in range(10)]
+    assert set(cycle1) & set(cycle2) == set()  # zero overlap
+
+    described = db.one(
+        "SELECT COUNT(*) AS n FROM jobs WHERE description IS NOT NULL AND description <> ''"
+    )["n"]
+    assert described == 20
+
+
+def test_detail_pass_waves_reach_later_pages(tmp_path, monkeypatch):
+    """Pages 1..N's details DO execute: with follow_passes=3 the detail tasks
+    emitted while fetching pagination page 1 get a third wave to run in (with
+    the default 2 waves they were emitted in pass 1 and dropped)."""
+    _silence_jobsignals_stats(monkeypatch)
+    adapter = RotationBoardAdapter(pages=2, budget=100)
+    runner, stats, _ = _harness(
+        tmp_path, [_board_account("ats_workday")], [adapter], {},
+        max_passes=2, max_workers=1, force=True,
+    )
+    assert stats.failed == 0
+    pairs = _detail_pairs(runner)
+    assert {(0, i) for i in range(10)} <= set(pairs)
+    # a posting that only ever existed on page 1 (its externalPath is NOT on
+    # page 0 because page 0's ids are /job/P0-*)
+    assert (1, 0) in pairs
+
+
+def test_non_optin_adapter_is_untouched(tmp_path, monkeypatch):
+    """Isolation / regression guard for every other source: no meta injection,
+    no extra pass, no per-cycle detail cap."""
+    _silence_jobsignals_stats(monkeypatch)
+    # 30 postings on ONE page: the guard is that the runner neither caps them
+    # (no budget) nor hands the adapter a described-set. Pages 1..N are still
+    # listed but their details never get a wave -- the pre-F8 behaviour.
+    adapter = PlainBoardAdapter(pages=3, page_size=30)
+    runner, stats, _ = _harness(
+        tmp_path, [_board_account("ats_greenhouse")], [adapter], {},
+        max_passes=2, max_workers=1, force=True,
+    )
+    assert stats.failed == 0
+    # 1 list page + 2 pagination pages + ALL 30 page-0 details: no cap, and no
+    # third pass (max_passes stayed at the caller's 2).
+    assert len(runner.fetcher.calls) == 33
+    assert _detail_pairs(runner) == [(0, i) for i in range(30)]
+    assert all("described_external_ids" not in m for m in adapter.meta_seen)
+
+
+def test_every_posting_is_described_within_three_cycles(tmp_path, monkeypatch):
+    """HEADLINE: a 30-posting board with a per-cycle budget of 10 converges --
+    after three cycles EVERY posting has a description, each cycle takes the
+    next 10, and no posting is detailed twice."""
+    _silence_jobsignals_stats(monkeypatch)
+    adapter = RotationBoardAdapter(pages=3, budget=10)
+    acct = _board_account("ats_workday")
+
+    per_cycle: list[list[tuple[int, int]]] = []
+    db = None
+    for _ in range(3):
+        runner, stats, db = _harness(
+            tmp_path, [acct], [adapter], {}, max_passes=2, max_workers=1, force=True
+        )
+        assert stats.failed == 0
+        per_cycle.append(_detail_pairs(runner))
+
+    assert per_cycle == [[(page, i) for i in range(10)] for page in range(3)]
+    flat = [p for cycle in per_cycle for p in cycle]
+    assert len(flat) == len(set(flat)) == 30  # no posting detailed twice
+    row = db.one(
+        "SELECT COUNT(*) AS n FROM jobs WHERE description IS NOT NULL AND description <> ''"
+    )
+    assert row["n"] == 30  # every posting described
+    total = db.one("SELECT COUNT(*) AS n FROM jobs")["n"]
+    assert total == 30

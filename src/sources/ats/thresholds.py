@@ -10,7 +10,10 @@ import yaml
 def load_ats_workday_cfg() -> dict:
     """Per-source knobs for ats_workday; defaults are safe when config is absent.
 
-    `detail_follow_max` caps how many job-detail GETs each list page may spawn.
+    `detail_follow_max` is how many Workday job-detail GETs are allowed per
+    ACCOUNT per CYCLE (it used to be a per-list-page cap: the adapter no longer
+    caps anything itself, the runner enforces this as the cycle's detail budget
+    and the adapter rotates to the postings that still lack a description).
     Never raises: a missing/unreadable/unparseable config falls back to 10 so a
     bad file cannot abort a fetch cycle.
     """

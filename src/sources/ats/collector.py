@@ -208,6 +208,28 @@ class WorkdaySource(SourceAdapter):
     tier = "http"
     cadence_hours = 24
     requires = ("ats_token",)
+    # --- generic runner opt-ins (see CollectorRunner._run_pair) -------------
+    # Details are emitted per LIST page: page 0's land in pass 1, and pages
+    # 1..N's only exist once their pagination POSTs have run (pass 1) -- so
+    # their detail tasks need a THIRD wave to execute. With the default 2-wave
+    # budget they were emitted and then dropped, which is why a live 83-posting
+    # board only ever described the 10 postings on page 0.
+    follow_passes = 3
+    # Ask the runner to hand this adapter the set of postings that already
+    # carry a description (and to enforce the per-cycle detail budget below).
+    detail_selection = True
+
+    @property
+    def detail_budget(self) -> int:
+        """Detail GETs allowed per account per CYCLE (config-driven).
+
+        Read at CALL time, never at import time, so a config edit (or a test's
+        loader monkeypatch) takes effect without a reload. 0 = no details.
+        """
+        try:
+            return int((load_ats_workday_cfg() or {}).get("detail_follow_max", 10) or 0)
+        except (TypeError, ValueError):
+            return 10
 
     def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
         token = account.ats_token or ""
@@ -292,12 +314,21 @@ class WorkdaySource(SourceAdapter):
                     )
                 )
         # Details: the CXS job URL (base + externalPath) is the ONLY place
-        # descriptions live. Emitted per page, so the cost is cap x pages; every
-        # detail task carries no jobPostings, so it yields no further follow tasks.
-        cap = int((load_ats_workday_cfg() or {}).get("detail_follow_max", 10) or 0)
-        for j in postings[:cap] if cap > 0 else []:
-            path = (j or {}).get("externalPath") or ""
-            if not path:
+        # descriptions live. Emitted per page, so the cost is pages x the
+        # runner's per-cycle budget; every detail task carries no jobPostings,
+        # so it yields no further follow tasks.
+        #
+        # ROTATION (F8): the adapter no longer caps its own output -- a
+        # positional `postings[:cap]` slice meant the same first-N postings won
+        # every cycle and the rest could never be reached. Instead it emits
+        # every UNDESCRIBED posting it can see, in page order, and skips the
+        # ones the runner says already have a description; the runner enforces
+        # the per-cycle total (detail_budget) and the extra pass (follow_passes).
+        described = {str(x) for x in (meta.get("described_external_ids") or ())}
+        for j in postings:
+            posting = j or {}
+            path = posting.get("externalPath") or ""
+            if not path or path in described:
                 continue
             out.append(
                 FetchTask(
@@ -311,7 +342,7 @@ class WorkdaySource(SourceAdapter):
                         "base": base,
                         "detail": True,
                         "external_id": path,
-                        "title": j.get("title") or None,
+                        "title": posting.get("title") or None,
                     },
                 )
             )

@@ -26,9 +26,10 @@ sources:
   ats_recruitee:  { enabled: true, cadence_hours: 24, rate_per_host: 1.0, requires: ["ats_token"] }
   # detail_follow_max = Workday job-detail GETs per ACCOUNT per CYCLE (not per
   # list page any more): the runner caps the cycle's detail tasks and the
-  # adapter rotates to the UNDESCRIBED postings, so raising this to ~40
-  # describes a typical board (<=2 pages) in one cycle instead of 10 forever.
-  ats_workday:    { enabled: true, cadence_hours: 24, rate_per_host: 0.5, requires: ["ats_token"], detail_follow_max: 10 }
+  # adapter rotates to the UNDESCRIBED postings. 40 covers a board of ~40-80
+  # postings in one or two cycles; the shipped fallback (config missing) stays
+  # 10 so a lost file degrades to cheap-and-steady rather than a request burst.
+  ats_workday:    { enabled: true, cadence_hours: 24, rate_per_host: 0.5, requires: ["ats_token"], detail_follow_max: 40 }
   news_rss:       { enabled: true, cadence_hours: 12, rate_per_host: 0.5 }
   google_news:
     enabled: true

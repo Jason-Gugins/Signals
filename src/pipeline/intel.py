@@ -166,6 +166,27 @@ def _coverage_gap(rows) -> str | None:
     )
 
 
+def _first_party_doc_count(db, domain: str) -> int | None:
+    """How many first-party documents ``needs`` could see this run.
+
+    Delegates to the SAME resolver ``NeedsSource.local_harvest`` iterates
+    (``_first_party_doc_ids``), so the number the dossier reports is the number
+    the harvester actually saw -- never a second, drifting definition of
+    "first-party". ``None`` when the count cannot be taken (no database handle,
+    or the resolver raised): the gap then refuses to claim a count rather than
+    guessing one.
+    """
+    if db is None:
+        return None
+    try:
+        from src.sources.needs.collector import _first_party_doc_ids
+
+        return len(_first_party_doc_ids(db, domain))
+    except Exception:
+        logger.exception("first-party document count failed for {}", domain)
+        return None
+
+
 def _jobs_summary(db, domain: str) -> dict | None:
     """Open-job counts for a domain from the jobs table.
 
@@ -425,6 +446,27 @@ def run_intel(
             errors["derive"] = str(exc)
             record("derive", "failed", reason=str(exc))
             gaps.append(f"derive stage failed: {exc}")
+
+    # -- why `needs` promoted nothing (Finding 9) ----------------------------
+    # A missing/empty market profile makes ``needs`` return [] early: there is
+    # no relevance vocabulary, so nothing can EVER be promoted. Without this
+    # line the dossier shows ``market profile: -`` and a reader cannot tell
+    # "no first-party evidence" from "no profile configured". A CONFIGURED
+    # profile stays silent here: a profile that matches nothing is ordinary,
+    # not a gap. This only REPORTS -- `needs` behaviour is untouched.
+    if not dry_run and "derive" not in skip and market_profile is None:
+        count = _first_party_doc_count(getattr(orc, "db", None), domain)
+        if count is None:
+            count_text = "first-party document count unavailable (no database handle in scope)"
+        elif count == 0:
+            count_text = "0 first-party documents in scope"
+        else:
+            count_text = f"{count} first-party documents were in scope"
+        gaps.append(
+            "needs promoted 0 signals: no market profile configured "
+            "(config/markets.yaml ships an empty default) - "
+            f"{count_text}; pass --market-profile <id> to enable promotion"
+        )
 
     # -- score --------------------------------------------------------------
     if dry_run:

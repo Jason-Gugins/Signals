@@ -708,12 +708,24 @@ originally written was WRONG. The E2 dossier already carried the gap
 `b9bae34` adds exactly those -- reporting only; `needs`, the profile resolver and `_load_profile` are
 unchanged, and a configured profile stays completely silent.
 
-### 7. Raw `(today - observed).days` can be negative in five modules — DECISION OPEN
+### 7. Raw `(today - observed).days` can be negative in five modules — FIXED by 78e339d
 `src/signals/score.py:62` (decay), `tier.py:31` (buying window), `evidence.py:58`,
 `combos.py:30`, `lifecycle.py:43` (the `>` guard is safe). Observed with `today` = local
 2026-09-14 against `observed_at` = 2026-09-15 (UTC ahead). Only the artifact age was
-clamped (`dff1b9a`). Options: clamp at each site (with one injected-time test each) or
-normalise the age reference to UTC. Touches scoring/decay semantics → needs the user's call.
+**Decision (Jason): normalise the age reference to UTC once** — `78e339d`. One stdlib-only helper
+(`src/core/timeutil.py::utc_today`) now supplies the age reference, and every producer routes through
+it: `orchestrator._today()` keeps `_INJECTED_TODAY` authoritative and only its FALLBACK became UTC;
+`orchestrator.py:397` (which called `date.today()` directly and so silently bypassed the injection
+hook) now uses `_today()`; `evidence.py:81`'s local default became `utc_today()`. The five consumers'
+arithmetic is deliberately UNTOUCHED — their guards already handle a genuinely future-dated
+observation, so clamping in five places was unnecessary. Two tests that encoded the old contract had
+to change: `test_date_determinism` asserted `_today() == date.today()` (the bug itself), and two
+orchestrator/funding tests froze the `date` symbol that the injection hook now bypasses — both
+verified against a pristine worktree as broken BY this change, not pre-existing.
+Honest caveat recorded with the change: the five consumer assertions cannot fail pre-fix (the fix is
+at the producer), so a behaviour-level probe carries the evidence — with the local clock pinned to
+2026-09-14, `render_evidence` pre-fix rendered `Raised (on 2026-09-15)`; post-fix it renders
+`Raised (today)`.
 
 ### Cross-cutting note
 `documents.source` is a first-writer label over content-addressed storage; any consumer
@@ -729,8 +741,8 @@ filtering documents by `source` shares finding 1's blind spot. Grep for `iter_do
 - **Blast radius** — 3 source files, 1 config value (`article_follow_max: 5`), 1 lint allowlist entry in `src/pipeline/health.py`, 1 orchestrator helper (`_company_feed_kind`), plus tests/fixtures. The new capped follow means a `company_feed` cycle can now fetch up to `article_follow_max` extra pages per account.
 - **E2 live re-run 2026-09-15** (`intel darktrace.com --name "Darktrace" --force`, run `f8e81e8e`, 19:51->20:00 UTC, exit 0, dossier `data/dossiers/darktrace.com-20260915T200032474363Z-c5a49a76`): **finding 1** confirmed -- the provenance resolver returns 7 first-party docs, including one stored under `feed_discovery` that the old label filter could never see; **finding 2** confirmed -- `company_feed` documents 0 -> 6 (feed + exactly 5 articles = `article_follow_max`); **finding 3** confirmed -- descriptions 0 -> 10 (= `detail_follow_max`), `department` 0 as C1 predicted, `posted_at` present on 82/83 jobs (the C4 merge regression verified on live data); **finding 5** confirmed -- `stale_running: 1` correctly flags `b676e311` from 2026-08-24; the hiring trend recorded **76**, not 86/152, and emitted **no** `hiring_surge`. Two per-source failures (`crtsh` robots, `federal_contracts` HTTP 500) were logged and reported in the dossier as `failed: 2` -- correct, not a defect. See findings 6, 8 and 9 for what E2 exposed.
 - **Open-item wave 2026-09-15** -- `5f602ed` makes the three global fanout sources opt-in for `intel` (new `--include-fanout`, `fanout = True` on `sec_formd`/`federal_register`/`warn_notices`, skip + account-count reported in the dossier gaps); `0d0e7a1` makes Workday detail coverage converge (the adapter skips postings the runner reports as already described, the runner injects that set and enforces `detail_follow_max` as a per-CYCLE per-account budget with dropped tasks logged, and `WorkdaySource.follow_passes = 3` gives the pages already being fetched a wave in which their details execute) -- measured 10 of 83 per cycle before, all 83 over ~9 cycles after, at 10 GETs a cycle; `5e85fe0` corrects the now-stale `health.py` comment; `b9bae34` reports the `needs`-promoted-nothing consequence, document count and remedy. A flaky time-of-day assertion in `tests/test_stale_runs.py` (fixed `NOW` vs the real clock -- it failed CI at 20:09 UTC) was fixed in `82daa9d`.
-- **Baseline** -- `pytest --collect-only` -> 2050 collected; the offline lane passes with only the known unmarked antibot TLS probe flaking.
-- **Outstanding** -- finding 7 (raw negative day deltas in five scoring modules) remains the only open decision.
+- **Baseline** -- `pytest --collect-only` -> 2057 collected; the offline lane passes with only the known unmarked antibot TLS probe flaking (2048-2049 passed per run).
+- **Outstanding** -- NONE. All findings are closed: 1, 2, 3, 5, 6, 7, 8 and 9 fixed with tests; 4 withdrawn with its disproving probe. Local == origin/master, CI green.
 
 ## Manual checklists (human setup, not code)
 

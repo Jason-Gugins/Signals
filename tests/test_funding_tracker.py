@@ -127,16 +127,15 @@ def test_tracker_dry_run_fetches_nothing(tmp_path):
     assert stats.hits >= 1
 
 
-def test_orchestrator_funding_recent(tmp_path, monkeypatch):
-    from src.pipeline.orchestrator import Orchestrator
+def test_orchestrator_funding_recent(tmp_path):
+    from src.pipeline.orchestrator import Orchestrator, set_today
     from src.sources.sec.formd_source import SecFormDSource
 
-    class FrozenDate(date):
-        @classmethod
-        def today(cls):
-            return TODAY
-
-    monkeypatch.setattr("src.pipeline.orchestrator.date", FrozenDate)
+    # Freeze the age reference through the supported injection hook. This test
+    # used to pin the module's LOCAL clock (monkeypatching orchestrator.date);
+    # Finding 7 routed this path through orchestrator._today(), so the hook is
+    # what controls the reference now (tests/conftest.py resets it afterwards).
+    set_today(TODAY)
     cfg = Config()
     cfg.contact_email = "recon@example.com"
     cfg.http.respect_robots = False

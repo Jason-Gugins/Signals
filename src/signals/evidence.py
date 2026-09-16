@@ -8,6 +8,7 @@ from typing import Optional
 
 from src.core.models import Account, Signal
 from src.core.textutil import to_iso_date, truncate
+from src.core.timeutil import utc_today
 from src.signals.taxonomy import Taxonomy, UnknownSignalType
 
 
@@ -77,7 +78,7 @@ def render_evidence(
     account: Account | None = None,
     today: date | None = None,
 ) -> str:
-    today = today or date.today()
+    today = today or utc_today()
     observed_human = ""
     iso = to_iso_date(signal.observed_at)
     if iso:

@@ -142,7 +142,7 @@ _PER_SOURCE_KNOWN_KEYS: dict[str, set[str]] = {
     "company_feed": {"blog_feed_url", "article_follow_max"},
     "appstore_reviews": {"app_store_id"},
     "bbb_profile": {"extra_data"},
-    # per-page cap on Workday job-detail GETs (descriptions live only there)
+    # per-cycle (per account) cap on Workday job-detail GETs (descriptions live only there)
     "ats_workday": {"detail_follow_max"},
     # jobsignals tuning thresholds
     "jobsignals": {"surge_min_roles", "surge_window_days"},

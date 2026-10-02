@@ -24,6 +24,7 @@ class Task:
     method: str = "GET"
     headers: dict = field(default_factory=dict)
     json_body: Optional[dict] = None
+    data_body: Optional[str] = None
 
 
 class FakeClock:
@@ -220,3 +221,41 @@ def test_robots_path_allowed_only_prefixed_host():
     assert robots_path_allowed("https://news.google.com/rss/headlines/section/topic/TECHNOLOGY", allow)
     assert not robots_path_allowed("https://news.google.com/home", allow)
     assert not robots_path_allowed("https://www.bing.com/news/search?q=x", allow)
+
+
+@respx.mock
+def test_form_body_post_sent_as_content(tmp_path, monkeypatch):
+    """data_body goes over the wire as a raw form payload with task headers."""
+    url = "https://news.google.com/_/DotsSplashUi/data/batchexecute"
+    route = respx.post(url).mock(return_value=httpx.Response(200, content=b"ok"))
+    respx.get("https://news.google.com/robots.txt").mock(return_value=httpx.Response(404))
+    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    task = Task(
+        source="google_news",
+        url=url,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+        data_body="f.req=%5B%5B%5B%22X%22%5D%5D%5D",
+    )
+    result = fetcher.get(task)
+    assert result.ok is True
+    assert result.status == 200
+    request = route.calls.last.request
+    assert request.content == b"f.req=%5B%5B%5B%22X%22%5D%5D%5D"
+    assert request.headers["Content-Type"] == "application/x-www-form-urlencoded;charset=UTF-8"
+    ctx.__exit__(None, None, None)
+
+
+@respx.mock
+def test_task_without_data_body_unchanged(tmp_path, monkeypatch):
+    """A plain GET task (no data_body) still works and sends no body."""
+    url = "https://example.com/plain"
+    route = respx.get(url).mock(return_value=httpx.Response(200, content=b"ok"))
+    respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
+    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    result = fetcher.get(Task(source="news_rss", url=url))
+    assert result.ok is True
+    assert result.status == 200
+    assert result.doc is not None and result.doc.body == b"ok"
+    assert route.calls.last.request.content == b""
+    ctx.__exit__(None, None, None)

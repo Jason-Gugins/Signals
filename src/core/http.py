@@ -218,6 +218,9 @@ class HttpFetcher:
                     body = getattr(task, "json_body", None)
                     if body is not None:
                         kwargs["json"] = body
+                    raw_body = getattr(task, "data_body", None)
+                    if raw_body is not None:
+                        kwargs["content"] = raw_body
                     response = self.client.request(method, url, **kwargs)
                 status = response.status_code
                 if status == 304:

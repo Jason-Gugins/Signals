@@ -19,6 +19,10 @@ class FetchTask:
     json_body: Optional[dict] = None
     cursor_key: Optional[str] = None
     meta: dict = field(default_factory=dict)
+    # Pre-encoded form body (e.g. Google batchexecute "f.req=..."). Sent via
+    # httpx `content=`; Content-Type lives on task.headers. Kept separate from
+    # json_body because batchexecute rejects JSON bodies.
+    data_body: Optional[str] = None
 
 
 @dataclass

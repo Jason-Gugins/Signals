@@ -459,6 +459,26 @@ def _add_maintenance_indexes(conn: sqlite3.Connection) -> None:
     # index would be pure dead weight.
 
 
+def _create_news_link_resolutions(conn: sqlite3.Connection) -> None:
+    """v8: cross-run cache for Google News article-token -> publisher domain.
+
+    One row per unique news.google.com article token; written only on
+    successful decode (failures stay uncached so a later cycle retries them
+    within the per-cycle decode budget). Replaces the process-local LRU in
+    news/resolve.py as the durable layer — same links recur across 12h
+    cadences, so a persistent cache removes nearly all decode traffic.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS news_link_resolutions (
+            token       TEXT PRIMARY KEY,
+            domain      TEXT NOT NULL,
+            resolved_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (1, "additive NEW_COLUMNS pass (g2_slug, nps_score, helpful_votes, source, app_store_id, play_id, subreddit)", _add_missing_columns),
     (2, "create calibration table (per-source/per-signal-type hit rates)", _create_calibration),
@@ -467,6 +487,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (5, "create play_outcomes table (local play outcome backtesting)", _create_play_outcomes),
     (6, "maintenance indexes + hot-path review", _add_maintenance_indexes),
     (7, "create identity_candidates table (human review queue for identity discovery)", _create_identity_candidates),
+    (8, "create news_link_resolutions (google news token -> publisher domain cache)", _create_news_link_resolutions),
 ]
 
 LATEST_VERSION: int = max(v for v, _, _ in MIGRATIONS)

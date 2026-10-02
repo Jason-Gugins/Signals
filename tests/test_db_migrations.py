@@ -34,6 +34,33 @@ def test_fresh_db_gets_latest_version(tmp_path: Path) -> None:
         db.close()
 
 
+def test_migration_v8_creates_news_link_resolutions(tmp_path: Path) -> None:
+    """v8 adds the google-news article-token -> publisher-domain cache table."""
+    db = Database(tmp_path / "v8.db")
+    try:
+        assert _user_version(db) == LATEST
+        assert LATEST >= 8
+        cols = db.table_columns("news_link_resolutions")
+        assert cols == {"token", "domain", "resolved_at"}
+        # PK on token: re-recording the same token upserts (no duplicate rows).
+        info = db.query("PRAGMA table_info(news_link_resolutions)")
+        pk = {r["name"] for r in info if r["pk"]}
+        assert pk == {"token"}
+        # Usable through the normal DB API (what DomainResolver will call).
+        db.upsert(
+            "news_link_resolutions",
+            {
+                "token": "CBMiABC",
+                "domain": "arlnow.com",
+                "resolved_at": "2026-10-02T00:00:00+00:00",
+            },
+            pk=("token",),
+        )
+        assert db.one("SELECT domain FROM news_link_resolutions WHERE token = 'CBMiABC'")["domain"] == "arlnow.com"
+    finally:
+        db.close()
+
+
 def test_v0_db_missing_column_is_migrated_on_reopen(tmp_path: Path) -> None:
     path = tmp_path / "old.db"
     db = Database(path)

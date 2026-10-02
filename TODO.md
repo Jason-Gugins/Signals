@@ -813,6 +813,60 @@ zero new dependencies; the "no LLM" guarantees inside the needs source and every
   - live `llm_live` re-verification of the Jev response schema and the planner/implementer endpoints before any enforce rollout (rollout phase 3 of the plan);
   - enforce-readiness is measured downstream, not by agreement rate: G5 shadow rows join to the plays loop (`plays --outcome` / `plays-calibrate`) plus a human audit sample of accepted claims per shadow run.
 
+## TypeSafe cookbook application map (2026-10-02) — NOT SCHEDULED
+
+Review of all 16 TypeSafe Jev cookbooks mapped against the intel master flow and the
+decide layer shipped 2026-10-01. Full document:
+`.hermes/plans/2026-10-02_174907-typesafe-cookbooks-application-map.md` (untracked, house
+convention). Two sequential verification passes (repo-fit, external facts) both returned
+**pass**; all attach-point anchors verified with file:line. Key validated facts: the
+parallel-questions cookbook publishes proof our per-document `claim_<i>` batching is the
+correct cheapest shape (12.2x cheaper, answers batching-independent); pricing confirmed
+at $0.042/1M input-only; our `jev-1.13.0` pin is the documented current version (14 of 16
+cookbooks measured their numbers on jev-1.12 — calibrate floors on our own traffic).
+
+Adoption candidates (each becomes its own scoped roadmap wave when scheduled):
+
+- **Tier 1 — decide-layer upgrades:** (1) quote-span citation check — implementers emit a
+  verbatim `quote_span`, deterministic normalize+substring match drops fabricated claims
+  at zero Jev cost, G4's binary Noul becomes a 3-way Choice (supports/contradicted/
+  says_nothing); (2) self-consistency bands — replace hard 0.70 floors with a drop /
+  human-review-band / accept ladder plus k-repeat calibration audits via the ledger
+  (~$0.000043/call); ledger aggregates learn to read the distributions they already
+  store and count `outcome="review"` rows; (3) guardrails — twin pass/review/block
+  batteries (input: injection hazards + severity Score on scraped pages before
+  implementer prompts; output: claims asserting facts absent from the cited excerpt),
+  policies are just threshold sets in config; (4) RAG-passage doc gate — 4 zero-policy
+  Nouls per stored doc (relevant / has evidence / contradicts premise / contains
+  injection) with first-match-wins routing in code, excluding ~2/3 of docs before
+  implementer spend (the dominant layer cost); (5) SDE cascade — Jev verify battery
+  (bad=TRUE per-field heads, max-aggregate, fire at 0.7) escalates only flagged docs to
+  the reasoning tier, replacing G3's token-count heuristic; the `incomplete` head also
+  catches five-fields the docs support but that came back unknown; (6) taxonomy
+  classification with confidence — one Choice per doc over the 54 types, confidence
+  >= 0.9 → typed, else parent category / human queue, deterministic pipeline stays
+  authoritative.
+- **Tier 2 — adjacent loops:** (7) entity alignment — Score(3 levels, round-to-nearest)
+  + per-field Nouls per ambiguous identity pair; "related" pairs reach
+  `identity_candidates` WITH per-field disagreement evidence (the Glow-problem gap);
+  (8) event-date extraction — `event_at` via 7 Choice date-parts questions, code does all
+  calendar math against pinned fetched_at, confidence = min over parts, < 0.60 → review;
+  v1 carrier is `evidence_data` (dedicated column = separate later migration); (9)
+  pre-parsed value extraction — regex over-finds free-text amounts → Choice picks the
+  span → code normalizes (model cannot invent a value by construction); retargeted to
+  claims/news/`federal_contracts` text since Form D amounts already arrive as structured
+  XML; (10) re-ranking fusion — Jev re-ranks the cross-encoder's top-10-30 shortlist with
+  signal-type-specific criteria (~$0.00005/pair), noul doubles as doc-gate input;
+  (11) separation ratio (top/second path score near 1.0 = ambiguous) as the escalation
+  trigger.
+- **Tier 3 — skip:** function calling (no NL front-end), structure recovery
+  (`autoformat.md`; borrow line-id tagging + narrow-question wording only), skill
+  suggestion (rank-then-recheck shape folds into #7), parallel questions (already
+  applied; adopt its two improvements via Tier 1).
+- **Cost note:** all new spend is sub-cent per document at input-only pricing, and the
+  doc gate's ~2/3 exclusion rate makes total layer cost go DOWN; the doc gate's spend
+  should be added to the `max_decide_tokens_per_run` pre-flight projection when adopted.
+
 ## Manual checklists (human setup, not code)
 
 - **2Captcha provider setup** — create account, key in `.env`, verify `TurnstileTaskProxyless` vs `AntiCloudflareTaskProxyless` against a real managed challenge, test headed fallback (`CLOUDFLARE_HEADED_FALLBACK=true`).

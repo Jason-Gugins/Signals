@@ -149,8 +149,8 @@ Flags: `--name NAME` (company name for name-matching sources),
 (repeatable; any of `identity`/`collect`/`derive`/`score`/`package`), `--force`
 (ignore source cadences), `--max-signals N` (cap the active signals in the
 package), `--no-write` (build the dossier but write nothing),
-`--with-linkedin-resolve`, `--with-marketplaces` and `--include-fanout` (the
-opt-in postures below).
+`--with-linkedin-resolve`, `--with-marketplaces`, `--include-fanout` (the
+opt-in postures below) and `--with-llm` (the opt-in LLM decision layer below).
 
 **Output.** The package is a portable directory under the configured dossiers
 dir (`data/dossiers/` by default) holding `manifest.json`, `dossier.json`,
@@ -178,6 +178,68 @@ seller-market profile selected by `--market-profile`, read from
 `config/markets.yaml` — which ships empty. Until it is filled in, those sources
 promote nothing and `intel` reports a "no relevance vocabulary configured" gap;
 nothing is promoted until then.
+
+## LLM decision layer (opt-in)
+
+`intel` carries an optional agentic layer: a MiMo planner that narrows and
+orders source scope, DeepSeek/GLM implementers that atomize already-stored
+documents into cited claims, and a TypeSafe Jev typed-decision gate at the
+stage boundaries. It is OFF by default and inert unless BOTH `--with-llm` is
+passed AND `config/decide.yaml` sets `mode:` to `shadow` or `enforce` (env
+`SIGNALS_DECIDE_MODE` overrides the config). With no keys, no consent, or
+`mode: "off"`, `intel` behaves exactly as it does without this section — one
+extra config load is the only difference.
+
+```yaml
+# config/decide.yaml — ships mode: "off"
+mode: "off"               # off | shadow | enforce
+planner:
+  model: xiaomi/mimo-v2.6-pro                 # OpenRouter
+implementers:
+  bulk:      { model: deepseek/deepseek-v4.1-flash }              # claim atomization
+  reasoning: { model: z-ai/glm-5.3-flash, reasoning_effort: max } # five dossier fields
+decider:
+  model: jev-1.13.0       # TypeSafe Jev (api.typesafe.ai), bills input tokens only
+```
+
+**Keys and consent** (untracked `.env`, never committed):
+`OPENROUTER_API_KEY` (planner + implementers), `TYPESAFE_API_KEY` (Jev), and
+the data-exit consent — `SIGNALS_DECIDE_DATA_EXIT` must equal the exact string
+`I-understand-document-text-leaves-this-machine` for ANY live outbound LLM
+call, shadow mode included. Missing keys or consent degrade that role to its
+deterministic fallback and record a gap; a run never fails for them. `doctor`
+warns when the layer is configured on without them, without echoing values.
+
+**Gates.** Jev answers typed questions at the stage boundaries; every decision
+lands in a per-run `decisions.jsonl` beside the package, and each boundary
+adds one aggregate evidence record (`kind: "jev_decision"`) to the dossier.
+The five gates (all floors 0.70 noul, all configurable in `config/decide.yaml`):
+
+| Gate | Boundary | What it does | On Jev error |
+|---|---|---|---|
+| G1 plan qualification | plan → collect | in enforce, keeps/drops each LLM plan step | step reverts to deterministic collection (never dropped from collection) |
+| G2 posture audit | after collect | shadow-only audit — logs, NEVER binds (the deterministic posture machinery is the gate) | n/a |
+| G3 routing | per document | deterministic token heuristic first; Jev breaks ties only (±20% of `route_threshold`) | deterministic heuristic |
+| G4 citation soundness | per document's claim batch | after a deterministic doc-existence + lexical-overlap prefilter, a claim survives only above the floor | LLM claims for that boundary dropped |
+| G5 need promotion | implement → score | `llm_need` candidates promote only above the floor (probability stored regardless) | LLM-promoted need dropped |
+
+**Fail rules.** The deterministic derive/package output is always produced in
+full — LLM content is additive on top. A Jev outage degrades to exactly the
+`mode: "off"` dossier, and the artifact says so: `decide_degraded: true` in
+`manifest.json` plus a gap line. Shadow mode never changes the applied path;
+it only logs. Narrow-only invariant: no gate verdict can add sources, budget,
+or posture.
+
+**Cost.** ≈ $0.15–0.30 per `intel` run at ~200 stored documents — the
+implementers dominate; each individual Jev decision is sub-cent. The token
+budget is pre-flighted per run (`decider.max_decide_tokens_per_run`, default
+400,000); over the ceiling the whole run degrades to shadow, never aborts
+mid-run.
+
+**Determinism caveat.** Run-to-run byte-identity and backtest reproducibility
+hold only at `mode: "off"`. With the layer on, outputs may differ between
+runs; the plan cache (`data/llm/plan_cache/`) and the decision ledger make
+re-runs explainable, not byte-identical.
 
 ## Identity discovery
 

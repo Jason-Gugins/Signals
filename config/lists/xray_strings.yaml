@@ -1,0 +1,41 @@
+# config/lists/xray_strings.yaml — X-ray search-string library (config/lists authority).
+# One entry = one reusable search string. "Swap the niche" = edit {slots}, not code.
+# kinds: people (site:linkedin.com/in), company (job boards / company pages),
+#        hiring ("we're hiring" + role), intent (problem phrases).
+# {title} {location} {niche} {role} {problem_phrase} are slots filled at run time
+# by CLI args; unfilled slots drop the phrase entirely (never a literal "{title}").
+defaults:
+  exclude: ["jobs", "preferred"]   # minus-group noise stripping for people strings
+strings:
+  - id: people_title_city
+    kind: people
+    site: linkedin.com/in
+    variants:
+      - "{title}"
+    phrases:
+      - "{location}"
+    exclude: ["jobs", "preferred"]
+  - id: people_niche_keyword
+    kind: people
+    site: linkedin.com/in
+    phrases:
+      - "{niche}"
+    exclude: ["jobs", "preferred"]
+  - id: hiring_post_role
+    kind: hiring
+    phrases:
+      - "we're hiring"
+    variants:
+      - "{role}"
+  - id: recently_funded_niche
+    kind: company
+    variants:
+      - "recently funded"
+      - "raises seed"
+      - "series A"
+    phrases:
+      - "{niche}"
+  - id: intent_problem_phrase
+    kind: intent
+    phrases:
+      - "{problem_phrase}"

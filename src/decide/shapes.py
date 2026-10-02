@@ -37,7 +37,7 @@ class PlanStep:
     """One ordered step of a planner Plan (narrow-only: no invented sources)."""
 
     source_ids: list[str]
-    budget_knobs: dict[str, int]
+    budget_knobs: dict[str, dict[str, int]]
     acceptance_criteria: list[str]
 
 

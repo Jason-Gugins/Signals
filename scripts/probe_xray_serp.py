@@ -34,9 +34,16 @@ Writes: tmp/probe_xray_<engine>.html           first organic SERP body (Task 4 f
         tmp/probe_xray_<engine>_challenge.html first challenge/consent body (if any)
         tmp/probe_xray_<engine>_dead.html      first DEAD body (e.g. a JS-gate shell)
 Prints: compact verdict table (engine x transport) + per-host request counts.
+
+Escalation rung (Task 3b, rung 1 triggered the stop condition):
+  .venv/Scripts/python.exe scripts/probe_xray_serp.py --escalation
+  E1 headed-Patchright browser tier, E2 browser-cookie TLS replay,
+  E3 DDG posture variants. Budgets: <=6 page loads, <=8 added HTTP requests.
+  --lite-xcheck runs only the lite cross-check follow-up (no browser loads).
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -364,9 +371,345 @@ def run() -> None:
     print("samples:", sorted(p.name for p in TMP_DIR.glob("probe_xray_*.html")))
 
 
+# =============================================================================
+# ESCALATION RUNG (Task 3b, 2026-10-02)
+#   .venv/Scripts/python.exe scripts/probe_xray_serp.py --escalation
+#
+# Rung 1 triggered the plan's stop condition: no HTTP transport serves the
+# operator queries (google JS-gate shell on every transport; DDG 403/202 on
+# operator syntax). This rung tests the plan's named escalation ONLY —
+#   E1  browser tier: headed Patchright (the ghost posture; headless gets
+#       flagged per ghost.py), one load per engine, cookies harvested.
+#   E2  cookie-amortized replay: browser cookies -> CurlCffiFetcher.get(
+#       url, cookies=[{name, value}, ...]) — can one browser solve fund later
+#       cheap TLS fetches (the solve-and-bounce / RouteState amortization)?
+#   E3  DDG posture variants, no browser: lite.duckduckgo.com GET and
+#       html.duckduckgo.com POST form, Chrome/147 UA.
+# Budgets (hard): <=6 browser page loads, <=8 added HTTP requests. PACE_S
+# stays global (also between page loads). Never retry a hard block — one
+# retry per engine ONLY for a transient navigation error (a served block
+# never raises). Every body classified by markers/anchors, never by status;
+# google markers now include the rung-1 discovery /httpservice/retry/enablejs.
+# =============================================================================
+
+GOOGLE_HARD_MARKERS = GOOGLE_CHALLENGE_MARKERS
+GOOGLE_SOFT_MARKERS = ("/httpservice/retry/enablejs",)  # rung-1 JS-gate discovery
+# Bare "anomaly" is a substring -> soft tier for the escalation; the specific
+# DDG phrases stay hard (ddg_ids.py list minus the generic "anomaly" entry).
+DDG_HARD_MARKERS = ("unfortunately, bots use duckduckgo", "anomaly-detected", "captcha")
+DDG_SOFT_MARKERS = ("anomaly",)
+
+BROWSER_LOAD_BUDGET = 6  # goto calls across both engines
+HTTP_ESC_BUDGET = 8      # added HTTP requests (E2 replay + E3 posture)
+GOTO_TIMEOUT_MS = 40_000
+SETTLE_GOOGLE_S = 25.0   # give the JS gate time to resolve into results
+SETTLE_DDGS = 12.0       # html endpoint is server-rendered; short settle only
+
+_ESC = {"loads": 0, "http": 0, "per_host": {}}
+
+
+def _esc_count(url: str, kind: str) -> None:
+    """Escalation budget ledger ('load' = browser page load, 'http' = request)."""
+    _ESC["loads" if kind == "load" else "http"] += 1
+    key = f"{_host(url)} ({kind})"
+    _ESC["per_host"][key] = _ESC["per_host"].get(key, 0) + 1
+
+
+def esc_classify(text: str, engine: str) -> tuple[str, str]:
+    """Escalation classifier (body-validated).
+
+    >=3 external anchors = organic WORKS: challenge/block pages link only to
+    their own properties, which external_anchor_count filters out, so a block
+    page can never reach 3 — anchors are therefore trusted over the soft
+    JS-gate marker (whose href vanishes exactly when the gate resolves) and
+    any marker found alongside anchors is recorded as a caveat. With <3
+    anchors, hard markers decide CHALLENGE, then soft markers, else DEAD.
+    """
+    low = (text or "")[:SCAN_WINDOW].casefold()
+    hard = GOOGLE_HARD_MARKERS if engine == "google" else DDG_HARD_MARKERS
+    soft = GOOGLE_SOFT_MARKERS if engine == "google" else DDG_SOFT_MARKERS
+    anchors = external_anchor_count(text)
+    hit_hard = next((m for m in hard if m in low), None)
+    hit_soft = next((m for m in soft if m in low), None)
+    if anchors >= 3:
+        cav = f" [marker {hit_hard or hit_soft!r} also present]" if (hit_hard or hit_soft) else ""
+        return "WORKS", f"external_anchors={anchors}{cav}"
+    if hit_hard:
+        return "CHALLENGE", f"hard marker={hit_hard!r} external_anchors={anchors}"
+    if hit_soft:
+        return "CHALLENGE", f"soft marker={hit_soft!r} external_anchors={anchors}"
+    return "DEAD", f"external_anchors={anchors} (no marker)"
+
+
+def esc_browser_load(page, url: str, engine: str) -> tuple[str, str, str]:
+    """One goto + settle poll -> (html, klass, evidence). Raises on transient
+    errors. Poll watches the DOM resolve: organic anchors or a hard block end
+    it; a soft-only JS-gate shell keeps polling until the deadline."""
+    _esc_count(url, "load")
+    page.goto(url, wait_until="domcontentloaded", timeout=GOTO_TIMEOUT_MS)
+    deadline = time.monotonic() + (SETTLE_GOOGLE_S if engine == "google" else SETTLE_DDGS)
+    hard = GOOGLE_HARD_MARKERS if engine == "google" else DDG_HARD_MARKERS
+    while True:
+        html = page.content()
+        klass, ev = esc_classify(html, engine)
+        low = html[:SCAN_WINDOW].casefold()
+        if klass == "WORKS" or any(m in low for m in hard):
+            return html, klass, ev
+        if time.monotonic() >= deadline:
+            return html, klass, ev  # e.g. a JS-gate shell that never resolved
+        time.sleep(2.0)
+
+
+def esc_browser_rung(urls: dict[str, str]) -> dict[str, dict]:
+    """E1: headed Patchright, one load per engine (+1 retry per engine ONLY on
+    a transient navigation error). Closes the browser cleanly in finally."""
+    out = {e: {"klass": "SKIPPED", "evidence": "", "bytes": None, "loads": 0,
+               "cookies": [], "cookie_names": [], "html_path": None} for e in urls}
+    try:
+        from patchright.sync_api import sync_playwright
+    except ImportError as exc:
+        for e in out:
+            out[e].update(klass="ERROR", evidence=f"patchright not importable: {exc}")
+        return out
+
+    pw = sync_playwright().start()
+    browser = None
+    try:
+        try:
+            browser = pw.chromium.launch(
+                headless=False,  # FORCED HEADED — headless is flagged (ghost.py lesson)
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
+        except Exception:
+            browser = pw.chromium.launch(headless=False, channel="chrome")
+        context = browser.new_context(locale="en-US",
+                                      viewport={"width": 1440, "height": 900})
+        page = context.new_page()
+        for engine, url in urls.items():
+            host_key = "google.com" if engine == "google" else "duckduckgo.com"
+            cell = out[engine]
+            html, klass, ev = None, "ERROR", ""
+            loads0 = _ESC["loads"]
+            for attempt in (1, 2):
+                if _ESC["loads"] >= BROWSER_LOAD_BUDGET:
+                    break
+                pace()
+                try:
+                    html, klass, ev = esc_browser_load(page, url, engine)
+                    break
+                except Exception as exc:  # transient only — a block never raises
+                    klass, ev = "ERROR", f"nav error (attempt {attempt}): {str(exc)[:140]}"
+            cell.update(klass=klass, evidence=ev, loads=_ESC["loads"] - loads0,
+                        bytes=len(html.encode("utf-8", "replace")) if html else None)
+            if html is not None:
+                p = TMP_DIR / f"probe_xray_{engine}_browser.html"
+                p.write_text(html, encoding="utf-8")
+                cell["html_path"] = str(p)
+            try:
+                mine = [c for c in context.cookies()
+                        if host_key in (c.get("domain") or "").lower()]
+            except Exception:
+                mine = []
+            cell["cookies"] = mine
+            cell["cookie_names"] = sorted({c.get("name", "") for c in mine})
+            (TMP_DIR / f"probe_xray_{engine}_browser_cookies.json").write_text(
+                json.dumps([{k: c.get(k) for k in ("name", "value", "domain")}
+                            for c in mine], indent=2), encoding="utf-8")
+        try:
+            context.close()
+        except Exception:
+            pass
+    finally:
+        if browser is not None:
+            try:
+                browser.close()
+            except Exception:
+                pass
+        pw.stop()
+    return out
+
+
+def esc_cookie_replay(engine: str, url: str, browser_cookies: list[dict]) -> dict:
+    """E2: replay the SAME operator URL through the TLS tier with the
+    browser-harvested cookies (host-filtered, name+value only)."""
+    host_key = "google.com" if engine == "google" else "duckduckgo.com"
+    mine = [{"name": c["name"], "value": c["value"]} for c in browser_cookies or []
+            if host_key in (c.get("domain") or "").lower() and c.get("name")]
+    cell = {"klass": "SKIPPED", "evidence": "", "status": None, "bytes": None,
+            "cookie_names": sorted({c["name"] for c in mine})}
+    if not mine:
+        cell["evidence"] = "no host cookies harvested in E1"
+        return cell
+    if _ESC["http"] >= HTTP_ESC_BUDGET:
+        cell["evidence"] = "escalation HTTP budget exhausted"
+        return cell
+    from src.core.curl_fetcher import CurlCffiFetcher
+    pace()
+    _esc_count(url, "http")
+    try:
+        r = CurlCffiFetcher(user_agent=CHROME_UA).get(url, cookies=mine)
+    except Exception as exc:
+        cell.update(klass="ERROR", evidence=f"replay error: {str(exc)[:140]}")
+        return cell
+    body = r.body or b""
+    (TMP_DIR / f"probe_xray_{engine}_replay.html").write_bytes(body)
+    klass, ev = esc_classify(body.decode("utf-8", "replace"), engine)
+    cell.update(status=int(r.status), bytes=len(body), klass=klass,
+                evidence=f"{ev} | replayed: {', '.join(cell['cookie_names'])}")
+    return cell
+
+
+def _lite_get(qid: str, query: str) -> dict:
+    """One paced GET on lite.duckduckgo.com/lite/ (curl_cffi, Chrome/147)."""
+    cell = {"klass": "SKIPPED", "evidence": "", "status": None, "bytes": None}
+    if _ESC["http"] >= HTTP_ESC_BUDGET:
+        cell["evidence"] = "escalation HTTP budget exhausted"
+        return cell
+    from src.core.curl_fetcher import CurlCffiFetcher
+    url = f"https://lite.duckduckgo.com/lite/?q={quote_plus(query)}"
+    pace()
+    _esc_count(url, "http")
+    try:
+        r = CurlCffiFetcher(user_agent=CHROME_UA).get(url)
+    except Exception as exc:
+        cell.update(klass="ERROR", evidence=f"error: {str(exc)[:140]}")
+        return cell
+    body = r.body or b""
+    (TMP_DIR / f"probe_xray_ddg_lite_{qid}.html").write_bytes(body)
+    klass, ev = esc_classify(body.decode("utf-8", "replace"), "ddg")
+    cell.update(status=int(r.status), bytes=len(body), klass=klass, evidence=ev)
+    return cell
+
+
+def esc_posture_rung(q1: str) -> dict[str, dict]:
+    """E3: cheap DDG posture variants for the operator query, no browser."""
+    out: dict[str, dict] = {}
+    # (a) lite endpoint, GET
+    out["ddg_lite_get"] = _lite_get("q1", q1)
+    # (b) html endpoint, POST form body
+    cell = {"klass": "SKIPPED", "evidence": "", "status": None, "bytes": None}
+    if _ESC["http"] < HTTP_ESC_BUDGET:
+        pace()
+        _esc_count("https://html.duckduckgo.com/html/", "http")
+        try:
+            from curl_cffi import requests as curl_requests
+            r = curl_requests.post("https://html.duckduckgo.com/html/",
+                                   data={"q": q1}, impersonate="chrome",
+                                   headers={"User-Agent": CHROME_UA}, timeout=30)
+            body = r.content or b""
+            (TMP_DIR / "probe_xray_ddg_post.html").write_bytes(body)
+            klass, ev = esc_classify(body.decode("utf-8", "replace"), "ddg")
+            cell.update(status=int(r.status_code), bytes=len(body), klass=klass, evidence=ev)
+        except Exception as exc:
+            cell.update(klass="ERROR", evidence=f"error: {str(exc)[:140]}")
+    else:
+        cell["evidence"] = "escalation HTTP budget exhausted"
+    out["ddg_html_post"] = cell
+    return out
+
+
+LITE_XCHECK_DEFAULT = (  # (qid, query): rung-1 failure shapes + controls on lite
+    ("q5", QUERIES[4]),                 # intitle: shape  (html-endpoint 403 shape)
+    ("q3", QUERIES[2]),                 # quote-pair      (html-endpoint 202 shape)
+    ("q2", QUERIES[1]),                 # site: family sibling of q1
+    ("ctrl_plain", "stripe official website"),  # shape-gate vs velocity-gate probe
+)
+
+
+def esc_lite_crosscheck(specs=None) -> list[tuple[str, dict]]:
+    """Follow-up to a GO on lite: which query shapes does lite actually serve?
+    Paced GETs, no browser; NEVER re-requests a challenge already observed."""
+    chosen = list(specs) if specs else list(LITE_XCHECK_DEFAULT)
+    return [(qid, _lite_get(qid, query)) for qid, query in chosen]
+
+
+def run_lite_xcheck(only: list[str] | None = None) -> None:
+    """Standalone follow-up (--lite-xcheck [qid ...]): lite cross-check cells
+    only, for use after an --escalation run that already spent its budget."""
+    TMP_DIR.mkdir(exist_ok=True)
+    specs = None
+    if only:
+        valid = {qid for qid, _ in LITE_XCHECK_DEFAULT}
+        bad = [q for q in only if q not in valid]
+        if bad:
+            raise SystemExit(f"unknown lite xcheck ids: {bad}; valid: {sorted(valid)}")
+        specs = [(qid, q) for qid, q in LITE_XCHECK_DEFAULT if qid in only]
+    print("=== X-RAY SERP PROBE — LITE CROSS-CHECK (Task 3b follow-up) ===")
+    rows = esc_lite_crosscheck(specs)
+    for qid, c in rows:
+        print(f"  lite {qid}: status={str(c.get('status') or '-'):5} "
+              f"bytes={str(c.get('bytes') if c.get('bytes') is not None else '-'):8} "
+              f"{c['klass']:10} {c['evidence']}")
+    print(f"budget: page_loads={_ESC['loads']}/{BROWSER_LOAD_BUDGET}  "
+          f"http={_ESC['http']}/{HTTP_ESC_BUDGET}")
+    for k, n in sorted(_ESC["per_host"].items()):
+        print(f"  {k}: {n}")
+
+
+def run_escalation() -> None:
+    """Task 3b escalation rung: E1 browser tier -> E2 cookie replay -> E3 posture."""
+    TMP_DIR.mkdir(exist_ok=True)
+    q1 = QUERIES[0]
+    urls = {e: ENGINE_URLS[e].format(q=quote_plus(q1)) for e in ("google", "ddg")}
+    print("=== X-RAY SERP PROBE — ESCALATION RUNG (Task 3b, 2026-10-02) ===")
+    print(f"probe query (rung-1 q1): {q1!r}\n")
+
+    print("[E1] headed browser tier (patchright, headless=False) ...")
+    browser_cells = esc_browser_rung(urls)
+    print("[E2] cookie-amortized TLS replay (CurlCffiFetcher + browser cookies) ...")
+    replay_cells = {e: esc_cookie_replay(e, urls[e], browser_cells[e]["cookies"])
+                    for e in ("google", "ddg")}
+    print("[E3] DDG posture variants (no browser) ...")
+    posture_cells = esc_posture_rung(q1)
+    cross_cells: list[tuple[str, dict]] = []
+    if posture_cells["ddg_lite_get"]["klass"] == "WORKS":
+        print("[E3+] lite GO cross-check (q5 intitle shape, q3 quote-pair shape) ...")
+        cross_cells = esc_lite_crosscheck()
+
+    def row(label: str, c: dict) -> str:
+        return (f"  {label:26} status={str(c.get('status') or '-'):5} "
+                f"bytes={str(c.get('bytes') if c.get('bytes') is not None else '-'):8} "
+                f"{c['klass']:10} {c['evidence']}")
+
+    print("\n--- escalation verdict table (body-validated) ---")
+    for e in ("google", "ddg"):
+        c = browser_cells[e]
+        print(f"  {'E1 browser ' + e:26} loads={c['loads']} "
+              f"bytes={str(c['bytes'] if c['bytes'] is not None else '-'):8} "
+              f"{c['klass']:10} {c['evidence']}")
+        if c["cookie_names"]:
+            print(f"  {'':26} cookies: {', '.join(c['cookie_names'])}")
+    for e in ("google", "ddg"):
+        print(row(f"E2 replay {e}", replay_cells[e]))
+    for label, c in posture_cells.items():
+        print(row(f"E3 {label}", c))
+    for qid, c in cross_cells:
+        print(row(f"E3+ lite {qid}", c))
+
+    winners = ([f"E1/{e}" for e in ("google", "ddg") if browser_cells[e]["klass"] == "WORKS"]
+               + [f"E2/{e}" for e in ("google", "ddg") if replay_cells[e]["klass"] == "WORKS"]
+               + [f"E3/{lbl.split('_')[-1]}" for lbl, c in posture_cells.items()
+                  if c["klass"] == "WORKS"]
+               + [f"E3+/{qid}" for qid, c in cross_cells if c["klass"] == "WORKS"])
+    print(f"\nORGANIC PATHS: {winners if winners else 'NONE — no escalation path served an operator SERP'}")
+    print(f"budget: page_loads={_ESC['loads']}/{BROWSER_LOAD_BUDGET}  "
+          f"http={_ESC['http']}/{HTTP_ESC_BUDGET}")
+    for k, n in sorted(_ESC["per_host"].items()):
+        print(f"  {k}: {n}")
+    print("samples:", sorted(p.name for p in TMP_DIR.glob("probe_xray_*_browser*"))
+          + sorted(p.name for p in TMP_DIR.glob("probe_xray_*_replay.html"))
+          + sorted(p.name for p in TMP_DIR.glob("probe_xray_ddg_lite*.html"))
+          + sorted(p.name for p in TMP_DIR.glob("probe_xray_ddg_post.html")))
+
+
 if __name__ == "__main__":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    run()
+    if "--escalation" in sys.argv[1:]:
+        run_escalation()
+    elif "--lite-xcheck" in sys.argv[1:]:
+        idx = sys.argv.index("--lite-xcheck")
+        run_lite_xcheck(sys.argv[idx + 1:] or None)
+    else:
+        run()

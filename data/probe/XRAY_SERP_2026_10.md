@@ -5,6 +5,58 @@
 **UAs:** plain httpx tier carries the honest repo UA (`SignalsResearchBot/0.1 (+contact: …)` from `SIGNALS_CONTACT_EMAIL`, `probe_wikidata_resolve.py` precedent); curl_cffi tier carries the production Chrome/147 UA (the exact factory `src/identity/ddg_ids.py:_default_fetcher` uses); `SignalsTransport` keeps its own Chrome/151 default posture.
 **Run:** 15 requests total (budget 24), every consecutive pair ≥4 s apart, zero flake retries. **Verdict: STOP CONDITION TRIGGERED — no transport retrieves the five operator-query SERPs keylessly from this machine.**
 
+## Escalation rung (Task 3b, 2026-10-02)
+
+Same day, same machine, same script (`scripts/probe_xray_serp.py --escalation`, follow-ups via `--lite-xcheck [qid …]`). The plan's named escalation (browser tier / solve-and-bounce) plus two cheap variants, per the plan Task 3 "Expected outcomes" line. Escalation budgets held: **2 of 6 browser page loads, 7 of 8 added HTTP requests** (the per-invocation budget ledger resets between script runs; totals below are the true cross-invocation sum). Every consecutive request within a run ≥4 s apart; between script invocations the gap was operator-paced (minutes). **No hard block ever retried**; every body classified by markers/anchors, never status. One classifier change for this rung: ≥3 external anchors is trusted as organic FIRST (block pages link only to their own properties, which the anchor counter filters out), so the soft `/httpservice/retry/enablejs` marker cannot mask a page whose gate has resolved; hard markers (`/sorry/`, `unusual traffic`, `g-recaptcha`, `recaptcha`, `consent.google.com`, `unfortunately, bots use duckduckgo`, `anomaly-detected`, `captcha`) still win whenever anchors are below 3.
+
+### Escalation matrix (engine × path; body-validated)
+
+| Engine | Path | Verdict | Evidence |
+|---|---|---|---|
+| google | E1 headed Patchright browser (`headless=False` per ghost.py; real JS execution, 25 s DOM settle) | **BLOCK** | 751 KB DOM, title = query, **zero result anchors after 25 s of executed JS**. This is the modern JS-gate: a full app shell (search-box UI rendered) whose `<noscript>` fallback meta-refreshes to `/httpservice/retry/enablejs`; its own inline JS watches responses for `X-Sorry-Redirect` / `/sorry/index` (present as JS strings only — no /sorry/ or captcha body ever served). |
+| google | E2 cookie-amortized replay (browser cookies AEC, DV, NID, SEARCH_SAMESITE, __Secure-STRP → `CurlCffiFetcher.get(url, cookies=…)`, Chrome/147) | **BLOCK** | 200, 499 KB — the same JS-gate app shell, 0 anchors. |
+| ddg | E1 headed browser on `html.duckduckgo.com/html/` (operator q1) | **DEAD** | the 273 B error-lite body — the html endpoint rejects operator queries even for a **genuine headed Chromium**. Client fingerprint is irrelevant; the query shape is filtered endpoint-side. No cookies set (nothing to replay). |
+| ddg | E2 cookie replay | SKIPPED | no DDG cookies harvested in E1. |
+| ddg | E3 POST form on html endpoint (`q=<operator q1>`, curl_cffi) | **DEAD** | 403, 236 B error-lite. |
+| ddg | E3 GET `lite.duckduckgo.com/lite/?q=<operator q1>` (curl_cffi, Chrome/147) | **WORKS** | 200, 15 KB, 4 organic result anchors — real on-target profiles (below). |
+| ddg | E3+ lite cross-check — q2 (`site:` family), q5 (`intitle:`), q3 (quote-pair) | **CHALLENGE** | 202 anomaly body ("Unfortunately, bots use DuckDuckGo too") on all three, minutes apart. |
+| ddg | E3+ lite plain control (`stripe official website`) | **WORKS** | 200, 22 KB, 10 organic anchors — passed AFTER two 202s, so the gate is not a session-wide velocity wall. |
+
+The four organic q1 results (`tmp/probe_xray_ddg_lite_q1.html`, wrapped `//duckduckgo.com/l/?uddg=`, `result-link` class): *Austin Heaton — Head of Growth | GTM Engineer*, *Austin Grant — Head of Growth @ Chexy*, *Austin Holdsworth — Head of Growth Marketing*, *Tim Austin — Head of Growth @ Embryo* — exactly the `site:linkedin.com/in "head of growth" "Austin"` target.
+
+### What the escalation proved
+
+1. **Google is closed on this machine — browser tier included.** The headed Patchright browser (the repo's G2-proven bypass posture) received the same gate. The rung-1 93 KB shell has a bigger sibling: a query-titled ~500–750 KB app shell carrying result data as inline JS that never renders anchors. `/httpservice/retry/enablejs` remains the only stable block marker; `/sorry/`, captcha and consent bodies were never served on any path.
+2. **The browser-solve amortization story is disproven for google.** Replaying the exact query with the browser's own cookies through the TLS tier returns the same anchor-less shell. There is no "browser solve per window, TLS replay between" for google.
+3. **DDG html endpoint is operator-hostile client-agnostically** (real headed browser gets error-lite too); POST form does not help. Keep operator queries off `html.duckduckgo.com` entirely.
+4. **DDG lite CAN serve operator-query SERPs keylessly** — the first organic operator body captured from this machine — but **unreliably: 1 of 4 operator queries passed in the observed window** (q1 GO; q2/q5/q3 202-challenged), while plain queries pass consistently (2/2 across rungs). The lite anomaly wall is stochastic on operator syntax — not endpoint-wide, not velocity-based (plain passed after two 202s).
+
+### FINAL VERDICT (supersedes rung 1's stop condition)
+
+- `XRAY_DEFAULT_ENGINE`: **ddg** — default transport path: **curl_cffi chrome-TLS (Chrome/147 UA), GET `https://lite.duckduckgo.com/lite/?q=…`**. Pure TLS tier; no browser solve needed, so no amortization story is required for the default path (and the google amortization story is disproven anyway).
+- **Reliability caveat, recorded not softened:** lite passed 1/4 operator queries in-window. The runner must body-validate every response, treat the 202 anomaly as challenge (explicit ledger row, never a retry within a run), and expect some operator shapes to fail per run. The per-string ledger (plan Task 6) is the instrument that measures lite's real pass rate over time before any cadence talk.
+- Task 4 fixtures: `ddg_serp.html` comes from **`tmp/probe_xray_ddg_lite_q1.html`** — NOTE the lite markup differs from the html endpoint (`result-link` class, `//duckduckgo.com/l/?uddg=` wrap; the parser must unwrap `uddg` and must not assume `result__a`). **`google_serp.html` still cannot be captured** — no organic google body exists from this machine on any path including the browser tier; the only google bodies are JS-gate shells (`tmp/probe_xray_google.html`, `tmp/probe_xray_google_browser.html`, `tmp/probe_xray_google_replay.html`). Task 4's google parser can only be fixture-tested against the challenge shape.
+- If lite's live pass rate proves too low at Task 10's smoke run, that is a new probe decision for Jason (reputation/proxy work is out of scope for this build).
+
+### Escalation samples (tmp/, gitignored)
+
+- `tmp/probe_xray_google_browser.html` (751 KB JS-gate app shell, headed browser, 0 anchors) + `tmp/probe_xray_google_browser_cookies.json` (AEC, DV, NID, SEARCH_SAMESITE, __Secure-STRP @ .google.com)
+- `tmp/probe_xray_ddg_browser.html` (273 B error-lite, headed browser) + `tmp/probe_xray_ddg_browser_cookies.json` (empty)
+- `tmp/probe_xray_google_replay.html` (cookie-amortized replay — same JS-gate shell, 499 KB, 0 anchors)
+- `tmp/probe_xray_ddg_lite_q1.html` — **the organic operator SERP (GO evidence; Task 4 fixture source)**
+- `tmp/probe_xray_ddg_lite_{q2,q5,q3}.html` — 202 anomaly bodies; `tmp/probe_xray_ddg_lite_ctrl_plain.html` — plain control organic (10 anchors)
+- `tmp/probe_xray_ddg_post.html` — html endpoint POST form: 403 error-lite
+
+### Escalation budget disclosure
+
+| Host | browser loads | HTTP requests | total |
+|---|---|---|---|
+| www.google.com | 1 | 1 (cookie replay) | 2 |
+| html.duckduckgo.com | 1 | 1 (POST form) | 2 |
+| lite.duckduckgo.com | — | 5 (q1, q5, q3, q2, plain ctrl) | 5 |
+
+Escalation totals: **2/6 page loads, 7/8 HTTP**. No challenge body was ever re-requested — zero requests in the whole record were retries.
+
 ## Verdict matrix (body-validated, never status-validated)
 
 | Engine | Transport | Verdict | Evidence (probe query 1 of 5) |

@@ -84,6 +84,22 @@ def _bound(text) -> str:
     return str(text)[:EVIDENCE_TEXT_LIMIT]
 
 
+def _bound_value(value):
+    """Recursively bounded copy for STRUCTURED evidence detail (the decide
+    layer's aggregate dicts). Strings are capped to
+    :data:`EVIDENCE_TEXT_LIMIT`, other scalars ride through unchanged, so the
+    audit counts stay machine-readable instead of being flattened to a
+    truncated JSON string. String/None details keep the plain ``_bound``
+    behavior byte-for-byte."""
+    if isinstance(value, str):
+        return value[:EVIDENCE_TEXT_LIMIT]
+    if isinstance(value, dict):
+        return {k: _bound_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_bound_value(v) for v in value]
+    return value
+
+
 def _age_days(observed_at, today: date):
     """Whole days since an observation, clamped at 0; ``None`` if unparseable.
 
@@ -167,6 +183,8 @@ def build_dossier(
     max_signals=None,
     generated_at=None,
     invocation_id=None,
+    decide_records=None,
+    decide_meta=None,
 ) -> dict:
     """Build the JSON-serialisable dossier for ``snapshot``.
 
@@ -175,6 +193,15 @@ def build_dossier(
     (default: all); the highest-confidence signals are kept, the needs and
     demands lists stay complete, and the number omitted is recorded in
     ``signals.counts.active_omitted`` so the cap is never silent.
+
+    Decide layer (Task 7): ``decide_records`` is a list of
+    ``{"gate", "detail"}`` items — one ledger aggregate per gate boundary —
+    rendered as ``kind: "jev_decision"`` evidence records with a synthetic
+    ``decide-<invocation>-<gate>`` signal id, and also listed under the
+    dossier's ``decide_records`` key. ``decide_meta`` carries the run's final
+    decide mode, the degradation flag and the per-gate shadow appendix.
+    When both are None/empty the dossier keys are ABSENT (byte-identical to
+    the pre-layer package).
     """
     today = snapshot.today
     account = snapshot.account
@@ -200,7 +227,7 @@ def build_dossier(
             "evidence_id": evidence_id,
             "kind": kind,
             "signal_id": signal_id,
-            "detail": _bound(detail),
+            "detail": _bound_value(detail) if isinstance(detail, dict) else _bound(detail),
             "url": url,
             "source": source,
             "observed_at": observed_at,
@@ -402,7 +429,7 @@ def build_dossier(
         coverage_rows = list(coverage or [])
         summary = coverage_summary(coverage_rows)
 
-    return {
+    dossier = {
         "kind": KIND,
         "schema_version": SCHEMA_VERSION,
         "domain": domain,
@@ -429,6 +456,29 @@ def build_dossier(
         # self-contained (write_intel_package receives only the dossier).
         "evidence": evidence,
     }
+
+    # Decide layer (Task 7): one aggregate evidence record per gate boundary
+    # plus the run-level mode/degradation/appendix. When nothing was handed in
+    # the keys stay ABSENT so the off-path dossier is byte-identical.
+    if decide_records:
+        records = []
+        for item in decide_records:
+            gate = str((item or {}).get("gate") or "unknown")
+            add_evidence(
+                kind="jev_decision",
+                signal_id=f"decide-{invocation_id}-{gate}",
+                detail=(item or {}).get("detail"),
+                url=None,
+                source="decide",
+            )
+            records.append(dict(evidence[-1]))
+        dossier["decide_records"] = records
+        dossier["evidence_count"] = len(evidence)  # the decide records count too
+    if decide_meta:
+        dossier["decide_degraded"] = bool(decide_meta.get("degraded", False))
+        dossier["decide_mode"] = decide_meta.get("mode")
+        dossier["decide_shadow_appendix"] = dict(decide_meta.get("shadow_appendix") or {})
+    return dossier
 
 
 def render_markdown(dossier: dict) -> str:
@@ -646,7 +696,7 @@ def _slug(value: str) -> str:
     return "".join(safe).strip("-") or "unknown"
 
 
-def write_intel_package(dossier: dict, *, out_dir) -> dict:
+def write_intel_package(dossier: dict, *, out_dir, decide_rows: list | None = None) -> dict:
     """Write the package into a fresh subdirectory of ``out_dir``.
 
     Writes ``manifest.json``, ``dossier.json``, ``dossier.md``,
@@ -654,6 +704,14 @@ def write_intel_package(dossier: dict, *, out_dir) -> dict:
     directory name carries the domain, a UTC timestamp and the invocation id,
     and is uniquified so two same-stamp writes never collide. Returns a dict of
     the written paths, including ``package_dir``.
+
+    Decide layer (Task 7): ``decide_rows`` is the run's full decision ledger;
+    when non-empty it is written as ``decisions.jsonl`` (one JSON object per
+    row) beside the package, and the manifest carries the decide posture
+    (``decide_degraded`` only when true, ``decide`` with the mode and the
+    shadow appendix only when the dossier carries decide keys). With
+    ``decide_rows`` None NOTHING changes (byte-identical to the pre-layer
+    writer).
 
     ``invocation_id`` is read from the dossier; the coordinator
     (``src.pipeline.intel.run_intel``) always supplies one. The
@@ -693,6 +751,18 @@ def write_intel_package(dossier: dict, *, out_dir) -> dict:
         },
     }
 
+    # Decide layer (Task 7): the manifest must make a degraded or gated run
+    # distinguishable from a plain deterministic one (invariant 3). These keys
+    # appear ONLY when the dossier carries decide state — otherwise the
+    # manifest is byte-identical to the pre-layer writer.
+    if dossier.get("decide_degraded"):
+        manifest["decide_degraded"] = True
+    if "decide_mode" in dossier or "decide_records" in dossier:
+        manifest["decide"] = {
+            "mode": dossier.get("decide_mode"),
+            "shadow_appendix": dossier.get("decide_shadow_appendix") or {},
+        }
+
     paths: dict[str, str] = {"package_dir": str(package_dir)}
 
     manifest_path = package_dir / "manifest.json"
@@ -717,6 +787,19 @@ def write_intel_package(dossier: dict, *, out_dir) -> dict:
         "\n".join(lines) + ("\n" if lines else ""), encoding="utf-8", newline="\n"
     )
     paths["evidence_jsonl"] = str(evidence_path)
+
+    if decide_rows:
+        # The full per-run decision ledger (invariant 4: every decision is
+        # recorded — accepted, shadow, or degraded). One JSON object per row,
+        # the same shape DecideLedger.write uses.
+        decisions_path = package_dir / "decisions.jsonl"
+        row_lines = [
+            json.dumps(row, ensure_ascii=False, default=str) for row in decide_rows
+        ]
+        decisions_path.write_text(
+            "\n".join(row_lines) + "\n", encoding="utf-8", newline="\n"
+        )
+        paths["decisions"] = str(decisions_path)
 
     prompt_path = package_dir / "prompt.md"
     prompt_path.write_text(render_prompt(dossier), encoding="utf-8", newline="\n")

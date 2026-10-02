@@ -25,21 +25,35 @@ collection planning call with ``dry_run=True``.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from loguru import logger
 
 from src.core.models import Account
+from src.decide import gates as decide_gates
+from src.decide import policy as decide_policy
+from src.decide.gates import DecideLedger
+from src.decide.jev import DATA_EXIT_CONSENT, NullDecider, get_decider
 from src.export.intel_package import build_dossier, write_intel_package
 from src.intel.coverage import build_coverage
 from src.intel.market import load_market_profile
+from src.llm import implement as llm_implement
+from src.llm import planner as llm_planner
 from src.pipeline.sweep import parse_target
+from src.signals.normalize import normalize_batch
+from src.sources.registry import enabled_sources, sources_for_account
+from src.core.textutil import truncate
 
 __all__ = [
     "STAGES",
     "MARKETPLACE_SOURCE_KEYS",
     "LOCAL_DERIVED_SOURCES",
+    "MAX_IMPLEMENT_DOCS",
     "run_intel",
 ]
 
@@ -74,6 +88,357 @@ _UNRUN_STATUSES = ("opt_in", "disabled_by_config", "backed_off", "missing_requir
 
 _MARKETPLACES_FLAG = "--with-marketplaces"
 _LINKEDIN_FLAG = "--with-linkedin-resolve"
+
+
+# --- decide layer (Task 7) constants -------------------------------------------
+#
+# The layer is OFF by default: with ``--with-llm`` absent (or the resolved
+# decide mode "off") the only side effect below is the ONE decide.yaml config
+# load, and the flow is byte-identical to the pre-layer coordinator.
+
+#: At most this many most-recent stored documents (by fetched_at) feed the
+#: implement sub-stage per run.
+MAX_IMPLEMENT_DOCS = 200
+
+#: ICP excerpt cap (chars) handed to the planner and to G1.
+_ICP_EXCERPT_CHARS = 1200
+
+#: Upper-bound token cap for ONE document's contribution to the pre-flight
+#: projection. The G4 anchor state is head (~100 tokens) + anchor window
+#: (~600); 2400 leaves generous headroom and keeps the projection an
+#: UPPER-BOUND proxy, never an exact count.
+_TOKEN_CAP_PER_DOC = 2400
+
+#: Flat per-gate allowances for the pre-flight projection: G1 (one batched
+#: call over the plan steps), G2 (one posture call), G5 (one call per
+#: candidate, bounded by the claim cap). Flat, conservative, documented.
+_G1_TOKEN_ALLOWANCE = 700
+_G2_TOKEN_ALLOWANCE = 700
+_G5_TOKEN_ALLOWANCE = 700
+
+#: Whole-run decide-token ceiling default (config/decide.yaml
+#: ``decider.max_decide_tokens_per_run``).
+_DEFAULT_MAX_DECIDE_TOKENS = 400000
+
+
+def _load_decide_cfg(cfg) -> dict:
+    """``config/decide.yaml``, or ``{}`` when absent.
+
+    This is the ONE config load the off path makes. A file that exists but
+    cannot be parsed degrades to ``{}`` (mode off, deterministic run) with a
+    warning — the layer can never crash the run.
+    """
+    try:
+        return cfg.load_yaml("decide") or {}
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        logger.warning("decide layer: config/decide.yaml unreadable ({}); treating as off", exc)
+        return {}
+
+
+def _gate_cfg(decide_cfg: dict, name: str) -> dict:
+    """The ``decider.gates.<name>`` block of config/decide.yaml (``{}`` when
+    absent — every gate then uses its documented defaults)."""
+    decider_cfg = (decide_cfg or {}).get("decider") or {}
+    gates = decider_cfg.get("gates") or {}
+    block = gates.get(name)
+    return dict(block) if isinstance(block, dict) else {}
+
+
+def _identity_state(domain: str, account, profile_id: str) -> dict:
+    """The identity fields the planner's snapshot hash and ICP excerpt cover."""
+    return {
+        "domain": domain,
+        "name": getattr(account, "name", None),
+        "ats_vendor": getattr(account, "ats_vendor", None),
+        "careers_url": getattr(account, "careers_url", None),
+        "cik": getattr(account, "cik", None),
+        "feed_url": getattr(account, "blog_feed_url", None),
+        "icp_fit": getattr(account, "icp_fit", None),
+        "profile_id": profile_id,
+    }
+
+
+def _utc_now_iso() -> str:
+    """Mirror of orchestrator ``_now()``: aware-UTC ISO, no microseconds.
+
+    Duplicated (not imported) so the intel wiring never imports the
+    orchestrator module — the same "now" convention, no new coupling.
+    """
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _shadow_appendix(rows: list[dict]) -> dict:
+    """Per-gate agreement appendix computed from ledger rows: the fraction of
+    judged rows that agreed plus the agree_direction histogram (invariant 5:
+    agreement rate alone conflates added strictness with added recall loss)."""
+    by_gate: dict[str, list[dict]] = {}
+    for row in rows or ():
+        by_gate.setdefault(str(row.get("gate")), []).append(row)
+    appendix: dict[str, dict] = {}
+    for gate, gate_rows in by_gate.items():
+        judged = [r for r in gate_rows if r.get("agree") is not None]
+        directions: dict[str, int] = {}
+        for r in gate_rows:
+            direction = r.get("agree_direction")
+            if direction:
+                directions[direction] = directions.get(direction, 0) + 1
+        appendix[gate] = {
+            "agree_rate": (
+                sum(1 for r in judged if r.get("agree")) / len(judged)
+            )
+            if judged
+            else None,
+            "agree_directions": dict(sorted(directions.items())),
+        }
+    return appendix
+
+
+def _implement_pass(
+    *,
+    orc,
+    account,
+    domain: str,
+    decider,
+    decide_cfg: dict,
+    ledger,
+    run_id: str,
+    mode: str,
+) -> dict:
+    """The implement sub-stage body: G3 routing, bulk claim extraction, G4
+    citation gating, five G4-gated dossier fields, G5-gated promotion.
+
+    Returns ``{"docs", "claims_accepted", "promoted", "llm_fields",
+    "degraded", "projected_tokens", "token_ceiling", "gaps"}``. NEVER raises
+    past the caller's try/except; degradation is expressed by return value,
+    never by aborting the run.
+    """
+    result: dict = {
+        "docs": 0,
+        "claims_accepted": 0,
+        "promoted": 0,
+        "llm_fields": {},
+        "degraded": False,
+        "projected_tokens": 0,
+        "token_ceiling": 0,
+        "gaps": [],
+    }
+    raw_store = orc.raw
+    taxonomy = getattr(orc, "taxonomy", None)
+    signal_store = getattr(orc, "signal_store", None)
+    if taxonomy is None or signal_store is None:
+        result["gaps"].append(
+            "llm promotion unavailable (no taxonomy or signal store in scope); "
+            "gated claims stay recorded but are never promoted"
+        )
+
+    impl_cfg = decide_cfg.get("implementers") or {}
+    bulk_cfg = impl_cfg.get("bulk") or {}
+    reasoning_cfg = impl_cfg.get("reasoning") or {}
+    bulk_model = str(bulk_cfg.get("model") or "")
+    bulk_base_url = str(bulk_cfg.get("base_url") or "")
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    try:
+        bulk_timeout = float(bulk_cfg.get("timeout_s", 60.0))
+    except (TypeError, ValueError):
+        bulk_timeout = 60.0
+
+    # Load the stored docs BEFORE any Jev/LLM call in this sub-stage: the
+    # token pre-flight needs them. Most recent MAX_IMPLEMENT_DOCS by
+    # fetched_at (RawStore orders ascending, so keep the tail); bodies are
+    # decoded once, empty bodies skipped — a document with no text cannot
+    # support a claim.
+    docs: list[tuple[object, str]] = []
+    for doc in raw_store.iter_docs(domain=domain):
+        text = (getattr(doc, "body", None) or b"").decode("utf-8", errors="replace")
+        if not text.strip():
+            continue
+        docs.append((doc, text))
+    docs.sort(key=lambda pair: str(getattr(pair[0], "fetched_at", "") or ""))
+    docs = docs[-MAX_IMPLEMENT_DOCS:]
+    result["docs"] = len(docs)
+
+    # Token pre-flight (an upper-bound proxy, documented above): every stored
+    # document's gate state capped at _TOKEN_CAP_PER_DOC plus flat G1/G2/G5
+    # allowances. Over the ceiling the WHOLE RUN degrades to shadow — never a
+    # mid-run abort (a partially-gated dossier is not comparable to anything).
+    # NOTE the ordering: the plan sub-stage's G1 spend (bounded by
+    # max_plan_steps) has already happened by the time this projection runs,
+    # so the ceiling binds everything from here on; the degradation flag makes
+    # that visible in the artifact (invariant 3).
+    projected = sum(
+        min(decide_gates.estimate_tokens(text), _TOKEN_CAP_PER_DOC) for _doc, text in docs
+    )
+    projected += _G1_TOKEN_ALLOWANCE + _G2_TOKEN_ALLOWANCE + _G5_TOKEN_ALLOWANCE
+    decider_cfg = decide_cfg.get("decider") or {}
+    try:
+        ceiling = int(decider_cfg.get("max_decide_tokens_per_run", _DEFAULT_MAX_DECIDE_TOKENS))
+    except (TypeError, ValueError):
+        ceiling = _DEFAULT_MAX_DECIDE_TOKENS
+    result["projected_tokens"] = projected
+    result["token_ceiling"] = ceiling
+    if projected > ceiling:
+        result["degraded"] = True
+        mode = "shadow"  # from here on the layer is shadow-only
+        result["gaps"].append(
+            f"decide token budget exceeded ({projected} > {ceiling}); "
+            "degraded to shadow for the whole run"
+        )
+
+    if not docs:
+        return result
+    if not bulk_model:
+        result["gaps"].append("llm implementers unavailable (no bulk model configured)")
+        return result
+
+    doc_specs = [
+        {
+            "doc_id": getattr(doc, "doc_id", ""),
+            "text": text,
+            "fetched_at": getattr(doc, "fetched_at", None),
+        }
+        for doc, text in docs
+    ]
+
+    def _per_doc(spec: dict) -> list:
+        route = decide_gates.gate_routing(
+            decide_gates.estimate_tokens(spec["text"]),
+            decider,
+            _gate_cfg(decide_cfg, "routing"),
+            ledger,
+            run_id,
+            mode,
+        )
+        raw = llm_implement.call_implementer(
+            llm_implement.build_extraction_messages(spec["doc_id"], spec["text"], route=route),
+            model=bulk_model,
+            base_url=bulk_base_url,
+            api_key=api_key,
+            timeout_s=bulk_timeout,
+        )
+        claims = llm_implement.parse_claims(raw, batch_doc_id=spec["doc_id"])
+        return llm_implement.screen_and_gate_claims(
+            claims,
+            batch_doc_id=spec["doc_id"],
+            doc_text=spec["text"],
+            decider=decider,
+            gates_cfg=_gate_cfg(decide_cfg, "citation_soundness"),
+            ledger=ledger,
+            run_id=run_id,
+            mode=mode,
+        )
+
+    # SERIAL in v1 (the shared llm_implement contract): the loop stays on the
+    # caller's thread so the gates and the token budget do too.
+    per_doc_pairs = llm_implement.implement_batch(doc_specs, per_doc=_per_doc)
+
+    promotable = []
+    for spec, pairs in zip(doc_specs, per_doc_pairs):
+        result["claims_accepted"] += len(pairs)
+        candidates = llm_implement.claims_to_candidates(
+            pairs,
+            domain=domain,
+            fetched_at=spec["fetched_at"],
+            model=bulk_model,
+        )
+        for cand in candidates:
+            promote, prob, _decision = decide_gates.gate_need_promotion(
+                cand.summary or cand.title,
+                # the claim text itself — the gate builds the anchor-windowed
+                # state from it
+                cand.summary or cand.title,
+                False,  # deterministic_promote: LLM candidates have no deterministic promotion
+                decider,
+                _gate_cfg(decide_cfg, "need_promotion"),
+                ledger,
+                run_id,
+                mode,
+            )
+            # Enforce + promote flows through; shadow NEVER promotes
+            # (deterministic-only) — the row carries the would-be verdict.
+            if promote and mode == "enforce":
+                if prob is not None:
+                    cand.confidence = prob  # the noul IS the stored probability
+                promotable.append(cand)
+
+    if promotable and taxonomy is not None and signal_store is not None:
+        valid, rejected = normalize_batch(
+            promotable,
+            account=account,
+            source="llm_implement",
+            taxonomy=taxonomy,
+            now=_utc_now_iso(),
+            raw_ref=None,
+        )
+        for _cand, why in rejected:
+            logger.debug("llm candidate rejected by normalize: {}", why)
+        new, _updated = signal_store.upsert_many(valid)
+        result["promoted"] = len(valid)
+    elif promotable:
+        logger.debug("llm candidates gated for promotion but no taxonomy/signal store; dropped")
+
+    # --- five dossier fields (reasoning implementer, G4-gated; G5 does NOT
+    # apply — they are dossier content, not signals) --------------------------
+    fields_model = str(reasoning_cfg.get("model") or "")
+    if docs and fields_model:
+        longest_doc, longest_text = max(docs, key=lambda pair: len(pair[1]))
+        try:
+            reasoning_timeout = float(
+                reasoning_cfg.get("timeout_s", llm_implement.DEFAULT_REASONING_TIMEOUT_S)
+            )
+        except (TypeError, ValueError):
+            reasoning_timeout = llm_implement.DEFAULT_REASONING_TIMEOUT_S
+        fields = llm_implement.extract_five_fields(
+            getattr(longest_doc, "doc_id", ""),
+            longest_text,
+            model=fields_model,
+            base_url=str(reasoning_cfg.get("base_url") or ""),
+            api_key=os.environ.get("OPENROUTER_API_KEY"),
+            reasoning_effort=str(
+                reasoning_cfg.get("reasoning_effort", llm_implement.DEFAULT_REASONING_EFFORT)
+            ),
+            timeout_s=reasoning_timeout,
+        )
+        # Mirror five_fields_to_claims' keep-filter so each surviving gated
+        # claim maps back to its canonical field name (same order, same rules).
+        kept_fields = []
+        for field in llm_implement.FIVE_FIELDS:
+            value = (fields or {}).get(field)
+            if not isinstance(value, dict):
+                continue
+            text = value.get("text")
+            if (
+                not isinstance(text, str)
+                or not text.strip()
+                or text.strip().casefold() == "unknown"
+            ):
+                continue
+            kept_fields.append(field)
+        field_claims = llm_implement.five_fields_to_claims(
+            fields, batch_doc_id=getattr(longest_doc, "doc_id", "")
+        )
+        gated_field_pairs = llm_implement.screen_and_gate_claims(
+            field_claims,
+            batch_doc_id=getattr(longest_doc, "doc_id", ""),
+            doc_text=longest_text,
+            decider=decider,
+            gates_cfg=_gate_cfg(decide_cfg, "citation_soundness"),
+            ledger=ledger,
+            run_id=run_id,
+            mode=mode,
+        )
+        for field, (claim, _noul) in zip(kept_fields, gated_field_pairs):
+            result["llm_fields"][field] = {
+                "text": claim.text,
+                "doc_id": claim.doc_id,
+                "llm_authored": True,
+                "model": fields_model,
+            }
+    elif docs and not fields_model:
+        result["gaps"].append("llm field extraction unavailable (no reasoning model configured)")
+
+    return result
 
 
 def _load_config():
@@ -260,6 +625,7 @@ def run_intel(
     with_marketplaces: bool = False,
     with_linkedin_resolve: bool = False,
     include_fanout: bool = False,
+    with_llm: bool = False,
     write: bool = True,
     max_signals: int | None = None,
     config=None,
@@ -269,6 +635,14 @@ def run_intel(
 
     Returns ``{domain, created, stages, errors, coverage, gaps, dossier,
     paths}``. See the module docstring for the failure and dry-run contracts.
+
+    Decide layer (Task 7): ``with_llm`` opts the run into the LLM
+    plan/implement/decide sub-stages, which additionally require the resolved
+    decide mode to be anything but "off" (config/decide.yaml or
+    SIGNALS_DECIDE_MODE) and, in production, the API keys + data-exit
+    consent. Off-by-default: without the flag the flow is byte-identical to
+    the pre-layer coordinator. When the layer ran, the return dict gains a
+    ``decide`` key (``{mode, degraded, rows}``).
     """
     domain = parse_target(target)
     skip = tuple(skip or ())
@@ -319,6 +693,153 @@ def run_intel(
         info["status"] = status
         stages[stage] = info
 
+    # -- decide layer setup (Task 7) ------------------------------------------
+    # Off-by-default: the mode is ALWAYS resolved (the "not requested" gap can
+    # only fire when the operator configured mode != off but skipped
+    # --with-llm; in the shipped posture — config mode "off", no flag — every
+    # branch below is dead and the run is byte-identical, which is the Goal
+    # invariant this wiring resolves the plan's tension in favor of).
+    decide_cfg = _load_decide_cfg(cfg)
+    decide_mode = decide_policy.resolve_mode(decide_cfg)
+    decide_requested = bool(with_llm and decide_mode != "off")
+    # A dry run never spends: the layer stays "requested" (for honest skipped
+    # records) but no decider is attached and no seam is called.
+    layer_active = bool(decide_requested and not dry_run)
+    ledger = DecideLedger() if decide_requested else None
+    decider = None
+    decide_degraded = False
+
+    if not with_llm and decide_mode != "off":
+        # The operator configured the layer but did not opt THIS run in: the
+        # gap is the only side effect, and it cannot fire in the shipped
+        # default posture (mode: "off").
+        gaps.append("llm layer not requested (--with-llm); present as a gap, not a hole")
+    elif with_llm and decide_mode == "off":
+        gaps.append(
+            "llm layer requested but decide mode is off "
+            "(config/decide.yaml mode / SIGNALS_DECIDE_MODE); run stayed deterministic"
+        )
+
+    if decide_requested:
+        # Run header: models and CONSENT PRESENCE only — key values and the
+        # consent string itself are never logged.
+        impl_cfg = decide_cfg.get("implementers") or {}
+        consent_ok = os.environ.get("SIGNALS_DECIDE_DATA_EXIT") == DATA_EXIT_CONSENT
+        logger.info(
+            "decide layer active: mode={} decider_model={} planner_model={} "
+            "bulk_model={} reasoning_model={} jev_credentials={} "
+            "implementer_credentials={}",
+            decide_mode,
+            (decide_cfg.get("decider") or {}).get("model"),
+            (decide_cfg.get("planner") or {}).get("model"),
+            (impl_cfg.get("bulk") or {}).get("model"),
+            (impl_cfg.get("reasoning") or {}).get("model"),
+            bool(os.environ.get("TYPESAFE_API_KEY")) and consent_ok,
+            bool(os.environ.get("OPENROUTER_API_KEY")) and consent_ok,
+        )
+
+    if layer_active:
+        # run_intel is the ONLY call site allowed to attach a live decider
+        # (decide/policy.py enforces it by stack inspection).
+        try:
+            decider = decide_policy.attach_decider(
+                get_decider({**decide_cfg, "mode": decide_mode})
+            )
+        except Exception as exc:
+            logger.exception("decide layer: decider attach failed for {}", domain)
+            gaps.append(f"decide layer decider unavailable ({exc}); gates run not applicable")
+            decider = NullDecider()
+
+    # -- plan (decide layer sub-stage; between identity and collect) ----------
+    # Layer off means NO trace: not even a skipped stage entry — the stage map
+    # stays byte-identical to the pre-layer flow.
+    plan_steps: list = []
+    plan_reason = None
+    if not decide_requested:
+        pass
+    elif dry_run:
+        record("plan", "skipped", note="dry-run")
+    elif "collect" in skip:
+        record("plan", "skipped", note="collect skipped by request")
+    else:
+        try:
+            adapters = enabled_sources(
+                cfg,
+                include_disabled=set(MARKETPLACE_SOURCE_KEYS) if with_marketplaces else None,
+            )
+            allowed = {a.key for a in sources_for_account(account, adapters)}
+            sources_yaml = cfg.load_yaml("sources") or {}
+            entries = sources_yaml.get("sources", sources_yaml) or {}
+            knob_caps = {
+                key: {
+                    k: v
+                    for k, v in (entry or {}).items()
+                    if k.endswith("_max") and isinstance(v, int)
+                }
+                for key, entry in entries.items()
+                if isinstance(entry, dict)
+            }
+            fanout_keys = {a.key for a in adapters if getattr(a, "fanout", False)}
+            identity_state = _identity_state(domain, account, profile_id)
+            identity_json = json.dumps(identity_state, sort_keys=True, default=str)
+            snapshot_hash = hashlib.sha256(identity_json.encode("utf-8")).hexdigest()
+            icp_excerpt = truncate(identity_json, _ICP_EXCERPT_CHARS)
+
+            llm_plan, plan_reason = llm_planner.generate_plan(
+                decide_cfg=decide_cfg,
+                domain=domain,
+                profile=profile_id,
+                snapshot_hash=snapshot_hash,
+                icp_excerpt=icp_excerpt,
+                allowed_sources=allowed,
+                knob_caps=knob_caps,
+                fanout_keys=fanout_keys,
+                include_fanout=include_fanout,
+                dry_run=False,  # the dry-run path never reaches this branch
+            )
+            if llm_plan is None:
+                gaps.append(
+                    f"llm planner unavailable ({plan_reason}); deterministic source scope retained"
+                )
+            else:
+                # G1: only a qualified step keeps its LLM override standing; a
+                # dropped step is REMOVED from the override (narrow-only — a
+                # gate verdict can never widen the scope).
+                for step in llm_plan.steps:
+                    action, _decision = decide_gates.gate_plan_step(
+                        step,
+                        icp_excerpt,
+                        decider,
+                        _gate_cfg(decide_cfg, "plan_qualification"),
+                        ledger,
+                        invocation_id,
+                        decide_mode,
+                    )
+                    if action == "keep":
+                        plan_steps.append(step)
+            if plan_steps:
+                record(
+                    "plan",
+                    "ran",
+                    steps=len(plan_steps),
+                    # v1 applies ONLY source narrowing: the validated
+                    # per-source budget knobs are recorded but NOT enforced —
+                    # the runner has no per-source knob override seam yet, so
+                    # "apply per-source budget knobs at the runner level"
+                    # stays on the verify-before-wire list.
+                    applied_sources=[sid for step in plan_steps for sid in step.source_ids],
+                    knobs_applied=False,
+                    reason=plan_reason,
+                )
+            else:
+                record("plan", "ran", steps=0, note="no qualified steps; deterministic scope")
+        except Exception as exc:
+            logger.exception("intel plan sub-stage failed for {}", domain)
+            errors["plan"] = str(exc)
+            record("plan", "failed", reason=str(exc))
+            gaps.append(f"plan sub-stage failed: {exc}")
+            plan_steps = []
+
     # -- identity -----------------------------------------------------------
     if dry_run:
         record("identity", "skipped", note="dry-run: resolution is not performed")
@@ -360,37 +881,79 @@ def run_intel(
         record("collect", "skipped", note="skipped by request")
     else:
         try:
-            stats = orc.collect(
-                sources=None,
-                domains=[domain],
-                force=force,
-                dry_run=dry_run,
-                limit=None,
-                include_disabled_sources=include_disabled,
-                local_context=None,
-                skip_fanout=not include_fanout,
-            )
-            outcomes.extend(_outcomes(stats))
+            # When a G1-qualified plan survived, the collect NARROWS to the
+            # surviving steps (one call per step, plan order — narrow-only, a
+            # verdict can never widen scope). Otherwise the single
+            # deterministic full-scope collect runs, exactly as before.
+            if plan_steps:
+                phases = [list(step.source_ids) for step in plan_steps]
+            else:
+                phases = [None]
+            tasks_total = signals_total = sources_planned_total = 0
+            for phase_sources in phases:
+                stats = orc.collect(
+                    sources=phase_sources,
+                    domains=[domain],
+                    force=force,
+                    dry_run=dry_run,
+                    limit=None,
+                    include_disabled_sources=include_disabled,
+                    local_context=None,
+                    skip_fanout=not include_fanout,
+                )
+                outcomes.extend(_outcomes(stats))
+                tasks_total += _stat(stats, "tasks")
+                signals_total += _stat(stats, "signals_new")
+                sources_planned_total += len(_outcomes(stats))
             if dry_run:
                 record(
                     "collect",
                     "ran",
                     dry_run=True,
-                    planned_tasks=_stat(stats, "tasks"),
-                    sources_planned=len(_outcomes(stats)),
+                    planned_tasks=tasks_total,
+                    sources_planned=sources_planned_total,
                 )
             else:
                 record(
                     "collect",
                     "ran",
-                    tasks=_stat(stats, "tasks"),
-                    signals_new=_stat(stats, "signals_new"),
+                    tasks=tasks_total,
+                    signals_new=signals_total,
                 )
         except Exception as exc:
             logger.exception("intel collect stage failed for {}", domain)
             errors["collect"] = str(exc)
             record("collect", "failed", reason=str(exc))
             gaps.append(f"collect stage failed: {exc}")
+
+    # -- G2 posture audit (decide layer; informational only) -------------------
+    # Shadow-only by construction: the verdict NEVER binds (gates.py). Dry runs
+    # fetch nothing, so there is no fetch scope to audit.
+    if (
+        layer_active
+        and decider is not None
+        and _gate_cfg(decide_cfg, "posture_audit").get("enabled", True)
+    ):
+        try:
+            ran_sources = sorted(
+                {
+                    str(row.get("source"))
+                    for row in outcomes
+                    if str(row.get("status") or "").startswith("ran")
+                }
+            )
+            decide_gates.gate_posture_audit(
+                "intel_collect",
+                ", ".join(ran_sources) if ran_sources else "no sources ran",
+                decider,
+                _gate_cfg(decide_cfg, "posture_audit"),
+                ledger,
+                invocation_id,
+                decide_mode,
+            )
+        except Exception as exc:
+            logger.exception("decide layer: posture audit failed for {}", domain)
+            gaps.append(f"posture audit failed: {exc}")
 
     # -- fanout honesty (Finding 6) ------------------------------------------
     # The dossier must say which posture this run took: the globals were
@@ -468,6 +1031,68 @@ def run_intel(
             f"{count_text}; pass --market-profile <id> to enable promotion"
         )
 
+    # -- implement (decide layer sub-stage; additive to derive) ----------------
+    # Layer off means NO trace. The sub-stage reads ALREADY-STORED documents,
+    # so it sits after the derive pass; its output is ADDITIVE — any failure
+    # inside drops only the LLM content and leaves today's dossier.
+    llm_fields: dict = {}
+    if not decide_requested:
+        pass
+    elif dry_run:
+        record("implement", "skipped", note="dry-run")
+    else:
+        docs_count = claims_count = promoted_count = 0
+        try:
+            if getattr(orc, "raw", None) is None:
+                gaps.append("llm implementers unavailable (no raw store in scope)")
+                record("implement", "skipped", note="no raw store in scope")
+            elif not os.environ.get("OPENROUTER_API_KEY") or (
+                os.environ.get("SIGNALS_DECIDE_DATA_EXIT") != DATA_EXIT_CONSENT
+            ):
+                # Credentials checked ONCE, before any spend — the bulk and
+                # reasoning implementers share the key and the consent.
+                gaps.append(
+                    "llm implementers unavailable (missing OPENROUTER_API_KEY or "
+                    "data-exit consent); deterministic derive output retained"
+                )
+                record("implement", "skipped", note="missing implementer credentials")
+            else:
+                impl = _implement_pass(
+                    orc=orc,
+                    account=account,
+                    domain=domain,
+                    decider=decider,
+                    decide_cfg=decide_cfg,
+                    ledger=ledger,
+                    run_id=invocation_id,
+                    mode=decide_mode,
+                )
+                for gap_line in impl.get("gaps", ()):
+                    gaps.append(gap_line)
+                llm_fields = impl.get("llm_fields") or {}
+                if impl.get("degraded"):
+                    # Whole-run token-budget degradation: from here on the
+                    # layer is shadow-only, and the flag rides to the dossier
+                    # and the manifest (invariant 3).
+                    decide_mode = "shadow"
+                    decide_degraded = True
+                docs_count = int(impl.get("docs", 0))
+                claims_count = int(impl.get("claims_accepted", 0))
+                promoted_count = int(impl.get("promoted", 0))
+                record(
+                    "implement",
+                    "ran",
+                    docs=docs_count,
+                    claims_accepted=claims_count,
+                    promoted=promoted_count,
+                    llm_fields=bool(llm_fields),
+                )
+        except Exception as exc:
+            logger.exception("intel implement sub-stage failed for {}", domain)
+            errors["implement"] = str(exc)
+            record("implement", "failed", reason=str(exc))
+            gaps.append(f"implement sub-stage failed: {exc}")
+
     # -- score --------------------------------------------------------------
     if dry_run:
         record("score", "skipped", note="dry-run: scoring is not performed")
@@ -521,6 +1146,25 @@ def run_intel(
             if coverage_gap:
                 gaps.append(coverage_gap)
             jobs_summary = _jobs_summary(getattr(orc, "db", None), domain)
+            # Decide-layer provenance is passed ONLY when the layer was
+            # requested — the off path hands the builder exactly the pre-layer
+            # kwargs (the existing test doubles pin the old signature).
+            dossier_kwargs: dict = {}
+            if decide_requested and ledger is not None:
+                gates_seen: list[str] = []
+                for row in ledger.rows:
+                    gate = str(row.get("gate"))
+                    if gate not in gates_seen:
+                        gates_seen.append(gate)
+                if gates_seen:
+                    dossier_kwargs["decide_records"] = [
+                        {"gate": gate, "detail": ledger.aggregate(gate)} for gate in gates_seen
+                    ]
+                dossier_kwargs["decide_meta"] = {
+                    "mode": decide_mode,
+                    "degraded": decide_degraded,
+                    "shadow_appendix": _shadow_appendix(ledger.rows),
+                }
             dossier = build_dossier(
                 snapshot,
                 coverage=coverage_rows,
@@ -530,11 +1174,17 @@ def run_intel(
                 gaps=gaps,
                 max_signals=max_signals,
                 invocation_id=invocation_id,
+                **dossier_kwargs,
             )
             if write:
-                paths = write_intel_package(
-                    dossier, out_dir=cfg.storage.dossiers_dir
-                )
+                if decide_requested and ledger is not None:
+                    paths = write_intel_package(
+                        dossier,
+                        out_dir=cfg.storage.dossiers_dir,
+                        decide_rows=list(ledger.rows),
+                    )
+                else:
+                    paths = write_intel_package(dossier, out_dir=cfg.storage.dossiers_dir)
             record(
                 "package",
                 "ran",
@@ -547,7 +1197,7 @@ def run_intel(
             record("package", "failed", reason=str(exc))
             gaps.append(f"package stage failed: {exc}")
 
-    return {
+    result = {
         "domain": domain,
         "created": created,
         "stages": stages,
@@ -557,3 +1207,12 @@ def run_intel(
         "dossier": dossier,
         "paths": paths or {},
     }
+    if decide_requested:
+        # The layer's own telemetry, ONLY when it was requested — the off-path
+        # return dict is byte-identical to the pre-layer coordinator.
+        result["decide"] = {
+            "mode": decide_mode,
+            "degraded": decide_degraded,
+            "rows": len(ledger.rows) if ledger is not None else 0,
+        }
+    return result

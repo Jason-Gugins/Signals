@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -938,9 +939,10 @@ def sweep(ctx, url_or_name, force, deep, discover_names, ddg, competitor_names):
 @click.option("--with-linkedin-resolve", is_flag=True, help="Resolve the LinkedIn slug (human-triggered posture)")
 @click.option("--no-write", is_flag=True, help="Build the dossier but do not write the package")
 @click.option("--include-fanout", is_flag=True, help="Also run the global fanout sources (sec_formd, federal_register, warn_notices) - they plan globally, not per account.")
+@click.option("--with-llm/--no-with-llm", default=False, help="opt-in LLM plan/implement/decide layer (requires config/decide.yaml mode != off + keys)")
 @click.option("--max-signals", type=int, default=None, help="Cap active signals in the package")
 @click.pass_context
-def intel(ctx, target, name, market_profile, skip, force, with_marketplaces, with_linkedin_resolve, no_write, include_fanout, max_signals):
+def intel(ctx, target, name, market_profile, skip, force, with_marketplaces, with_linkedin_resolve, no_write, include_fanout, with_llm, max_signals):
     """Master intelligence flow: one account, every capability, one dossier."""
     from src.pipeline import intel as intel_mod
 
@@ -955,6 +957,7 @@ def intel(ctx, target, name, market_profile, skip, force, with_marketplaces, wit
             with_marketplaces=with_marketplaces,
             with_linkedin_resolve=with_linkedin_resolve,
             include_fanout=include_fanout,
+            with_llm=with_llm,
             write=not no_write,
             max_signals=max_signals,
             config=ctx.obj.get("config"),
@@ -1096,6 +1099,43 @@ def plays_calibrate(ctx, min_samples):
         click.echo(f"{r['source']}\t{r['signal_type']}\t{r['samples']}\t{r['hits']}")
 
 
+def _decide_doctor_lines(cfg) -> list[str]:
+    """Decide-layer posture checks (Task 7), in the doctor's TSV line shape.
+
+    WARN when the layer is configured ON (decide mode != off) but the verbatim
+    SIGNALS_DECIDE_DATA_EXIT consent is missing (every live LLM/Jev call stays
+    deterministic without it), and WARN/INFO for the role keys. Only presence
+    is reported — a key value or the consent string itself is never echoed.
+    Silent (no lines) when the mode is off: the layer is off-by-default and an
+    off layer is not a problem to report.
+    """
+    try:
+        decide_cfg = cfg.load_yaml("decide") or {}
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+    from src.decide.jev import DATA_EXIT_CONSENT
+    from src.decide.policy import resolve_mode
+
+    mode = resolve_mode(decide_cfg)
+    if mode == "off":
+        return []
+    lines: list[str] = []
+    if os.environ.get("SIGNALS_DECIDE_DATA_EXIT") != DATA_EXIT_CONSENT:
+        lines.append(
+            f"WARN\tdecide_layer\tmode={mode} but SIGNALS_DECIDE_DATA_EXIT is not set to "
+            "the exact consent string — Jev and the planner/implementers stay deterministic"
+        )
+    missing = [name for name in ("TYPESAFE_API_KEY", "OPENROUTER_API_KEY") if not os.environ.get(name)]
+    if missing:
+        lines.append(
+            "WARN\tdecide_layer_keys\tmissing " + ", ".join(missing)
+            + " — the affected roles degrade to deterministic output"
+        )
+    return lines
+
+
 @main.command()
 @click.option("--no-network", is_flag=True)
 @click.pass_context
@@ -1109,6 +1149,8 @@ def doctor(ctx, no_network):
     gaps = validate_combo_coverage()
     if gaps:
         click.echo(f"WARN\tcombo_coverage\tcombo coverage gaps: {', '.join(gaps)}")
+    for line in _decide_doctor_lines(ctx.obj["config"]):
+        click.echo(line)
 
 
 if __name__ == "__main__":

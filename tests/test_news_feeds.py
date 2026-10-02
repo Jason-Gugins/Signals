@@ -199,3 +199,26 @@ def test_resolver_cache_is_bounded():
     assert isinstance(
         resolve._cached_resolve, _ft._lru_cache_wrapper
     ), "resolve cache must be functools.lru_cache (bounded), got bare dict/module fn"
+
+
+def test_parse_feed_uses_injected_resolver():
+    """An injected domain_resolver overrides the module-level path."""
+
+    class FakeResolver:
+        def __init__(self):
+            self.seen = []
+
+        def resolve(self, link, summary=None):
+            self.seen.append(link)
+            return "injected.test"
+
+    xml = (
+        "<rss><channel><item>"
+        "<title>N</title>"
+        "<link>https://news.google.com/rss/articles/CBMiEEE</link>"
+        "</item></channel></rss>"
+    )
+    r = FakeResolver()
+    items = parse_feed(xml.encode(), domain_resolver=r)
+    assert items and items[0].publisher_domain == "injected.test"
+    assert r.seen == ["https://news.google.com/rss/articles/CBMiEEE"]

@@ -145,7 +145,7 @@ def _unwrap(link: str, summary: str | None) -> str:
     return link
 
 
-def parse_feed(body: bytes) -> list[NewsItem]:
+def parse_feed(body: bytes, domain_resolver=None) -> list[NewsItem]:
     try:
         parsed = feedparser.parse(body)
     except Exception:
@@ -164,13 +164,20 @@ def parse_feed(body: bytes) -> list[NewsItem]:
         if e.get("source"):
             source = e.source.get("title") if hasattr(e.source, "get") else getattr(e.source, "title", None)
         link = _unwrap(link, summary)
-        # Resolve the true publisher domain (offline-first: ?url= param or
-        # summary link; only leftover news.google.com tokens hit the slow
-        # decoder — cached per link there). Failure → None, never a crash.
+        # Resolve the true publisher domain. Offline-first tiers (?url= param
+        # or summary link); google_news cycles get an injected DomainResolver
+        # — sqlite cache then bounded fetcher decodes; everything else falls
+        # back to the module-level resolver (cached per link there). Failure
+        # → None, never a crash.
         from src.sources.news.resolve import resolve_publisher_domain
 
+        # Injected resolvers (DomainResolver) duck-type the module-level
+        # resolver via .resolve(); normalize either to a plain callable.
+        resolver = domain_resolver or resolve_publisher_domain
+        if not callable(resolver):
+            resolver = resolver.resolve
         out.append(NewsItem(
             title=title, link=link, published=published, summary=summary,
-            source_name=source, publisher_domain=resolve_publisher_domain(link, summary),
+            source_name=source, publisher_domain=resolver(link, summary),
         ))
     return out

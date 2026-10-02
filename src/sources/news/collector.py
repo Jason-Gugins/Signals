@@ -246,7 +246,10 @@ class GoogleNewsSource(SourceAdapter):
         if not doc.body:
             return []
         today = date.fromisoformat(task_meta["today"])
-        items, relevance = _rerank_items(parse_feed(doc.body), account, task_meta)
+        items, relevance = _rerank_items(
+            parse_feed(doc.body, domain_resolver=task_meta.get("domain_resolver")),
+            account, task_meta,
+        )
         out = []
         for it in items:
             c = classify_news(it, account, today=today)

@@ -58,7 +58,13 @@ def _resolve_google_news_token(link: str) -> str | None:
     return None
 
 
-def _resolve_publisher_domain_uncached(link: str, summary: str | None) -> str | None:
+def _offline_domain(link: str, summary: str | None) -> str | None:
+    """Offline tiers of the resolver — zero network.
+
+    The own-host / ``?url=`` / summary-embedded-URL branches, verbatim from
+    ``_resolve_publisher_domain_uncached``. Returns None when only a token
+    decode (network) could decide; callers decide whether to pay for it.
+    """
     domain: str | None = None
     try:
         parsed = urlparse(link)
@@ -81,10 +87,23 @@ def _resolve_publisher_domain_uncached(link: str, summary: str | None) -> str | 
                         cand_host = _host(m.group(0))
                         if cand_host and not _is_google_news(cand_host.casefold()):
                             domain = cand_host
-                if domain is None and "/articles/" in parsed.path:
-                    domain = _resolve_google_news_token(link)
     except Exception:
         domain = None
+    if domain:
+        domain = domain.casefold()
+        domain = domain.removeprefix("www.")
+    return domain
+
+
+def _resolve_publisher_domain_uncached(link: str, summary: str | None) -> str | None:
+    domain = _offline_domain(link, summary)
+    if domain is None:
+        # Leftover token link: decode is the last resort (network; slow).
+        try:
+            if "/articles/" in urlparse(link).path:
+                domain = _resolve_google_news_token(link)
+        except Exception:
+            domain = None
     if domain:
         domain = domain.casefold()
         domain = domain.removeprefix("www.")
@@ -100,3 +119,56 @@ def resolve_publisher_domain(link: str, summary: str | None = None) -> str | Non
     if not link:
         return None
     return _cached_resolve(link, summary)
+
+
+class DomainResolver:
+    """Per-cycle publisher resolver injected into google_news task meta.
+
+    Order: offline tiers (zero network) -> durable sqlite cache (v8
+    news_link_resolutions) -> bounded fetcher-based decode. Only successful
+    decodes are cached; failures return None and stay within-budget retries
+    for a later cycle. Never raises.
+    """
+
+    def __init__(self, fetcher, db, *, max_decodes: int = 8, now: str | None = None):
+        self._fetcher = fetcher
+        self._db = db
+        self._budget = max_decodes
+        self._now = now  # isoformat UTC; injected by the runner (UTC-clock tests)
+
+    def resolve(self, link: str, summary: str | None = None) -> str | None:
+        try:
+            domain = _offline_domain(link, summary)
+            if domain:
+                return domain
+            from src.sources.news.decode import decode_token, extract_token
+
+            token = extract_token(link)
+            if not token:
+                return None
+            row = self._db.one(
+                "SELECT domain FROM news_link_resolutions WHERE token = ?", (token,)
+            )
+            if row and row.get("domain"):
+                return str(row["domain"])
+            if self._budget <= 0:
+                return None
+            self._budget -= 1
+            decoded = decode_token(self._fetcher, token)
+            if not decoded:
+                return None
+            host = _host(decoded)
+            if not host or _is_google_news(host.casefold()):
+                return None
+            domain = host.casefold().removeprefix("www.")
+            try:
+                self._db.upsert(
+                    "news_link_resolutions",
+                    {"token": token, "domain": domain, "resolved_at": self._now},
+                    pk=("token",),
+                )
+            except Exception:
+                pass  # cache write is best-effort; attribution still returned
+            return domain
+        except Exception:
+            return None

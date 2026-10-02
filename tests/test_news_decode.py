@@ -107,3 +107,76 @@ def test_decode_token_params_failure_short_circuits():
     f = _fake_fetcher_factory([(False, 503, b"<html>err</html>")])
     assert decode_token(f, "CBMiABC") is None
     assert len(f.tasks) == 1  # params page failed -> no batchexecute POST
+
+
+# ---------------------------------------------------------------------------
+# DomainResolver: offline tiers -> sqlite cache -> bounded fetcher decodes
+# ---------------------------------------------------------------------------
+
+
+def test_domain_resolver_offline_first(tmp_path, monkeypatch):
+    """?url= and summary tiers resolve with ZERO fetches/decodes."""
+    from src.core.db import Database
+    from src.sources.news.resolve import DomainResolver
+
+    db = Database(tmp_path / "x.db")
+    calls = []
+    monkeypatch.setattr(
+        "src.sources.news.decode.decode_token",
+        lambda fetcher, token: calls.append(token) or "https://x.test/a",
+    )
+    r = DomainResolver(fetcher=object(), db=db, max_decodes=2, now="2026-10-02T00:00:00+00:00")
+    assert r.resolve("https://news.google.com/rss/articles/T1?url=https%3A%2F%2Farlnow.com%2Fs", None) == "arlnow.com"
+    assert calls == []  # offline tier — decoder never touched
+
+
+def test_domain_resolver_decodes_misses_and_caches(tmp_path, monkeypatch):
+    from src.core.db import Database
+    from src.sources.news.resolve import DomainResolver
+
+    db = Database(tmp_path / "x.db")
+    calls = []
+    monkeypatch.setattr(
+        "src.sources.news.decode.decode_token",
+        lambda fetcher, token: calls.append(token) or "https://www.arlnow.com/story",
+    )
+    r = DomainResolver(fetcher=object(), db=db, max_decodes=2, now="2026-10-02T00:00:00+00:00")
+    assert r.resolve("https://news.google.com/rss/articles/T2", None) == "arlnow.com"
+    assert calls == ["T2"]
+    # Second resolver instance (next cycle, fresh budget) hits the cache, not the wire
+    r2 = DomainResolver(fetcher=object(), db=db, max_decodes=2, now="2026-10-02T01:00:00+00:00")
+    assert r2.resolve("https://news.google.com/rss/articles/T2", None) == "arlnow.com"
+    assert calls == ["T2"]
+
+
+def test_domain_resolver_budget_caps_decodes(tmp_path, monkeypatch):
+    from src.core.db import Database
+    from src.sources.news.resolve import DomainResolver
+
+    db = Database(tmp_path / "x.db")
+    calls = []
+    monkeypatch.setattr(
+        "src.sources.news.decode.decode_token",
+        lambda fetcher, token: calls.append(token) or None,  # failures
+    )
+    r = DomainResolver(fetcher=object(), db=db, max_decodes=2, now="2026-10-02T00:00:00+00:00")
+    for tok in ("A", "B", "C", "D"):
+        assert r.resolve(f"https://news.google.com/rss/articles/{tok}", None) is None
+    assert calls == ["A", "B"]  # budget exhausted; failures NOT cached (retry next cycle)
+
+
+def test_domain_resolver_decode_failure_not_cached(tmp_path, monkeypatch):
+    from src.core.db import Database
+    from src.sources.news.resolve import DomainResolver
+
+    db = Database(tmp_path / "x.db")
+    state = {"n": 0}
+
+    def flaky(fetcher, token):
+        state["n"] += 1
+        return "https://arlnow.com/s" if state["n"] > 1 else None
+
+    monkeypatch.setattr("src.sources.news.decode.decode_token", flaky)
+    r = DomainResolver(fetcher=object(), db=db, max_decodes=5, now="2026-10-02T00:00:00+00:00")
+    assert r.resolve("https://news.google.com/rss/articles/T3", None) is None
+    assert r.resolve("https://news.google.com/rss/articles/T3", None) == "arlnow.com"

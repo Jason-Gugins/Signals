@@ -38,7 +38,7 @@ from src.core.models import Account
 from src.decide import gates as decide_gates
 from src.decide import policy as decide_policy
 from src.decide.gates import DecideLedger
-from src.decide.jev import DATA_EXIT_CONSENT, NullDecider, get_decider
+from src.decide.jev import DATA_EXIT_CONSENT, LiveDecider, NullDecider, get_decider
 from src.export.intel_package import build_dossier, write_intel_package
 from src.intel.coverage import build_coverage
 from src.intel.market import load_market_profile
@@ -54,6 +54,7 @@ __all__ = [
     "MARKETPLACE_SOURCE_KEYS",
     "LOCAL_DERIVED_SOURCES",
     "MAX_IMPLEMENT_DOCS",
+    "MAX_G5_CALLS",
     "run_intel",
 ]
 
@@ -100,21 +101,29 @@ _LINKEDIN_FLAG = "--with-linkedin-resolve"
 #: implement sub-stage per run.
 MAX_IMPLEMENT_DOCS = 200
 
+#: G5 (need promotion) makes ONE Jev call per accepted candidate, so the
+#: fan-out is bounded here instead of by the claim count (planned cost
+#: envelope ~30 calls, 2x headroom). Candidates past the cap stay unpromoted
+#: (narrow-only; deterministic needs unaffected) and the cap is gap-visible.
+MAX_G5_CALLS = 60
+
 #: ICP excerpt cap (chars) handed to the planner and to G1.
 _ICP_EXCERPT_CHARS = 1200
 
-#: Upper-bound token cap for ONE document's contribution to the pre-flight
-#: projection. The G4 anchor state is head (~100 tokens) + anchor window
-#: (~600); 2400 leaves generous headroom and keeps the projection an
-#: UPPER-BOUND proxy, never an exact count.
+#: Token cap for ONE document's contribution to the pre-flight projection.
+#: The G4 anchor state is head (~100 tokens) + anchor window (~600); 2400
+#: leaves generous headroom.
 _TOKEN_CAP_PER_DOC = 2400
 
-#: Flat per-gate allowances for the pre-flight projection: G1 (one batched
-#: call over the plan steps), G2 (one posture call), G5 (one call per
-#: candidate, bounded by the claim cap). Flat, conservative, documented.
+#: Per-gate allowances for the pre-flight projection, modelling the REAL
+#: call structure: G4 makes one batched Jev call PER document (its input
+#: state is the per-doc cap above plus call overhead), G1 is one batched
+#: call over the plan steps, G2 is one posture call, and G5 makes one call
+#: per accepted candidate bounded by :data:`MAX_G5_CALLS` at ~300 tokens per
+#: call. A documented cost envelope, not an exact token count.
 _G1_TOKEN_ALLOWANCE = 700
 _G2_TOKEN_ALLOWANCE = 700
-_G5_TOKEN_ALLOWANCE = 700
+_G5_TOKEN_ALLOWANCE = MAX_G5_CALLS * 300
 
 #: Whole-run decide-token ceiling default (config/decide.yaml
 #: ``decider.max_decide_tokens_per_run``).
@@ -144,6 +153,45 @@ def _gate_cfg(decide_cfg: dict, name: str) -> dict:
     gates = decider_cfg.get("gates") or {}
     block = gates.get(name)
     return dict(block) if isinstance(block, dict) else {}
+
+
+def _gate_enabled(decide_cfg: dict, name: str) -> bool:
+    """Whether ``decider.gates.<name>`` is enabled (default True).
+
+    A gate disabled by config is SKIPPED at the call site: the deterministic
+    path proceeds for that boundary and no ledger rows are produced.
+    """
+    return bool(_gate_cfg(decide_cfg, name).get("enabled", True))
+
+
+def _decode_body(body) -> str:
+    """Stored body bytes -> text with a replacement policy; never raises.
+
+    Mirrors src/sources/needs/collector.py's ``_decode``: RawStore.get()
+    gunzips bytes; a missing blob (None) or a defensive str body are handled
+    too.
+    """
+    if body is None:
+        return ""
+    if isinstance(body, (bytes, bytearray)):
+        return bytes(body).decode("utf-8", errors="replace")
+    return str(body)
+
+
+def _g1_drop_reason(decision) -> str:
+    """Why gate_plan_step dropped a plan step, derived from its Decision.
+
+    gates.py drops on ``ok=False`` (Jev error), a missing/invalid noul (no
+    verdict), or a noul below the configured floor — an applicable, ok
+    Decision with a numeric noul can ONLY have been dropped by the floor.
+    """
+    if not decision.ok:
+        return "Jev error"
+    ans = (decision.answers or {}).get("step")
+    noul = ans.get("noul") if isinstance(ans, dict) else None
+    if isinstance(noul, (int, float)) and not isinstance(noul, bool):
+        return "below floor"
+    return "no verdict"
 
 
 def _identity_state(domain: str, account, profile_id: str) -> dict:
@@ -246,23 +294,42 @@ def _implement_pass(
 
     # Load the stored docs BEFORE any Jev/LLM call in this sub-stage: the
     # token pre-flight needs them. Most recent MAX_IMPLEMENT_DOCS by
-    # fetched_at (RawStore orders ascending, so keep the tail); bodies are
-    # decoded once, empty bodies skipped — a document with no text cannot
-    # support a claim.
+    # fetched_at (RawStore orders ascending, so keep the tail). RawStore's
+    # iter_docs is METADATA-ONLY (body stays None — only get() gunzips the
+    # stored bytes), so each body is loaded through raw_store.get() and
+    # decoded once; empty bodies are skipped — a document with no text
+    # cannot support a claim.
+    staged: list[object] = list(raw_store.iter_docs(domain=domain))
+    staged.sort(key=lambda doc: str(getattr(doc, "fetched_at", "") or ""))
+    staged = staged[-MAX_IMPLEMENT_DOCS:]
     docs: list[tuple[object, str]] = []
-    for doc in raw_store.iter_docs(domain=domain):
-        text = (getattr(doc, "body", None) or b"").decode("utf-8", errors="replace")
+    for meta_doc in staged:
+        doc_id = str(getattr(meta_doc, "doc_id", "") or "")
+        full = None
+        if doc_id:
+            try:
+                full = raw_store.get(doc_id)
+            except Exception:
+                logger.debug("llm implementers: body unreadable for {}", doc_id)
+                full = None
+        text = _decode_body(getattr(full, "body", None) if full is not None else None)
         if not text.strip():
             continue
-        docs.append((doc, text))
-    docs.sort(key=lambda pair: str(getattr(pair[0], "fetched_at", "") or ""))
-    docs = docs[-MAX_IMPLEMENT_DOCS:]
+        docs.append((full if full is not None else meta_doc, text))
     result["docs"] = len(docs)
+    if staged and not docs:
+        # A silent no-op is never acceptable: documents ARE in scope, so the
+        # stage must say why it produced nothing.
+        result["gaps"].append(
+            f"llm implementers: {len(staged)} documents in scope but 0 bodies loadable; "
+            "stage no-op"
+        )
 
-    # Token pre-flight (an upper-bound proxy, documented above): every stored
-    # document's gate state capped at _TOKEN_CAP_PER_DOC plus flat G1/G2/G5
-    # allowances. Over the ceiling the WHOLE RUN degrades to shadow — never a
-    # mid-run abort (a partially-gated dossier is not comparable to anything).
+    # Token pre-flight (a documented cost envelope, see the module constants):
+    # every loaded document's gate state capped at _TOKEN_CAP_PER_DOC plus
+    # per-gate allowances (G1/G2 one call each, G5 bounded by MAX_G5_CALLS).
+    # Over the ceiling the WHOLE RUN degrades to shadow — never a mid-run
+    # abort (a partially-gated dossier is not comparable to anything).
     # NOTE the ordering: the plan sub-stage's G1 spend (bounded by
     # max_plan_steps) has already happened by the time this projection runs,
     # so the ceiling binds everything from here on; the degradation flag makes
@@ -301,15 +368,32 @@ def _implement_pass(
         for doc, text in docs
     ]
 
+    # Gate configs are resolved once; a gate disabled by config is SKIPPED at
+    # its call site below (Q: the deterministic path proceeds, no rows).
+    routing_cfg = _gate_cfg(decide_cfg, "routing")
+    citation_cfg = _gate_cfg(decide_cfg, "citation_soundness")
+    promotion_cfg = _gate_cfg(decide_cfg, "need_promotion")
+
+    def _heuristic_route(text: str) -> str:
+        """G3's deterministic heuristic alone (gate disabled: no Jev consult)."""
+        try:
+            threshold = int(routing_cfg.get("route_threshold", decide_gates.ROUTE_THRESHOLD))
+        except (TypeError, ValueError):
+            threshold = decide_gates.ROUTE_THRESHOLD
+        return "deep" if decide_gates.estimate_tokens(text) >= threshold else "quick"
+
     def _per_doc(spec: dict) -> list:
-        route = decide_gates.gate_routing(
-            decide_gates.estimate_tokens(spec["text"]),
-            decider,
-            _gate_cfg(decide_cfg, "routing"),
-            ledger,
-            run_id,
-            mode,
-        )
+        if routing_cfg.get("enabled", True):
+            route = decide_gates.gate_routing(
+                decide_gates.estimate_tokens(spec["text"]),
+                decider,
+                routing_cfg,
+                ledger,
+                run_id,
+                mode,
+            )
+        else:
+            route = _heuristic_route(spec["text"])
         raw = llm_implement.call_implementer(
             llm_implement.build_extraction_messages(spec["doc_id"], spec["text"], route=route),
             model=bulk_model,
@@ -318,12 +402,17 @@ def _implement_pass(
             timeout_s=bulk_timeout,
         )
         claims = llm_implement.parse_claims(raw, batch_doc_id=spec["doc_id"])
+        if not citation_cfg.get("enabled", True):
+            # Citation gate disabled: the deterministic baseline stands —
+            # implementer claims are additive, so they are accepted ungated
+            # (no Jev, no rows, noul None -> the documented default confidence).
+            return [(claim, None) for claim in claims]
         return llm_implement.screen_and_gate_claims(
             claims,
             batch_doc_id=spec["doc_id"],
             doc_text=spec["text"],
             decider=decider,
-            gates_cfg=_gate_cfg(decide_cfg, "citation_soundness"),
+            gates_cfg=citation_cfg,
             ledger=ledger,
             run_id=run_id,
             mode=mode,
@@ -333,9 +422,19 @@ def _implement_pass(
     # caller's thread so the gates and the token budget do too.
     per_doc_pairs = llm_implement.implement_batch(doc_specs, per_doc=_per_doc)
 
-    promotable = []
+    doc_text_by_id = {
+        str(getattr(doc, "doc_id", "") or ""): text for doc, text in docs
+    }
+    promotable: list = []
+    g5_calls = 0
+    g5_capped = False
     for spec, pairs in zip(doc_specs, per_doc_pairs):
         result["claims_accepted"] += len(pairs)
+        if not promotion_cfg.get("enabled", True):
+            # Promotion gate disabled: LLM candidates have NO deterministic
+            # promotion, so nothing is attempted (deterministic needs, which
+            # never pass through here, are unaffected).
+            continue
         candidates = llm_implement.claims_to_candidates(
             pairs,
             domain=domain,
@@ -343,14 +442,31 @@ def _implement_pass(
             model=bulk_model,
         )
         for cand in candidates:
+            if g5_calls >= MAX_G5_CALLS:
+                # G5's per-candidate call budget is spent for this run: the
+                # remaining candidates stay unpromoted (narrow-only) and the
+                # cap becomes gap-visible below.
+                g5_capped = True
+                continue
+            g5_calls += 1
+            need_text = cand.summary or cand.title or ""
+            cited_text = doc_text_by_id.get(
+                str((cand.evidence_data or {}).get("doc_id") or "")
+            )
+            # The judge sees the CITED DOCUMENT — anchor-windowed around the
+            # claim — never merely the claim's own echo; the claim text is
+            # the fallback when the cited body is not in scope.
+            evidence_excerpt = (
+                decide_gates.anchor_window(cited_text, need_text)
+                if cited_text
+                else need_text
+            )
             promote, prob, _decision = decide_gates.gate_need_promotion(
-                cand.summary or cand.title,
-                # the claim text itself — the gate builds the anchor-windowed
-                # state from it
-                cand.summary or cand.title,
+                need_text,
+                evidence_excerpt,
                 False,  # deterministic_promote: LLM candidates have no deterministic promotion
                 decider,
-                _gate_cfg(decide_cfg, "need_promotion"),
+                promotion_cfg,
                 ledger,
                 run_id,
                 mode,
@@ -361,6 +477,12 @@ def _implement_pass(
                 if prob is not None:
                     cand.confidence = prob  # the noul IS the stored probability
                 promotable.append(cand)
+
+    if g5_capped:
+        result["gaps"].append(
+            f"G5 call budget cap reached ({MAX_G5_CALLS}); "
+            "remaining LLM candidates not promoted this run"
+        )
 
     if promotable and taxonomy is not None and signal_store is not None:
         valid, rejected = normalize_batch(
@@ -400,8 +522,11 @@ def _implement_pass(
             ),
             timeout_s=reasoning_timeout,
         )
-        # Mirror five_fields_to_claims' keep-filter so each surviving gated
-        # claim maps back to its canonical field name (same order, same rules).
+        # Mirror five_fields_to_claims' keep-filter (same order, same rules):
+        # it emits ONE claim per kept field, in FIVE_FIELDS order, so each
+        # claim can be mapped back to its canonical field name BY CLAIM
+        # IDENTITY. A positional zip against the gate's surviving pairs would
+        # mis-pair every field after any gate drop (prefilter/floor/mismatch).
         kept_fields = []
         for field in llm_implement.FIVE_FIELDS:
             value = (fields or {}).get(field)
@@ -418,17 +543,28 @@ def _implement_pass(
         field_claims = llm_implement.five_fields_to_claims(
             fields, batch_doc_id=getattr(longest_doc, "doc_id", "")
         )
-        gated_field_pairs = llm_implement.screen_and_gate_claims(
-            field_claims,
-            batch_doc_id=getattr(longest_doc, "doc_id", ""),
-            doc_text=longest_text,
-            decider=decider,
-            gates_cfg=_gate_cfg(decide_cfg, "citation_soundness"),
-            ledger=ledger,
-            run_id=run_id,
-            mode=mode,
-        )
-        for field, (claim, _noul) in zip(kept_fields, gated_field_pairs):
+        field_by_claim = {id(claim): field for field, claim in zip(kept_fields, field_claims)}
+        if citation_cfg.get("enabled", True):
+            gated_field_pairs = llm_implement.screen_and_gate_claims(
+                field_claims,
+                batch_doc_id=getattr(longest_doc, "doc_id", ""),
+                doc_text=longest_text,
+                decider=decider,
+                gates_cfg=citation_cfg,
+                ledger=ledger,
+                run_id=run_id,
+                mode=mode,
+            )
+        else:
+            # Citation gate disabled: the deterministic baseline (accept)
+            # stands — see _per_doc.
+            gated_field_pairs = [(claim, None) for claim in field_claims]
+        for claim, _noul in gated_field_pairs:
+            field = field_by_claim.get(id(claim))
+            if field is None:
+                # Defensive: the filters above mirror each other, so every
+                # surviving claim has a field; never invent a name.
+                continue
             result["llm_fields"][field] = {
                 "text": claim.text,
                 "doc_id": claim.doc_id,
@@ -750,10 +886,44 @@ def run_intel(
             gaps.append(f"decide layer decider unavailable ({exc}); gates run not applicable")
             decider = NullDecider()
 
-    # -- plan (decide layer sub-stage; between identity and collect) ----------
-    # Layer off means NO trace: not even a skipped stage entry — the stage map
-    # stays byte-identical to the pre-layer flow.
-    plan_steps: list = []
+    # -- identity -----------------------------------------------------------
+    if dry_run:
+        record("identity", "skipped", note="dry-run: resolution is not performed")
+    elif "identity" in skip:
+        record("identity", "skipped", note="skipped by request")
+    else:
+        try:
+            resolved = orc.resolve(
+                domains=[domain],
+                ats=True,
+                cik=True,
+                feeds=True,
+                icp=True,
+                appstore=True,
+                bbb=True,
+                g2=with_marketplaces,
+                linkedin=with_linkedin_resolve,
+            )
+            # Re-read so fields filled by the resolvers (careers_url,
+            # ats_vendor, cik, icp_fit) are visible to later stages.
+            account = registry.get(domain) or account
+            record("identity", "ran", resolved=resolved if isinstance(resolved, dict) else {})
+        except Exception as exc:
+            logger.exception("intel identity stage failed for {}", domain)
+            errors["identity"] = str(exc)
+            record("identity", "failed", reason=str(exc))
+            gaps.append(f"identity stage failed: {exc}")
+            account = registry.get(domain) or account
+
+    # -- plan (decide layer sub-stage; AFTER identity, BEFORE collect) --------
+    # After identity: the planner consumes the RESOLVED account —
+    # sources_for_account filters on the requires fields (careers_url, cik,
+    # feed_url) that the resolvers just filled. Before collect: the surviving
+    # steps narrow the collect scope in enforce mode. Layer off means NO
+    # trace: not even a skipped stage entry — the stage map stays
+    # byte-identical to the pre-layer flow.
+    plan_steps: list = []  # steps whose G1 action is "keep" (would-be in shadow)
+    dropped_steps: list = []  # (step, drop reason) — enforce's deterministic fallback
     plan_reason = None
     if not decide_requested:
         pass
@@ -804,9 +974,16 @@ def run_intel(
             else:
                 # G1: only a qualified step keeps its LLM override standing; a
                 # dropped step is REMOVED from the override (narrow-only — a
-                # gate verdict can never widen the scope).
+                # gate verdict can never widen the scope) but its sources fall
+                # back to deterministic collection, never silent removal. The
+                # plan override itself is applied ONLY in enforce mode: in
+                # shadow the steps are still judged (rows/artifacts show what
+                # enforce would do) yet nothing binds (invariant 5).
+                plan_gate_enabled = _gate_enabled(decide_cfg, "plan_qualification")
                 for step in llm_plan.steps:
-                    action, _decision = decide_gates.gate_plan_step(
+                    if not plan_gate_enabled:
+                        break  # gate disabled by config: no verdict, nothing binds
+                    action, decision = decide_gates.gate_plan_step(
                         step,
                         icp_excerpt,
                         decider,
@@ -817,19 +994,33 @@ def run_intel(
                     )
                     if action == "keep":
                         plan_steps.append(step)
+                    else:
+                        dropped_steps.append((step, _g1_drop_reason(decision)))
             if plan_steps:
-                record(
-                    "plan",
-                    "ran",
-                    steps=len(plan_steps),
+                plan_info: dict = {
+                    "steps": len(plan_steps),
                     # v1 applies ONLY source narrowing: the validated
                     # per-source budget knobs are recorded but NOT enforced —
                     # the runner has no per-source knob override seam yet, so
                     # "apply per-source budget knobs at the runner level"
                     # stays on the verify-before-wire list.
-                    applied_sources=[sid for step in plan_steps for sid in step.source_ids],
-                    knobs_applied=False,
-                    reason=plan_reason,
+                    "applied_sources": [
+                        sid for step in plan_steps for sid in step.source_ids
+                    ],
+                    "knobs_applied": False,
+                    "reason": plan_reason,
+                }
+                if decide_mode != "enforce":
+                    # Mode consistency: the sources were NOT applied — the
+                    # collect below keeps the deterministic full scope.
+                    plan_info["note"] = "shadow: deterministic scope retained"
+                record("plan", "ran", **plan_info)
+            elif dropped_steps:
+                record(
+                    "plan",
+                    "ran",
+                    steps=0,
+                    note="no qualified steps; deterministic collection retained for dropped steps",
                 )
             else:
                 record("plan", "ran", steps=0, note="no qualified steps; deterministic scope")
@@ -839,35 +1030,7 @@ def run_intel(
             record("plan", "failed", reason=str(exc))
             gaps.append(f"plan sub-stage failed: {exc}")
             plan_steps = []
-
-    # -- identity -----------------------------------------------------------
-    if dry_run:
-        record("identity", "skipped", note="dry-run: resolution is not performed")
-    elif "identity" in skip:
-        record("identity", "skipped", note="skipped by request")
-    else:
-        try:
-            resolved = orc.resolve(
-                domains=[domain],
-                ats=True,
-                cik=True,
-                feeds=True,
-                icp=True,
-                appstore=True,
-                bbb=True,
-                g2=with_marketplaces,
-                linkedin=with_linkedin_resolve,
-            )
-            # Re-read so fields filled by the resolvers (careers_url,
-            # ats_vendor, cik, icp_fit) are visible to later stages.
-            account = registry.get(domain) or account
-            record("identity", "ran", resolved=resolved if isinstance(resolved, dict) else {})
-        except Exception as exc:
-            logger.exception("intel identity stage failed for {}", domain)
-            errors["identity"] = str(exc)
-            record("identity", "failed", reason=str(exc))
-            gaps.append(f"identity stage failed: {exc}")
-            account = registry.get(domain) or account
+            dropped_steps = []
 
     # -- collect ------------------------------------------------------------
     include_disabled = set(MARKETPLACE_SOURCE_KEYS) if with_marketplaces else None
@@ -881,13 +1044,33 @@ def run_intel(
         record("collect", "skipped", note="skipped by request")
     else:
         try:
-            # When a G1-qualified plan survived, the collect NARROWS to the
-            # surviving steps (one call per step, plan order — narrow-only, a
-            # verdict can never widen scope). Otherwise the single
-            # deterministic full-scope collect runs, exactly as before.
-            if plan_steps:
+            # In ENFORCE mode, when G1-qualified plan steps survived, the
+            # collect NARROWS to them (one call per step, plan order —
+            # narrow-only, a verdict can never widen scope). A DROPPED step's
+            # sources are NEVER silently removed (that would be worse than
+            # mode:off): one final phase re-collects their union
+            # deterministically, deduplicated against the surviving steps,
+            # and each drop is gap-visible. In shadow — and whenever no plan
+            # qualified — the single deterministic full-scope collect runs,
+            # exactly as before.
+            phases: list = []
+            if decide_mode == "enforce" and (plan_steps or dropped_steps):
                 phases = [list(step.source_ids) for step in plan_steps]
-            else:
+                planned: set = {sid for step in plan_steps for sid in step.source_ids}
+                fallback: list[str] = []
+                for step, reason in dropped_steps:
+                    for sid in step.source_ids:
+                        if sid not in planned:
+                            fallback.append(sid)
+                            planned.add(sid)
+                    gaps.append(
+                        f"G1 dropped plan step (sources: {', '.join(sorted(step.source_ids))}) "
+                        f"after Jev verdict/error ({reason}); deterministic collection "
+                        "retained for them"
+                    )
+                if fallback:
+                    phases.append(fallback)
+            if not phases:
                 phases = [None]
             tasks_total = signals_total = sources_planned_total = 0
             for phase_sources in phases:
@@ -1122,6 +1305,35 @@ def run_intel(
             record("score", "failed", reason=str(exc))
             gaps.append(f"score stage failed: {exc}")
 
+    # -- decide degradation visibility (invariant 3) ---------------------------
+    # The token pre-flight already flags whole-run degradation. Enforce-mode
+    # Jev degradation must be artifact-visible TOO: any ledger row carrying
+    # an error (a gate's on_error fallback fired) or a tripped Jev breaker
+    # sets decide_degraded at package time, so the flag rides to the dossier,
+    # the manifest and the return dict and a gap names the cause. Shadow runs
+    # record the same rows but never flag (nothing bound).
+    if (
+        decide_requested
+        and ledger is not None
+        and not decide_degraded
+        and decide_mode == "enforce"
+    ):
+        error_rows = sum(1 for row in ledger.rows if row.get("error") is not None)
+        breaker_open = bool(
+            isinstance(decider, LiveDecider) and getattr(decider, "breaker_open", False)
+        )
+        if error_rows or breaker_open:
+            decide_degraded = True
+            causes = []
+            if error_rows:
+                causes.append(f"{error_rows} Jev errors")
+            if breaker_open:
+                causes.append("breaker open")
+            gaps.append(
+                f"decide layer degraded during run: {' / '.join(causes)}; "
+                "on_error fallbacks applied; artifact flagged decide_degraded"
+            )
+
     # -- package ------------------------------------------------------------
     if dry_run:
         record("package", "skipped", note="dry-run: no package is built or written")
@@ -1165,6 +1377,11 @@ def run_intel(
                     "degraded": decide_degraded,
                     "shadow_appendix": _shadow_appendix(ledger.rows),
                 }
+            if llm_fields:
+                # The five G4-gated LLM dossier fields reach the dossier only
+                # when the implement sub-stage produced them — the off path
+                # (empty llm_fields) adds no key (byte-identity).
+                dossier_kwargs["llm_fields"] = llm_fields
             dossier = build_dossier(
                 snapshot,
                 coverage=coverage_rows,

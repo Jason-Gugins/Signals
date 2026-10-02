@@ -7,8 +7,9 @@ helpers. Fully offline: MockDecider only, no network, no respx.
 
 Semantics pinned here (see gates module docstring for the reasoning):
 - Enforce mode applies the verdict subject to floor + on_error; shadow mode
-  is inert (returns the deterministic/no-gate outcome) while the row records
-  what enforce WOULD do.
+  never binds (G3/G5 return the deterministic outcome, G4 applies only its
+  deterministic machinery, G1 returns the WOULD-BE enforce action — binding
+  is the caller's mode decision) while the row records what enforce WOULD do.
 - ``agree`` compares the Jev-derived outcome against the deterministic
   baseline action, so in enforce mode ``agree: false + error: null`` means
   the floor rejected content the deterministic path would have kept.
@@ -273,7 +274,10 @@ def test_ledger_write_produces_valid_jsonl(tmp_path):
 
     path = tmp_path / "nested" / "decisions.jsonl"
     ledger.write(path)
-    lines = path.read_text(encoding="utf-8").splitlines()
+    raw = path.read_bytes()
+    # LF-terminated lines on every platform (write uses newline="\n").
+    assert b"\r" not in raw
+    lines = raw.decode("utf-8").splitlines()
     assert len(lines) == 2
     first = json.loads(lines[0])
     second = json.loads(lines[1])
@@ -337,16 +341,32 @@ def test_plan_step_null_decider_takes_deterministic_path():
     assert agg["input_tokens"] == 0
 
 
-def test_plan_step_shadow_is_inert_and_records_verdict():
+def test_plan_step_shadow_returns_would_be_action_and_records_verdict():
     ledger = DecideLedger()
     action, _ = gate_plan_step(STEP, "icp text", _noul("step", 0.9), {}, ledger, RUN, "shadow")
-    # Shadow never binds: the LLM step flows; the row records the would-be.
+    # Shadow never binds: the action is the WOULD-BE enforce action (keep,
+    # because the verdict meets the floor); the caller applies it only in
+    # enforce mode.
     assert action == "keep"
     row = ledger.rows[0]
     assert row["noul"] == 0.9
     assert row["outcome"] == "accepted"  # would-be outcome
     assert row["deterministic_action"] == "drop_llm"
     assert row["agree"] is False  # jev keep vs deterministic drop_llm
+    assert row["called"] is True
+
+
+def test_plan_step_shadow_low_noul_returns_would_be_drop():
+    """Shadow does NOT blanket-keep: the returned action is what enforce
+    would do (drop below the floor), so shadow artifacts stay honest."""
+    ledger = DecideLedger()
+    action, _ = gate_plan_step(STEP, "icp text", _noul("step", 0.3), {}, ledger, RUN, "shadow")
+    assert action == "drop_llm"
+    row = ledger.rows[0]
+    assert row["noul"] == 0.3
+    assert row["outcome"] == "dropped"  # would-be outcome
+    assert row["deterministic_action"] == "drop_llm"
+    assert row["agree"] is True  # jev drop agrees with the deterministic default
     assert row["called"] is True
 
 

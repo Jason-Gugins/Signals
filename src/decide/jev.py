@@ -129,6 +129,16 @@ class LiveDecider:
         """Release the connection pool (hygiene; not required for correctness)."""
         self._client.close()
 
+    @property
+    def breaker_open(self) -> bool:
+        """True once the error-rate breaker has tripped (read-only).
+
+        The trip condition is monotonic in practice — errors never decrease
+        and no network call goes out while tripped — so once open the breaker
+        stays open for the life of the instance.
+        """
+        return self._breaker_tripped()
+
     def decide(self, state: str | dict, questions: dict[str, dict]) -> Decision:
         # Breaker check BEFORE the call: sustained failure stops the network
         # chatter entirely; the minimum sample keeps one transient error from
@@ -254,6 +264,7 @@ def get_decider(cfg: dict | None = None) -> Decider:
     with _decider_lock:
         if _decider_instance is not None and _decider_key == key:
             return _decider_instance
+        previous = _decider_instance
         if mode_off:
             instance: Decider = NullDecider()
         else:
@@ -276,4 +287,10 @@ def get_decider(cfg: dict | None = None) -> Decider:
                 instance = NullDecider()
         _decider_instance = instance
         _decider_key = key
+        if previous is not None and previous is not instance:
+            # A swapped-out decider must not leak its httpx connection pool.
+            try:
+                getattr(previous, "close", lambda: None)()
+            except Exception as exc:  # hygiene only; never fail the swap
+                logger.debug("decider swap: closing previous instance failed: {}", exc)
         return instance

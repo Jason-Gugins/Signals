@@ -10,10 +10,14 @@ shadow — fail-safe inert):
 
 - **enforce** — the verdict binds, subject to the gate floor and the
   ``on_error`` rule from ``config/decide.yaml`` (``decider.gates.<name>``).
-- **shadow** — the gate is INERT: the returned action is the deterministic /
-  no-gate outcome and the row records what enforce WOULD do (the would-be
-  outcome rides in ``outcome``/``answers``/``noul`` so the shadow audit can
-  tune floors before enforce ever binds).
+- **shadow** — the gate is INERT: no Jev verdict ever binds. G3/G5 return
+  the deterministic / no-gate outcome, G4 applies only its deterministic
+  machinery (doc existence + prefilter), and G1 returns the WOULD-BE
+  enforce action so the caller can surface it — in every case the row
+  records what enforce WOULD do (the would-be outcome rides in
+  ``outcome``/``answers``/``noul`` so the shadow audit can tune floors
+  before enforce ever binds). Binding is the CALLER's mode decision
+  (``run_intel`` applies a G1 action only in enforce mode).
 
 Row semantics pinned across gates (invariant 5):
 
@@ -254,7 +258,9 @@ class DecideLedger:
         p = Path(path)
         if str(p.parent):
             p.parent.mkdir(parents=True, exist_ok=True)
-        with p.open("a", encoding="utf-8") as fh:
+        # newline="\n" keeps the JSONL LF-terminated on Windows too (the same
+        # habit as write_intel_package).
+        with p.open("a", encoding="utf-8", newline="\n") as fh:
             for row in self.rows:
                 fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
 
@@ -386,9 +392,13 @@ def gate_plan_step(
     default ordering/budget — the step is NOT skipped entirely. Returns
     (action, decision); the caller (Task 7) applies the action.
 
-    Shadow mode returns "keep" (the gate is inert; whether the LLM plan binds
-    in shadow at all is Task 7's mode handling) while the row records the
-    would-be enforce outcome.
+    EVERY mode returns the would-be enforce action ("keep" only when the
+    verdict meets the floor) so rows and artifacts always show what enforce
+    would do; what differs is BINDING: an enforce caller applies the action,
+    a shadow caller must NOT (invariant 5 — shadow never binds the plan).
+    The row's inertness semantics are unchanged: ``deterministic_action``
+    stays the no-gate default ("drop_llm") and ``agree`` compares the
+    verdict against that baseline.
     """
     cfg = _cfg(gate_cfg)
     floor = _floor(cfg, PLAN_FLOOR)
@@ -449,11 +459,10 @@ def gate_plan_step(
     would = "keep" if (noul is not None and noul >= floor) else "drop_llm"
     agree = None if noul is None else would == det_action
     direction = "match" if agree else None
-    if enforce:
-        action, outcome = would, ("accepted" if would == "keep" else "dropped")
-    else:
-        # Shadow: gate inert — the LLM step flows; the row keeps the would-be.
-        action, outcome = "keep", ("accepted" if would == "keep" else "dropped")
+    # Both modes return the WOULD-BE enforce action so artifacts show what
+    # enforce would do; only an enforce CALLER binds it (Task 7 applies the
+    # plan override in enforce mode alone — shadow never binds the plan).
+    action, outcome = would, ("accepted" if would == "keep" else "dropped")
     ledger.record(
         _row(
             "plan_qualification", state, decider, run_id,

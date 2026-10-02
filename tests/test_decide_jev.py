@@ -216,15 +216,18 @@ def test_retry_and_breaker(monkeypatch):
     decider = LiveDecider(
         base_url=BASE, model="jev-1.13.0", api_key="test-dummy", max_retries=0
     )
+    assert decider.breaker_open is False  # fresh instance: breaker closed
     for _ in range(5):
         decider.decide("state", {"q1": _noul_q()})
     assert decider.total_calls == 5
     assert decider.errors == 2  # 2/5 = 0.40 > breaker threshold 0.20
+    assert decider.breaker_open is True  # tripped and visible
     before = route.call_count
     d6 = decider.decide("state", {"q1": _noul_q()})
     assert d6.applies is True
     assert d6.ok is False
     assert route.call_count == before  # breaker trip made no network call
+    assert decider.breaker_open is True  # stays open (no call went out)
 
 
 def _decider_cfg(mode: str) -> dict:
@@ -276,6 +279,30 @@ def test_get_decider_factory_gates(monkeypatch):
         get_decider({"mode": "shadow", "decider": {"model": "jev-test-9"}}), LiveDecider
     )
     jev._reset_decider_cache()
+
+
+def test_get_decider_closes_previous_instance_on_swap(monkeypatch):
+    """Swapping configs must not leak the old LiveDecider's httpx pool."""
+    monkeypatch.setenv("TYPESAFE_API_KEY", "ts-dummy")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", jev.DATA_EXIT_CONSENT)
+    jev._reset_decider_cache()
+    cfg_a = {"mode": "enforce", "decider": {"model": "jev-swap-a"}}
+    cfg_b = {"mode": "enforce", "decider": {"model": "jev-swap-b"}}
+    try:
+        first = get_decider(cfg_a)
+        assert isinstance(first, LiveDecider)
+        assert first._client.is_closed is False
+        second = get_decider(cfg_b)  # different key -> new instance
+        assert second is not first
+        assert isinstance(second, LiveDecider)
+        assert first._client.is_closed is True  # previous client released
+        assert second._client.is_closed is False
+        # Same key -> memoized instance, nothing closed.
+        assert get_decider(dict(cfg_b)) is second
+        assert second._client.is_closed is False
+    finally:
+        jev._reset_decider_cache()
+        second.close()
 
 
 @pytest.mark.llm_live

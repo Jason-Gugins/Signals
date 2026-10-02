@@ -302,6 +302,69 @@ def test_generate_plan_generates_then_cache_hit_makes_zero_http_calls(monkeypatc
 
 
 @respx.mock
+def test_generate_plan_stale_cache_not_served_when_scope_shrinks(monkeypatch, tmp_path):
+    """Q: a cache hit is re-validated against the CURRENT inputs — a scope
+    change after caching must never serve the stale plan (here: no
+    credentials either, so a cache miss degrades to missing_credentials)."""
+    route = respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=_llm_ok_body()))
+    _grant_creds(monkeypatch)
+    cache = tmp_path / "plan_cache"
+
+    plan, why = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
+    assert why == "generated"
+    assert route.call_count == 1
+
+    # Config change: company_feed is no longer allowed for this account.
+    _revoke_creds(monkeypatch)
+    kwargs = _kwargs()
+    kwargs["allowed_sources"] = {"ats_workday", "news_rss"}
+    plan2, why2 = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **kwargs)
+    assert (plan2, why2) == (None, "missing_credentials")  # stale plan NOT served
+    assert route.call_count == 1  # still no HTTP (credentials missing)
+    # the stale file was dropped so a later credentialed run regenerates
+    assert load_cached_plan(cache, "acme.test", "default", "snap-1") is None
+
+
+@respx.mock
+def test_generate_plan_stale_cache_regenerated_against_current_scope(monkeypatch, tmp_path):
+    """Q: with credentials, a stale (out-of-scope) cache is dropped and the
+    regenerated plan validates against the current allowed sources."""
+    _grant_creds(monkeypatch)
+    cache = tmp_path / "plan_cache"
+    route = respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=_llm_ok_body()))
+    plan, why = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
+    assert why == "generated"
+    assert route.call_count == 1
+
+    narrowed_raw = {
+        "steps": [
+            {
+                "source_ids": ["ats_workday", "news_rss"],
+                "budget_knobs": {"ats_workday": {"detail_follow_max": 20}},
+                "acceptance_criteria": [],
+            }
+        ]
+    }
+    route.mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"content": json.dumps(narrowed_raw)}}]}
+        )
+    )
+    kwargs = _kwargs()
+    kwargs["allowed_sources"] = {"ats_workday", "news_rss"}
+    plan2, why2 = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **kwargs)
+    assert why2 == "generated"  # regenerated — never the stale plan
+    assert [step.source_ids for step in plan2.steps] == [["ats_workday", "news_rss"]]
+    assert route.call_count == 2
+
+    # the refreshed cache now validates for the narrowed scope
+    plan3, why3 = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **kwargs)
+    assert why3 == "cache"
+    assert plan3 == plan2
+    assert route.call_count == 2  # zero new HTTP calls
+
+
+@respx.mock
 def test_generate_plan_dry_run_makes_no_http_call_and_needs_no_keys(monkeypatch, tmp_path):
     _revoke_creds(monkeypatch)
     route = respx.post(CHAT_URL).mock(side_effect=AssertionError("dry-run must not call the LLM"))

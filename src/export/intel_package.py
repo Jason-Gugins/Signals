@@ -185,6 +185,7 @@ def build_dossier(
     invocation_id=None,
     decide_records=None,
     decide_meta=None,
+    llm_fields=None,
 ) -> dict:
     """Build the JSON-serialisable dossier for ``snapshot``.
 
@@ -200,8 +201,10 @@ def build_dossier(
     ``decide-<invocation>-<gate>`` signal id, and also listed under the
     dossier's ``decide_records`` key. ``decide_meta`` carries the run's final
     decide mode, the degradation flag and the per-gate shadow appendix.
-    When both are None/empty the dossier keys are ABSENT (byte-identical to
-    the pre-layer package).
+    ``llm_fields`` carries the five G4-gated LLM dossier fields
+    (``{field: {"text", "doc_id", "llm_authored", "model"}}``) produced by the
+    implement sub-stage. When both are None/empty the dossier keys are ABSENT
+    (byte-identical to the pre-layer package).
     """
     today = snapshot.today
     account = snapshot.account
@@ -478,6 +481,11 @@ def build_dossier(
         dossier["decide_degraded"] = bool(decide_meta.get("degraded", False))
         dossier["decide_mode"] = decide_meta.get("mode")
         dossier["decide_shadow_appendix"] = dict(decide_meta.get("shadow_appendix") or {})
+    # The five G4-gated LLM dossier fields ride verbatim (the implement
+    # sub-stage already produced the audited shape). Absent/empty input keeps
+    # the key ABSENT so the layer-off dossier is byte-identical.
+    if llm_fields:
+        dossier["llm_fields"] = dict(llm_fields)
     return dossier
 
 

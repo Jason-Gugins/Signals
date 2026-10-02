@@ -203,7 +203,11 @@ def validate_plan(
         if not isinstance(knobs, dict):
             return None, "malformed"
         for source, entries in knobs.items():
-            if source not in step["source_ids"] or source not in knob_caps or not isinstance(entries, dict):
+            if (
+                source not in step["source_ids"]
+                or source not in knob_caps
+                or not isinstance(entries, dict)
+            ):
                 return None, f"unknown_knob:{source}"
             for knob, value in entries.items():
                 if knob not in knob_caps[source]:
@@ -280,6 +284,18 @@ def load_cached_plan(cache_dir: Path, domain: str, profile: str, snapshot_hash: 
 # ---------------------------------------------------------------- entry point
 
 
+def _max_steps(planner_cfg: dict) -> int:
+    """``planner.max_plan_steps`` as an int; the default when absent/bad.
+
+    Never raises: a malformed config value must not turn the spend guard
+    into a crash.
+    """
+    try:
+        return int(planner_cfg.get("max_plan_steps", DEFAULT_MAX_STEPS))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_STEPS
+
+
 def generate_plan(
     *,
     decide_cfg: dict,
@@ -304,12 +320,31 @@ def generate_plan(
     cache = Path(cache_dir) if cache_dir is not None else DEFAULT_CACHE_DIR
     planner_cfg = decide_cfg.get("planner") or {}
     use_cache = planner_cfg.get("plan_cache", True) is not False
+    max_steps = _max_steps(planner_cfg)
 
-    # 1. spend guard: a cached validated plan makes the run reproducible and free
+    # 1. spend guard: a cached validated plan makes the run reproducible and
+    # free — but a cache hit is re-validated against the CURRENT inputs
+    # (allowed sources, knob caps, fanout inclusion) before it is served: a
+    # config change must never let a stale plan reintroduce out-of-scope
+    # sources. A cache that fails validation is treated as a miss (the stale
+    # file is dropped) and the plan is regenerated below.
     if use_cache:
         cached = load_cached_plan(cache, domain, profile, snapshot_hash)
         if cached is not None:
-            return cached, "cache"
+            plan, _why = validate_plan(
+                _plan_to_dict(cached),
+                allowed_sources=allowed_sources,
+                knob_caps=knob_caps,
+                max_steps=max_steps,
+                include_fanout=include_fanout,
+                fanout_keys=fanout_keys,
+            )
+            if plan is not None:
+                return plan, "cache"
+            try:
+                _cache_path(cache, domain, profile, snapshot_hash).unlink()
+            except OSError:
+                pass
     # 2. dry-run's no-fetch contract: never call the LLM, never require keys
     if dry_run:
         return None, "dry_run"
@@ -324,7 +359,6 @@ def generate_plan(
     # 4. planner settings from config (defaults shipped in config/decide.yaml)
     model = planner_cfg.get("model", DEFAULT_MODEL)
     base_url = planner_cfg.get("base_url", DEFAULT_BASE_URL)
-    max_steps = int(planner_cfg.get("max_plan_steps", DEFAULT_MAX_STEPS))
     timeout_s = float(planner_cfg.get("timeout_s", DEFAULT_TIMEOUT_S))
     # 5. one LLM call
     prompt = build_prompt(icp_excerpt, domain, sorted(allowed_sources), knob_caps, max_steps)

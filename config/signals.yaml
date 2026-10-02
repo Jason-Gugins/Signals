@@ -359,6 +359,16 @@ types:
     half_life_days: 90
     play: growth_pitch
     label: "Profile-matched operational need"
+  llm_need:
+    category: operational
+    origin: internal
+    catalyst: primary
+    polarity: positive
+    degree: 0
+    weight: 18
+    half_life_days: 90
+    play: growth_pitch
+    label: "LLM-extracted need (gated)"
   required_stack_demand:
     category: operational
     origin: internal

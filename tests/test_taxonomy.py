@@ -40,9 +40,9 @@ def _data(types: dict) -> dict:
     }
 
 
-def test_loads_real_signals_yaml_53_types():
+def test_loads_real_signals_yaml_54_types():
     tax = Taxonomy.load(str(ROOT / "config" / "signals.yaml"))
-    assert len(tax.all()) == 53
+    assert len(tax.all()) == 54
     assert tax.get("funding_round").weight == 30
     assert tax.get("intent_1st_owned").degree == 1
 
@@ -116,6 +116,7 @@ def test_primary_types_match_section_32():
         "intent_2nd_marketplace",
         "marketplace_review_trend",
         "need_statement",
+        "llm_need",
         "required_stack_demand",
     }
     assert tax.primary_types() == expected

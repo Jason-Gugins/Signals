@@ -53,6 +53,7 @@ markers = [
     "live_fetch: hits a real network host; requires explicit opt-in",
     "fake_net_seam: test exercises a network SEAM with fake engines; no real host contacted",
     "rerank_live: requires signals[rerank] extra + model download",
+    "llm_live: live calls to real LLM endpoints (OpenRouter/TypeSafe); skipped unless -m llm_live and keys present",
 ]
 
 [tool.ruff]

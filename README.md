@@ -10,7 +10,10 @@ No paid APIs. No ZoomInfo, Apollo, Exa, BuiltWith, or Bombora. The only keyed
 integrations are free and stay off until credentials exist: `GITHUB_TOKEN`
 (raised GitHub API rate limit) and Google's Knowledge Graph APIs — Cloud
 Enterprise Knowledge Graph, with the legacy Knowledge Graph Search API as a
-fallback (identity discovery only; see *Identity discovery* below).
+fallback (identity discovery only; see *Identity discovery* below). Two
+documented exceptions, both off until configured: the optional captcha-solver
+keys in *Cloudflare bypass* and the opt-in LLM decision layer below (metered
+`OPENROUTER_API_KEY` / `TYPESAFE_API_KEY`, see its *Cost* paragraph).
 
 Public, business-relevant data only. Polite HTTP (`robots.txt` honored by
 default). A real contact address in the User-Agent. Rate limits are floors.
@@ -184,11 +187,17 @@ nothing is promoted until then.
 `intel` carries an optional agentic layer: a MiMo planner that narrows and
 orders source scope, DeepSeek/GLM implementers that atomize already-stored
 documents into cited claims, and a TypeSafe Jev typed-decision gate at the
-stage boundaries. It is OFF by default and inert unless BOTH `--with-llm` is
-passed AND `config/decide.yaml` sets `mode:` to `shadow` or `enforce` (env
-`SIGNALS_DECIDE_MODE` overrides the config). With no keys, no consent, or
-`mode: "off"`, `intel` behaves exactly as it does without this section — one
-extra config load is the only difference.
+stage boundaries. It exists only inside `intel` runs — `watch` and scheduled
+`collect` cycles never invoke it. It is OFF by default and inert unless BOTH
+`--with-llm` is passed AND `config/decide.yaml` sets `mode:` to `shadow` or
+`enforce` (env `SIGNALS_DECIDE_MODE` overrides the config). With `mode: "off"`
+(or without `--with-llm`), `intel` behaves exactly as it does without this
+section — one extra config load is the only difference. With the layer
+requested but keys or consent missing, the deterministic pipeline is unchanged
+and no outbound call is made, but the run records gaps plus decide provenance.
+Opt in when you want planner-narrowed collection and LLM-atomized cited claims
+on top of the dossier; stay at `mode: "off"` when you need byte-identical,
+reproducible runs or zero outbound calls.
 
 ```yaml
 # config/decide.yaml — ships mode: "off"
@@ -202,33 +211,44 @@ decider:
   model: jev-1.13.0       # TypeSafe Jev (api.typesafe.ai), bills input tokens only
 ```
 
-**Keys and consent** (untracked `.env`, never committed):
-`OPENROUTER_API_KEY` (planner + implementers), `TYPESAFE_API_KEY` (Jev), and
-the data-exit consent — `SIGNALS_DECIDE_DATA_EXIT` must equal the exact string
+**Keys and consent** (untracked `.env`, never committed — all three are
+pre-listed in `.env.example`): `OPENROUTER_API_KEY` (planner + implementers),
+`TYPESAFE_API_KEY` (Jev), and the data-exit consent —
+`SIGNALS_DECIDE_DATA_EXIT` must equal the exact string
 `I-understand-document-text-leaves-this-machine` for ANY live outbound LLM
 call, shadow mode included. Missing keys or consent degrade that role to its
-deterministic fallback and record a gap; a run never fails for them. `doctor`
+deterministic fallback and record a gap (planner and implementers); a missing
+Jev key/consent silently degrades to a not-applicable decider — visible in the
+decide records and `doctor`. A run never fails for any of them. `doctor`
 warns when the layer is configured on without them, without echoing values.
+Then run:
+
+```powershell
+.\\.venv\\Scripts\\python.exe -m src.cli intel acme.com --with-llm
+```
 
 **Gates.** Jev answers typed questions at the stage boundaries; every decision
 lands in a per-run `decisions.jsonl` beside the package, and each boundary
 adds one aggregate evidence record (`kind: "jev_decision"`) to the dossier.
-The five gates (all floors 0.70 noul, all configurable in `config/decide.yaml`):
+The five gates (all floors 0.70 noul — Jev's typed numeric score — all
+configurable in `config/decide.yaml`):
 
 | Gate | Boundary | What it does | On Jev error |
 |---|---|---|---|
 | G1 plan qualification | plan → collect | in enforce, keeps/drops each LLM plan step | step reverts to deterministic collection (never dropped from collection) |
 | G2 posture audit | after collect | shadow-only audit — logs, NEVER binds (the deterministic posture machinery is the gate) | n/a |
 | G3 routing | per document | deterministic token heuristic first; Jev breaks ties only (±20% of `route_threshold`) | deterministic heuristic |
-| G4 citation soundness | per document's claim batch | after a deterministic doc-existence + lexical-overlap prefilter, a claim survives only above the floor | LLM claims for that boundary dropped |
-| G5 need promotion | implement → score | `llm_need` candidates promote only above the floor (probability stored regardless) | LLM-promoted need dropped |
+| G4 citation soundness | per document's claim batch | in enforce, after a deterministic doc-existence + lexical-overlap prefilter, a claim survives only above the floor | LLM claims for that boundary dropped |
+| G5 need promotion | implement → score | in enforce, `llm_need` candidates promote only above the floor (probability stored regardless) | LLM-promoted need dropped |
 
 **Fail rules.** The deterministic derive/package output is always produced in
-full — LLM content is additive on top. A Jev outage degrades to exactly the
-`mode: "off"` dossier, and the artifact says so: `decide_degraded: true` in
-`manifest.json` plus a gap line. Shadow mode never changes the applied path;
-it only logs. Narrow-only invariant: no gate verdict can add sources, budget,
-or posture.
+full — LLM content is additive on top. A Jev outage drops all LLM content and
+the artifact says so: `decide_degraded: true` in `manifest.json` plus a gap
+line; dropped G1 steps still revert to deterministic collection; the
+planner-narrowed enforce scope itself stays narrowed — reverting the steps
+does not widen the plan back. Shadow mode never
+changes the applied path; it only logs. Narrow-only invariant: no gate verdict
+can add sources, budget, or posture.
 
 **Cost.** ≈ $0.15–0.30 per `intel` run at ~200 stored documents — the
 implementers dominate; each individual Jev decision is sub-cent. The token

@@ -867,6 +867,46 @@ Adoption candidates (each becomes its own scoped roadmap wave when scheduled):
   doc gate's ~2/3 exclusion rate makes total layer cost go DOWN; the doc gate's spend
   should be added to the `max_decide_tokens_per_run` pre-flight projection when adopted.
 
+## Run-speed tuning: news/aggregator rates + the googlenewsdecoder finding (2026-10-02) — DELIVERED (rates) / FOUND (bottleneck)
+
+Motivated by a ~30 min `intel snowflake.com` wall clock. Two read-only verification
+subagents confirmed the tuning plan (mechanism seams, zero test breakage — no test pins
+the changed rates; docs unaffected; README enabled-source gate not triggered).
+
+**Delivered — config-only rate raise** (`config/sources.yaml`, no code): news_rss and
+google_news 0.5→2.0 req/s (shared news.google.com bucket — limiter takes the MIN of
+claims per host, so both moved together), community_hn and content_itunes 1.0→3.0,
+appstore_reviews 1.0→3.0 (shares the itunes.apple.com bucket with content_itunes; a
+one-sided raise would silently cap the other at the min). Measured same-day A/B on
+snowflake.com (both runs --force): google_news within-pass pacing 1.96s→0.42s avg gap,
+pure fetch span 47s→10s. Offline lane green (rate_wiring, config, ratelimit,
+config_lint, sources_import, usaspending). Rollback = single-file revert.
+
+**Found — the actual bottleneck is NOT pacing.** fetch_log profiling of both runs: total
+HTTP ≈ 144s of a 27.3 min collect; google_news spans ~21.7 min of wall time in BOTH runs
+(1310s baseline / 1301s rerun) with ZERO fetch_log rows inside the hole. py-spy stack
+caught it live: `GoogleNewsSource.parse` → `feeds.parse_feed` →
+`src/sources/news/resolve.py:50 _resolve_google_news_token` → third-party
+`googlenewsdecoder` fires raw `requests.get(url, proxies=...)` with **no timeout**
+(.venv googlenewsdecoder/new_decoderv2.py:63) once per `news.google.com/rss/articles/<token>`
+item, serially in the main thread — outside HttpFetcher, so invisible to fetch_log, the
+rate limiter, and all http config. Google throttles that unauthenticated decode endpoint
+hard (~30-90s per decode under load), and the LRU cache in resolve.py is process-local,
+so every fresh run re-decodes the same links.
+
+**Fix options (NOT scheduled — Jason's pick):** (a) route the decode through HttpFetcher
+(implements the 2-request decode flow itself) → fetch_log visibility + limiter + 30s
+timeout; (b) persist token→domain resolutions in sqlite keyed by the article token —
+same links recur across 12h cadences, so a cross-run cache kills most of the cost;
+(c) bound the damage: cap decodes per doc/cycle + wall-clock deadline. (a)+(b) compose;
+(b) alone is the cheapest big win. **Also deferred (verified twice, ~40 lines):
+per-source `timeout_seconds`/`max_retries` overrides** — sources.yaml keys →
+`_source_http_overrides()` → `HttpFetcher(http_overrides=...)` → per-request
+`kwargs["timeout"]` + `max_retries` lookup in `_request`; `_COMMON_KNOWN_KEYS` += both
+keys; gotchas known (replay hardcodes source="techstack"; `defaults:` block neither
+linted nor consumed; timeout 0/null must be rejected). Build only if still warranted
+once the decoder hole is fixed.
+
 ## Manual checklists (human setup, not code)
 
 - **2Captcha provider setup** — create account, key in `.env`, verify `TurnstileTaskProxyless` vs `AntiCloudflareTaskProxyless` against a real managed challenge, test headed fallback (`CLOUDFLARE_HEADED_FALLBACK=true`).

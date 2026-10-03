@@ -22,7 +22,9 @@ The one documented exception: the optional DuckDuckGo SERP stage of
 the curl tier carries no robots logic, so that stage ships off by default,
 runs only at resolve time (never on a collection cadence, one request per
 lookup), and is probe-gated (see
-`data/probe/KEYLESS_IDENTITY_2026_09.md`).
+`data/probe/KEYLESS_IDENTITY_2026_09.md`). The second documented exception is
+the opt-in `xray` command (manual, self-paced, never scheduled — see *X-ray
+SERP prospecting* below), which fetches DuckDuckGo's LITE SERP.
 Marketplace scraping is opt-in — see the *Sources* section below for the full
 gate and per-site options.
 
@@ -305,6 +307,51 @@ is a human edit: approved domains go into `config/lists/competitors.txt`
 `competitors:` in `config/fingerprints.yaml` (drives `competitor_detected`).
 The G2 competitors-page pass is deferred — DataDome-challenged, see
 `data/probe/G2_COMPETITORS_2026_09.md` (needs fresh cookies or solver keys).
+
+## X-ray SERP prospecting (opt-in)
+
+`xray` runs search-operator prospecting ("X-ray search"): a library of SERP
+query strings built from the five operators — `site:`, quoted phrases, `OR`
+variants, minus exclusions, `intitle:`/`inurl:` — pointed at DuckDuckGo's LITE
+endpoint to discover people by title and companies by their hiring posts,
+funding phrases, and buyer-intent phrases. This is the keyless route to
+"who is the VP Sales at a company we've never scraped" and "which unknown
+companies are hiring the role our service replaces" — the two discovery
+shapes the account-keyed fanout cannot do.
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli xray --kind hiring --role "head of sales"
+.\.venv\Scripts\python.exe -m src.cli xray --kind people --title "head of growth" --location "Austin" --limit 3
+.\.venv\Scripts\python.exe -m src.cli xray --stats
+```
+
+- **Strings live in `config/lists/xray_strings.yaml`** (five families:
+  `people_title_city`, `people_niche_keyword`, `hiring_post_role`,
+  `recently_funded_niche`, `intent_problem_phrase`). "Swap the niche" = edit
+  the file; `{title} {location} {niche} {role} {problem_phrase}` are slots
+  filled by the CLI options, and a string with an unfilled slot is never
+  fetched.
+- **Never-guess outputs.** Company hits from
+  company/hiring/intent strings queue ONE `identity_candidates` row per query
+  (kind=domain, source=xray) for human review — nothing auto-creates
+  accounts, and known cohort roots are dropped before review. Profile hits
+  from people strings become `contacts` rows only when the parsed company
+  name casefold-matches a cohort account; unmatched profiles are ledger-only.
+- **Every query lands in `data/xray/ledger.jsonl`** (UTC, one row per query
+  with status `ok`/`challenge`/`empty`/`error`), and `xray --stats` aggregates
+  per string id — run the strings that produce, drop the ones that don't.
+- **The engine is stochastic.** The lite endpoint serves 202 anomaly
+  challenges / 403 error-lites on some requests, so each query retries
+  (`--attempts`, `--attempt-pause`) with pacing (`--pace`) and records the
+  honest outcome; a challenge never parses as results. Budget: `--limit`
+  queries per run.
+- **Robots exception + google NO-GO.** This is the second documented
+  robots exception (see the ethics paragraph above): manual invocation only,
+  never scheduled, never a cadence fanout, self-paced, a handful of requests
+  per run. Google SERP itself probed NO-GO on every transport including the
+  headed stealth-browser tier — a 200 JS-gate shell with zero organic
+  anchors — so `ddg_lite` is the only built engine
+  (`data/probe/XRAY_SERP_2026_10.md`).
 
 ## Email delivery
 

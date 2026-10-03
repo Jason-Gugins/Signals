@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### X-ray SERP prospecting (`xray`)
+- New manual, opt-in CLI command `xray`: search-operator prospecting over DuckDuckGo's LITE SERP (`site:`, quoted phrases, `OR`, minus, `intitle:`/`inurl:`) with a string library at `config/lists/xray_strings.yaml` (five families: people-by-title, people-by-niche, hiring-post, recently-funded, intent-problem-phrase). Slots (`--title/--location/--niche/--role/--problem-phrase`) fill the library strings; a string with an unfilled slot is never fetched.
+- Engine is `ddg_lite` only, per the live probe record `data/probe/XRAY_SERP_2026_10.md`: google served a 200 JS-gate shell with zero organic anchors to every transport including the headed stealth-browser tier (cookie replay disproven), and the html.duckduckgo.com endpoint 403s/challenges operator queries — `lite.duckduckgo.com/lite/` via the chrome-TLS curl_cffi tier is the only probe-validated path, and it is stochastic (202 anomaly / 403 error-lite on some requests), so the runner retries per query (`--attempts`, `--attempt-pause`) with pacing (`--pace`) and a per-run query budget (`--limit`).
+- Never-guess persistence: company/hiring/intent queries queue ONE `identity_candidates` row per query (kind=domain, source=xray, the verbatim query string as the review key) with known cohort roots dropped; people-query profile hits become `contacts` rows only on an exact casefold company match against the cohort, unmatched profiles are ledger-only. No new signal types.
+- Every query lands in `data/xray/ledger.jsonl` (UTC, status ok/challenge/empty/error, attempts and hit counts); `xray --stats` aggregates per string id so strings that produce can be run more.
+- Robots exception #2 (documented in the ethics paragraph and the new README section): manual invocation only, never scheduled, never a cadence fanout, self-paced.
+
 ### Master intelligence command (`intel`)
 - New CLI command `intel <target>` (also `python -m src.cli intel`): one account, every capability, one dossier. The five stages run in order — `identity` → `collect` → `derive` → `score` → `package` — with `--skip STAGE` (repeatable) to drop any of them and `--force` to ignore source cadences.
 - The package stage writes a portable package directory under the configured dossiers dir (`data/dossiers/` by default) containing `manifest.json`, `dossier.json`, `dossier.md`, `evidence.jsonl` and `prompt.md`; every claim cites an evidence record. `--no-write` builds the dossier without writing it, and `--max-signals N` caps the active signals.

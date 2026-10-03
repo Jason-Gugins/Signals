@@ -217,3 +217,64 @@ Manual verification (step 3 of the task) — analyzer numbers cross-checked by e
 - **Escalation rung corrections (supersede the E1/E2 BLOCK rows and "What the escalation proved" §1–2 above):** the headed browser did NOT hit a JS gate — it received a full SERP whose links the anchor counter could not see. The cookie replay did NOT return "the same anchor-less shell" — it returned the same 12-result SERP. Amortization (browser solve once → TLS replay with its cookies) is therefore **back on the table** for google, untested-but-plausible; the honest statement is that BOTH fetch paths provably return parseable result bodies.
 - **Task 6 shape (`google_state` engine):** fetch = existing browser tier OR browser-cookie replay through `CurlCffiFetcher` (both proven above); parse = (i) regex the `"2003":[null,"<tok>","<url>","<title>",…]` records from the raw bytes — zero DOM dependency, gives full plaintext URLs — and/or (ii) DOM-extract `h3.LC20lb` tiles for titles + cites (the `/goto?url=` href itself is opaque and yields no URL). Fixture source: `tmp/probe_xray_google_browser.html` (and `_replay.html`) — no re-fetch needed to build fixtures.
 - **Marker list update:** `id="search"` + `data-ved` + `h3` + `"2003":\[` are the google RESULTS markers; `httpservice/retry/enablejs` alone must never classify a body as blocked (it is present on result pages too).
+
+## Cookie amortization + UA cells (ladder Tasks 2+3 re-scoped, 2026-10-03)
+
+Re-scoped by Task 1's `RESULTS_AS_DATA` verdict (above): the original 12-cell no-cookie matrix and the 4 browser-escalation variants are answered or foregone, so the remaining decisive questions were asked with ONE new script — `scripts/google_cookie_refresh.py` (subcommands `all` / `replay` / `ua-cells` / `refresh` / `selftest`). All cells hit `www.google.com/search?q=site:linkedin.com/in "head of growth" "Austin"` (+`&hl=en`; Q2a/b plain, Q2c `&gbv=1`), curl_cffi `CurlCffiFetcher` chrome-TLS with explicit UA overrides, globally paced ≥4 s, hard budgets **≤8 HTTP + ≤3 page loads**, 2-consecutive-challenge abort, zero hard-block retries. Every body classified by the Task 1 analyzer's checks run inline (h3 / `W_jd` "2003" records / external result URLs / linkedin hits / hard markers) and cross-verified with `scripts/analyze_google_shell.py` — never by status, never by the enablejs noscript href alone.
+
+Classifier correction made during this run (regression-locked in the script's offline `selftest`, 10 fixtures PASS): the naive "any external URL ⇒ RESULTS" rule mis-read the captcha interstitial — its lone external URL is `https://www.gstatic.com/recaptcha/releases/.../recaptcha__en.js`. RESULTS now requires **≥3** external result URLs OR ≥1 h3 OR ≥1 "2003" record (the escalation rung's anchors≥3 rule re-derived: block pages link only to their own properties).
+
+### Q1 — do yesterday's cookies still yield results today? **NO — EMPTY (active rate-limit, not mere expiry)**
+
+| Cell | Jar | Status | Body | h3 | "2003" rec | linkedin | Verdict |
+|---|---|---|---|---|---|---|---|
+| Q1 replay, 2026-10-03 19:29 (23.9 h after harvest) | yesterday's 5 (SEARCH_SAMESITE, AEC, NID, DV, __Secure-STRP @ .google.com, harvested 2026-10-02 19:34) | **429** | 3,432 B captcha | 0 | 0 | 0 | **CHALLENGE** |
+| (re-verification, 19:39, see Q3) | fresh 4-cookie jar harvested 19:29 | **429** | 3,432 B captcha | 0 | 0 | 0 | **CHALLENGE** |
+
+The 429 body is the classic unusual-traffic CAPTCHA, not the JS-gate shell: title = URL echo, visible text *"…Our systems have detected unusual traffic from your computer network. This page checks to see if it's really you sending the requests, and not a robot… The block will expire shortly after those requests stop…"*, `g-recaptcha` + `recaptcha` markers present, enablejs absent (0 vs 2 on shells). Contrast the SAME posture 24 h earlier (escalation E2, 2026-10-02): **200, 499 KB, 12-record SERP**. Verdict: **amortization ≥1 day is falsified** — cookies live less than a day in the replay posture, so the refresh burden is **per-session**. Sharper observation from the same window: the block is posture-sensitive — cookie-bearing curl_cffi cells drew 429 captchas (3 of 3: yesterday-jar, cookies+gbv=1, fresh-jar) while cookie-less curl_cffi cells drew the ordinary 200/93 KB JS-gate shell (2 of 2). Stale cookies were not merely inert; the replay-with-cookies posture attracted the harder block (IP-velocity remains a confounder: the cookie cells went 1st/4th/6th in sequence).
+
+### Q2 — the never-tried basic-HTML cells: **all DEAD — the Jan-2025 consensus is confirmed from this IP**
+
+| Cell | UA / cookies | Status | Body | Verdict |
+|---|---|---|---|---|
+| Q2a old-Firefox UA | `Mozilla/5.0 (Windows NT 6.1; rv:60.0) Gecko/20100101 Firefox/60.0`, no cookies | 200 | 93,004 B — the JS-gate shell (title "Google Search", h3=0, wjd=0, linkedin_hits=1 = query echo in the enablejs retry link, enablejs=2) | **EMPTY** |
+| Q2b iPhone Safari UA | `Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (Version/16.6 Mobile/15E148 Safari/604.1)`, no cookies | 200 | 93,064 B — identical shell family | **EMPTY** |
+| Q2c cookies + gbv=1 | yesterday's jar, `&hl=en&gbv=1` | 429 | 3,497 B captcha (same shape as Q1) | **CHALLENGE** |
+
+Honest TLS note (as anticipated in the brief): `impersonate` stays `chrome` for all cells (TLS/H2 says Chrome) while Q2a/b's UA header says Firefox 60/iPhone — the mismatch is recorded; the cells still answer the server-side question, and the answer is no: **no old-UA or mobile-UA posture serves basic/result HTML keylessly**; both collapse to the exact rung-1 93 KB shell fingerprint. Q2c never reached param handling — the cookie-bearing request was rate-limited first, so whether `gbv=1` coexists with cookie-gated results remains untested (untestable on a flagged window; lowest-priority open cell).
+
+### Q3 — the refresh procedure (solve → harvest → replay-verify): mechanics proven end-to-end; result yield blocked today by a transient IP-level captcha wall
+
+| Step | Outcome |
+|---|---|
+| Solve (headed Patchright, cold context, 1 page load, 25 s settle) | **CHALLENGE** — served the 5.3 KB unusual-traffic CAPTCHA interstitial (same visible text, `g-recaptcha`×4, recaptcha JS from gstatic as its only external URL) instead of the Oct 2 751 KB SERP. No results rendered; no h3/2003 data. |
+| Harvest | `context.cookies()` → **4 cookies** (SEARCH_SAMESITE exp 2026-04-01, AEC exp 2026-04-01, __Secure-STRP exp 2026-10-03, NID exp 2026-04-04) → `data/xray/google_cookies.json` @ 2026-10-03T23:29:29Z. DV absent from the fresh jar — it only sets on a real SERP render, corroborating that none rendered (yesterday's jar had it). |
+| Fresh-jar replay (19:29, then once more at 19:39 after the wall showed signs of lifting) | **429** both times, 3,432 B captcha — the fresh jar fared no better than yesterday's in this posture. |
+
+The **pipeline itself is proven**: script runs solve → poll/classify → harvest → jar write → replay → analyzer-grade classification → budget ledger, all in one invocation with pacing and challenge-abort honored (challenge streak peaked at 2 = the abort condition; the 19:39 re-verification was a single paced request after external evidence of wall expiry, not a loop retry). What is NOT proven today is the yield leg: both the browser solve and every replay were captcha'd. Between our two attempts, at **19:35:56**, an external process on this machine (not this task's script — distinct writer filenames and post-run timing; the owner's parallel session) replaced `tmp/probe_xray_google_replay.html` with a body that **classifies RESULTS (12 "2003" records, 9 h3)** — direct evidence that the wall is **intermittent/posture-dependent** and had lifted minutes after our run, exactly as the captcha text promises ("will expire shortly after those requests stop"). Consequence: the refresh procedure is the correct instrument, but it must be run in a calm window and treated as one-shot (never re-run against a live wall).
+
+### Amortization verdict for engine design
+
+- **Cookies do NOT live ≥1 day in the replay posture** (0-for-2 today vs 1-for-1 same-day on Oct 2). Any `google_state` engine (ladder Task 6) must assume **per-session refresh**: browser solve → TLS replay within the same minutes-scale window, jar treated as single-use, stale jars discarded (and never replayed — they correlate with the 429 captcha rather than the plain shell).
+- The captcha wall finally **was served** on 2026-10-03 (429 + "unusual traffic" + `g-recaptcha` body on every cookie-bearing cell and the browser solve) — superseding the escalation rung's "NOT observed" row above: the marker set stays in the Task 4 detection list, now with a live body shape (`tmp/probe_xray_google_replay_q1.html`) and a status-429 signature.
+- The no-cookie basic-HTML door stays closed (Q2), so the only google fetch paths remain the two Task 1-proven ones (browser render / fresh-cookie replay), both gated on a calm reputation window.
+
+### Refresh-procedure usage
+
+```
+.venv\Scripts\python.exe scripts\google_cookie_refresh.py refresh    # solve -> harvest data/xray/google_cookies.json -> replay-verify
+.venv\Scripts\python.exe scripts\google_cookie_refresh.py all        # full Q1+Q2+Q3 ladder
+.venv\Scripts\python.exe scripts\google_cookie_refresh.py replay --cookies <jar.json>
+.venv\Scripts\python.exe scripts\google_cookie_refresh.py ua-cells [--cookies <jar.json>]
+.venv\Scripts\python.exe scripts\google_cookie_refresh.py selftest   # offline classifier regression, ZERO network
+# refresh also accepts --out <path> to relocate the jar. Budgets per invocation:
+# <=8 HTTP, <=3 page loads, >=4 s pacing, 2-consecutive-challenge abort, no retries.
+```
+
+### Budget disclosure (this section)
+
+| Host | HTTP requests | page loads |
+|---|---|---|
+| www.google.com | 6 of 8 (Q1 429; Q2a/b 200 shells; Q2c 429; fresh-jar replay 429; 19:39 re-verify 429) | 1 of 3 (headed solve — captcha served) |
+
+Artifacts (tmp/, gitignored, not committed): `probe_xray_google_replay_q1.html` (429 captcha), `_ua_firefox60.html` / `_ua_iphone.html` (shells), `_cookies_gbv1.html` (429), `_refresh_solve.html` (browser captcha interstitial), `_replay_fresh.html` (429), plus `data/xray/google_cookies.json` (fresh jar, gitignored). **`tmp/probe_xray_google_replay2.html` was NOT created** — the mission's save instruction was conditional on a result-bearing replay body, and no such body came from this task's cells today.

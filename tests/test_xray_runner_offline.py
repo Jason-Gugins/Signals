@@ -362,3 +362,56 @@ def test_empty_clean_body_after_attempts_records_empty(tmp_path):
     assert report["ok"] == 0
     assert report["company_candidates"] == 0
     assert report["contacts_written"] == 0
+
+
+# --- 10. empty built query: skip-and-ledger, never fetched ------------------
+
+def test_empty_query_string_skips_and_ledgers(tmp_path):
+    # A company spec whose only phrase is an unfilled slot builds "" — the
+    # skip-and-ledger path (status "empty", attempts 0, no fetch at all).
+    spec = {"id": "comp_slotless", "kind": "company", "phrases": ["{niche}"]}
+    report, db, events, urls, _sleeps = _run(tmp_path, [spec], [])
+
+    assert urls == []  # never fetched
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["string_id"] == "comp_slotless"
+    assert ev["query"] == ""
+    assert ev["status"] == "empty"
+    assert ev["attempts"] == 0
+    assert db.query("SELECT * FROM identity_candidates") == []
+    assert report["queries"] == 0
+    assert report["empty"] == 1
+
+
+# --- 11. persistence failure: ledger row still written, run continues -------
+
+def test_persistence_failure_still_ledgers(tmp_path):
+    # The one-ledger-row-per-query contract holds even when persistence blows
+    # up (locked sqlite etc.): the failure rides the event + report.
+    class LockedDb:
+        def query(self, sql, *a, **k):
+            return []  # empty cohort
+
+        def upsert(self, table, row, **k):
+            raise RuntimeError("database is locked")
+
+    ledger_path = tmp_path / "ledger.jsonl"
+    urls: list = []
+    report = run_xray(
+        strings=[SPEC_A],
+        fetch=_fake_fetch([(200, ORG_COMPANY)], urls),
+        db=LockedDb(),
+        ledger_path=ledger_path,
+        clock=lambda: CLOCK_STAMP,
+        sleep=lambda s: None,
+    )
+    events = load_events(ledger_path)
+
+    assert len(events) == 1  # the ledger row was NOT lost
+    ev = events[0]
+    assert ev["status"] == "ok"
+    assert ev["company_hits"] > 0
+    assert "database is locked" in ev["persist_error"]
+    assert report["errors"] == [{"query": Q_A, "reason": "persistence: database is locked"}]
+    assert report["company_candidates"] == 0

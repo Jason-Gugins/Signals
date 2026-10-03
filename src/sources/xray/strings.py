@@ -26,17 +26,27 @@ def minus_group(terms: Iterable[str]) -> str:
 def build_query(spec: dict, **slots: str | None) -> str:
     """Fill {curly} slots in variants/phrases, emit operators in fixed order:
     site, intitle:, inurl:, OR-variants, quoted phrases, minus-group.
-    A phrase whose slot is unfilled drops out entirely. Multi-slot phrases
-    fill textually — a HALF-filled multi-slot phrase passes through (e.g.
-    "{title} in {location}" with location=None -> "head in"), so the library
-    must not ship multi-slot phrases (it doesn't)."""
+    A phrase with ANY unfilled slot drops out entirely — a slot passed as None
+    or simply absent both count as unfilled (a literal "{niche}" never reaches
+    a live query). Multi-slot phrases fill textually, so a HALF-filled
+    multi-slot phrase also drops (it still carries a brace) — the library
+    ships none, but the rule is enforced, not assumed."""
     def fill(text: str) -> str:
         for key, val in slots.items():
             text = text.replace("{" + key + "}", (val or "").strip())
         return text
 
     def filled(field: str) -> list[str]:
-        return [v for v in (fill(t).strip() for t in (spec.get(field) or [])) if v]
+        # A phrase still carrying an unfilled {slot} after filling drops out
+        # ENTIRELY — whether the slot was passed as None or never passed at
+        # all (absent key == unfilled; a literal "{niche}" in a live query is
+        # never acceptable).
+        vals = []
+        for t in (spec.get(field) or []):
+            v = fill(t).strip()
+            if v and "{" not in v:
+                vals.append(v)
+        return vals
 
     parts: list[str] = []
     if (spec.get("site") or "").strip():

@@ -57,12 +57,17 @@ Never-guess persistence rules:
   are LEDGER-ONLY — never auto-accounts, never identity_candidates (pinned v1
   default).
 
-Every query gets exactly one ledger row AFTER its outcome; counts are never
-swallowed — the report keeps degradation visible.
+Every query gets exactly one ledger row AFTER its outcome (persistence
+failures ride the event as ``persist_error`` — the row is never lost);
+counts are never swallowed — the report keeps degradation visible.
+``contacts_written``/``profiles_unmatched`` count write attempts per query:
+the same person hit by two strings in one run counts twice even though the
+contacts upsert coalesces to one row (per-query rows stay accurate).
 """
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Callable
 
 from src.core.db import Database, IdentityCandidateStore
@@ -90,7 +95,7 @@ def run_xray(
     strings: list[dict],
     fetch: Callable[[str], tuple[int, str]],
     db: Database,
-    ledger_path: str | object,
+    ledger_path: str | Path,
     clock: Callable[[], str],
     sleep: Callable[[float], None] = time.sleep,
     slots: dict | None = None,
@@ -191,66 +196,76 @@ def run_xray(
             break
 
         # --- persistence (never-guess) -------------------------------------
+        # Guarded: a persistence failure (locked sqlite, store error) must not
+        # cost the query its ledger row — the one-row-per-query contract holds
+        # for EVERY fetched query; the failure rides the event + report.
         n_rows = 0
         n_contacts = 0
         n_unmatched = 0
         n_profile_hits = 0
         n_company_hits = 0
+        persist_error: str | None = None
         if status == "ok":
-            string_id = spec["id"]
-            if spec.get("kind") == "people":
-                profiles = extract_profiles(results, string_id=string_id)
-                n_profile_hits = len(profiles)
-                for hit in profiles:
-                    account = _match_account(hit.company, name_index, root_index)
-                    if account is None:
-                        n_unmatched += 1  # ledger-only; never auto-persisted
-                        continue
-                    domain = account["domain"]
-                    contact = Contact(
-                        person_key=stable_id(hit.slug, domain),
-                        domain=domain,
-                        name="",  # SERP text is not a verified identity
-                        title=hit.title,
-                        seniority=guess_seniority(hit.title),
-                        linkedin_slug=hit.slug,
-                        linkedin_url=hit.url,
+            try:
+                string_id = spec["id"]
+                if spec.get("kind") == "people":
+                    profiles = extract_profiles(results, string_id=string_id)
+                    n_profile_hits = len(profiles)
+                    for hit in profiles:
+                        account = _match_account(hit.company, name_index, root_index)
+                        if account is None:
+                            n_unmatched += 1  # ledger-only; never auto-persisted
+                            continue
+                        domain = account["domain"]
+                        contact = Contact(
+                            person_key=stable_id(hit.slug, domain),
+                            domain=domain,
+                            name="",  # SERP text is not a verified identity
+                            title=hit.title,
+                            seniority=guess_seniority(hit.title),
+                            linkedin_slug=hit.slug,
+                            linkedin_url=hit.url,
+                        )
+                        db.upsert("contacts", contact.to_db_row(), pk="person_key")
+                        n_contacts += 1
+                else:
+                    # Evidence count BEFORE the cohort dedupe: a run whose company
+                    # hits were all already-known accounts still shows hits > 0
+                    # with candidates_queued == 0 (degradation stays visible).
+                    n_company_hits = len(
+                        extract_companies(
+                            results, string_id=string_id,
+                            known_domains=set(), exclude=_EXCLUDE,
+                        )
                     )
-                    db.upsert("contacts", contact.to_db_row(), pk="person_key")
-                    n_contacts += 1
-            else:
-                # Evidence count BEFORE the cohort dedupe: a run whose company
-                # hits were all already-known accounts still shows hits > 0
-                # with candidates_queued == 0 (degradation stays visible).
-                n_company_hits = len(
-                    extract_companies(
+                    companies = extract_companies(
                         results, string_id=string_id,
-                        known_domains=set(), exclude=_EXCLUDE,
+                        known_domains=known, exclude=_EXCLUDE,
                     )
+                    if companies:
+                        # ONE row per query; the verbatim query string is the
+                        # review-row key (an operator query is not a company name).
+                        store.upsert_candidate(
+                            name=query,
+                            kind="domain",
+                            candidates=[
+                                {
+                                    "domain": h.domain,
+                                    "url": h.url,
+                                    "title": h.serp_title,
+                                    "snippet": h.snippet,
+                                    "string_id": h.string_id,
+                                }
+                                for h in companies
+                            ],
+                            source="xray",
+                        )
+                        n_rows = 1
+            except Exception as exc:
+                persist_error = str(exc)
+                report["errors"].append(
+                    {"query": query, "reason": f"persistence: {persist_error}"}
                 )
-                companies = extract_companies(
-                    results, string_id=string_id,
-                    known_domains=known, exclude=_EXCLUDE,
-                )
-                if companies:
-                    # ONE row per query; the verbatim query string is the
-                    # review-row key (an operator query is not a company name).
-                    store.upsert_candidate(
-                        name=query,
-                        kind="domain",
-                        candidates=[
-                            {
-                                "domain": h.domain,
-                                "url": h.url,
-                                "title": h.serp_title,
-                                "snippet": h.snippet,
-                                "string_id": h.string_id,
-                            }
-                            for h in companies
-                        ],
-                        source="xray",
-                    )
-                    n_rows = 1
 
         # --- ledger (one row per query, after its outcome) ------------------
         event = {
@@ -270,6 +285,8 @@ def run_xray(
             event["marker"] = marker
         if status == "error":
             event["error"] = error
+        if persist_error:
+            event["persist_error"] = persist_error
         append_event(ledger_path, event, clock=clock)
 
         report[status] += 1

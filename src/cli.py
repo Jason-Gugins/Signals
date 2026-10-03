@@ -970,7 +970,7 @@ def _xray_fetch():
 @click.option("--problem-phrase", "problem_phrase", default=None,
               help="Slot: buyer problem phrase (intent strings).")
 @click.option("--limit", type=int, default=10, show_default=True,
-              help="Max total SERP fetches this run (the anti-ban budget).")
+              help="Max queries this run (worst-case fetches = limit x attempts).")
 @click.option("--attempts", type=int, default=2, show_default=True,
               help="Fetch attempts per query (the lite gate is stochastic).")
 @click.option("--pace", type=float, default=20.0, show_default=True,

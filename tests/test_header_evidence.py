@@ -274,14 +274,15 @@ def _html_doc():
     )
 
 
-def test_techstack_parse_header_hit_emits_install_candidate():
+def test_techstack_parse_header_hit_emits_no_install_candidate():
     cands = TechstackSource().parse(
         _html_doc(),
         Account(domain="acme.com"),
         {"kind": "html", "today": TODAY, "response_headers": {"server": "cloudflare"}},
     )
     keys = [c.natural_key for c in cands]
-    assert "tech_install_new:cloudflare:2026-09" in keys
+    # tech_install_new is diff-owned now (first-seen); parse emits no installs.
+    assert "tech_install_new:cloudflare:2026-09" not in keys
 
 
 def test_techstack_parse_without_headers_emits_nothing_for_plain_html():

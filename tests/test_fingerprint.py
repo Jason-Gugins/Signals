@@ -110,7 +110,9 @@ def test_high_ticket_once_per_year():
     rows = [{"vendor": "salesforce", "tier": "enterprise", "first_seen_at": "2026-01-01"}]
     c1 = tech_to_candidates("acme.com", ["salesforce"], [], rows, RULES, [], today=date(2026, 8, 16))
     types = [c.signal_type for c in c1]
-    assert "tech_install_new" in types and "high_ticket_tech" in types
+    # tech_install_new is diff-owned now (first-seen); parse-time candidates
+    # carry only the tier/competitor emissions.
+    assert "tech_install_new" not in types and "high_ticket_tech" in types
     # same natural_key year means store would dedupe
     assert [c.natural_key for c in c1 if c.signal_type == "high_ticket_tech"][0].endswith("2026")
 

@@ -69,10 +69,11 @@ lane) plus a nightly live-parity lane — see
 .\.venv\Scripts\python.exe -m src.cli init
 ```
 
-`config/lists/` is gitignored, but the files below ship tracked in the repo —
-the three exclusion lists as comment-only stubs plus the x-ray string library —
-so you edit them in place rather than create them; anything else you drop in
-stays untracked (a human curates — see
+Three of the files below (the `.txt` lists) ship tracked in the repo as
+comment-only stubs, plus the x-ray string library
+`config/lists/xray_strings.yaml` — see *X-ray SERP prospecting* below. Edit
+those in place rather than create them; `champions.csv` and anything else you
+drop in stay untracked (a human curates — see
 [config/lists/README.md](config/lists/README.md) for the authoritative list):
 
 - `config/lists/competitors.txt` — domains we should never score as prospects
@@ -115,7 +116,7 @@ discovery for one domain - sitemap-first, prints the URL and which rung found
 it), `collect`,
 `reparse`, `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
-`capterra-selfcheck`, `prune` (retention: finalize stale `running` run rows older than
+`capterra-selfcheck`, `prune` (retention: finalize `runs` rows stuck in `running` older than
 `--stale-run-hours` (default 6), delete old fetch_log/documents/runs rows + raw
 files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum` reclaims
 space), `plays --outcome hit|miss --domain X --play Y` (record a
@@ -333,7 +334,7 @@ shapes the account-keyed fanout cannot do.
   `recently_funded_niche`, `intent_problem_phrase`). "Swap the niche" = edit
   the file; `{title} {location} {niche} {role} {problem_phrase}` are slots
   filled by the CLI options, and a string with an unfilled slot is never
-  fetched. `--kind` filters by string kind (`people`/`company`/`hiring`/
+  fetched. `--kind` filters by string kind (`people`, `company`, `hiring`,
   `intent`; repeatable).
 - **Never-guess outputs.** Company hits from
   company/hiring/intent strings queue ONE `identity_candidates` row per query
@@ -489,9 +490,9 @@ silent after a Form D raise), `federal_contract_award` (usaspending.gov),
 `competitor_outage` (direct statuspage.io polling), `reputation_drop` (BBB
 grade downgrade), `tech_removed` / `competitor_detected` / `backfill_open`
 (now all wired), and mail-vendor churn from DNS evidence (`tech_churn` on
-removed SPF includes), plus the profile-matched operational-need trio from the
-`needs` derive pass and the LLM layer: `need_statement`, `required_stack_demand`,
-and LLM-gated `llm_need` (promoted only through the G5 gate above). Entity resolution
+removed SPF includes), plus three operational-need signals — `need_statement`
+and `required_stack_demand` from the `needs` derive pass, and LLM-gated
+`llm_need` (promoted only through the G5 gate above). Entity resolution
 (`normalize_entity` + fuzzy match, `config`
 `entity_aliases`) ties same-company variants across sources to one account,
 and `config/icp.yaml` scores accounts at seed time so tiering is real from

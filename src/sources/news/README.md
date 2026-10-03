@@ -70,9 +70,12 @@ Beyond the plain `"CompanyName"` query, `google_news` runs one **keyword-augment
 1. **Attribution guards** (reject false positives — this is the hardened classifier):
    - **Publisher-domain ladder** (first check, strongest signal) —
      `parse_feed` resolves each item's true publisher domain (`feeds.py` →
-     `resolve.py`: `?url=` param, summary link, then the `googlenewsdecoder`
-     network decode for leftover `news.google.com` tokens; offline-first,
-     bounded LRU-cached, never fatal). Classification then applies three tiers:
+     `resolve.py`: `?url=` param, summary link, then — on google_news/news_rss
+     cycles, which get an injected `DomainResolver` — the durable
+     `news_link_resolutions` sqlite cache and at most `max_link_decodes`
+     fetcher-based decodes of leftover `news.google.com` tokens per cycle
+     (`decode.py`, via HttpFetcher: logged, rate-limited, 30s timeout);
+     offline-first, never fatal). Classification then applies three tiers:
      **tier-1** — publisher domain matches the account's domain (subdomains
      count, `www.` normalized) → the name is *proven*, every lexical guard is
      skipped; **tier-2** — publisher is a *different brand's* domain containing
@@ -154,7 +157,8 @@ States: `ok` / `drift` / `empty` / `challenge` / `error` (challenge and empty ex
 |---|---|
 | `collector.py` | `NewsRssSource`, `GoogleNewsSource`, `CompanyFeedSource` — `plan()`/`parse()` |
 | `feeds.py` | `google_news_search_url`, `google_news_topic_url`, `google_news_url`, `bing_news_url`, `parse_feed`, `_unwrap`, `publisher_domain` resolution wiring, feed discovery |
-| `resolve.py` | `resolve_publisher_domain` — three-tier publisher-domain resolution (`?url=` → summary link → `googlenewsdecoder`), bounded LRU cache |
+| `resolve.py` | `resolve_publisher_domain` — offline publisher-domain resolution (`?url=` → summary link; token fallback is an offline-only shim), `DomainResolver` — injected per-cycle resolver (offline tiers → `news_link_resolutions` sqlite cache → budget-bounded decodes) |
+| `decode.py` | Google News article-token decode via HttpFetcher (`rss/articles` params GET → batchexecute POST), logged + rate-limited + 30s timeout |
 | `classify.py` | `classify_news`, `NEWS_RULES`, attribution guards (publisher-domain ladder, `_strip_source_attribution`, common-word + self-published guards) |
 | `serp_config.py` | `load_google_news_cfg()` — reads `serp_keywords` from `sources.yaml` |
 

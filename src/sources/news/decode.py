@@ -45,8 +45,6 @@ def extract_token(link: str) -> str | None:
 
 
 def _get_html(fetcher, url: str) -> bytes | None:
-    from src.core.http import FetchResult
-
     try:
         result = fetcher.get(FetchTask(source="google_news", url=url, domain="news.google.com"))
     except Exception:

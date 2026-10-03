@@ -7,6 +7,7 @@ Careers-page lookup order (see ``AtsDiscovery.discover``): an existing
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -212,6 +213,67 @@ def board_token_candidates(
     for alias in aliases or []:
         push(_slug_words(alias))
     return seen[:MAX_BOARD_CANDIDATES]
+
+
+# Verified-candidate ladder. JSON APIs ONLY — verified live 2026-10-03 that
+# HTML board URLs are untrustworthy (jobs.ashbyhq.com returns an identical
+# 200 SPA shell for real and garbage tokens). Predicates pinned by probe:
+#   greenhouse     200 + non-empty "jobs"   (NEG 404 {"status":404,...})
+#   lever          200 + JSON array         (NEG 404 {"ok":false,...})
+#   ashby          200 + non-empty "jobs"   via posting-api (NEG 404)
+#   workable       200 + non-empty "jobs"   (POS doist)
+#   smartrecruiters 200 + totalFound > 0    (200/empty exists for wrong tokens!)
+MAX_VERIFY_REQUESTS = 8
+
+_VERIFY_ENDPOINTS: dict[str, str] = {
+    "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{t}/jobs",
+    "lever": "https://api.lever.co/v0/postings/{t}?mode=json",
+    "ashby": "https://api.ashbyhq.com/posting-api/job-board/{t}",
+    "workable": "https://apply.workable.com/api/v1/widget/accounts/{t}?details=true",
+    "smartrecruiters": "https://api.smartrecruiters.com/v1/companies/{t}/postings",
+    "breezy": "https://{t}.breezy.hr/json",            # probe 404 shape before trusting
+    "recruitee": "https://{t}.recruitee.com/api/offers/",  # probe-first
+    "teamtailor": "https://{t}.teamtailor.com/jobs.json",  # probe-first
+}
+
+
+def _board_payload_ok(vendor: str, body: str) -> bool:
+    """PURE. Vendor-specific acceptance on the JSON payload text."""
+    try:
+        data = json.loads(body)
+    except Exception:
+        return False
+    if vendor == "smartrecruiters":
+        return isinstance(data, dict) and int(data.get("totalFound") or 0) > 0
+    if isinstance(data, list):
+        return len(data) > 0
+    jobs = data.get("jobs") if isinstance(data, dict) else None
+    return bool(jobs)
+
+
+def verify_board_candidates(fetch_text, candidates: list[tuple[str, str]]) -> Optional[AtsMatch]:
+    """Probe (vendor, token) pairs in order; return the first verified AtsMatch.
+
+    fetch_text is the SAME budgeted closure discover() uses (fetch_log source
+    'ats_discovery'). Bounded by MAX_VERIFY_REQUESTS. Never raises.
+    """
+    used = 0
+    for vendor, token in candidates:
+        template = _VERIFY_ENDPOINTS.get(vendor)
+        if template is None or used >= MAX_VERIFY_REQUESTS:
+            continue
+        url = template.format(t=token)
+        used += 1
+        try:
+            body = fetch_text(url)
+        except Exception:
+            continue
+        if body and _board_payload_ok(vendor, body):
+            return AtsMatch(
+                vendor=vendor, token=token, evidence_url=url,
+                confidence=0.75, extra={"source": "candidate_ladder"},
+            )
+    return None
 
 
 _CAREER_HREF = re.compile(r"/(careers|jobs|join-us|company/careers)(?:/|$)", re.I)

@@ -7,10 +7,13 @@ from pathlib import Path
 
 from src.identity.ats_discovery import (
     MAX_BOARD_CANDIDATES,
+    MAX_VERIFY_REQUESTS,
+    _VERIFY_ENDPOINTS,
     board_token_candidates,
     careers_url_candidates,
     detect_ats,
     listing_hub_link,
+    verify_board_candidates,
 )
 
 
@@ -329,3 +332,82 @@ def test_listing_hub_link_none_when_no_hub():
 def test_listing_hub_link_accepts_known_hub_shapes():
     for path in ("/jobs", "/open-positions", "/search-jobs", "/vacancies", "/join-us"):
         assert listing_hub_link(f'<a href="{path}">Roles</a>', "https://x.test/careers") == f"https://x.test{path}"
+
+
+class FakeJsonFetcher:
+    """Returns canned (status, body) per URL; records calls.
+
+    A canned value may be a (status, body) tuple or a plain body string
+    (implied 200, the JSON-API success shape these tests care about)."""
+    def __init__(self, by_url):
+        self.by_url, self.calls = dict(by_url), []
+
+    def __call__(self, url):
+        self.calls.append(url)
+        canned = self.by_url.get(url, (404, ""))
+        status, body = canned if isinstance(canned, tuple) else (200, canned)
+        return body if status == 200 else None
+
+
+def test_verify_board_candidates_greenhouse_hit():
+    fetch = FakeJsonFetcher({
+        "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs":
+            '{"jobs": [{"title": "AE"}]}',
+    })
+    cands = [("greenhouse", "abnormal"), ("greenhouse", "abnormalsecurity")]
+    match = verify_board_candidates(fetch, cands)
+    assert match and match.vendor == "greenhouse" and match.token == "abnormalsecurity"
+    assert "candidate_ladder" in match.extra.get("source", "")
+
+
+def test_verify_board_candidates_all_miss_is_none():
+    fetch = FakeJsonFetcher({})  # everything 404s
+    cands = [(v, "x") for v in ("greenhouse", "lever", "ashby", "workable", "smartrecruiters")]
+    assert verify_board_candidates(fetch, cands) is None
+
+
+def test_verify_board_candidates_smartrecruiters_needs_totalfound():
+    fetch = FakeJsonFetcher({
+        "https://api.smartrecruiters.com/v1/companies/x/postings": '{"totalFound":0,"content":[]}'
+    })
+    assert verify_board_candidates(fetch, [("smartrecruiters", "x")]) is None
+
+
+def test_verify_board_candidates_ashby_never_trusts_html():
+    """The ashby HTML board is a 200 catch-all — only posting-api JSON counts."""
+    fetch = FakeJsonFetcher({
+        "https://api.ashbyhq.com/posting-api/job-board/t": '{"jobs": [{"id": "1"}]}'
+    })
+    match = verify_board_candidates(fetch, [("ashby", "t")])
+    assert match and match.token == "t"
+    # and the URL list must never contain jobs.ashbyhq.com
+    assert all("jobs.ashbyhq.com" not in u for u in fetch.calls)
+
+
+def test_verify_board_candidates_vendor_order_and_cap():
+    fetch = FakeJsonFetcher({
+        "https://api.lever.co/v0/postings/spotify?mode=json": '[{"id": "1"}]'
+    })
+    cands = [("lever", "spotify"), ("greenhouse", "spotify"), ("lever", "other")]
+    match = verify_board_candidates(fetch, cands)
+    assert match and match.vendor == "lever" and match.token == "spotify"
+    assert len(fetch.calls) <= MAX_VERIFY_REQUESTS
+
+
+def test_verify_board_endpoints_module_invariants():
+    """Module-level pins: ashby verifies via the posting-api JSON ONLY (the
+    jobs.ashbyhq.com HTML board returns an identical 200 SPA shell for real
+    and garbage tokens alike), and the ladder covers only vendors with a
+    keyless verifiable JSON API — workday/jobvite/rippling stay out."""
+    assert "ashby" in _VERIFY_ENDPOINTS
+    assert all("jobs.ashbyhq.com" not in u for u in _VERIFY_ENDPOINTS.values())
+    assert set(_VERIFY_ENDPOINTS) <= {
+        "greenhouse",
+        "lever",
+        "ashby",
+        "workable",
+        "smartrecruiters",
+        "breezy",
+        "recruitee",
+        "teamtailor",
+    }

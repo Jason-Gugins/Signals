@@ -146,3 +146,13 @@ Limit: ≤24 total network requests for the whole run (probe brief); PACE_S=4.0 
 | html.duckduckgo.com | 3 | 7 | **10** |
 
 Total: **15 of 24**. Diagnostics were three paced follow-up batches after the scripted matrix run: body inspection of the unexplained google 200/DEAD and ddg 403, then the query-shape controls that isolated the operator-syntax trigger.
+
+## Live smoke run (Task 10, 2026-10-02/03)
+
+Command: `.venv\Scripts\python.exe -m src.cli xray --kind hiring --role "head of sales" --limit 1 --pace 8 --attempt-pause 30`
+
+**VERDICT: GO on the first fetch.** One query, status `ok`, attempts 1, zero challenges.
+
+- Built query (from `config/lists/xray_strings.yaml:hiring_post_role`): `"head of sales" "we're hiring" -"jobs" -"preferred"` — role slot filled, defaults.exclude minus-group applied.
+- ddg_lite fetch → clean body → 1 organic result → company hit `useshiny.com` ("Head of Sales: The Practical Guide for Growing Companies") queued into `identity_candidates` (kind=domain, source=xray, status=pending). Ledger row `data/xray/ledger.jsonl` carries full provenance (string_id, query, attempts, counts, UTC stamp).
+- Yield note: 1 result for a single query is thin — the lite endpoint returns few organic results per operator query and the stochastic gate filters some. Operators should run several strings/kinds per session and read `--stats` over time; this does not change the GO verdict (the chain is proven end-to-end), but per-string yield tracking is exactly what the ledger exists for.

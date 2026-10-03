@@ -46,6 +46,17 @@ def test_allowlisted_keys_do_not_warn():
     assert problems == []
 
 
+def test_max_link_decodes_is_known_for_google_news():
+    """max_link_decodes on google_news must not produce a config_lint WARN."""
+    cfg = {
+        "sources": {
+            "google_news": {"enabled": True, "max_link_decodes": 8},
+        }
+    }
+    problems = lint_source_config(cfg, {})
+    assert not any("max_link_decodes" in problem for _, problem in problems)
+
+
 def test_doctor_aggregated_check(tmp_path):
     from src.core.config import Config
     from src.core.db import Database

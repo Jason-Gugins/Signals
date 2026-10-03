@@ -138,7 +138,7 @@ def render_status(report: dict) -> str:
 _COMMON_KNOWN_KEYS = {"enabled", "cadence_hours", "rate_per_host", "requires"}
 
 _PER_SOURCE_KNOWN_KEYS: dict[str, set[str]] = {
-    "google_news": {"serp_keywords"},
+    "google_news": {"serp_keywords", "max_link_decodes"},
     "company_feed": {"blog_feed_url", "article_follow_max"},
     "appstore_reviews": {"app_store_id"},
     "bbb_profile": {"extra_data"},

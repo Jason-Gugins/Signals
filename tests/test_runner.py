@@ -960,3 +960,111 @@ def test_every_posting_is_described_within_three_cycles(tmp_path, monkeypatch):
     assert row["n"] == 30  # every posting described
     total = db.one("SELECT COUNT(*) AS n FROM jobs")["n"]
     assert total == 30
+
+
+# ── Task 6: per-cycle DomainResolver injection into google_news meta ───────
+
+
+class GNewsProbe(SourceAdapter):
+    """google_news-keyed fake: records the task_meta every parse() saw."""
+
+    key = "google_news"
+    tier = "http"
+    cadence_hours = 24
+
+    def __init__(self):
+        self.meta_seen: list[dict] = []
+
+    def plan(self, account, cursor):
+        return [FetchTask(source=self.key, url=f"https://news.test/{account.domain}", domain=account.domain)]
+
+    def parse(self, doc, account, task_meta):
+        self.meta_seen.append(dict(task_meta or {}))
+        return []
+
+
+class OtherProbe(GNewsProbe):
+    """Same shape, NON-google_news key: the negative control."""
+
+    key = "other_probe"
+
+    def plan(self, account, cursor):
+        return [FetchTask(source=self.key, url=f"https://other.test/{account.domain}", domain=account.domain)]
+
+
+def _gnews_runner(tmp_path, monkeypatch, max_link_decodes):
+    """CollectorRunner on a fresh DB with the google_news budget overridden on
+    the Config instance (the runner reads it via
+    self.config.load_yaml("sources").sources.google_news.max_link_decodes)."""
+    db = Database(tmp_path / "s.db")
+    cfg = Config()
+    cfg.http.max_workers = 1
+    cfg.http.respect_robots = False
+    sources_doc = {
+        "sources": {"google_news": {"enabled": True, "max_link_decodes": max_link_decodes}}
+    }
+    real_load = cfg.load_yaml
+    monkeypatch.setattr(
+        cfg, "load_yaml",
+        lambda name: sources_doc if name == "sources" else real_load(name),
+    )
+    tax = Taxonomy.load()
+    ctx = RunContext(db, "collect")
+    ctx.__enter__()
+    runner = CollectorRunner(
+        cfg, db, AccountRegistry(db), RawStore(db, tmp_path / "raw"),
+        FakeFetch({}), SignalStore(db, tax), tax, ctx,
+    )
+    return runner, ctx
+
+
+def test_google_news_cycle_injects_domain_resolver(tmp_path, monkeypatch):
+    """google_news task meta carries a DomainResolver whose budget mirrors
+    sources.yaml max_link_decodes; other sources' meta does not."""
+    runner, ctx = _gnews_runner(tmp_path, monkeypatch, max_link_decodes=3)
+    gnews, other = GNewsProbe(), OtherProbe()
+    try:
+        stats = runner.run(
+            [gnews, other], [Account(domain="acme.com")], force=True, max_passes=1
+        )
+    finally:
+        ctx.__exit__(None, None, None)
+    assert stats.failed == 0
+    assert gnews.meta_seen and other.meta_seen
+    for meta in gnews.meta_seen:
+        resolver = meta.get("domain_resolver")
+        assert resolver is not None
+        assert callable(getattr(resolver, "resolve", None))
+        assert resolver._budget == 3
+    assert all("domain_resolver" not in meta for meta in other.meta_seen)
+
+
+class GNewsTwoPass(GNewsProbe):
+    """google_news fake that paginates once (cursor 'p2') so one cycle's
+    parse() sees TWO pagination passes of task_meta."""
+
+    def plan(self, account, cursor):
+        suffix = "/doc" if cursor == "p2" else "/index"
+        return [FetchTask(source=self.key, url=f"https://news.test/{account.domain}{suffix}", domain=account.domain)]
+
+    def next_cursor(self, doc, candidates):
+        return "p2" if doc.url.endswith("/index") else "done"
+
+
+def test_domain_resolver_injected_once_per_cycle(tmp_path, monkeypatch):
+    """Pass 2 re-injects the SAME resolver instance — the decode budget is
+    shared across pagination passes, never reset per pass."""
+    runner, ctx = _gnews_runner(tmp_path, monkeypatch, max_link_decodes=3)
+    adapter = GNewsTwoPass()
+    try:
+        stats = runner.run(
+            [adapter], [Account(domain="acme.com")], force=True, max_passes=2
+        )
+    finally:
+        ctx.__exit__(None, None, None)
+    assert stats.failed == 0
+    assert len(adapter.meta_seen) == 2, adapter.meta_seen
+    r1 = adapter.meta_seen[0].get("domain_resolver")
+    r2 = adapter.meta_seen[1].get("domain_resolver")
+    assert r1 is not None and r1 is r2
+    assert r1._budget == 3

@@ -335,6 +335,22 @@ class CollectorRunner:
                     "described-jobs lookup failed for {} ({})",
                     adapter.key, account.domain,
                 )
+        # Google News link decodes (per-cycle budget): tokens resolve via the
+        # injected resolver — sqlite cache first, then at most max_link_decodes
+        # fetcher-based decodes per (adapter, account) cycle. ONE instance per
+        # _run_pair so the budget is shared across pagination passes.
+        domain_resolver = None
+        if adapter.key == "google_news" and not dry_run:
+            try:
+                _gn = ((self.config.load_yaml("sources") or {}).get("sources") or {}).get("google_news") or {}
+                _max_decodes = int(_gn.get("max_link_decodes") or 8)
+            except Exception:
+                _max_decodes = 8
+            from src.sources.news.resolve import DomainResolver
+
+            domain_resolver = DomainResolver(
+                self.fetcher, self.db, max_decodes=_max_decodes, now=_iso(now),
+            )
         # Per-cycle detail budget (opt-in via detail_budget): at most N
         # detail-marked fetches per (adapter, account) per cycle, in queue
         # order. An explicit 0 means "no details at all". NaN/None/garbage and
@@ -495,6 +511,8 @@ class CollectorRunner:
                         )
                     except Exception:
                         logger.exception("prev crtsh lookup failed for {}", task.domain)
+                if domain_resolver is not None:
+                    meta["domain_resolver"] = domain_resolver
                 # Meta defaults are per marketplace site. The Capterra adapter
                 # injects its own defaults (review_lookback_days=90,
                 # max_review_pages=3) in plan(), so setdefault never overrides

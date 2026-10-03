@@ -130,7 +130,7 @@ Needles for Webflow / HubSpot / GTM / GA / Meta / CookieYes / Vector were frozen
 
 `parse` is pure (no DB). Candidates:
 
-- `tech_install_new` (named vendors only; also emitted by the prior-cycle diff below)
+- `tech_install_new` — emitted only by the prior-cycle diff (first-seen semantics); parse no longer emits it
 - `tech_removed` (confirmed after two missing runs — persisted by the runner from `upsert_technologies`' gone list)
 - `tech_churn` — a vendor present last cycle is gone this cycle (confidence 0.6)
 - `high_ticket_tech` (enterprise tier)

@@ -15,7 +15,11 @@ def test_techstack_parse_homepage():
         Account(domain="acme.com"),
         {"today": "2026-08-16"},
     )
-    assert any(c.signal_type == "tech_install_new" for c in cands)
+    # tech_install_new is owned by the prior-cycle diff pass (first-seen
+    # semantics) — parse must not re-fire installs on every collect. This
+    # fixture has only mid-tier matches (hubspot), so parse emits nothing.
+    assert not any(c.signal_type == "tech_install_new" for c in cands)
+    assert cands == []
 
 
 def test_techstack_parse_network_fixture():
@@ -26,9 +30,13 @@ def test_techstack_parse_network_fixture():
         Account(domain="scanner.dev"),
         {"today": "2026-08-16", "kind": "network"},
     )
-    titles = {c.title for c in cands}
-    assert "webflow" in titles
-    assert any(c.signal_type == "tech_install_new" for c in cands)
+    # tech_install_new is owned by the prior-cycle diff pass (first-seen
+    # semantics) — parse must not re-fire installs on every collect. With no
+    # enterprise-tier or competitor match in this fixture (webflow/hubspot
+    # naming lives on the harvest side, see test_harvest_tech_upserts_observed),
+    # the network parse emits no candidates at all.
+    assert not any(c.signal_type == "tech_install_new" for c in cands)
+    assert cands == []
 
 
 def test_parse_network_does_not_signal_raw_hosts():
@@ -39,8 +47,12 @@ def test_parse_network_does_not_signal_raw_hosts():
         {"today": "2026-08-16", "kind": "network"},
     )
     titles = {c.title for c in cands}
-    assert "webflow" in titles and "hubspot" in titles
+    # Raw hosts stay inventory (host:...) and never become parse signals —
+    # and with installs owned by the diff pass, this fixture yields no parse
+    # candidates at all (vendor naming is pinned on the harvest side in
+    # test_harvest_tech_upserts_observed).
     assert not any(str(t).startswith("host:") for t in titles)
+    assert cands == []
 
 
 def test_techstack_plan_emits_html_and_network():
@@ -99,6 +111,40 @@ def test_parse_challenge_unsolved_emits_no_tech_install_new():
         {"today": "2026-08-23", "cloudflare_unsolved": True},
     )
     assert not any(c.signal_type == "tech_install_new" for c in cands)
+
+
+def test_parse_does_not_emit_tech_install_new(monkeypatch):
+    # The prior-cycle diff pass (diff_technologies) is the sole owner of
+    # tech_install_new — only it knows first-seen. Parse must never emit
+    # installs, while high_ticket_tech (enterprise tier) and
+    # competitor_detected (vendor in rules['competitors']) keep firing for
+    # vendors whose spec matches.
+    import src.sources.techstack.fingerprint as fingerprint
+
+    rules = {
+        "version": 1,
+        "vendors": {
+            "salesforce": {
+                "display": "Salesforce",
+                "category": ["crm"],
+                "tier": "enterprise",
+                "match": {"script_src": ["script.example.com/sf.js"]},
+            }
+        },
+        "competitors": ["salesforce"],
+    }
+    monkeypatch.setattr(fingerprint, "load_fingerprint_rules", lambda: rules)
+    body = b"<html><head><script src='https://script.example.com/sf.js'></script></head><body><p>hello</p></body></html>"
+    cands = TechstackSource().parse(
+        Document(doc_id="h", source="techstack", url="https://acme.com/", body=body),
+        Account(domain="acme.com", name="Acme"),
+        {"kind": "html", "today": "2026-10-03"},
+    )
+    assert not any(c.signal_type == "tech_install_new" for c in cands)
+    tickets = [c for c in cands if c.signal_type == "high_ticket_tech"]
+    assert [c.natural_key for c in tickets] == ["high_ticket_tech:salesforce:2026"]
+    comps = [c for c in cands if c.signal_type == "competitor_detected"]
+    assert [c.natural_key for c in comps] == ["competitor_detected:salesforce:2026-10"]
 
 
 def test_wayback_follow_and_crtsh():

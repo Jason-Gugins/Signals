@@ -58,7 +58,8 @@ def tech_to_candidates(domain, new_vendors, gone_vendors, all_rows, rules, compe
     vendors = (rules.get("vendors") or rules)
     out = []
     for v in new_vendors:
-        out.append(SignalCandidate("tech_install_new", today.isoformat(), f"tech_install_new:{v}:{iso_month}", title=v, confidence=0.75, evidence_data={"vendor": v}))
+        # tech_install_new is owned by the prior-cycle diff pass (first-seen
+        # semantics) — parse cannot know first-seen, so it never emits it.
         spec = vendors.get(v) or {}
         if spec.get("tier") == "enterprise":
             out.append(SignalCandidate("high_ticket_tech", today.isoformat(), f"high_ticket_tech:{v}:{today.year}", title=v, confidence=0.6, evidence_data={"vendor": v}))

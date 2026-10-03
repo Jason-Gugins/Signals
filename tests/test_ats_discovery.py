@@ -10,6 +10,7 @@ from src.identity.ats_discovery import (
     board_token_candidates,
     careers_url_candidates,
     detect_ats,
+    listing_hub_link,
 )
 
 
@@ -302,3 +303,29 @@ def test_board_token_candidates_filters_reserved_and_caps():
     cands = board_token_candidates("Jobs", "jobs.io", aliases=["www", "api"])
     assert "jobs" not in cands and "www" not in cands and "api" not in cands
     assert len(cands) <= MAX_BOARD_CANDIDATES
+
+
+def test_listing_hub_link_prefers_open_roles():
+    html = """
+    <a href="/careers/stories">Stories</a>
+    <a href="/careers/open-roles?category=Engineering">Engineering roles</a>
+    <a href="/careers/open-roles">Open roles</a>
+    <a href="https://twitter.com/x">Social</a>
+    """
+    link = listing_hub_link(html, "https://abnormal.ai/careers")
+    assert link == "https://abnormal.ai/careers/open-roles"   # query stripped, deduped
+
+
+def test_listing_hub_link_none_when_no_hub():
+    assert listing_hub_link("<a href='/about'>About</a>", "https://x.test/") is None
+    # boundary trap: the hub token must be its own path segment or end the path,
+    # so a careers index or a stories sub-page is never mistaken for the hub.
+    assert (
+        listing_hub_link("<a href='/careers/stories'>Stories</a>", "https://x.test/careers")
+        is None
+    )
+
+
+def test_listing_hub_link_accepts_known_hub_shapes():
+    for path in ("/jobs", "/open-positions", "/search-jobs", "/vacancies", "/join-us"):
+        assert listing_hub_link(f'<a href="{path}">Roles</a>', "https://x.test/careers") == f"https://x.test{path}"

@@ -416,3 +416,32 @@ def _first_careers_link(html: str, base: str) -> str | None:
         if _CAREER_HREF.search(urlparse(href).path or href):
             return urljoin(base, href)
     return None
+
+
+_HUB_HREF = re.compile(
+    r"/(?:open[-_]?(?:roles|positions)|search[-_]jobs|vacancies|jobs?|join[-_]us)(?:[/?#]|$)", re.I
+)
+
+
+def listing_hub_link(html: str, base_url: str) -> Optional[str]:
+    """PURE. First internal link shaped like a job-listing hub, query stripped.
+
+    Distinct from _first_careers_link (which finds the careers INDEX from the
+    homepage): this runs ON the careers page to find the page that actually
+    lists roles — modern SPA career sites split index from listings.
+    """
+    collector = _LinkCollector()
+    try:
+        collector.feed(html)
+    except Exception:
+        return None
+    for href in collector.strong:
+        if href.startswith(("#", "mailto:", "javascript:")):
+            continue
+        absolute = urljoin(base_url, href)
+        if urlparse(absolute).netloc != urlparse(base_url).netloc:
+            continue
+        path = urlparse(absolute).path
+        if _HUB_HREF.search(path or ""):
+            return absolute.split("?")[0].split("#")[0]
+    return None

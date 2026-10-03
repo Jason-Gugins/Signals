@@ -156,3 +156,64 @@ Command: `.venv\Scripts\python.exe -m src.cli xray --kind hiring --role "head of
 - Built query (from `config/lists/xray_strings.yaml:hiring_post_role`): `"head of sales" "we're hiring" -"jobs" -"preferred"` — role slot filled, defaults.exclude minus-group applied.
 - ddg_lite fetch → clean body → 1 organic result → company hit `useshiny.com` ("Head of Sales: The Practical Guide for Growing Companies") queued into `identity_candidates` (kind=domain, source=xray, status=pending). Ledger row `data/xray/ledger.jsonl` carries full provenance (string_id, query, attempts, counts, UTC stamp).
 - Yield note: 1 result for a single query is thin — the lite endpoint returns few organic results per operator query and the stochastic gate filters some. Operators should run several strings/kinds per session and read `--stats` over time; this does not change the GO verdict (the chain is proven end-to-end), but per-string yield tracking is exactly what the ledger exists for.
+
+## Shell re-analysis (bypass ladder Task 1, 2026-10-03)
+
+**ZERO network requests** — offline re-analysis of the captures already on disk (`tmp/`, gitignored) with a new throwaway analyzer, `scripts/analyze_google_shell.py` (plain stdlib; re-runnable as `.venv\Scripts\python.exe scripts\analyze_google_shell.py <file.html> …`; no args = the known XRAY google set). Purpose: the escalation rung concluded "JS-gate holds headed" from ZERO *anchor* matches — but modern Google SERPs hydrate late and embed result data as inline JS state, and `/httpservice/retry/enablejs` lives in the standard `<noscript>` block present on EVERY Google page. This section settles what the captures actually contain.
+
+**VERDICT: `RESULTS_AS_DATA`.** Both the headed-Patchright browser capture and the browser-cookie replay capture contain a full organic result set — 9 rendered `h3` result tiles in the DOM **plus 12 plaintext result records (url + title) in the embedded JS state**. The prior "zero result anchors" and "same shell" conclusions for google were a **measurement artifact**, not a wall. Per the plan's decision matrix: Leg A becomes a **parsing task** (engine `google_state`) — skip to Task 6. No overlay was involved (marker (g) all zeros, see table), so `CONSENT/CHALLENGE_OVERLAY` and `TRULY_EMPTY` are both ruled out.
+
+### Per-capture marker table (analyzer output, verified by manual greps)
+
+| Marker | `browser.html` 751,687 B (headed Patchright) | `replay.html` 499,539 B (cookie replay) | `google.html` 93,205 B (curl shell) | `diag_google_plain.html` 92,988 B (curl shell) |
+|---|---|---|---|---|
+| (a) `<title>` | the operator query | the operator query | "Google Search" | "Google Search" |
+| (b) `h3` elements | **9** | **9** | 0 | 0 |
+| (c) external http(s) hrefs (non-google.com) | 1 (google.ca products footer) | 1 (same) | 0 | 0 |
+| (d) `AF_initDataCallback` blocks / bytes | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| (d) `window.google` mentions / `<script>` bytes containing it | 24 / ~34.7 KB | 23 / ~36.9 KB | 6 / ~27.7 KB | 6 / ~27.5 KB |
+| (d) `W_jd` hits (window state blob, case-sensitive; 22 case-insensitive) | 21 | 21 | 0 | 0 |
+| (e) `id="search"` (exact quoted) | 1 | 1 | 0 | 0 |
+| (e) `data-ved` attrs | **304** | **212** | 0 | 0 |
+| (f) `linkedin.com/in` anywhere in raw bytes | **104** | **91** | 1 (query echo, see below) | 0 |
+| (f) `/url?q=` / `uddg` | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| (f) distinct `linkedin.com/in/<slug>` paths in raw bytes | **12** | **12** | 0 | 0 |
+| (g) `g-recaptcha` / `consent.google.com` / `unusual traffic` / `recaptcha` | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 |
+| (g) `/sorry/` + `X-Sorry-Redirect` (JS strings only — never served) | 5 + 4 | 5 + 4 | 0 + 0 | 0 + 0 |
+| (g) `httpservice/retry/enablejs` / `<noscript>` | 2 / 1 | 2 / 1 | 2 / 1 | 2 / 1 |
+| result-tile class `MjjYud` | 20 | 20 | 0 | 0 |
+| `"eem"` marker (plan hypothesis) | 0 | 0 | — | — |
+| `"errupt"` marker (plan hypothesis) | 1 — substring of `"non-interruptible SRP"` in the SearchGuard JS, not a result marker | 1 (same) | — | — |
+| `"2003"` url+title state records (see evidence) | **12** | **12** | 0 | 0 |
+| cookies json (`browser_cookies.json`, informational) | JSON array of 5 cookies (AEC, DV, NID, SEARCH_SAMESITE, __Secure-STRP posture) — no result content, as expected | | | |
+
+Analyzer note: its loose `id="search"` regex also matches `id="searchform"` (reports 2 on the big captures); the exact quoted `id="search"` count is 1.
+
+### Why the old probe saw "zero result anchors" — the measurement artifact
+
+1. **The result links are RELATIVE opaque redirects, not external hrefs.** Each of the 9 tiles is `<a href="/goto?url=CAES…">` wrapping `<h3 class="LC20lb MBeuO DKV0Md">…</h3>`. An "external http(s) anchor" counter sees **zero** — every result anchor is a relative `/goto` href whose `url=` param is an opaque base64 blob (base64-decoding yields binary garbage — encrypted/protobuf, NOT the plaintext target). The old counter classified the page by exactly that signal.
+2. **`linkedin.com/in` hits hid in plain sight.** The first raw hit in every capture is the `<title>` echoing the query (`site:linkedin.com/in "head of growth" "Austin"`); in the 93 KB curl shells the ONLY hit is the query echoed inside the hidden "If you're having trouble accessing Google Search…" retry link (`/search?q=site:linkedin.com/in+…&emsg=SG_REL`) — the JS-gate fingerprint. But the big captures additionally carry **12 distinct `linkedin.com/in/<slug>` paths** as result data.
+3. **`/httpservice/retry/enablejs` is NOT a block discriminator.** It appears exactly twice, inside the single standard `<noscript>` block, on ALL FOUR captures — including the two that carry full results. A 200 body can carry the enablejs noscript AND a complete result set. The escalation rung's soft-marker-first classifier was right to distrust it; the anchor count was the wrong replacement signal.
+4. **The `/sorry/` + `X-Sorry-Redirect` strings are guard JS, not a challenge.** Context confirmed by eye: they live inside the app-shell's own response-watching code ("…forced reload of a non-interruptible SRP…", iframe logic that would display `/sorry/index` IF a response said so). No /sorry/ or captcha body was ever served — consistent with the original record; and irrelevant, because the page has results.
+
+### Extracted evidence — result records as embedded state (verbatim strings)
+
+The state blob is per-tile `window.W_jd`-style data (keyed by tile ids like `az_AapiWNJbDruEPo8upyAE7`) containing `"2003":[null,"<token>","<url>","<title>",…]` records — plaintext url + title pairs. Both big captures carry the IDENTICAL 12 records. First 5, fully:
+
+1. `https://www.linkedin.com/in/tylerdurman` — `Tyler Durman - Who owns the work when growth stalls? | I …`
+2. `https://www.linkedin.com/in/austinheaton` — `Austin Heaton - Head of Growth | GTM Engineer | AEO | AI …`
+3. `https://www.linkedin.com/in/prasad-bharti` — `Bharti Prasad - Head of Growth |10+ Years Scaling Consumer …`
+4. `https://www.linkedin.com/in/james-tice-124911140` — `James Tice - Head of Growth | LinkedIn`
+5. `https://www.linkedin.com/in/nickchristensen1` — `Nick Christensen - Head of Growth @ AppSumo • $7M → $90M in …`
+
+Remaining 7: `…/in/whoisaustinwilson` (Austin Wilson - Head of Growth @ Linkt AI), `…/in/sethberman` (Seth Berman - Head of Growth Marketing at Stripe), `…/in/austinwilliamward` (Austin Ward - Head of Growth @ Fathom), `…/in/kyle-rohrmann` (Kyle Rohrmann - Head of Growth, Modern Wisdom), `…/in/maxbibeau` (Maxwell Bibeau - Head of Growth at Variational), `https://uk.linkedin.com/in/tim-austin-230b8a169` (Tim Austin - Head of Growth @ Embryo), `…/in/matthewswan15` (Matt Swan - Head of Growth at The Scalable Company LLC).
+
+The 9 rendered `h3` titles (DOM, class `LC20lb MBeuO DKV0Md`), verified by eye on the raw excerpt: Austin Grant - Head of Growth @ Chexy | GTM & Partnerships · Austin Ward - Head of Growth @ Fathom | Stanford MBA + … · James Tice - Head of Growth · Austin Heaton - Head of Growth | GTM Engineer | AEO · Cory Barbot - Head of Growth · Patryk Włodarski - Head of Growth Marketing @ Arrived · Nick Christensen - Head of Growth @ AppSumo · Mac Austin - Growth & Performance Marketing Strategist · Asad Kanaan - Head of Growth / VP Marketing. `<cite>`s on the person tiles carry follower counts ("3.9K+ followers"). All on-target for `site:linkedin.com/in "head of growth" "Austin"`.
+
+Manual verification (step 3 of the task) — analyzer numbers cross-checked by eye with independent greps on both big captures: `data-ved` 304/212, `<h3` 9/9, `MjjYud` 20/20, `linkedin.com/in` 104/91, `W_jd` 21 (22 case-insensitive), `id="search"` 1 — plus three representative raw excerpts inspected directly: (1) the first h3 tile (tracking href + `LC20lb` title + favicon data-URI), (2) the first `W_jd` window-state assignment (`if(window.W_jd)for(var b in a)window.W_jd[b]=a[b];else window.W_jd=a;` followed by `WIZ_global_data`), (3) a `"2003"` record showing `"https://www.linkedin.com/in/austinheaton","Austin Heaton - Head of Growth | GTM Engineer | AEO | AI …"` verbatim. Analyzer and greps agree.
+
+### What this changes
+
+- **Escalation rung corrections (supersede the E1/E2 BLOCK rows and "What the escalation proved" §1–2 above):** the headed browser did NOT hit a JS gate — it received a full SERP whose links the anchor counter could not see. The cookie replay did NOT return "the same anchor-less shell" — it returned the same 12-result SERP. Amortization (browser solve once → TLS replay with its cookies) is therefore **back on the table** for google, untested-but-plausible; the honest statement is that BOTH fetch paths provably return parseable result bodies.
+- **Task 6 shape (`google_state` engine):** fetch = existing browser tier OR browser-cookie replay through `CurlCffiFetcher` (both proven above); parse = (i) regex the `"2003":[null,"<tok>","<url>","<title>",…]` records from the raw bytes — zero DOM dependency, gives full plaintext URLs — and/or (ii) DOM-extract `h3.LC20lb` tiles for titles + cites (the `/goto?url=` href itself is opaque and yields no URL). Fixture source: `tmp/probe_xray_google_browser.html` (and `_replay.html`) — no re-fetch needed to build fixtures.
+- **Marker list update:** `id="search"` + `data-ved` + `h3` + `"2003":\[` are the google RESULTS markers; `httpservice/retry/enablejs` alone must never classify a body as blocked (it is present on result pages too).

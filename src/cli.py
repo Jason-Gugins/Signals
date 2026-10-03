@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -15,6 +17,9 @@ from src.core.rawstore import RawStore
 from src.identity.lists import load_champions, upsert_champions
 from src.identity.registry import AccountRegistry
 from src.pipeline.orchestrator import Orchestrator
+from src.sources.xray.library import load_library
+from src.sources.xray.ledger import load_events, string_stats
+from src.sources.xray.runner import run_xray
 
 
 def _dirs(cfg: Config) -> list[Path]:
@@ -927,6 +932,116 @@ def sweep(ctx, url_or_name, force, deep, discover_names, ddg, competitor_names):
             click.echo(f"  {source}\t{reason}")
     for line in result.get("reminders", []):
         click.echo(f"reminder: {line}")
+
+
+XRAY_LEDGER_PATH = "data/xray/ledger.jsonl"
+
+
+def _xray_fetch():
+    """chrome-TLS fetch adapter for the xray runner: url -> (status, body-str).
+
+    Same chrome posture as the DDG identity resolver (ddg_ids._default_fetcher).
+    Tests monkeypatch THIS function, never the transport.
+    """
+    from src.core.curl_fetcher import CurlCffiFetcher
+
+    f = CurlCffiFetcher(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+    )
+
+    def fetch(url: str) -> tuple[int, str]:
+        resp = f.get(url)
+        body = resp.body
+        text = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else str(body)
+        return resp.status, text
+
+    return fetch
+
+
+@main.command(name="xray")
+@click.option("--kind", "kinds", multiple=True,
+              type=click.Choice(["people", "company", "hiring", "intent"]),
+              help="Restrict to library string kinds (repeatable; default: all).")
+@click.option("--title", default=None, help="Slot: job title to search for.")
+@click.option("--location", default=None, help="Slot: city/region phrase.")
+@click.option("--niche", default=None, help="Slot: niche keyword your buyer has.")
+@click.option("--role", default=None, help="Slot: role your service replaces (hiring strings).")
+@click.option("--problem-phrase", "problem_phrase", default=None,
+              help="Slot: buyer problem phrase (intent strings).")
+@click.option("--limit", type=int, default=10, show_default=True,
+              help="Max total SERP fetches this run (the anti-ban budget).")
+@click.option("--attempts", type=int, default=2, show_default=True,
+              help="Fetch attempts per query (the lite gate is stochastic).")
+@click.option("--pace", type=float, default=20.0, show_default=True,
+              help="Min seconds before every fetch.")
+@click.option("--attempt-pause", "attempt_pause", type=float, default=45.0, show_default=True,
+              help="Seconds between retries of one query.")
+@click.option("--stats", is_flag=True, help="Print per-string ledger stats and exit.")
+@click.pass_context
+def xray(ctx, kinds, title, location, niche, role, problem_phrase,
+         limit, attempts, pace, attempt_pause, stats):
+    """X-ray SERP prospecting (manual, opt-in, self-paced).
+
+    Robots-exception source: lite.duckduckgo.com/lite/ via the chrome-TLS
+    tier — NEVER scheduled, never a cadence fanout. google is NO-GO on every
+    transport (data/probe/XRAY_SERP_2026_10.md). Company hits queue in
+    identity_candidates for human review; people hits matching a cohort
+    account become contacts. Every query lands in data/xray/ledger.jsonl.
+    """
+    if stats:
+        table = string_stats(load_events(XRAY_LEDGER_PATH))
+        click.echo("string_id\truns\tresults\tprofile_hits\tcompany_hits\tlast_ts_utc")
+        for string_id in sorted(table):
+            s = table[string_id]
+            click.echo(
+                f"{string_id}\t{s['runs']}\t{s['results']}\t{s['profile_hits']}"
+                f"\t{s['company_hits']}\t{s['last_ts_utc'] or '-'}"
+            )
+        return
+
+    strings = load_library("config/lists/xray_strings.yaml", kinds=set(kinds) or None)
+    if not strings:
+        click.echo("no strings match --kind", err=True)
+        raise click.exceptions.Exit(1)
+
+    slots = {
+        key: val
+        for key, val in (
+            ("title", title),
+            ("location", location),
+            ("niche", niche),
+            ("role", role),
+            ("problem_phrase", problem_phrase),
+        )
+        if val is not None
+    }
+
+    report = run_xray(
+        strings=strings,
+        fetch=_xray_fetch(),
+        db=ctx.obj["get_orch"]().db,
+        ledger_path=XRAY_LEDGER_PATH,
+        clock=lambda: datetime.now(timezone.utc).isoformat(),
+        sleep=time.sleep,
+        slots=slots,
+        kinds=set(kinds) or None,
+        pace_s=pace,
+        max_attempts=attempts,
+        attempt_pause_s=attempt_pause,
+        max_queries=limit,
+    )
+    click.echo(
+        f"X-ray run: {report['queries']} queries — ok {report['ok']} / "
+        f"challenge {report['challenge']} / empty {report['empty']} / error {report['error']}"
+    )
+    click.echo(
+        f"identity_candidates rows: {report['company_candidates']} · "
+        f"contacts written: {report['contacts_written']} · "
+        f"unmatched profiles: {report['profiles_unmatched']}"
+    )
+    for err in report["errors"][:5]:
+        click.echo(f"error: {err['query']}: {err['reason']}")
 
 
 @main.command()

@@ -49,3 +49,16 @@ def test_readme_documents_cloudflare_bypass():
     text = Path("src/sources/techstack/README.md").read_text(encoding="utf-8")
     assert "Cloudflare bypass" in text or "cf_clearance" in text
     assert "solver" in text.lower()
+
+
+def test_readme_migration_version_matches_db():
+    from src.core.db import LATEST_VERSION
+
+    assert f"(currently v{LATEST_VERSION})" in README
+
+
+def test_readme_signal_type_count_matches_taxonomy():
+    from src.signals.taxonomy import Taxonomy
+
+    count = len(Taxonomy.load().all())
+    assert f"**{count} signal types**" in README

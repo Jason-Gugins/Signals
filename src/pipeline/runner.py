@@ -404,6 +404,7 @@ class CollectorRunner:
             all_cands = []
             follow: list[FetchTask] = []
             tech_harvests: list = []
+            cycle_cf_unsolved = False
             review_harvests: dict[str, list] = {}  # slug -> page-1 reviews
             for task, result in results:
                 if result is None:
@@ -469,6 +470,12 @@ class CollectorRunner:
                 # when a challenge was detected and the bypass was attempted.
                 if _cf_unsolved is not None:
                     meta["cloudflare_unsolved"] = _cf_unsolved
+                # The html task is the PRIMARY evidence channel for techstack
+                # change detection; if its challenge went unsolved, this cycle
+                # is no-evidence for the diff/upsert block below (tracked once
+                # per pass, next to tech_harvests).
+                if _cf_unsolved and (task.meta or {}).get("kind") in (None, "", "html"):
+                    cycle_cf_unsolved = True
                 if adapter.key == "federal_register" and "watches" not in meta:
                     try:
                         meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
@@ -867,7 +874,18 @@ class CollectorRunner:
                         save_stats(stats_state)
                 except Exception:
                     logger.exception("github momentum diff failed for {}", account.domain)
-            if tech_harvests:
+            # Challenge-unsolved guard: when the primary HTML evidence channel
+            # ended cloudflare_unsolved, harvest_tech collapses to a
+            # [cloudflare]-only match — diffing that against the prior vendor
+            # set would emit tech_churn for EVERY prior vendor, and
+            # upsert_technologies would advance missing_runs on every row into
+            # false tech_removed within two challenge cycles. Such a cycle is
+            # no-evidence for change detection: skip the whole block (diff,
+            # renewal estimation, upsert, removed emission — renewal shares the
+            # gate; a one-cycle delay on a weekly cadence is harmless since
+            # renewal dates are anniversary-based). The next healthy cycle
+            # catches up honestly.
+            if tech_harvests and not cycle_cf_unsolved:
                 from src.sources.techstack.collector import upsert_technologies
                 from src.sources.techstack.diff import diff_technologies
                 from src.sources.techstack.fingerprint import load_fingerprint_rules, merge_matches

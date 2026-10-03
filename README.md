@@ -69,8 +69,10 @@ lane) plus a nightly live-parity lane — see
 .\.venv\Scripts\python.exe -m src.cli init
 ```
 
-`config/lists/` is gitignored — `init` creates the directory, but you must
-populate it (a human provides — see
+`config/lists/` is gitignored, but the files below ship tracked in the repo —
+the three exclusion lists as comment-only stubs plus the x-ray string library —
+so you edit them in place rather than create them; anything else you drop in
+stays untracked (a human curates — see
 [config/lists/README.md](config/lists/README.md) for the authoritative list):
 
 - `config/lists/competitors.txt` — domains we should never score as prospects
@@ -113,9 +115,10 @@ discovery for one domain - sitemap-first, prints the URL and which rung found
 it), `collect`,
 `reparse`, `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
-`capterra-selfcheck`, `prune` (retention: delete old fetch_log/documents/runs
-rows + raw files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum`
-reclaims space), `plays --outcome hit|miss --domain X --play Y` (record a
+`capterra-selfcheck`, `prune` (retention: finalize stale `running` run rows older than
+`--stale-run-hours` (default 6), delete old fetch_log/documents/runs rows + raw
+files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum` reclaims
+space), `plays --outcome hit|miss --domain X --play Y` (record a
 local play outcome for backtesting), `plays-report` (per-play sent/hit/rate
 table), `plays-calibrate` (feed decided outcomes into the calibration table),
 `digest --period daily|weekly [--domain X] [--tier-4] [--email]` (per-account
@@ -330,7 +333,8 @@ shapes the account-keyed fanout cannot do.
   `recently_funded_niche`, `intent_problem_phrase`). "Swap the niche" = edit
   the file; `{title} {location} {niche} {role} {problem_phrase}` are slots
   filled by the CLI options, and a string with an unfilled slot is never
-  fetched.
+  fetched. `--kind` filters by string kind (`people`/`company`/`hiring`/
+  `intent`; repeatable).
 - **Never-guess outputs.** Company hits from
   company/hiring/intent strings queue ONE `identity_candidates` row per query
   (kind=domain, source=xray) for human review — nothing auto-creates
@@ -472,7 +476,7 @@ P2 added signal families beyond news: `pricing_change` (wayback snapshots of
 `/pricing` diffed each cycle — a plan/price change means budget is moving) and
 `hiring_surge` (open-role deltas from the ATS/job-board sources, with both a
 minimum percentage delta and an absolute-count floor so tiny boards don't
-fire). The catalog holds **51 signal types** — newer additions:
+fire). The catalog holds **54 signal types** — newer additions:
 `security_breach` (news-classified breach detection; maps to the
 `trust_rebuild_pitch` play), `relocation` (BBB business-profile address
 delta, fires only for accounts seeded with a `bbb_url`), and the core-source
@@ -485,7 +489,9 @@ silent after a Form D raise), `federal_contract_award` (usaspending.gov),
 `competitor_outage` (direct statuspage.io polling), `reputation_drop` (BBB
 grade downgrade), `tech_removed` / `competitor_detected` / `backfill_open`
 (now all wired), and mail-vendor churn from DNS evidence (`tech_churn` on
-removed SPF includes). Entity resolution
+removed SPF includes), plus the profile-matched operational-need trio from the
+`needs` derive pass and the LLM layer: `need_statement`, `required_stack_demand`,
+and LLM-gated `llm_need` (promoted only through the G5 gate above). Entity resolution
 (`normalize_entity` + fuzzy match, `config`
 `entity_aliases`) ties same-company variants across sources to one account,
 and `config/icp.yaml` scores accounts at seed time so tiering is real from
@@ -569,7 +575,7 @@ limits are documented. Full notes: [`src/antibot/README.md`](src/antibot/README.
   play outcomes with `plays --outcome`, then `plays-calibrate` feeds decided
   outcomes into the table (P2 backtesting, migration v5).
 - **DB migrations** — schema changes run as ordered, transactional migrations
-  tracked by `PRAGMA user_version` (currently v7), with a startup
+  tracked by `PRAGMA user_version` (currently v8), with a startup
   `integrity_check`.
 - **Account health gate** — a pure polarity score (`src/signals/health.py`,
   weights in `config/health.yaml`) suppresses growth-family plays for

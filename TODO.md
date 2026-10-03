@@ -907,6 +907,41 @@ keys; gotchas known (replay hardcodes source="techstack"; `defaults:` block neit
 linted nor consumed; timeout 0/null must be rejected). Build only if still warranted
 once the decoder hole is fixed.
 
+## Google News decoder through HttpFetcher (2026-10-02/03) — DELIVERED
+
+Executed from `.zcode/plans/2026-10-02_191446-googlenews-decoder-through-fetcher.md`
+via serial subagent-driven development (one builder per task, two-stage review wave:
+spec compliance 7/7 PASS, code quality PASS with 3 advisories — all fixed and
+re-tested). Commits: `9a4d6b0` (FetchTask.data_body + HttpFetcher content branch),
+`51e5b51` (migration v8 `news_link_resolutions`), `8d85e78` (`src/sources/news/decode.py`
+— the 2-request decode flow via HttpFetcher: `rss/articles/<token>` params GET covered
+by the robots_allow `/rss/` prefix, then batchexecute POST form-body; robots is GET-only
+so the POST needs no exception), `44b3077` (`DomainResolver`: offline tiers → sqlite
+cache → budget-bounded decodes, success-only caching, never raises),
+`983c7a2` (`parse_feed(body, domain_resolver=None)` plumb), `f0c036b` (runner injects
+one resolver per (adapter, account) cycle; `max_link_decodes: 8` in sources.yaml +
+lint allowlist), `4587b11` (googlenewsdecoder dropped from pyproject/uv.lock — the
+no-timeout `requests.get` path is gone; module-level fallback is offline-only by design),
+`8808ae1` (review fixes: explicit `max_link_decodes: 0` means zero — mirrors
+detail_budget; per-cycle failed-token memo so one dead token costs one attempt;
+news_rss cycles also get the injected resolver), `bd51262` (module README tiers +
+dead import).
+
+**Measured (snowflake.com, --force, same-day A/B):** wall clock 30m31s → 27m21s
+(rate tuning alone) → **2m08s**. The 21.7 min zero-HTTP hole is gone: decodes are now
+fetch_log-visible (16 decodes = 8 google_news + 8 news_rss budget, all HTTP 200 at
+265-718ms — the repo bot UA works against batchexecute, no Chrome-UA fallback needed),
+total HTTP 206.8s of a 128s-wall run (parallel), no hidden gaps. Attribution: 16 tokens
+cached on first run (snowflake.com, nytimes.com, reuters.com, businesswire.com,
+finance.yahoo.com, …); google_news signals_new=4 on a same-day dedup run, evidence
+90 vs 85 baseline. Next-day runs will decode the remaining tail within budget and
+approach zero decode traffic as the cache fills.
+
+**Disposition of the deferred per-source timeout/retry mechanism (2026-10-02 note
+above): drop candidate** — with the decoder hole fixed the run is network-bound at
+~2 min; the 30s/3-retry global posture is no longer the bottleneck. Leave it dropped
+unless a future profile shows a specific slow-host tail.
+
 ## Manual checklists (human setup, not code)
 
 - **2Captcha provider setup** — create account, key in `.env`, verify `TurnstileTaskProxyless` vs `AntiCloudflareTaskProxyless` against a real managed challenge, test headed fallback (`CLOUDFLARE_HEADED_FALLBACK=true`).

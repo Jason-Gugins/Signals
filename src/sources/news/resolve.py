@@ -115,8 +115,9 @@ class DomainResolver:
 
     Order: offline tiers (zero network) -> durable sqlite cache (v8
     news_link_resolutions) -> bounded fetcher-based decode. Only successful
-    decodes are cached; failures return None and stay within-budget retries
-    for a later cycle. Never raises.
+    decodes are cached; a token that failed once is memoized for the rest of
+    the cycle (one decode attempt per token) and left free to retry next
+    cycle. Never raises.
     """
 
     def __init__(self, fetcher, db, *, max_decodes: int = 8, now: str | None = None):
@@ -124,6 +125,7 @@ class DomainResolver:
         self._db = db
         self._budget = max_decodes
         self._now = now  # isoformat UTC; injected by the runner (UTC-clock tests)
+        self._failed: set[str] = set()  # dead tokens seen this cycle: one attempt each
 
     def resolve(self, link: str, summary: str | None = None) -> str | None:
         try:
@@ -142,9 +144,12 @@ class DomainResolver:
                 return str(row["domain"])
             if self._budget <= 0:
                 return None
+            if token in self._failed:
+                return None  # already cost its one decode attempt this cycle
             self._budget -= 1
             decoded = decode_token(self._fetcher, token)
             if not decoded:
+                self._failed.add(token)
                 return None
             host = _host(decoded)
             if not host or _is_google_news(host.casefold()):

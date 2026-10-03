@@ -165,18 +165,28 @@ def test_domain_resolver_budget_caps_decodes(tmp_path, monkeypatch):
     assert calls == ["A", "B"]  # budget exhausted; failures NOT cached (retry next cycle)
 
 
-def test_domain_resolver_decode_failure_not_cached(tmp_path, monkeypatch):
+def test_domain_resolver_failure_memoized_one_attempt_per_cycle(tmp_path, monkeypatch):
+    """A dead token costs ONE decode attempt per resolver (cycle): the failure
+    is memoized, so repeats of the same link in one feed skip the wire
+    entirely. The cache stays success-only, so the NEXT cycle still retries."""
     from src.core.db import Database
     from src.sources.news.resolve import DomainResolver
 
     db = Database(tmp_path / "x.db")
-    state = {"n": 0}
+    calls = []
 
     def flaky(fetcher, token):
-        state["n"] += 1
-        return "https://arlnow.com/s" if state["n"] > 1 else None
+        calls.append(token)
+        return "https://arlnow.com/s" if len(calls) > 1 else None  # fails only attempt 1
 
     monkeypatch.setattr("src.sources.news.decode.decode_token", flaky)
     r = DomainResolver(fetcher=object(), db=db, max_decodes=5, now="2026-10-02T00:00:00+00:00")
     assert r.resolve("https://news.google.com/rss/articles/T3", None) is None
-    assert r.resolve("https://news.google.com/rss/articles/T3", None) == "arlnow.com"
+    # same link again on the SAME resolver: memoized, NOT the success
+    assert r.resolve("https://news.google.com/rss/articles/T3", None) is None
+    assert calls == ["T3"]  # exactly ONE decode attempt per token per cycle
+    # next cycle (fresh instance): the failure wasn't cached -> it retries,
+    # and the fake (flaky only on attempt 1) now succeeds
+    r2 = DomainResolver(fetcher=object(), db=db, max_decodes=5, now="2026-10-02T01:00:00+00:00")
+    assert r2.resolve("https://news.google.com/rss/articles/T3", None) == "arlnow.com"
+    assert calls == ["T3", "T3"]

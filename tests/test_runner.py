@@ -1068,3 +1068,60 @@ def test_domain_resolver_injected_once_per_cycle(tmp_path, monkeypatch):
     r2 = adapter.meta_seen[1].get("domain_resolver")
     assert r1 is not None and r1 is r2
     assert r1._budget == 3
+
+
+def test_google_news_explicit_zero_decode_budget(tmp_path, monkeypatch):
+    """max_link_decodes: 0 means 'no decodes at all' — like detail_budget, an
+    explicit 0 must NOT be coerced up to the default 8."""
+    calls = []
+    monkeypatch.setattr(
+        "src.sources.news.decode.decode_token",
+        lambda fetcher, token: calls.append(token) or "https://x.test/a",
+    )
+    runner, ctx = _gnews_runner(tmp_path, monkeypatch, max_link_decodes=0)
+    gnews = GNewsProbe()
+    try:
+        stats = runner.run(
+            [gnews], [Account(domain="acme.com")], force=True, max_passes=1
+        )
+    finally:
+        ctx.__exit__(None, None, None)
+    assert stats.failed == 0
+    assert gnews.meta_seen
+    resolver = gnews.meta_seen[0].get("domain_resolver")
+    assert resolver is not None
+    assert resolver._budget == 0
+    # a token link gets NO decode: budget exhausted before the wire
+    assert resolver.resolve("https://news.google.com/rss/articles/T9", None) is None
+    assert calls == []
+
+
+class NewsRssProbe(GNewsProbe):
+    """news_rss-keyed fake: news_rss parses the same news.google.com SERPs, so
+    it must share the google_news decode budget and get a resolver too."""
+
+    key = "news_rss"
+
+    def plan(self, account, cursor):
+        return [FetchTask(source=self.key, url=f"https://rss.test/{account.domain}", domain=account.domain)]
+
+
+def test_news_rss_cycle_injects_domain_resolver(tmp_path, monkeypatch):
+    """news_rss task meta carries a DomainResolver (budget still read from the
+    google_news config section); non-news keys still get nothing."""
+    runner, ctx = _gnews_runner(tmp_path, monkeypatch, max_link_decodes=3)
+    rss, other = NewsRssProbe(), OtherProbe()
+    try:
+        stats = runner.run(
+            [rss, other], [Account(domain="acme.com")], force=True, max_passes=1
+        )
+    finally:
+        ctx.__exit__(None, None, None)
+    assert stats.failed == 0
+    assert rss.meta_seen and other.meta_seen
+    for meta in rss.meta_seen:
+        resolver = meta.get("domain_resolver")
+        assert resolver is not None
+        assert callable(getattr(resolver, "resolve", None))
+        assert resolver._budget == 3
+    assert all("domain_resolver" not in meta for meta in other.meta_seen)

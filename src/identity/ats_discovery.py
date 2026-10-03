@@ -177,6 +177,43 @@ def careers_url_candidates(domain: str) -> list[str]:
     ]
 
 
+# Verified-candidate board ladder (Stage 6): cap on distinct tokens x vendors.
+MAX_BOARD_CANDIDATES = 6
+
+
+def _slug_words(text: str) -> list[str]:
+    """PURE. Lowercase alphanumeric word pieces of a brand/domain string."""
+    return [w for w in re.split(r"[^a-z0-9]+", (text or "").casefold()) if w]
+
+
+def board_token_candidates(
+    name: str | None, domain: str | None, aliases: list[str] | None = None
+) -> list[str]:
+    """PURE. Bounded board-token candidates, best-first.
+
+    Order: domain prefix, name joined ("abnormalai"), name first word, then
+    each alias joined + alias words. Reserved labels and duplicates dropped;
+    capped at MAX_BOARD_CANDIDATES. Verified acceptance happens later — a
+    wrong candidate costs one 404, never a stamp.
+    """
+    seen: list[str] = []
+
+    def push(word_list: list[str]) -> None:
+        joined = "".join(word_list)
+        for tok in ([joined] if len(word_list) > 1 else []) + word_list:
+            tok = tok.strip("-_")
+            if tok and tok not in seen and tok not in RESERVED_ATS_TOKENS:
+                seen.append(tok)
+
+    host = (domain or "").casefold().removeprefix("www.")
+    d_words = _slug_words(host.split(".")[0])  # "abnormal.ai" -> ["abnormal"]
+    push(d_words)
+    push(_slug_words(name or ""))
+    for alias in aliases or []:
+        push(_slug_words(alias))
+    return seen[:MAX_BOARD_CANDIDATES]
+
+
 _CAREER_HREF = re.compile(r"/(careers|jobs|join-us|company/careers)(?:/|$)", re.I)
 
 

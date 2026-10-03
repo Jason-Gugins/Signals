@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-from src.identity.ats_discovery import careers_url_candidates, detect_ats
+from src.identity.ats_discovery import (
+    MAX_BOARD_CANDIDATES,
+    board_token_candidates,
+    careers_url_candidates,
+    detect_ats,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ats"
@@ -273,3 +279,26 @@ def test_discover_never_replaces_a_working_careers_url_without_ats(tmp_path):
     reg.upsert(acct)
     assert disc.discover(reg.get("acme.com")) is None
     assert reg.get("acme.com").careers_url == "https://acme.com/good-careers"
+
+
+def test_board_token_candidates_from_name_and_domain():
+    # "Abnormal AI" + abnormal.ai -> joined slug, first word, domain prefix
+    cands = board_token_candidates("Abnormal AI", "abnormal.ai", aliases=[])
+    assert cands[0] == "abnormal"          # domain prefix first
+    assert "abnormalai" in cands           # name joined
+    # no dupes, all lowercase alnum
+    assert len(cands) == len(set(cands))
+    assert all(re.fullmatch(r"[a-z0-9_-]+", c) for c in cands)
+
+
+def test_board_token_candidates_includes_aliases():
+    cands = board_token_candidates("Abnormal AI", "abnormal.ai",
+                                   aliases=["Abnormal Security", "Abnormal Security Ltd."])
+    assert "abnormalsecurity" in cands     # THE case: former brand name
+    assert "security" in cands             # individual words of multi-word aliases
+
+
+def test_board_token_candidates_filters_reserved_and_caps():
+    cands = board_token_candidates("Jobs", "jobs.io", aliases=["www", "api"])
+    assert "jobs" not in cands and "www" not in cands and "api" not in cands
+    assert len(cands) <= MAX_BOARD_CANDIDATES

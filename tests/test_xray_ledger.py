@@ -32,3 +32,11 @@ def test_append_creates_parent_dirs(tmp_path):
     p = tmp_path / "deep" / "nested" / "ledger.jsonl"
     append_event(p, {"string_id": "s1"}, clock=lambda: "2026-10-02T12:00:00+00:00")
     assert p.exists()
+
+def test_string_stats_ignores_bool_values(tmp_path):
+    # bool is an int subclass — a stray true must not count as 1.
+    p = tmp_path / "ledger.jsonl"
+    append_event(p, {"string_id": "s1", "results": True, "profile_hits": 2},
+                 clock=lambda: "2026-10-02T12:00:00+00:00")
+    s = string_stats(load_events(p))["s1"]
+    assert s["results"] == 0 and s["profile_hits"] == 2

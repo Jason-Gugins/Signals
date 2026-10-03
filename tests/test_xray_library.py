@@ -31,3 +31,14 @@ def test_defaults_exclude_merged():
 def test_no_defaults_no_exclude():
     strings = load_library({"strings": [{"id": "a", "kind": "people", "site": "s"}]})
     assert strings[0].get("exclude") is None
+
+def test_explicit_exclude_overrides_default():
+    # The entry's own exclude wins over defaults.exclude (library.py merge).
+    strings = load_library({"defaults": {"exclude": ["jobs"]},
+                            "strings": [{"id": "a", "kind": "people", "site": "s",
+                                         "exclude": ["hiring"]}]})
+    assert strings[0].get("exclude") == ["hiring"]
+
+def test_non_dict_entry_raises_library_error():
+    with pytest.raises(LibraryError):
+        load_library({"strings": ["not-a-dict"]})

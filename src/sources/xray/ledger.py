@@ -84,7 +84,8 @@ def string_stats(events: list[dict]) -> dict[str, dict]:
         s["runs"] += 1
         for key in ("results", "profile_hits", "company_hits"):
             val = ev.get(key)
-            if isinstance(val, (int, float)):
+            # bool is an int subclass — a true/false event value must not count.
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
                 s[key] += val
         ts = ev.get("ts_utc")
         if isinstance(ts, str) and (s["last_ts_utc"] is None or ts > s["last_ts_utc"]):

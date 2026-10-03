@@ -26,6 +26,8 @@ def load_library(path_or_dict, *, kinds: set[str] | None = None) -> list[dict]:
     out: list[dict] = []
     seen: set[str] = set()
     for raw in strings:
+        if not isinstance(raw, dict):
+            raise LibraryError(f"string entry must be a dict: {raw!r}")
         for field in REQUIRED_FIELDS:
             if not raw.get(field):
                 raise LibraryError(f"string missing {field}: {raw!r}")

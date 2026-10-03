@@ -44,19 +44,19 @@ SUPPORTED_ENGINES = ("ddg_lite",)
 # Challenge/block markers, case-insensitive, most specific first (the first
 # hit is the recorded marker).
 #
-# DDG markers are in lockstep with src/identity/ddg_ids.py:_CHALLENGE_MARKERS
-# ("unfortunately, bots use duckduckgo", "anomaly-detected", "anomaly",
-# "captcha") — extended with the two shapes the probe observed that the html
-# endpoint never serves: the bare word "challenge" (anomaly-modal copy) and
-# "error-lite" (the ONLY marker in the hard-403 error-lite body, whose mailto
-# is error-lite+...@duckduckgo.com; data/probe/XRAY_SERP_2026_10.md).
+# DDG markers are in lockstep with src/identity/ddg_ids.py — the specific
+# modal copy ("unfortunately, bots use duckduckgo", "anomaly-detected") and
+# the error-lite hard-403 shape ("error-lite", the ONLY marker in that body).
+# Wave-1 review REMOVED the bare words "anomaly" and "challenge": as plain
+# substrings over the whole body (snippets included) they false-positive on
+# organic hiring/intent copy ("we love a challenge", "anomaly detection")
+# while adding nothing — the 202 modal matches the specific copy and the 403
+# matches "error-lite" (data/probe/XRAY_SERP_2026_10.md).
 _DDG_CHALLENGE_MARKERS: tuple[str, ...] = (
     "unfortunately, bots use duckduckgo",
     "anomaly-detected",
-    "anomaly",
     "captcha",
     "error-lite",
-    "challenge",
 )
 
 # Google markers — google is a documented NO-GO on every transport including

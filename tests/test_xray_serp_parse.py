@@ -40,6 +40,18 @@ def test_clean_lite_serp_not_challenge():
     assert is_challenge(body) is None
 
 
+def test_organic_snippet_mentioning_challenge_words_is_not_a_challenge():
+    # Wave-1 review regression: bare "challenge"/"anomaly" were removed from
+    # the marker list — organic hiring/intent snippets routinely carry those
+    # words and a false block verdict burns the query (ParseError + ledger).
+    body = SYNTHETIC.replace(
+        "snippet for a", "We love a challenge. Anomaly detection is our edge."
+    )
+    assert is_challenge(body) is None
+    results = parse_results(body, engine="ddg_lite")
+    assert "We love a challenge." in results[0]["snippet"]
+
+
 def test_google_js_gate_marker_detected():
     # Documented NO-GO per probe: detection stays so a future engine swap
     # inherits honest classification instead of parsing a 0-anchor shell.

@@ -38,6 +38,12 @@ def test_encode_query_google_and_ddg():
     url = encode_query('"vp sales"', "ddg")
     assert url.startswith("https://html.duckduckgo.com/html/?q=")
 
+def test_encode_query_ddg_lite():
+    # The ONLY probe-validated engine path (data/probe/XRAY_SERP_2026_10.md).
+    url = encode_query('site:linkedin.com/in "head of growth"', "ddg_lite")
+    assert url.startswith("https://lite.duckduckgo.com/lite/?q=")
+    assert "site%3Alinkedin.com%2Fin" in url
+
 def test_encode_query_unknown_engine_raises():
     with pytest.raises(ValueError):
         encode_query("x", "bing")

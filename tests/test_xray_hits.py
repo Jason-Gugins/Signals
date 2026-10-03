@@ -44,6 +44,20 @@ def test_title_with_person_name_prefix():
     assert "Head of Growth" in hits[0].title
 
 
+def test_company_group_strips_real_serp_chrome():
+    # Wave-1 review: every real fixture title trails chrome ("| LinkedIn",
+    # " | GTM & Partnerships - LinkedIn"); the company field must not carry it.
+    hits = extract_profiles([
+        R("https://www.linkedin.com/in/tim-austin/",
+          "Tim Austin - Head of Growth @ Embryo | LinkedIn", ""),
+        R("https://www.linkedin.com/in/austin-grant/",
+          "Austin Grant - Head of Growth @ Chexy | GTM & Partnerships - LinkedIn", ""),
+    ], string_id="s")
+    assert hits[0].company == "Embryo"
+    assert hits[1].company == "Chexy"
+    assert hits[1].title == "Austin Grant - Head of Growth"
+
+
 def test_company_hit_normalizes_root_domain_and_drops_known():
     # Known-domain semantics (root via src.identity.domains.root_domain): when
     # acme.com is a known cohort account, EVERY hit whose root is acme.com is

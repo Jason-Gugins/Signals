@@ -31,6 +31,18 @@ LINKEDIN_PROFILE_RE = re.compile(
     r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/in/([A-Za-z0-9_%\-]{3,100})", re.I)
 TITLE_AT_RE = re.compile(r"^(.{2,80}?)\s+(?:at|@)\s+(.{2,80})$")
 
+# SERP chrome that trails the company group on real LinkedIn titles
+# ("... @ Embryo | LinkedIn", "... @ Chexy | GTM & Partnerships - LinkedIn").
+_COMPANY_CHROME_TAIL_RE = re.compile(r"\s*-\s*LinkedIn\s*$", re.I)
+
+
+def _clean_company(raw: str) -> str:
+    """Best-effort chrome strip on the company group: cut at the first '|',
+    drop a trailing ' - LinkedIn', collapse whitespace."""
+    cut = (raw or "").split("|", 1)[0]
+    cut = _COMPANY_CHROME_TAIL_RE.sub("", cut)
+    return " ".join(cut.split())
+
 
 @dataclass(frozen=True)
 class ProfileHit:
@@ -68,7 +80,7 @@ def extract_profiles(results: list[dict], *, string_id: str) -> list[ProfileHit]
         title, company = "", ""
         tm = TITLE_AT_RE.match(r["title"] or "")
         if tm:
-            title, company = tm.group(1).strip(), tm.group(2).strip()
+            title, company = tm.group(1).strip(), _clean_company(tm.group(2))
         hits.append(ProfileHit(
             slug=slug,
             url=r["url"],

@@ -192,6 +192,19 @@ class AccountRegistry:
         for alias, domain in entries.items():
             self.add_entity_alias(alias, domain)
 
+    def entity_aliases_for(self, domain: str) -> list[str]:
+        """Raw alias strings mapped to a domain (human/config-gated rows only).
+
+        Read side of add_entity_alias: candidate board tokens for the ATS
+        ladder derive from these — former brand names live here.
+        """
+        return [
+            row["alias"]
+            for row in self.db.query(
+                "SELECT alias FROM entity_aliases WHERE domain=?", (domain,)
+            )
+        ]
+
     def _by_entity_alias(self, name: str) -> Optional[Account]:
         """entity_aliases lookup: exact normalized key first, then a
         full-table normalized-equality pass (handles legacy rows written

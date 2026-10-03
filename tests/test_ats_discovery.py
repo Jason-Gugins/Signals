@@ -394,6 +394,83 @@ def test_verify_board_candidates_vendor_order_and_cap():
     assert len(fetch.calls) <= MAX_VERIFY_REQUESTS
 
 
+def test_discover_hub_hop_finds_vendor_on_listing_page(tmp_path):
+    """Careers index is a marker-free shell; the hub page carries the marker."""
+    pages = {
+        "https://acme.com/careers": '<a href="/careers/open-roles">Open roles</a>',
+        "https://acme.com/careers/open-roles": (
+            '<script src="https://boards.greenhouse.io/embed/job_board?for=xtest"></script>'
+        ),
+    }
+    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    acct.careers_url = "https://acme.com/careers"
+    reg.upsert(acct)
+    match = disc.discover(reg.get("acme.com"))
+    assert match and match.vendor == "greenhouse" and match.token == "xtest"
+    stored = reg.get("acme.com")
+    assert stored.ats_vendor == "greenhouse"
+    assert stored.ats_token == "xtest"
+    # the hub page was fetched exactly once and becomes the careers page
+    assert fake.seen.count("https://acme.com/careers/open-roles") == 1
+    assert stored.careers_url == "https://acme.com/careers/open-roles"
+
+
+def test_discover_candidate_ladder_stamps_verified_alias_token(tmp_path):
+    """No markers anywhere; the alias-derived token verified against the JSON API."""
+    pages = {
+        "https://acme.com/careers": "<p>we are hiring</p>",  # marker-free shell
+        "https://boards-api.greenhouse.io/v1/boards/oldname/jobs": '{"jobs":[{"id":1}]}',
+    }
+    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    acct.careers_url = "https://acme.com/careers"
+    acct.name = "Acme Co"
+    reg.upsert(acct)
+    match = disc.discover(reg.get("acme.com"), alias_names=["Old Name"])
+    assert match and match.vendor == "greenhouse" and match.token == "oldname"
+    assert "candidate_ladder" in match.extra.get("source", "")
+    stored = reg.get("acme.com")
+    assert stored.ats_vendor == "greenhouse"
+    assert stored.ats_token == "oldname"
+    # a ladder hit never discovered a new careers page: the stored one stays
+    assert stored.careers_url == "https://acme.com/careers"
+
+
+def test_discover_ladder_miss_still_persists_careers_url(tmp_path):
+    """A ladder miss degrades to today's behavior: no vendor/token stamped and
+    a discovered careers index is still persisted for the fallback scraper."""
+    pages = {
+        "https://acme.com/robots.txt": "",
+        "https://acme.com/sitemap.xml": "",
+        "https://acme.com/": '<html><a href="/company/careers">Careers</a></html>',
+        "https://acme.com/company/careers": "<html><body>No openings listed</body></html>",
+    }
+    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    assert disc.discover(acct, alias_names=[]) is None
+    stored = reg.get("acme.com")
+    assert stored.careers_url == "https://acme.com/company/careers"
+    assert not stored.ats_vendor and not stored.ats_token
+
+
+def test_discover_candidate_ladder_skipped_after_marker_hit(tmp_path, monkeypatch):
+    """Stage 6 probes vendor APIs only when no COLLECTED-vendor marker matched:
+    a marker hit must never spend budget on the candidate ladder."""
+    import src.identity.ats_discovery as ats_discovery_module
+
+    pages = {"https://acme.com/careers": CAREERS_HTML_LEVER}
+    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    acct.careers_url = "https://acme.com/careers"
+    reg.upsert(acct)
+
+    def _no_ladder(fetch_text, candidates):
+        raise AssertionError("candidate ladder ran after a marker match")
+
+    monkeypatch.setattr(ats_discovery_module, "verify_board_candidates", _no_ladder)
+    match = disc.discover(reg.get("acme.com"), alias_names=["Old Name"])
+    assert match and match.vendor == "lever" and match.token == "acme"
+    stored = reg.get("acme.com")
+    assert stored.ats_vendor == "lever"
+
+
 def test_verify_board_endpoints_module_invariants():
     """Module-level pins: ashby verifies via the posting-api JSON ONLY (the
     jobs.ashbyhq.com HTML board returns an identical 200 SPA shell for real

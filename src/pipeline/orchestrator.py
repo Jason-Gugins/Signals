@@ -155,7 +155,8 @@ class Orchestrator:
                     if acct.ats_token and acct.ats_vendor:
                         continue
                     try:
-                        if disc.discover(acct):
+                        aliases = self.registry.entity_aliases_for(acct.domain)
+                        if disc.discover(acct, alias_names=aliases):
                             out["ats"] += 1
                     except Exception as exc:
                         logger.warning("ats discover failed for {}: {}", acct.domain, exc)

@@ -2,7 +2,8 @@
 
 Careers-page lookup order (see ``AtsDiscovery.discover``): an existing
 ``careers_url`` -> the site's own sitemap map (``src/identity/sitemap_careers``)
--> homepage link hop -> hardcoded path guesses.
+-> homepage link hop -> hardcoded path guesses -> listing-hub hop -> verified
+board-candidate ladder (keyless JSON APIs only).
 """
 
 from __future__ import annotations
@@ -25,9 +26,11 @@ if TYPE_CHECKING:
 # Per-account request ceiling for AtsDiscovery.discover. The sitemap stage is
 # greedy by design (robots.txt -> <=3 root sitemaps -> <=3 child sitemaps ->
 # the careers page), so the budget is larger than the old 4: the map stages run
-# first and the leftover budget is what the homepage hop and the hardcoded
-# guesses get. Rate limiting (1 req/s/host) still bounds wall-clock cost.
-MAX_DISCOVERY_REQUESTS = 10
+# first, the leftover budget is what the homepage hop and the hardcoded guesses
+# get, and the new rungs only spend what the marker rungs left behind — one
+# listing-hub fetch plus up to MAX_VERIFY_REQUESTS board-API probes. Rate
+# limiting (1 req/s/host) still bounds wall-clock cost.
+MAX_DISCOVERY_REQUESTS = 18
 
 ATS_PATTERNS: dict[str, list[re.Pattern]] = {
     "greenhouse": [
@@ -310,6 +313,17 @@ def _has_careers_shape_page(pages: list[tuple[str, str]]) -> bool:
     return False
 
 
+def _has_collected_match(pages: list[tuple[str, str]]) -> bool:
+    """PURE. True when any scanned page matched a COLLECTED_VENDORS vendor."""
+    from src.sources.registry import COLLECTED_VENDORS
+
+    for url, html in pages:
+        matches = detect_ats(html, url)
+        if any(m.vendor in COLLECTED_VENDORS for m in matches):
+            return True
+    return False
+
+
 def find_careers_url(fetch_text, domain: str, *, max_requests: int = MAX_DISCOVERY_REQUESTS):
     """I/O via injected fetch_text. Full careers ladder, no registry writes.
 
@@ -355,7 +369,9 @@ class AtsDiscovery:
         self.fetcher = fetcher
         self.registry = registry
 
-    def discover(self, account: Account) -> Optional[AtsMatch]:
+    def discover(
+        self, account: Account, alias_names: list[str] | None = None
+    ) -> Optional[AtsMatch]:
         used = 0
         max_req = MAX_DISCOVERY_REQUESTS
         raw_get = fetcher_for(self.fetcher, account.domain, source="ats_discovery")
@@ -424,6 +440,48 @@ class AtsDiscovery:
                 ladder_careers_url = ladder_careers_url or cand
                 if detect_ats(html, cand):
                     break
+
+        # Stage 5: listing-hub hop. SPA career sites split the branded careers
+        # index (marker-free) from the page that embeds the ATS widget; follow
+        # ONE hub link and scan it. Costs 1 request, only when markers failed.
+        if not _has_collected_match(pages):
+            hub = None
+            for url, html in pages:
+                hub = listing_hub_link(html, url)
+                if hub:
+                    break
+            if hub and used < max_req:
+                hub_html = fetch(hub)
+                if hub_html:
+                    pages.append((hub, hub_html))
+
+        # Stage 6: verified-candidate board ladder. JSON APIs only (HTML boards
+        # are untrustworthy catch-alls — see _VERIFY_ENDPOINTS note). Tokens from
+        # name/domain/entity aliases; acceptance = vendor's canonical API shape.
+        if not _has_collected_match(pages):
+            from src.sources.registry import COLLECTED_VENDORS
+
+            tokens = board_token_candidates(
+                account.name, account.domain, aliases=alias_names or []
+            )
+            # Vendor-major crossing: within the MAX_VERIFY_REQUESTS cap every
+            # candidate token must get a probe on at least the top vendor. A
+            # token-major list would spend the whole cap on the first token and
+            # never reach the alias-derived ones — the rebrand case (e.g. a
+            # former brand name as greenhouse token) this ladder exists for.
+            candidates = [
+                (v, t)
+                for v in _VERIFY_ENDPOINTS
+                for t in tokens
+                if v in COLLECTED_VENDORS
+            ]
+            match = verify_board_candidates(fetch, candidates)
+            if match:
+                account.ats_vendor = match.vendor
+                account.ats_token = match.token
+                account.careers_url = account.careers_url or (pages[-1][0] if pages else None)
+                self.registry.upsert(account, source="ats_discovery")
+                return match
 
         best, best_url = _best_match_page(pages)
         # Never record the bare site root when a careers-shaped URL is known: a

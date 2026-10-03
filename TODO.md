@@ -942,6 +942,18 @@ above): drop candidate** — with the decoder hole fixed the run is network-boun
 ~2 min; the 30s/3-retry global posture is no longer the bottleneck. Leave it dropped
 unless a future profile shows a specific slow-host tail.
 
+## X-ray SERP prospecting (2026-10-02 — DELIVERED)
+
+Plan: `.zcode/plans/2026-10-02_182833-xray-serp-prospecting.md` (executed via subagent-driven development, serial dispatch + wave reviews). Search-operator prospecting ("X-ray search") over SERPs: people-by-title, hiring-post/funding/intent company discovery — the two shapes the account-keyed fanout can't do.
+
+- **Probe gate rewrote the engine plan** (`scripts/probe_xray_serp.py`, `data/probe/XRAY_SERP_2026_10.md`): google is NO-GO on every transport incl. the headed stealth-browser tier (200 JS-gate shell, zero anchors; cookie replay disproven); html.duckduckgo.com 403s/challenges operator queries; **lite.duckduckgo.com/lite/ via curl_cffi chrome-TLS is the only path and is stochastic** (202 anomaly / 403 error-lite on some requests). All downstream tasks re-scoped from google+ddg to ddg_lite-only.
+- **Shipped**: `config/lists/xray_strings.yaml` (5 string families, slot-filled, config/lists authority) · `src/sources/xray/` (library/strings/serp/hits/ledger pure layers + runner as the only I/O layer) · `src.cli xray` (manual, opt-in, self-paced; `--kind/--title/--location/--niche/--role/--problem-phrase/--limit/--attempts/--pace/--attempt-pause/--stats`) · `data/xray/ledger.jsonl` per-string stats.
+- **Never-guess**: company hits → `identity_candidates` (one row per query, kind=domain, source=xray, verbatim query as key, cohort roots dropped); profile hits → `contacts` only on exact casefold cohort match, else ledger-only. Zero new signal types.
+- **Robots exception #2** documented in README (ethics paragraph + new section): manual invocation only, never scheduled/cadence.
+- **Live smoke (Task 10): GO on first fetch** — hiring string → `useshiny.com` queued pending; ledger row complete.
+- **Commits**: 193d83c (library) · b68701f (builder) · 86cb851+e03dd85 (probe) · 02cc537 (parser) · fac8dc4 (hits) · f4cf9e5 (ledger) · f5c3b77 (wave-1 review fixes) · a850a75 (runner) · 79870f9 (CLI) · c71fe21 (wave-2 review fixes) · 389dd3f (docs) · 55195d3 (smoke record). Two-stage wave reviews: spec PASS ×2, quality blockers fixed both waves.
+- **Known limits**: lite yield per query is thin (1 result in smoke) and pass-rate stochastic — that's what `--stats` tracking is for; google stays NO-GO. LLM qualification pass deferred with the decide-layer credits block. Unrelated pre-existing failures in `test_antibot_engine`/`test_antibot_parity` (6) are live-endpoint cert-verification failures against tls.peet.ws — zero antibot changes in this batch, Jason's call on recapturing the reference.
+
 ## Manual checklists (human setup, not code)
 
 - **2Captcha provider setup** — create account, key in `.env`, verify `TurnstileTaskProxyless` vs `AntiCloudflareTaskProxyless` against a real managed challenge, test headed fallback (`CLOUDFLARE_HEADED_FALLBACK=true`).

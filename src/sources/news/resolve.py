@@ -5,9 +5,9 @@ Three-tier strategy (offline-first, network is the exception):
 1. Direct link (not news.google.com) → its own hostname.
 2. Google News ``?url=`` query param or an http(s) URL found in the
    link/summary context (most Google News RSS items carry this).
-3. Leftover ``news.google.com/rss/articles/<token>`` links → decode via
-   ``googlenewsdecoder`` (network; slow, ~1-2s per link) — resolved lazily
-   and cached per link by :func:`resolve_publisher_domain`.
+3. Leftover ``news.google.com/rss/articles/<token>`` links → the module-level
+   fallback (no injected resolver) always reports "cannot decode offline"
+   (None); live google_news cycles get an injected :class:`DomainResolver`.
 
 Resolution NEVER raises: any failure returns ``None`` so a parse can't
 break over attribution.
@@ -38,23 +38,12 @@ def _host(url: str) -> str | None:
 
 
 def _resolve_google_news_token(link: str) -> str | None:
-    """Decode a news.google.com/rss/articles/<token> link via googlenewsdecoder.
+    """Deprecated shim: the decoder moved to src/sources/news/decode.py.
 
-    The package pulls in requests/socks, so it is imported INSIDE this
-    function body (never at module level) to keep feeds.py imports fast.
-    A resolution failure returns None — never an exception.
+    The module-level fallback (no injected resolver) is OFFLINE-only now —
+    it never decodes tokens. Live google_news cycles always get an injected
+    DomainResolver from the runner.
     """
-    try:
-        from googlenewsdecoder import gnewsdecoder  # lazy: heavy transitive deps
-
-        result = gnewsdecoder(link)
-        if isinstance(result, dict) and result.get("status"):
-            decoded = result.get("decoded_url") or ""
-            host = _host(decoded)
-            if host and not _is_google_news(host.casefold()):
-                return host
-    except Exception:
-        pass
     return None
 
 

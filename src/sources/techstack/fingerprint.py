@@ -329,9 +329,22 @@ def promote_or_observe(ev, rules: dict, *, domain: str) -> list[TechMatch]:
     return merge_matches(named, dyn)
 
 
+_RULES_CACHE: tuple[float, dict] | None = None
+
+
 def load_fingerprint_rules() -> dict:
+    """Parse config/fingerprints.yaml, memoized by file mtime.
+
+    Callers treat the returned dict as read-only: parse/harvest per task,
+    runner renewal estimation and jobsignals' vendor vocab all only read.
+    A changed mtime (edited YAML) invalidates the cache on next call.
+    """
+    global _RULES_CACHE
     import yaml
     from pathlib import Path
 
     path = Path(__file__).resolve().parents[3] / "config" / "fingerprints.yaml"
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    mtime = path.stat().st_mtime
+    if _RULES_CACHE is None or _RULES_CACHE[0] != mtime:
+        _RULES_CACHE = (mtime, yaml.safe_load(path.read_text(encoding="utf-8")))
+    return _RULES_CACHE[1]

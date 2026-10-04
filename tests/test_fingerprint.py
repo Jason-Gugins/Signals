@@ -248,3 +248,33 @@ def test_enterprise_vendors_carry_explicit_contract_years():
     for name, spec in ent.items():
         cy = (spec or {}).get("contract_years")
         assert isinstance(cy, int) and cy >= 1, f"{name} (tier=enterprise) needs an explicit contract_years >= 1"
+
+
+def test_load_rules_cached_same_mtime():
+    # Task 8 pin: consecutive calls with an unchanged fingerprints.yaml must
+    # reuse the parsed dict (same object), not re-read/re-parse per call.
+    from src.sources.techstack import fingerprint
+    from src.sources.techstack.fingerprint import load_fingerprint_rules
+
+    try:
+        r1 = load_fingerprint_rules()
+        r2 = load_fingerprint_rules()
+        assert r1 is r2
+    finally:
+        fingerprint._RULES_CACHE = None
+
+
+def test_load_rules_reloads_on_mtime_change():
+    # Cache key is the file mtime: a stale sentinel cache entry (mtime 0.0,
+    # which can never match the real file) must be replaced by a fresh parse.
+    from src.sources.techstack import fingerprint
+    from src.sources.techstack.fingerprint import load_fingerprint_rules
+
+    try:
+        load_fingerprint_rules()
+        fingerprint._RULES_CACHE = (0.0, {"stale": True})
+        rules = load_fingerprint_rules()
+        assert rules is not None and rules != {"stale": True}
+        assert "webflow" in (rules.get("vendors") or {})
+    finally:
+        fingerprint._RULES_CACHE = None

@@ -370,3 +370,12 @@ Honest caveat for that decision: the wall Google/Bing/Brave/Mojeek served this p
 **Shipped from the ladder:** `google_state` engine behind `xray --engine` (commit 0609d9d + review fixes 637ff70) — Google results parsed from W_jd state, cookie-jar gated (missing jar → refresh-procedure guidance), challenges surface as explicit ledger rows, snippet always empty (W_jd limitation). ddg_lite remains the default engine. Google access posture: **available in calm windows behind a manual per-session cookie refresh** — manual-effort, accept-the-risk, same posture family as the LinkedIn scraper.
 
 **Open decision (unbuilt by design):** Google CSE JSON API bridge — free 100/day keyed, sunsets 2027-01-01; needs Jason's sign-off (Task 7 of the ladder plan).
+
+## SERP variant flip observed live (2026-10-03 ~21:07–21:30)
+
+Two new demo queries (vp-sales-chicago people shape; recently-funded-compliance company shape) plus a controlled re-fetch of the previously state-embedded query established:
+
+- **Variant A (state-embedded)**: `window.W_jd` "2003" url+title records in the body → full `google_state` parse (proven live twice: replay 21:07 = 12 records; CLI hiring run 21:08 = 9 results → identity_candidates row).
+- **Variant B (dehydrated)**: same jar, same fetcher — 10 rendered h3 tiles with encrypted `/goto?url=CAES…` hrefs (protobuf-framed but HIGH-ENTROPY payload — Task 1's "not plaintext-decodable" confirmed via decode attempt), ZERO "2003" records, no AF_initDataCallback. Titles + `VuuXrf` site-attribution lines extract fine.
+- **The flip is TIME-based, not query- or session-based**: the head-of-growth query carried 12 records at 21:07 and was dehydrated at ~21:25 (same jar, same everything). Browser-search-then-replay does NOT force variant A. Retries (3x consecutive) do not either.
+- Consequence for the engine: variant A windows produce full pipeline results; variant B windows produce explicit `empty` ledger rows after attempts (never fake results — the record-gated parser refuses). ddg_lite remains the fallback engine. Future option: a variant-B extraction mode (title + VuuXrf site-attribution pairs — domain names extracted cleanly for the funding query: checkmarble.com, Dealroom, Axios…), possibly paired with the identity waterfall for name→domain. Raw dumps: tmp/xray_demo_*.html.

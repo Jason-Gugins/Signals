@@ -250,6 +250,9 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
     spf = " ".join(getattr(ev, "spf_includes", []) or [])
     job_text = getattr(ev, "text_sample", "") or ""
     html_low = getattr(ev, "html", "").casefold()
+    _globals_low = " ".join(getattr(ev, "inline_globals", []) or []).casefold()
+    cookies = getattr(ev, "cookies", []) or []
+    gen_low = ((getattr(ev, "meta", {}) or {}).get("generator") or "").casefold()
     for key, spec in vendors.items():
         match = spec.get("match") or {}
         evidence = None
@@ -257,6 +260,15 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
             evidence = "script_src"
         if any(m.casefold() in html_low for m in match.get("html_marker") or []):
             evidence = evidence or "html_marker"
+        # inline_global is SUBSTRING on a joined blob (Revision 1): a stored
+        # global may keep its call form ("hbspt.forms.create(") while the
+        # YAML needle is the bare function name.
+        if any(g.casefold() in _globals_low for g in match.get("inline_global") or []):
+            evidence = evidence or "inline_global"
+        if any(c in cookies for c in match.get("cookie_name") or []):
+            evidence = evidence or "cookie_name"
+        if any(g.casefold() in gen_low for g in match.get("meta_generator") or []):
+            evidence = evidence or "meta_generator"
         if any(s in cnames for s in match.get("dns_cname") or []):
             evidence = evidence or "dns_cname"
         if any(s in spf for s in match.get("spf_include") or []):

@@ -13,6 +13,10 @@ vendors:
       network_host: ["js.hsforms.net", "hubspotonwebflow.com", "forms-na2.hsforms.com"]
       dns_cname: ["hubspotusercontent", "hs-sites.com"]
       spf_include: ["hubspotemail.net"]
+      inline_global: ["hbspt.forms.create"]
+      # Frozen from tests/fixtures/techstack/homepage.html:
+      # <meta name="generator" content="hubspot">
+      meta_generator: ["hubspot"]
   salesforce:
     display: "Salesforce"
     category: [crm]
@@ -22,7 +26,7 @@ vendors:
       spf_include: ["salesforce.com", "pardot.com", "exacttarget.com"]
       dns_cname: ["salesforce.com"]
   marketo: { display: "Marketo", category: [marketing_automation], tier: enterprise,
-             match: { script_src: ["munchkin.marketo.net"], dns_cname: ["mktoweb.com"], spf_include: ["mktomail.com"] } }
+             match: { script_src: ["munchkin.marketo.net"], dns_cname: ["mktoweb.com"], spf_include: ["mktomail.com"], inline_global: ["Munchkin.init"] } }
   google_workspace: { display: "Google Workspace", category: [email], tier: mid,
              match: { mx: ["google.com", "googlemail.com"] } }
   microsoft365: { display: "Microsoft 365", category: [email], tier: mid,

@@ -2,6 +2,7 @@ from datetime import date
 from src.core.db import Database
 from src.sources.techstack.collector import tech_to_candidates, upsert_technologies
 from src.sources.techstack.fingerprint import (
+    HttpEvidence,
     TechMatch,
     dynamic_matches,
     extract_http_evidence,
@@ -164,3 +165,70 @@ def test_html_marker_no_false_match_on_other_vendors():
         "wordpress": {"match": {"html_marker": ["/wp-content/"]}, "tier": "low", "category": ["cms"]},
     }
     assert match_fingerprints(ev, {"vendors": spec}) == []
+
+
+def test_inline_global_evidence():
+    # Substring contract (Revision 1): inline_global matching is substring on
+    # a joined blob, not exact list membership — the stored global may keep
+    # the call form with its trailing paren while the YAML needle is the bare
+    # function name.
+    ev = HttpEvidence(
+        url="https://d.com/",
+        headers={},
+        cookies=[],
+        script_srcs=[],
+        link_hrefs=[],
+        meta={},
+        inline_globals=["hbspt.forms.create("],
+        text_sample="",
+    )
+    spec = {"hubspot": {"match": {"inline_global": ["hbspt.forms.create"]}, "tier": "mid", "category": ["crm"]}}
+    hits = match_fingerprints(ev, {"vendors": spec})
+    assert [h.vendor for h in hits] == ["hubspot"]
+    assert hits[0].evidence == "inline_global"
+    assert hits[0].confidence == 0.7
+    # End to end: extract_http_evidence hoists the _INITS call into globals.
+    ev2 = extract_http_evidence(
+        b"<html><body><script>hbspt.forms.create({portalId:1});</script></body></html>", {}, "https://d.com/"
+    )
+    assert "hbspt.forms.create" in ev2.inline_globals
+    hits2 = match_fingerprints(ev2, {"vendors": spec})
+    assert [h.vendor for h in hits2] == ["hubspot"]
+    assert hits2[0].evidence == "inline_global"
+    assert hits2[0].confidence == 0.7
+
+
+def test_cookie_name_evidence():
+    ev = HttpEvidence(
+        url="https://d.com/",
+        headers={},
+        cookies=["_shopify_s", "_shopify_y"],
+        script_srcs=[],
+        link_hrefs=[],
+        meta={},
+        inline_globals=[],
+        text_sample="",
+    )
+    spec = {"shopify": {"match": {"cookie_name": ["_shopify_s"]}, "tier": "mid", "category": ["ecommerce"]}}
+    hits = match_fingerprints(ev, {"vendors": spec})
+    assert [h.vendor for h in hits] == ["shopify"]
+    assert hits[0].evidence == "cookie_name"
+    assert hits[0].confidence == 0.7
+
+
+def test_meta_generator_evidence():
+    ev = HttpEvidence(
+        url="https://d.com/",
+        headers={},
+        cookies=[],
+        script_srcs=[],
+        link_hrefs=[],
+        meta={"generator": "WordPress 6.5"},
+        inline_globals=[],
+        text_sample="",
+    )
+    spec = {"wordpress": {"match": {"meta_generator": ["wordpress"]}, "tier": "low", "category": ["cms"]}}
+    hits = match_fingerprints(ev, {"vendors": spec})
+    assert [h.vendor for h in hits] == ["wordpress"]
+    assert hits[0].evidence == "meta_generator"
+    assert hits[0].confidence == 0.7

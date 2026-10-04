@@ -1030,11 +1030,9 @@ adapter ever fired and `ats_careers_page` scraped nothing.
   tech_migration_mentioned now present). All other ATS adapters correctly
   `ineligible_ats_vendor`; root guard kept careers_url; stamped accounts skip
   discovery forever (orchestrator.py:155).
-- **Known limitation (documented + pinned by test)**: vendor-major probe order within
-  MAX_VERIFY_REQUESTS=8 means ≥4-candidate accounts only ever probe greenhouse+lever
-  — workable/smartrecruiters/ashby-only marker-free sites are a deterministic ladder
-  blind spot (marker rungs or a future budget bump cover them). Round-robin reorder
-  was rejected: it would break the Abnormal showcase (greenhouse 4th token).
+- **Known limitation (2026-10-03, superseded 2026-10-04 — see the diagonal section
+  below)**: vendor-major probe order within MAX_VERIFY_REQUESTS=8 meant ≥4-candidate
+  accounts only ever probed greenhouse+lever.
 - **Commits**: 62dee76 · 79621ee · 8053824 · df096ac · 636f94f. Test lane: 52/52 on
   the five ats/identity suites; full offline lane green except the documented
   environmental TLS failures. (The `test_runner_marks_cloudflare_unsolved` red seen
@@ -1042,6 +1040,59 @@ adapter ever fired and `ats_careers_page` scraped nothing.
 - **Ops follow-ups for Jason**: seed entity aliases for other rebranded accounts
   (seed domains lowercase to match `acct.domain` exactly); probe breezy/recruitee/
   teamtailor 404 shapes when convenient.
+
+## ATS ladder diagonal coverage + config alias seeding (2026-10-04 — DELIVERED)
+
+Plan: `.zcode/plans/2026-10-04_155218-ats-ladder-coverage-and-alias-seeding.md`
+(Revision 1 — independent LLM re-verified every file:line anchor, fixed one test
+assertion bug pre-dispatch; serial subagent execution, one at a time; two-stage
+review wave). Supersedes the 2026-10-03 wave's known limitation.
+
+- **Diagonal probe order** (`450ac39`): Stage 6 now walks token-rounds across
+  `_LADDER_VENDORS` (8 vendors: greenhouse, lever, ashby, workable,
+  smartrecruiters, breezy, recruitee, teamtailor) — token-outer/vendor-inner, so
+  round 1 probes the domain-prefix token on ALL vendors, round 2 the next token,
+  capped at MAX_VERIFY_REQUESTS=12 (round 1 complete + first 4 of round 2 =
+  greenhouse/lever/ashby/workable; breezy/recruitee/teamtailor never see depth-2
+  tokens — documented in the Stage 6 comment and pinned by test). Budgets:
+  MAX_VERIFY 8→12, MAX_DISCOVERY 18→22. **Live proof from a partial cohort sweep:
+  `glow.security` → ashby/`glow` and `snowflake.com` → ashby/`snowflake` — both
+  marker-free sites stamped by round-1 domain-prefix probes on ashby, the exact
+  vendor vendor-major reached last or never.**
+- **Alias-first token ordering** (`b47c204`): `board_token_candidates` pushes
+  domain prefix → alias joined forms → alias words → name variants — human-curated
+  former-brand tokens land in diagonal round 2. No-alias accounts degrade to
+  byte-identical old order (pinned).
+- **Probe-pinned predicates** (`a1fbc0c`): breezy POS `euler` (200 top-level list,
+  NEG 404 HTML shell), recruitee POS `tether` (200 `{"offers":[...]}`, NEG 404
+  `{"error":...}`), teamtailor POS `recruitgo` (200 JSON Feed 1.1 `items`, NEG 404
+  empty). The old predicate silently rejected real recruitee/teamtailor payloads —
+  teamtailor's ladder entry was dead before this.
+- **Config-driven alias seeding** (`d82650b`): `config/lists/entity_aliases.yaml`
+  ({alias: domain}, human-gated, ships with `"Abnormal Security": abnormal.ai`)
+  loaded idempotently once per `resolve` via
+  `load_entity_aliases_from_config`, fail-open, missing-file tolerated. Config
+  file wins over manual DB edits (re-applied each resolve). Seeding is NOT gated
+  on the ats flag — entity_aliases also feed collect-time identity resolution
+  (formd/bbb/trustradius via `_by_entity_alias`).
+- **Review fixes** (`d302d2d`, quality stage failed the wave pre-fix): BLOCKING —
+  teamtailor verifier accepted the JSON Feed `items` shape `parse_teamtailor`
+  couldn't read (stamped accounts would have collected zero jobs while the stamp
+  suppressed the careers fallback that worked): parser now reads the feed shape,
+  verifier→parser round-trip tests added for all three pinned vendors. Advisories:
+  round-2 tail pinned in test; budget comments conditioned on leftover (worst case
+  stages 1-5 burn ~19 of 22, ladder keeps ≥3 slots); per-row str-type guard on the
+  yaml loader (bool/None/dict values warned-and-skipped, no garbage rows).
+- **Commits**: a1fbc0c · b47c204 · 450ac39 · d82650b · d302d2d. Lanes: 82/82 on the
+  five ats/identity suites; full offline lane 2370 passed except the documented
+  environmental TLS flakes (test_antibot_engine/test_antibot_parity, clean-HEAD
+  reproduced).
+- **Ops notes for Jason**: (1) a full cohort resolve is now the long pole — 399
+  accounts, ~395 still unstamped, each running sitemap+hub+≤12 probes (~20-22
+  paced requests); the validation sweep processed ~14 accounts in ~13 min and
+  stamped 2 — run cohort resolves in batches or off-peak; (2) add rebrand aliases
+  to `config/lists/entity_aliases.yaml` as they're learned (file wins over DB);
+  (3) stamped accounts (4) never re-ladder.
 
 ## Manual checklists (human setup, not code)
 

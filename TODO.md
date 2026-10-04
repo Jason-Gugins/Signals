@@ -867,6 +867,16 @@ Adoption candidates (each becomes its own scoped roadmap wave when scheduled):
 - **Cost note:** all new spend is sub-cent per document at input-only pricing, and the
   doc gate's ~2/3 exclusion rate makes total layer cost go DOWN; the doc gate's spend
   should be added to the `max_decide_tokens_per_run` pre-flight projection when adopted.
+- **Re-verified 2026-10-04** against the identity-work delta (cb7ac2b..HEAD, 66 commits):
+  Tier 1 anchors byte-identical (src/decide/, src/llm/, intel.py, decide.yaml,
+  signals.yaml untouched; quote-span gap premise still holds). #7 premise updated —
+  config-driven entity-alias seeding (`config/lists/entity_aliases.yaml`, resolve-time,
+  feeds sec_formd/bbb/trustradius lookups) + the ATS board-candidate ladder now resolve
+  known ambiguity deterministically, so entity alignment targets the residue and must be
+  producer-agnostic over `identity_candidates` (three producers: discover,
+  competitor_news, xray — xray keys rows on raw SERP query strings, not normalized
+  names). Addendum in the plan file
+  (`.hermes/plans/2026-10-02_174907-typesafe-cookbooks-application-map.md`).
 
 ## Run-speed tuning: news/aggregator rates + the googlenewsdecoder finding (2026-10-02) — DELIVERED (rates) / FOUND (bottleneck)
 

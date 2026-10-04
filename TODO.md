@@ -965,6 +965,17 @@ Plan: `.zcode/plans/2026-10-03_181238-readme-drift-fact-check.md` (executed via 
 - **Commits**: 1075e8f (tests RED) · 2ce1b47 (README fixes) · 232f6e1 (lists README) · 5253d35 (two-stage review fixes). Suite failure set identical to baseline (the 6 pre-existing antibot live-endpoint cert-verification failures, unrelated).
 - **Left as-is (observation)**: `src/cli.py` `init` still writes a placeholder `config/lists/README.md` when missing — harmless bootstrap fallback now that the real README ships tracked.
 
+## Google SERP bypass ladder (2026-10-03 — DELIVERED)
+
+Plan: `.zcode/plans/2026-10-03_181725-google-serp-bypass-ladder.md` (serialized subagent execution; three probe-gated legs). Answers the 2026-10-02 probe's "google NO-GO" with a deeper diagnosis.
+
+- **The NO-GO was a measurement artifact** (Task 1, `scripts/analyze_google_shell.py`): result-bearing Google bodies embed 12 plaintext url+title records in `window.W_jd` "2003" state behind opaque `/goto?url=` hrefs — anchor-counting saw zero; the `enablejs` noscript href is on EVERY Google page and is not a block discriminator. Corrected verdict: **Google works via browser solve + cookie-gated fetch, parsed from W_jd state**.
+- **Costs established** (Tasks 2+3, `scripts/google_cookie_refresh.py`): cookies are PER-SESSION (~24h max observed; 23.9h-old jar → 429 captcha); the no-JS/basic-HTML door is closed permanently (old-Firefox + iPhone UA cells dead); an intermittent IP-level captcha wall exists (browser solve itself got the interstitial during one window).
+- **Legs B/C dead**: Bing web SERP drops ALL operators silently (dictionary lookups — useless for the method); Brave 429 JS-captcha; Mojeek 403 IP block; SearXNG DOCKER_ABSENT (and the observed walls are IP-reputation-level, which local SearXNG can't fix).
+- **Shipped**: `google_state` engine behind `xray --engine` (ddg_lite stays default): W_jd "2003" parser (challenge-first, enablejs soft-marker overruled only when records exist, snippet always empty — documented W_jd limitation), cookie-jar fetch factory (`data/xray/google_cookies.json`, missing jar → refresh-procedure guidance), config `xray.default_engine`, runner engine threading + docstring corrections, README Engines paragraph, 21 new tests.
+- **Commits**: e15b8bb (shell re-analysis) · db57aa5 (cookie amortization + UA cells + refresh procedure; ff'd from a subagent's detached-HEAD commit — new dispatch rule: verify `On branch master` before committing) · d68ea1d (engine probe) · ca8428b (DOCKER_ABSENT) · 0609d9d (google_state) · 637ff70 (review fixes: enablejs soft-marker exemption + type-strict jar validation + raw-join test) · 21ab8f8 (verdict matrix). Two-stage review on Task 6: spec PASS, quality PASS (cookie raw-join semantics verified correct — no auth corruption).
+- **Open (Jason's call, unbuilt by design)**: Google CSE JSON API bridge — free 100/day keyed, sunsets 2027-01-01, GKG credential-gated precedent; say the word and it ships as `xray_cse`.
+
 ## Manual checklists (human setup, not code)
 
 - **2Captcha provider setup** — create account, key in `.env`, verify `TurnstileTaskProxyless` vs `AntiCloudflareTaskProxyless` against a real managed challenge, test headed fallback (`CLOUDFLARE_HEADED_FALLBACK=true`).

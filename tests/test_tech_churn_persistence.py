@@ -212,3 +212,123 @@ def test_healthy_cycle_still_emits_churn(tmp_path, monkeypatch):
     assert churn[0]["source"] == "techstack"
     assert churn[0]["title"] == "hubspot"
     ctx.__exit__(None, None, None)
+
+
+# ── Flap-guard persistence: extra_data["tech_flap"] ─────────────────────────
+#
+# diff_technologies accepts flap_guard (vendors that churned in the
+# IMMEDIATELY PRIOR diff are suppressed from churn emission) but the runner
+# never passed it and nothing persisted the prior-churn set, so a flapping
+# vendor emitted churn on every cycle. Wiring contract: each cycle the runner
+# REPLACES extra_data["tech_flap"] with the vendors that churned in THIS diff
+# (a churn-free cycle stores [] and un-guards) via the task-meta registry,
+# the same MERGE pattern _dns_delta uses for dns_evidence.
+
+_HUBSPOT = TechMatch("hubspot", "HubSpot", ["crm"], "mid", "script_src", 0.8)
+_SALESFORCE = TechMatch("salesforce", "Salesforce", ["crm"], "mid", "script_src", 0.8)
+
+
+class _FlapStub(SourceAdapter):
+    """_TechStub variant whose harvested vendor set is settable per cycle, so
+    one db can be driven through absent -> present -> absent sequences."""
+
+    key = "techstack"
+    tier = "http"
+    cadence_hours = 168
+
+    def __init__(self):
+        self.matches: list[TechMatch] = []
+
+    def plan(self, account, cursor):
+        return [FetchTask(source=self.key, url=f"https://{account.domain}/", domain=account.domain)]
+
+    def parse(self, doc, account, task_meta):
+        return []
+
+    def harvest_tech(self, doc, account, task_meta):
+        return list(self.matches)
+
+
+def _stored_flap(db):
+    """The persisted guard set, read the way production reads it: from the
+    accounts table through the registry (extra_data JSON round-trip)."""
+    acct = AccountRegistry(db).get("acme.com")
+    if acct is None:
+        return None
+    return (acct.extra_data or {}).get("tech_flap")
+
+
+def test_flap_guard_persists_prior_churn_set(tmp_path, monkeypatch):
+    """Three cycles — hubspot absent (churn emitted, guard stored) -> present
+    (guard CLEARED: the guard covers only the immediately prior diff, so a
+    churn-free cycle overwrites the stored set with []) -> absent again (the
+    churn is honest and re-arms the guard). Pins the REPLACE semantics:
+    empty churn must still upsert."""
+    monkeypatch.setattr("src.sources.techstack.dns_probe.probe_dns", _no_dns_probe)
+    runner, db, ctx = _harness(
+        tmp_path,
+        fetcher=_HealthyFetch({"https://acme.com/": b"<html><body>ok</body></html>"}),
+        first_seen_days_ago={"hubspot": 200},
+    )
+    stub = _FlapStub()
+    accounts = [Account(domain="acme.com", name="Acme")]
+
+    # Cycle 1: hubspot vanishes -> tech_churn persisted, guard armed.
+    stub.matches = [_SALESFORCE]
+    runner.run([stub], accounts, force=True)
+    churn = db.query("SELECT * FROM signals WHERE signal_type='tech_churn'")
+    assert [r["title"] for r in churn] == ["hubspot"]
+    assert _stored_flap(db) == ["hubspot"]
+
+    # Cycle 2: hubspot returns -> nothing to diff, guard cleared (REPLACE).
+    accounts = [AccountRegistry(db).get("acme.com") or accounts[0]]
+    stub.matches = [_HUBSPOT, _SALESFORCE]
+    runner.run([stub], accounts, force=True)
+    assert _stored_flap(db) == []
+
+    # Cycle 3: hubspot vanishes again -> honest churn, guard re-armed.
+    accounts = [AccountRegistry(db).get("acme.com") or accounts[0]]
+    stub.matches = [_SALESFORCE]
+    runner.run([stub], accounts, force=True)
+    assert _stored_flap(db) == ["hubspot"]
+    ctx.__exit__(None, None, None)
+
+
+def test_flap_guard_suppresses_immediate_rechurn(tmp_path, monkeypatch):
+    """hubspot absent for TWO consecutive cycles: cycle 1 emits tech_churn and
+    arms the guard; cycle 2's re-churn (the row is still in technologies
+    pending the gone threshold) must be SUPPRESSED — exactly one churn signal
+    total — while the gone path still emits tech_removed. The clock is faked
+    to advance one day per cycle so the would-be second churn carries its own
+    natural key (same-day re-churns would merge into one row and hide the
+    regression)."""
+    monkeypatch.setattr("src.sources.techstack.dns_probe.probe_dns", _no_dns_probe)
+    day1 = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+    clock = {"now": day1}
+    monkeypatch.setattr("src.pipeline.runner._now", lambda: clock["now"])
+    runner, db, ctx = _harness(
+        tmp_path,
+        fetcher=_HealthyFetch({"https://acme.com/": b"<html><body>ok</body></html>"}),
+        first_seen_days_ago={"hubspot": 200},
+    )
+    stub = _FlapStub()
+    stub.matches = [_SALESFORCE]
+    accounts = [Account(domain="acme.com", name="Acme")]
+
+    # Cycle 1: hubspot vanishes -> churn emitted, guard armed.
+    runner.run([stub], accounts, force=True)
+    assert _stored_flap(db) == ["hubspot"]
+
+    # Cycle 2 (next day): hubspot still absent -> re-churn suppressed.
+    clock["now"] = day1 + timedelta(days=1)
+    accounts = [AccountRegistry(db).get("acme.com") or accounts[0]]
+    runner.run([stub], accounts, force=True)
+
+    churn = db.query(
+        "SELECT observed_at, title FROM signals WHERE signal_type='tech_churn' AND title='hubspot'"
+    )
+    assert [r["observed_at"] for r in churn] == [day1.date().isoformat()]
+    assert _stored_flap(db) == []  # suppressed -> churned == {} clears the guard
+    removed = db.query("SELECT title FROM signals WHERE signal_type='tech_removed'")
+    assert [r["title"] for r in removed] == ["hubspot"]  # gone path unguarded
+    ctx.__exit__(None, None, None)

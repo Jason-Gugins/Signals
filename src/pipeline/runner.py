@@ -904,18 +904,57 @@ class CollectorRunner:
                     prev_rows = []
                 # Diff against the previous cycle's vendor set for this domain
                 # and persist any install/churn change signals before upserting.
+                # prior_flap (read BEFORE the diff, off the account object this
+                # cycle's registry provided) is the vendor set that churned in
+                # the IMMEDIATELY PRIOR diff, persisted in
+                # extra_data["tech_flap"] — the diff suppresses churn for those
+                # vendors so a flapping vendor cannot emit churn+install every
+                # cycle.
+                prior_flap = set(
+                    (getattr(account, "extra_data", None) or {}).get("tech_flap") or []
+                )
+                churned = None  # sentinel: diff failed -> no-evidence cycle
                 try:
                     previous = {r["vendor"] for r in prev_rows}
                     tech_changes = diff_technologies(
                         previous, {m.vendor for m in merged},
                         domain=account.domain, today=_iso(now)[:10],
+                        flap_guard=prior_flap,
                     )
                     change_cands = [cand for _, cand in tech_changes]
+                    churned = {
+                        cand.evidence_data.get("vendor")
+                        for t, cand in tech_changes
+                        if t == "tech_churn"
+                    }
                 except Exception:
                     logger.exception(
                         "techstack diff failed for {}", account.domain
                     )
                     change_cands = []
+                # Flap-guard persistence: store the prior-churn set via the
+                # task-meta registry — the _dns_delta MERGE pattern
+                # (registry.get -> dict(extra_data) -> set key -> upsert).
+                # REPLACE semantics: the guard covers only the immediately
+                # prior diff, so a churn-free cycle stores [] and un-guards;
+                # the != check skips the rewrite on quiet cycles. Its own
+                # fail-open try (not the diff's): a persistence error must
+                # neither block the harvest nor discard this cycle's already
+                # built change_cands, and a diff failure must not clear the
+                # guard (churned stays None -> no-evidence cycle keeps the
+                # last known guard, mirroring the challenge-cycle gate).
+                if churned is not None:
+                    try:
+                        if churned != prior_flap:
+                            base = self.registry.get(account.domain) or account
+                            extra = dict(getattr(base, "extra_data", None) or {})
+                            extra["tech_flap"] = sorted(churned)
+                            base.extra_data = extra
+                            self.registry.upsert(base)
+                    except Exception:
+                        logger.exception(
+                            "tech flap persistence failed for {}", account.domain
+                        )
                 if change_cands:
                     added = self._persist(account, adapter.key, change_cands, None)
                     stats.signals_new += added

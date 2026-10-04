@@ -40,9 +40,19 @@ Escalation rung (Task 3b, rung 1 triggered the stop condition):
   E1 headed-Patchright browser tier, E2 browser-cookie TLS replay,
   E3 DDG posture variants. Budgets: <=6 page loads, <=8 added HTTP requests.
   --lite-xcheck runs only the lite cross-check follow-up (no browser loads).
+
+Engines rung (bypass ladder Task 4, 2026-10-03 — Leg B, Bing/Brave/Mojeek):
+  .venv/Scripts/python.exe scripts/probe_xray_serp.py --engines
+  The five operator queries against the three plan-named alternative engines
+  via the chrome-TLS tier. Budget <=12 requests (priority order bing -> brave
+  -> mojeek; 2-consecutive-challenge abort per engine; a low budget drops the
+  remaining mojeek cells as SKIPPED). GO bar: >=5 organic results on >=3 of 5
+  queries with operators honored; one full organic body per GO engine is
+  saved to tmp/probe_xray_<engine>.html (Task 6 parser fixture).
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -701,12 +711,292 @@ def run_escalation() -> None:
           + sorted(p.name for p in TMP_DIR.glob("probe_xray_ddg_post.html")))
 
 
+# =============================================================================
+# ENGINES RUNG (bypass ladder Task 4, 2026-10-03) — Bing / Brave / Mojeek
+#   .venv/Scripts/python.exe scripts/probe_xray_serp.py --engines
+#
+# Leg B of the bypass ladder: the SAME five operator queries, keyless, against
+# the plan's three alternative engines through the chrome-TLS tier
+# (CurlCffiTransport above — the exact src/identity/ddg_ids.py:_default_fetcher
+# factory shape, Chrome/147 UA). Goal: beat ddg_lite's ~1 result/query
+# stochastic yield for BOTH the people-search shape (site:linkedin.com/in) and
+# the company-discovery shape.
+#
+# Budget discipline: <=12 external requests for the whole rung (3 engines x 5
+# queries would be 15) — engines run in priority order bing -> brave -> mojeek,
+# an engine is dropped after 2 consecutive hard challenges (CHALLENGE_WALL),
+# and when the budget runs low the remaining mojeek cells are recorded
+# SKIPPED. PACE_S (4 s) stays global; zero retries of hard blocks.
+#
+# Body-validated, never status-validated: each body is scanned for per-engine
+# captcha/challenge markers and counted for distinct external result URLs
+# (the escalation rung's >=3-anchors rule — block pages link only to their own
+# properties). Bing wraps organic anchors in /ck/a?...&u=a1<base64url> opaque
+# redirects, unwrapped here before host filtering, else every organic link
+# would count as bing.com and every site: fidelity check would fail. Selector
+# probe counts (b_algo / data-type="web" / class="ob") are printed per body as
+# corroboration — the actual saved bodies (tmp/) stay the selector source of
+# truth, per the probe brief.
+#
+# GO bar (plan Task 4): >=5 organic results on >=3 of 5 queries with operators
+# honored — for a site: query, EVERY result URL on the site: domain.
+# =============================================================================
+
+ENGINES_BUDGET = 12  # hard cap for the whole rung (would be 15 without it)
+
+ENGINE_ORDER = ("bing", "brave", "mojeek")
+ENGINE_ENDPOINTS = {
+    "bing": "https://www.bing.com/search?q={q}&count=20",
+    "brave": "https://search.brave.com/search?q={q}",
+    "mojeek": "https://www.mojeek.com/search?q={q}",
+}
+# Engine-owned hosts filtered OUT of the result-URL count (SERP chrome, ad and
+# related-search links). Substring matching, so "bing.com" covers all subdomains.
+ENGINE_OWN_HOSTS = {
+    "bing": ("bing.com", "msn.com", "microsoft.com", "live.com", "bing.net",
+             "msecnd.net", "microsofttranslator.com"),
+    "brave": ("brave.com",),
+    "mojeek": ("mojeek.com",),
+}
+# Per-engine hard challenge markers (first hit recorded; decisive only when
+# result_urls < 3 — a marker alongside a full result set is a caveat, per the
+# escalation rung's classifier correction).
+ENGINE_CHALLENGE_MARKERS = {
+    "bing": (
+        "captcha",
+        "unusual activity",
+        "unusual traffic",
+        "type the characters you see",
+        "verify you are human",
+    ),
+    "brave": (
+        "just a moment",
+        "cf-challenge",
+        "challenge-platform",
+        "attention required",
+        "captcha",
+        "are you a robot",
+    ),
+    "mojeek": (
+        "captcha",
+        "unusual traffic",
+        "access denied",
+        "too many requests",
+    ),
+}
+# Corroborating selector probes printed per body (selectors are derived from
+# the ACTUAL bodies; these counts say which selectors the real pages carry).
+ENGINE_SELECTOR_PROBES = {
+    "bing": ("b_algo", "b_results", "b_no", "b_pag", "/ck/a?"),
+    "brave": ('data-type="web"', "heading-serpresult", "snippet", "result-content"),
+    "mojeek": ('class="ob"', "results-standard", 'id="results"', "no-results"),
+}
+
+_ENG = {"http": 0, "per_host": {}}
+
+_BING_U_RE = re.compile(r"[?&]u=a1([A-Za-z0-9_\-+%]+)")
+_LINKEDIN_IN_RE = re.compile(r"linkedin\.com/in/[A-Za-z0-9_\-\.%]+", re.I)
+_SITE_OP_RE = re.compile(r"site:([A-Za-z0-9.\-]+)")
+
+
+def _unwrap_bing_href(href: str) -> str:
+    """Bing organic anchors point at /ck/a?...&u=a1<base64url(target)> —
+    unwrap the target URL so host filtering and site: fidelity checks see the
+    real result URL. Returns href unchanged when the shape is not recognized."""
+    if "/ck/a" not in href:
+        return href
+    m = _BING_U_RE.search(href.replace("&amp;", "&"))
+    if not m:
+        return href
+    s = m.group(1)
+    pad = "=" * (-len(s) % 4)
+    for decode in (
+        lambda t: base64.urlsafe_b64decode(t.replace("+", "-").replace("/", "_") + pad),
+        lambda t: base64.b64decode(t.replace("-", "+").replace("_", "/") + pad),
+    ):
+        try:
+            target = decode(s).decode("utf-8", "replace")
+        except Exception:
+            continue
+        if target.startswith("http"):
+            return target
+    return href
+
+
+def eng_result_urls(text: str, engine: str) -> list[str]:
+    """Distinct external result URLs in href= attrs: Bing /ck/a redirects are
+    unwrapped to their target first; engine-owned hosts are filtered out;
+    everything left is an organic result URL (probe-level count)."""
+    urls: set[str] = set()
+    for href in _HREF_RE.findall(text or ""):
+        if engine == "bing":
+            href = _unwrap_bing_href(href)
+        for m in _EXT_URL_RE.finditer(unquote(href)):
+            url = m.group(0).rstrip(".,;:")
+            hm = _HOST_RE.match(url)
+            if not hm:
+                continue
+            if any(h in hm.group(1).lower() for h in ENGINE_OWN_HOSTS[engine]):
+                continue
+            urls.add(url.lower())
+    return sorted(urls)
+
+
+def site_op_domain(query: str) -> str | None:
+    """The site: operator's domain for a query, or None (q3/q4 carry none)."""
+    m = _SITE_OP_RE.search(query)
+    return m.group(1).lower() if m else None
+
+
+def eng_classify(status: int, text: str, engine: str) -> tuple[str, str, list[str]]:
+    """Body-validated classification -> (class, evidence, result_urls).
+
+    House rule first: >=3 distinct external result URLs is organic WORKS
+    (block pages link only to their own properties, which ENGINE_OWN_HOSTS
+    filters), so a marker found alongside a full result set is only recorded
+    as a caveat. Then hard markers, then 4xx/5xx (e.g. a 403 block page),
+    then 1-2 results is a thin-but-genuine SERP, and 0 is a genuine
+    no-results shape (recorded, never retried)."""
+    low = (text or "")[:SCAN_WINDOW].casefold()
+    urls = eng_result_urls(text, engine)
+    marker = next((m for m in ENGINE_CHALLENGE_MARKERS[engine] if m in low), None)
+    if len(urls) >= 3:
+        cav = f" [marker {marker!r} also present]" if marker else ""
+        return "WORKS", f"result_urls={len(urls)}{cav}", urls
+    if marker:
+        return "CHALLENGE", f"marker={marker!r} result_urls={len(urls)}", urls
+    if status >= 400:
+        return "CHALLENGE", f"status={status} result_urls={len(urls)}", urls
+    if urls:
+        return "THIN", f"result_urls={len(urls)}", urls
+    return "DEAD", "result_urls=0 (no marker)", urls
+
+
+def run_engines() -> None:
+    """Ladder Task 4 rung: Bing -> Brave -> Mojeek, five operator queries each,
+    one global 12-request budget, 2-consecutive-challenge abort per engine."""
+    TMP_DIR.mkdir(exist_ok=True)
+    print("=== X-RAY SERP PROBE — ENGINE RUNG (bypass ladder Task 4, 2026-10-03) ===")
+    print(f"engines: {' -> '.join(ENGINE_ORDER)} | budget: {ENGINES_BUDGET} requests | "
+          f"PACE_S={PACE_S} | challenge wall: {CHALLENGE_WALL} consecutive")
+    try:
+        tr = CurlCffiTransport()
+    except Exception as exc:
+        print(f"curl_cffi chrome-TLS transport unavailable: {exc}")
+        return
+    print(f"transport: {tr.via}\n")
+
+    engines: dict[str, dict] = {}
+    for engine in ENGINE_ORDER:
+        rec = {"engine": engine, "cells": [], "aborted": False, "verdict": "—",
+               "saved": False, "saved_ch": False, "saved_dead": False}
+        engines[engine] = rec
+        streak = 0
+        for qi, query in enumerate(QUERIES, 1):
+            cell: dict = {"q": qi, "query": query, "status": None, "bytes": None,
+                          "klass": "SKIPPED", "evidence": "", "results": [],
+                          "linkedin_hits": 0, "linkedin_slugs": 0, "selectors": {}}
+            rec["cells"].append(cell)
+            if rec["aborted"]:
+                cell["evidence"] = "engine aborted: challenge wall"
+                continue
+            if _ENG["http"] >= ENGINES_BUDGET:
+                cell["evidence"] = "budget exhausted (cell SKIPPED)"
+                continue
+            url = ENGINE_ENDPOINTS[engine].format(q=quote_plus(query))
+            pace()
+            host = _host(url)
+            try:
+                status, body = tr.fetch(url)
+            except Exception as exc:
+                cell.update(klass="ERROR", evidence=str(exc)[:140])
+                streak = 0  # a network error is not a challenge
+                continue
+            _ENG["http"] += 1
+            _ENG["per_host"][host] = _ENG["per_host"].get(host, 0) + 1
+            text = (body or b"").decode("utf-8", "replace")
+            klass, ev, urls = eng_classify(int(status), text, engine)
+            dom = site_op_domain(query)
+            cell.update(
+                status=int(status), bytes=len(body or b""), klass=klass, evidence=ev,
+                results=urls, site_op=dom,
+                linkedin_hits=len(re.findall(r"linkedin\.com/in", text, re.I)),
+                linkedin_slugs=len({m.group(0).lower()
+                                    for m in _LINKEDIN_IN_RE.finditer(text)}),
+                selectors={s: text.count(s) for s in ENGINE_SELECTOR_PROBES[engine]},
+            )
+            if dom and urls:
+                hosts = [_HOST_RE.match(u).group(1) for u in urls]
+                on_site = sum(1 for h in hosts if dom in h)
+                cell["op_share"] = f"{on_site}/{len(hosts)}"
+                cell["op_honored"] = on_site == len(hosts)
+            # samples: first body per shape (tmp/ evidence, never committed;
+            # the organic one becomes the Task 6 parser fixture for a GO engine)
+            if klass in ("WORKS", "THIN") and len(urls) >= 3 and not rec["saved"]:
+                (TMP_DIR / f"probe_xray_{engine}.html").write_bytes(body)
+                rec["saved"] = True
+            if klass == "CHALLENGE" and not rec["saved_ch"]:
+                (TMP_DIR / f"probe_xray_{engine}_challenge.html").write_bytes(body)
+                rec["saved_ch"] = True
+            if klass == "DEAD" and not rec["saved_dead"]:
+                (TMP_DIR / f"probe_xray_{engine}_noresults.html").write_bytes(body)
+                rec["saved_dead"] = True
+            if klass == "CHALLENGE":
+                streak += 1
+                if streak >= CHALLENGE_WALL:
+                    rec["aborted"] = True
+            else:
+                streak = 0
+
+    # --- verdict matrix -------------------------------------------------------
+    print("\n=== ENGINE RUNG VERDICT MATRIX (body-validated) ===")
+    for engine in ENGINE_ORDER:
+        rec = engines[engine]
+        print(f"\n[{engine}] {ENGINE_ENDPOINTS[engine]}")
+        for c in rec["cells"]:
+            if c["status"] is None:
+                print(f"  q{c['q']}: {c['klass']:9} {c['evidence']}")
+                continue
+            sel = " ".join(f"{k}={v}" for k, v in c["selectors"].items() if v)
+            op = (f" site:{c['site_op']} honored={c.get('op_honored')} "
+                  f"share={c.get('op_share')}") if c.get("site_op") else ""
+            print(f"  q{c['q']}: status={c['status']:<4} bytes={c['bytes']:<7} "
+                  f"{c['klass']:9} {c['evidence']} | linkedin hits={c['linkedin_hits']} "
+                  f"slugs={c['linkedin_slugs']}{op} | selectors: {sel}")
+            for u in c["results"][:3]:
+                print(f"        {u}")
+            if len(c["results"]) > 3:
+                print(f"        ... +{len(c['results']) - 3} more")
+
+    print("\n=== GO/NO-GO vs the plan bar (>=5 organic on >=3 of 5 queries, "
+          "operators honored) ===")
+    for engine in ENGINE_ORDER:
+        rec = engines[engine]
+        qualifying = [c["q"] for c in rec["cells"]
+                      if c["klass"] in ("WORKS", "THIN") and len(c["results"]) >= 5
+                      and (not c.get("site_op") or c.get("op_honored"))]
+        verdict = "GO" if len(qualifying) >= 3 else "NO-GO"
+        rec["verdict"] = verdict
+        state = " (aborted: challenge wall)" if rec["aborted"] else ""
+        print(f"  {engine:7} {verdict:6} qualifying queries: "
+              f"{qualifying if qualifying else 'none'}{state}")
+    print(f"\nTOTAL requests: {_ENG['http']} (rung budget {ENGINES_BUDGET})")
+    print("per-host counts:")
+    for h, n in sorted(_ENG["per_host"].items()):
+        print(f"  {h}: {n}")
+    print("samples:", sorted(p.name for p in TMP_DIR.glob("probe_xray_bing*.html"))
+          + sorted(p.name for p in TMP_DIR.glob("probe_xray_brave*.html"))
+          + sorted(p.name for p in TMP_DIR.glob("probe_xray_mojeek*.html")))
+
+
 if __name__ == "__main__":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    if "--escalation" in sys.argv[1:]:
+    if "--engines" in sys.argv[1:]:
+        run_engines()
+    elif "--escalation" in sys.argv[1:]:
         run_escalation()
     elif "--lite-xcheck" in sys.argv[1:]:
         idx = sys.argv.index("--lite-xcheck")

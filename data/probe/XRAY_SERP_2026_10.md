@@ -278,3 +278,72 @@ The **pipeline itself is proven**: script runs solve → poll/classify → harve
 | www.google.com | 6 of 8 (Q1 429; Q2a/b 200 shells; Q2c 429; fresh-jar replay 429; 19:39 re-verify 429) | 1 of 3 (headed solve — captcha served) |
 
 Artifacts (tmp/, gitignored, not committed): `probe_xray_google_replay_q1.html` (429 captcha), `_ua_firefox60.html` / `_ua_iphone.html` (shells), `_cookies_gbv1.html` (429), `_refresh_solve.html` (browser captcha interstitial), `_replay_fresh.html` (429), plus `data/xray/google_cookies.json` (fresh jar, gitignored). **`tmp/probe_xray_google_replay2.html` was NOT created** — the mission's save instruction was conditional on a result-bearing replay body, and no such body came from this task's cells today.
+
+## Bing/Brave/Mojeek engine probe (ladder Task 4, 2026-10-03)
+
+Leg B of the bypass ladder: the SAME five operator queries, keyless, against the plan's three alternative engines — looking for anything that beats ddg_lite's ~1 result/query stochastic yield. Script: `scripts/probe_xray_serp.py --engines` (new rung). Transport: curl_cffi chrome-TLS, Chrome/147 UA (`CurlCffiTransport` — the exact `src/identity/ddg_ids.py:_default_fetcher` factory shape). Endpoints exactly per plan: Bing `https://www.bing.com/search?q=…&count=20`, Brave `https://search.brave.com/search?q=…`, Mojeek `https://www.mojeek.com/search?q=…`. Budget: **≤12 requests** for the rung (3 engines × 5 queries would be 15) — priority order bing → brave → mojeek, 2-consecutive-challenge abort per engine, low budget drops the remaining mojeek cells as SKIPPED; PACE_S=4.0 s global; zero retries of hard blocks. Every body classified from markers/anchors/URL-host sets, never status alone. **Spent 9 of 12 requests; wall-clock ≈ 40 s.**
+
+### Verdict matrix (engine × query; body-validated)
+
+Class key: WORKS = ≥3 distinct external result URLs (house rule); THIN = 1–2; CHALLENGE = hard markers or 4xx/5xx with <3 results; DEAD = genuine no-results shape. "li hits / slugs" = case-insensitive `linkedin.com/in` occurrences in the body / distinct `linkedin.com/in/<slug>` paths (slugs exclude the query echo; a people-search viable page needs slugs ≫ 0).
+
+| Engine | Q | Query shape | Status | Bytes | Class | Result URLs | li hits / slugs | Operator fidelity |
+|---|---|---|---|---|---|---|---|---|
+| bing | q1 | `site:linkedin.com/in "head of growth" "Austin"` | 200 | 124,546 | WORKS-shape | 10 | 6 / **0** | **site: IGNORED** — 0/10 results on linkedin.com |
+| bing | q2 | `site:linkedin.com/in "we only hire senior"` | 200 | 127,022 | WORKS-shape | 10 | 6 / **0** | **site: IGNORED** — 0/10 |
+| bing | q3 | `"we're hiring" "head of sales"` | 200 | 121,618 | WORKS-shape | 10 | 0 / 0 | **quotes IGNORED** — dictionary word-lookups for "we" |
+| bing | q4 | `"recently funded" "compliance software"` | 200 | 128,591 | WORKS-shape | 10 | 0 / 0 | **quotes IGNORED** — word-lookups for "recently" |
+| bing | q5 | `intitle:"head of growth" site:linkedin.com/in` | 200 | 126,445 | WORKS-shape | 10 | 6 / **0** | **site:+intitle: IGNORED** — 0/10 |
+| brave | q1 | site:linkedin.com/in … | **429** | 73,820 | **CHALLENGE** | 1 (challenge-page help link) | 0 / 0 | never served results |
+| brave | q2 | site:linkedin.com/in … | **429** | 73,820 | **CHALLENGE** | 1 | 0 / 0 | never served results |
+| brave | q3–q5 | — | — | — | SKIPPED | — | — | engine aborted: 2 consecutive hard challenges |
+| mojeek | q1 | site:linkedin.com/in … | **403** | 387 | **CHALLENGE** | 0 | 1 / 0 (query echo in contact link) | never served results |
+| mojeek | q2 | site:linkedin.com/in … | **403** | 373 | **CHALLENGE** | 0 | 1 / 0 (query echo) | never served results |
+| mojeek | q3–q5 | — | — | — | SKIPPED | — | — | engine aborted: 2 consecutive hard blocks |
+
+Selectors derived from the actual bodies (probe brief: derive from bodies, print what you find): Bing q1 body carries `b_algo=10, b_results=6, b_pag=7, /ck/a?=29` — 10 organic nodes, all `https://www.bing.com/ck/a?…&u=a1<base64url>` opaque redirects, all unwrapped to real targets before host filtering (`b_no=1` was a FALSE positive — the substring lives in Bing's `BM.rules` inline JS, not a no-results element; there is no `b_no` DOM node). Brave body: `snippet=2`, one external URL (`tb-manual.torproject.org`, from its Tor help paragraph). Mojeek body: bare 387 B error page, zero selectors.
+
+### What each body actually was
+
+1. **Bing serves SERPs — but silently drops every operator.** All five queries returned HTTP 200 with a full 10-`b_algo` result page (~121–128 KB). The `<title>` echoes the full operator query, and the 6 `linkedin.com/in` hits per site:-query body are exactly that echo (title + search box) — **zero `linkedin.com/in/<slug>` result paths in any of the five 120 KB+ bodies**. The unwrapped result URLs are word-lookup pages for the first quoted word: q1 → `dictionary.cambridge.org/dictionary/english/head`, `en.m.wikipedia.org/wiki/head`, `head.com`, merriam-webster, teachmeanatomy; q2 → word lookups for "we" + `web.whatsapp.com`; q4 → "recently" dictionary pages. So Bing ignored `site:`, the quoted phrases, AND `intitle:`, treating each operator query as a bare word lookup. Mechanically the rung's script counted bing q3/q4 as "qualifying" (≥5 results, no `site:` to check — the script's fidelity check covers the `site:` operator only, per the brief), but eyeball verification of the actual URLs **supersedes that: quoted-phrase fidelity failed too** (a `"we're hiring" "head of sales"` answer cannot be a Cambridge Dictionary entry for "we"). Honest verdict: **operators not honored on any of the five queries.** Whether this is session-level operator-mangling (Bing's known behavior for some keyless/region postures) or a zero-results fallback is not distinguishable from these bodies — there is no "no results" element and no "Including results for" text — and distinguishing it would cost requests the budget doesn't spare. Either way the yield for OUR method is the same: **0 operator-honoring results per query.**
+2. **Brave: hard captcha wall, served instantly.** Both requests → **429**, identical 73,820 B body, title "Brave Search": *"Your request has been flagged as being suspicious and Brave Search decided to schedule a captcha for you."* (plus JS-required and Tor/vpn help text — the page expects a JS-captcha solve a keyless TLS client can never deliver). 2 consecutive → abort per discipline; q3–q5 recorded SKIPPED.
+3. **Mojeek: hard network-level block, served instantly.** Both requests → **403**, 373–387 B: *"Sorry your network appears to be sending automated queries so we can't process your search at this time."* — an IP-reputation block, query-independent, no captcha offered. 2 consecutive → abort; q3–q5 recorded SKIPPED.
+
+### Operator-fidelity assessment
+
+- **Bing: FAILED on every operator class.** `site:linkedin.com/in` → 0/10 results on linkedin.com (fidelity 0/10 on q1, q2, q5); quoted-phrase pairs → dictionary word-lookups (q3, q4); `intitle:` → same word-lookup shape (q5). A site:-ignoring engine is worthless for the people-search shape, and the company-discovery shape (q3/q4) fared no better — the plan's exact warning ("a `site:linkedin.com/in` that ignores `site:` is worthless") applies to Bing from this IP/posture.
+- **Brave / Mojeek: unmeasurable** — no result page was ever served (challenge/block on 2/2 attempts each).
+
+### GO/NO-GO vs the plan bar (≥5 organic results on ≥3 of 5 queries, operators honored)
+
+| Engine | Verdict | Basis |
+|---|---|---|
+| **Bing** | **NO-GO** | 10 results on 5/5 queries but operators ignored on 5/5 (0 operator-honoring results) — the bar requires operators honored |
+| **Brave** | **CHALLENGE** (→ NO-GO) | 429 captcha-scheduled wall on 2/2 attempts, aborted after 2 consecutive |
+| **Mojeek** | **CHALLENGE** (→ NO-GO) | 403 automated-queries IP block on 2/2 attempts, aborted after 2 consecutive |
+
+**No engine passes Leg B.** None of the three beats ddg_lite's ~1 result/query yield — Bing yields 0 usable results per operator query (results exist but answer a different, de-operatored query), Brave and Mojeek yield nothing keyless from this IP.
+
+### Default-engine recommendation for Task 6
+
+**No change: `ddg_lite` stays the default engine.** Leg B produced no wiring candidate — per the plan's decision matrix ("Task 4 any engine GO → wire as `--engine`"), nothing qualifies. The honest comparison for Task 6: ddg_lite ~1 operator-honoring result/query (stochastic 202/403 gate) **beats** bing 0 operator-honoring results/query (consistent, but consistently wrong query), brave 0 queries served (captcha wall), mojeek 0 queries served (IP block). The people-search shape keeps riding ddg_lite + the companion LinkedIn scraper; the company-discovery shape keeps riding ddg_lite + Bing News RSS (already proven in CompetitorNewsPass). If Jason later wants a Bing parse path, it must be for **plain** queries only — Bing's keyless SERP surface is friendly (200, server-rendered, trivially parseable `b_algo` + `u=a1<base64url>` redirect unwrapping) and merely useless for operator syntax.
+
+### New markers for the engine detection list (Task 6, if ever)
+
+| Marker | Engine | Body evidence |
+|---|---|---|
+| 429 + "schedule a captcha for you" (title "Brave Search") | Brave | 73,820 B JS-captcha scheduling page, 2/2 attempts (`tmp/probe_xray_brave_challenge.html`) |
+| 403 + "network appears to be sending automated queries" | Mojeek | 373–387 B bare error page, 2/2 attempts (`tmp/probe_xray_mojeek_challenge.html`) |
+| 200 + `b_algo` results that are word-lookups while the query carries site:/quoted/intitle: operators | Bing | operator-mangled SERP shape — never parse as operator-query results (`tmp/probe_xray_bing.html`) |
+
+### Request-budget disclosure (this section)
+
+| Host | Requests | Notes |
+|---|---|---|
+| www.bing.com | 5 (q1–q5) | all 200; all operator-mangled |
+| search.brave.com | 2 (q1–q2) | 429 captcha ×2 → challenge-abort |
+| www.mojeek.com | 2 (q1–q2) | 403 block ×2 → challenge-abort |
+
+Total: **9 of 12** (rung budget; the 3 unspent requests were the mojeek q3–q5 cells dropped after its 2-consecutive-block abort — budget headroom was moot). Every consecutive request ≥4 s apart (global PACE_S); zero hard-block retries; every cell classified from the body, never the status.
+
+Artifacts (tmp/, gitignored, NOT committed): `probe_xray_bing.html` (q1 operator-mangled 10-result SERP — negative fixture for any future bing parser, NOT an organic fixture), `probe_xray_brave_challenge.html`, `probe_xray_mojeek_challenge.html`. **No GO engine exists, so no Task 6 parser fixture body was required or captured** — the plan's "one full organic body per GO engine" stays unfulfilled for Leg B.

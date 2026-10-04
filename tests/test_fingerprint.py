@@ -108,6 +108,35 @@ def test_upsert_and_disappear(tmp_path):
     assert "hubspot" in gone
 
 
+def test_host_rows_pruned_after_six_missing_runs(tmp_path):
+    # Task 9 pin: host: inventory rows absent for 6 consecutive runs are
+    # pruned (deleted) by upsert_technologies — they are observed-host noise,
+    # not removal signals, so they never enter `gone`. Named rows are NEVER
+    # deleted: they keep feeding the gone-list (tech_removed path) forever.
+    db = Database(tmp_path / "s.db")
+    h = TechMatch("host:cdn.old-vendor.io", "cdn.old-vendor.io", ["observed"], "unknown", "network_host", 0.4)
+    n = TechMatch("hubspot", "HubSpot", ["crm"], "mid", "script_src", 0.8)
+    upsert_technologies(db, "acme.com", [h, n], now="2026-08-01")
+    # 5 misses: both rows still present, missing_runs == 5
+    for i in range(5):
+        upsert_technologies(db, "acme.com", [], now=f"2026-09-0{i + 1}")
+    rows = {
+        r["vendor"]: r["missing_runs"]
+        for r in db.query("SELECT vendor, missing_runs FROM technologies WHERE domain=?", ("acme.com",))
+    }
+    assert rows == {"host:cdn.old-vendor.io": 5, "hubspot": 5}
+    # 6th miss: host: row DELETED (pruned silently, not in gone), named row kept
+    new, gone = upsert_technologies(db, "acme.com", [], now="2026-09-06")
+    rows = {r["vendor"] for r in db.query("SELECT vendor FROM technologies WHERE domain=?", ("acme.com",))}
+    assert rows == {"hubspot"}
+    assert gone == ["hubspot"]  # named removal still signals (tech_removed path)
+    # Negative pin: a named row driven past 6 misses is never deleted
+    for i in range(7, 10):
+        upsert_technologies(db, "acme.com", [], now=f"2026-09-{i:02d}")
+    rows = {r["vendor"] for r in db.query("SELECT vendor FROM technologies WHERE domain=?", ("acme.com",))}
+    assert rows == {"hubspot"}
+
+
 def test_high_ticket_once_per_year():
     rows = [{"vendor": "salesforce", "tier": "enterprise", "first_seen_at": "2026-01-01"}]
     c1 = tech_to_candidates("acme.com", ["salesforce"], [], rows, RULES, [], today=date(2026, 8, 16))

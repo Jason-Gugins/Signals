@@ -44,6 +44,13 @@ def upsert_technologies(db: Database, domain: str, matches: list[TechMatch], *, 
         if r["vendor"] in seen:
             continue
         miss = int(r["missing_runs"] or 0) + 1
+        if miss >= 6 and str(r["vendor"]).startswith("host:"):
+            # host: rows are observed-host inventory, not a removal signal:
+            # after 6 consecutive missing runs, prune the row outright and
+            # never let it enter the gone-list. Named rows are never deleted
+            # here — they keep feeding tech_removed.
+            db.execute("DELETE FROM technologies WHERE domain=? AND vendor=?", (domain, r["vendor"]))
+            continue
         db.execute(
             "UPDATE technologies SET missing_runs=? WHERE domain=? AND vendor=?",
             (miss, domain, r["vendor"]),

@@ -122,9 +122,9 @@ non-default backoff). Env overrides: `CLOUDFLARE_SOLVER_API_KEY`, `CLOUDFLARE_SO
 
 ## Vendors in YAML now
 
-HubSpot, Salesforce, Marketo, Google Workspace, Microsoft 365, Zendesk, Intercom, Segment, Snowflake, Workday, Statuspage, Webflow, GTM, Google Analytics, Meta Pixel, CookieYes, Vector, OneTrust, Bing UET, Vimeo, Cloudflare.
+HubSpot, Salesforce, Marketo, Google Workspace, Microsoft 365, Zendesk, Intercom, Segment, Snowflake, Workday, Statuspage, Instatus, Better Stack, incident.io, Webflow, GTM, Google Analytics, Meta Pixel, CookieYes, Vector, OneTrust, Bing UET, Vimeo, Cloudflare.
 
-Needles for Webflow / HubSpot / GTM / GA / Meta / CookieYes / Vector were frozen from `scanner.dev`. OneTrust / Bing / Vimeo from the 2026-08-23 levitate.ai and darktrace.com HARs. See [`tests/fixtures/techstack/NETWORK.md`](../../../tests/fixtures/techstack/NETWORK.md) and [`PROBE_2026-08-23.md`](../../../tests/fixtures/techstack/PROBE_2026-08-23.md).
+Needles for Webflow / HubSpot / GTM / GA / Meta / CookieYes / Vector were frozen from `scanner.dev`. OneTrust / Bing / Vimeo from the 2026-08-23 levitate.ai and darktrace.com HARs. Instatus / Better Stack / incident.io and the `stspg-customer.com` needle on the Statuspage row were frozen from live DNS probes on 2026-10-03 (customer status CNAMEs: `status.basedash.com` → `cname.instatus.com`; `status.raycast.com` → `statuspage.betteruptime.com`; `status.plex.tv` → `statuspage.incident.io`; `status.render.com` → `<hash>.stspg-customer.com`). See [`tests/fixtures/techstack/NETWORK.md`](../../../tests/fixtures/techstack/NETWORK.md) and [`PROBE_2026-08-23.md`](../../../tests/fixtures/techstack/PROBE_2026-08-23.md).
 
 ## Signals
 
@@ -149,6 +149,12 @@ status is not `resolved`/`postmortem` (natural key
 `outage:{domain}:{incident_id}` — idempotent across cycles). The poller
 starts on the techstack collect AFTER the first DNS evidence lands (one-cycle
 delay by design); domains without a Statuspage CNAME get no extra fetch.
+
+The other named status-page vendors (Instatus, Better Stack, incident.io —
+plus Statuspage custom domains CNAMEing to `*.stspg-customer.com`) are
+detected for technology naming only; outage polling remains
+statuspage.io-only because `statuspage_target` accepts nothing whose CNAME
+target does not end in `statuspage.io` (probe-gated follow-up, plan Task 10).
 
 ### Change detection (`diff_technologies`)
 

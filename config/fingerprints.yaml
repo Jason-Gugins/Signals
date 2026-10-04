@@ -43,8 +43,33 @@ vendors:
   # window is estimated from first_seen + 3 years (renewal_window wiring).
   workday: { display: "Workday", category: [hris], tier: enterprise, contract_years: 3,
              match: { dns_cname: ["myworkdayjobs.com"], script_src: ["myworkday.com"] } }
+  # Status-page vendor rows (Task 6, never-guess: live DNS probes 2026-10-03).
+  # Confirmed hosted-status CNAME targets:
+  #   instatus:     status.basedash.com -> cname.instatus.com (Instatus custom-
+  #                 domain docs name cname.instatus.com as the CNAME target);
+  #                 Instatus-hosted pages also live at *.instatus.com.
+  #   better_stack: status.raycast.com / status.trigger.dev / status.hookdeck.com
+  #                 -> statuspage.betteruptime.com (Better Stack docs: CNAME to
+  #                 status.betteruptime.com).
+  #   incident_io:  status.plex.tv / status.clickhouse.com / status.dub.co /
+  #                 status.mintlify.com / status.clerk.com / status.unkey.com
+  #                 -> statuspage.incident.io.
+  # Skipped (NOT confirmed): status.io (per-page unique numeric targets),
+  # Freshstatus (no confirmed customer target), StatusCake (own page runs on
+  # Atlassian infra), hostedstatus.com (vendor not attributable).
+  # Outage polling remains statuspage.io-only (statuspage_target gate).
+  instatus: { display: "Instatus", category: [status], tier: low,
+             match: { dns_cname: ["instatus.com"] } }
+  better_stack: { display: "Better Stack", category: [status], tier: low,
+             match: { dns_cname: ["betteruptime.com"] } }
+  incident_io: { display: "incident.io", category: [status], tier: low,
+             match: { dns_cname: ["incident.io"] } }
   statuspage: { display: "Atlassian Statuspage", category: [status], tier: mid,
-             match: { dns_cname: ["statuspage.io"] } }
+             match: { dns_cname: ["statuspage.io", "stspg-customer.com"] } }
+  # stspg-customer.com is Atlassian Statuspage's custom-domain CNAME target
+  # (probes 2026-10-03: status.render.com, status.supabase.com,
+  # status.sentry.io, www.githubstatus.com, status.cursor.com,
+  # status.1password.com, status.warp.dev -> <hash>.stspg-customer.com).
   webflow:
     display: Webflow
     category: [cms]

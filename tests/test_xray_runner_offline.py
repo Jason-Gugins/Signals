@@ -4,14 +4,21 @@ the Database and JSONL ledger are real (tmp_path). Per Task 7 as re-scoped by
 the dispatch: ddg_lite-only attempt loop (body-validated, never status-validated),
 never-guess persistence (identity_candidates keyed by the query, contacts only on
 exact cohort match, unmatched profiles ledger-only), one ledger row per query.
+Extended by the Google bypass ladder Task 6: run_xray(engine=...) threads the
+engine through encode_query/parse/ledger; engine="google_state" parses W_jd
+"2003" records and is validated against SUPPORTED_ENGINES.
 
 Company-path bodies are small synthetic organic lite bodies (same markup shape as
 tests/test_xray_serp_parse.py SYNTHETIC) because the real fixture
-(tests/fixtures/xray/ddg_lite_serp.html) yields only LinkedIn profile URLs.
+(tests/fixtures/xray/ddg_lite_serp.html) yields only LinkedIn profile URLs;
+google_state bodies are synthetic "2003" record shapes, plus one run over the
+real google_state fixture (LinkedIn profile records -> people path).
 """
 import json
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus
+
+import pytest
 
 from src.core.db import Database, IdentityCandidateStore
 from src.core.textutil import guess_seniority, stable_id
@@ -112,6 +119,7 @@ def _run(
     attempt_pause_s=PAUSE,
     max_attempts=2,
     max_queries=None,
+    engine="ddg_lite",
 ):
     db = Database(tmp_path / "s.db")
     for acct in accounts:
@@ -132,6 +140,7 @@ def _run(
         attempt_pause_s=attempt_pause_s,
         max_attempts=max_attempts,
         max_queries=max_queries,
+        engine=engine,
     )
     return report, db, load_events(ledger_path), urls, sleeps
 
@@ -415,3 +424,89 @@ def test_persistence_failure_still_ledgers(tmp_path):
     assert "database is locked" in ev["persist_error"]
     assert report["errors"] == [{"query": Q_A, "reason": "persistence: database is locked"}]
     assert report["company_candidates"] == 0
+
+
+# --- 12. google_state engine (bypass ladder Task 6) -------------------------
+
+def _google_state_body(*hits: tuple[str, str]) -> str:
+    """Synthetic organic google_state body: one "2003" record per (url, title).
+
+    Same window.W_jd assignment shape as the real capture (and the fixture):
+    [null,"<tok>","<url>","<title>",...] records inside the merged state blob.
+    """
+    recs = ", ".join(
+        f'"k{i}":{{"2003":[null,"tok{i}","{url}","{title}",null,0]}}'
+        for i, (url, title) in enumerate(hits, 1)
+    )
+    return (
+        "<html><head><title>query - Google Search</title></head><body>"
+        "<script>(function(){var m={" + recs + "};var a=m;"
+        "if(window.W_jd)for(var b in a)window.W_jd[b]=a[b];"
+        "else window.W_jd=a;})();</script></body></html>"
+    )
+
+
+GS_COMPANY = _google_state_body(
+    ("https://newco.com/about", "Newco - About Us"),
+    ("https://blog.otherco.io/series-a", "OtherCo raised a Series A"),
+)
+
+
+def test_google_state_engine_company_path(tmp_path):
+    report, db, events, urls, _sleeps = _run(
+        tmp_path, [SPEC_A], [(200, GS_COMPANY)], engine="google_state"
+    )
+
+    # google_state URL shape from encode_query (no num/filter params)
+    assert len(urls) == 1
+    assert urls[0] == f"https://www.google.com/search?q={quote_plus(Q_A)}&hl=en"
+
+    rows = IdentityCandidateStore(db).pending_candidates("domain")
+    assert len(rows) == 1
+    candidates = json.loads(rows[0]["candidates_json"])
+    assert [c["domain"] for c in candidates] == ["newco.com", "blog.otherco.io"]
+    assert candidates[0]["snippet"] == ""  # W_jd records carry no snippet
+    assert candidates[0]["title"] == "Newco - About Us"
+
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["engine"] == "google_state"  # the ledger carries the engine
+    assert ev["status"] == "ok"
+    assert ev["results"] == 2
+    assert ev["company_hits"] == 2
+
+    assert report["ok"] == 1
+    assert report["company_candidates"] == 1
+
+
+def test_google_state_engine_real_fixture_people_path(tmp_path):
+    # The real minimized capture fixture flows end-to-end: 12 LinkedIn
+    # profile records -> profile hits (ledger-only, cohort-unmatched).
+    body = (FIX / "google_state_serp.html").read_text(encoding="utf-8")
+    report, db, events, urls, _sleeps = _run(
+        tmp_path, [SPEC_PEOPLE], [(200, body)], engine="google_state", accounts=[ACME]
+    )
+
+    assert urls == [
+        "https://www.google.com/search?q="
+        + quote_plus('site:linkedin.com/in "head of growth"')
+        + "&hl=en"
+    ]
+    contacts = db.query("SELECT * FROM contacts")  # no cohort match: ledger-only
+    assert contacts == []
+
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["engine"] == "google_state"
+    assert ev["status"] == "ok"
+    assert ev["results"] == 12
+    assert ev["profile_hits"] == 12
+    assert ev["profiles_unmatched"] == 12
+    assert report["ok"] == 1
+
+
+def test_runner_rejects_unknown_engine(tmp_path):
+    # bing/brave/mojeek probed NO-GO (data/probe/XRAY_SERP_2026_10.md) —
+    # validated up front, before any fetch.
+    with pytest.raises(ValueError):
+        _run(tmp_path, [SPEC_A], [(200, GS_COMPANY)], engine="bing")

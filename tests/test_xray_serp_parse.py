@@ -2,9 +2,12 @@
 """X-ray SERP parser: challenge detection, DDG-lite anchor extraction, unwrap.
 
 Fixture-backed (real probe bodies, hand-minimized) per Task 4 as re-scoped by
-the Task 3/3b probe verdict: google is NO-GO on every transport, so only
-engine="ddg_lite" is parsed — the google JS-gate marker stays in the
-detection list so a future engine swap inherits honest classification.
+the Task 3/3b probe verdict, extended by the Google bypass ladder Task 6
+(dispatch verdicts in data/probe/XRAY_SERP_2026_10.md): engine="google_state"
+parses the ``window.W_jd`` embedded "2003" url+title records — the headed
+browser / cookie-replay captures carry a full organic result set as state
+while every href is an opaque relative /goto?url= blob, so anchors are
+useless there. ddg_lite parsing is unchanged.
 """
 from pathlib import Path
 
@@ -175,3 +178,124 @@ def test_synthetic_snippet_pairs_with_preceding_anchor():
     results = parse_results(SYNTHETIC, engine="ddg_lite")
     by_url = {r["url"]: r for r in results}
     assert by_url["https://example.com/a"]["snippet"] == "snippet for a"
+
+
+# --- google_state engine (bypass ladder Task 6) ---------------------------
+#
+# Fixture = tests/fixtures/xray/google_state_serp.html, hand-minimized from
+# tmp/probe_xray_google_browser.html (751KB headed capture): 12 real
+# "2003" records + one verbatim duplicate + one synthetic google-internal
+# record + the standard enablejs noscript block placed beyond the 20k
+# challenge-front-load window exactly as on the real body (there: ~141k).
+
+GS_FIXTURE = "google_state_serp.html"
+
+# the fixture carries 12 unique real records; the duplicate collapses and the
+# google-internal record drops, so exactly these 12 survive
+GS_EXPECTED_FIRST = "https://www.linkedin.com/in/tylerdurman"
+GS_EXPECTED_LAST = "https://www.linkedin.com/in/matthewswan15"
+
+
+def test_parse_google_state_fixture():
+    body = _load(GS_FIXTURE)
+    results = parse_results(body, engine="google_state")
+    assert len(results) >= 6, "fixture must parse to >=6 organic results"
+    urls = [r["url"] for r in results]
+    assert len(urls) == len(set(urls)), "results must be deduped by URL"
+    for r in results:
+        assert r["url"].lower().startswith(("http://", "https://"))
+        assert set(r) == {"url", "title", "snippet"}
+        assert r["title"].strip()
+    assert sum("linkedin.com/in" in u for u in urls) >= 2
+
+
+def test_google_state_fixture_record_count_and_order():
+    # 12 real records: duplicate collapsed, google-internal dropped, real
+    # document order preserved (fixture built from the capture verbatim).
+    results = parse_results(_load(GS_FIXTURE), engine="google_state")
+    urls = [r["url"] for r in results]
+    assert len(urls) == 12
+    assert urls[0] == GS_EXPECTED_FIRST
+    assert urls[-1] == GS_EXPECTED_LAST
+    assert "https://www.linkedin.com/in/austinheaton" in urls
+
+
+def test_google_state_drops_google_internal_urls():
+    results = parse_results(_load(GS_FIXTURE), engine="google_state")
+    assert not any("google.com" in r["url"] for r in results)
+
+
+def test_google_state_snippet_always_empty():
+    # Documented limitation: W_jd records carry url+title only — there is no
+    # snippet in the embedded state. hits.py works on titles/URLs.
+    results = parse_results(_load(GS_FIXTURE), engine="google_state")
+    assert all(r["snippet"] == "" for r in results)
+
+
+def test_google_state_clean_body_without_wjd_raises():
+    # The 93KB cookie-less shell family: a clean body with NO W_jd state at
+    # all must NEVER parse as zero results (silent empties poison the ledger).
+    body = "<html><head><title>Google Search</title></head><body>hello</body></html>"
+    with pytest.raises(ParseError) as excinfo:
+        parse_results(body, engine="google_state")
+    assert "no result records parsed from body" in str(excinfo.value)
+
+
+def test_google_state_wjd_without_records_raises():
+    body = (
+        "<html><script>var a={};if(window.W_jd)for(var b in a)"
+        "window.W_jd[b]=a[b];else window.W_jd=a;</script></html>"
+    )
+    with pytest.raises(ParseError) as excinfo:
+        parse_results(body, engine="google_state")
+    assert "no result records parsed from body" in str(excinfo.value)
+
+
+def test_google_state_captcha_body_raises_with_marker():
+    # The live 429 shape (tmp/probe_xray_google_replay_q1.html, ladder Tasks
+    # 2+3): unusual-traffic captcha interstitial — must surface as an explicit
+    # challenge, never parse as results.
+    body = (
+        "<html><head><title>https://www.google.com/search?q=x&amp;hl=en</title></head>"
+        '<body><div id="recaptcha" class="g-recaptcha" data-sitekey="6Lfw"></div>'
+        "Our systems have detected unusual traffic from your computer network."
+        "</body></html>"
+    )
+    with pytest.raises(ParseError) as excinfo:
+        parse_results(body, engine="google_state")
+    assert "challenge page served" in str(excinfo.value)
+    assert "captcha" in str(excinfo.value)
+
+
+def test_google_state_js_escapes_decoded():
+    # Google escapes =, &, ' as \\u003d \\u0026 \\u0027 inside the state
+    # strings; the parser must decode them (analyze_google_shell.py approach).
+    body = (
+        '<html><script>var a={"k":{"2003":[null,"tok",'
+        '"https://example.com/page?x\\u003d1\\u0026y\\u003d2",'
+        '"Caf\\u00e9 corner"]}};'
+        "if(window.W_jd)for(var b in a)window.W_jd[b]=a[b];</script></html>"
+    )
+    results = parse_results(body, engine="google_state")
+    assert results == [
+        {"url": "https://example.com/page?x=1&y=2", "title": "Café corner", "snippet": ""}
+    ]
+
+
+def test_google_state_non_http_and_relative_urls_dropped():
+    body = (
+        "<html><script>var a={"
+        '"a":{"2003":[null,"t1","/search?q=cache:x","Relative"]},'
+        '"b":{"2003":[null,"t2","javascript:void(0)","JS href"]},'
+        '"c":{"2003":[null,"t3","https://ok.example.com/page","Real"]}};'
+        "if(window.W_jd)for(var b in a)window.W_jd[b]=a[b];</script></html>"
+    )
+    results = parse_results(body, engine="google_state")
+    assert [r["url"] for r in results] == ["https://ok.example.com/page"]
+
+
+def test_unknown_engine_still_raises_value_error():
+    body = _load("ddg_lite_serp.html")
+    for bad in ("google", "bing", "brave", "mojeek"):
+        with pytest.raises(ValueError):
+            parse_results(body, engine=bad)

@@ -316,12 +316,13 @@ The G2 competitors-page pass is deferred — DataDome-challenged, see
 
 `xray` runs search-operator prospecting ("X-ray search"): a library of SERP
 query strings built from the five operators — `site:`, quoted phrases, `OR`
-variants, minus exclusions, `intitle:`/`inurl:` — pointed at DuckDuckGo's LITE
-endpoint to discover people by title and companies by their hiring posts,
-funding phrases, and buyer-intent phrases. This is the keyless route to
-"who is the VP Sales at a company we've never scraped" and "which unknown
-companies are hiring the role our service replaces" — the two discovery
-shapes the account-keyed fanout cannot do.
+variants, minus exclusions, `intitle:`/`inurl:` — pointed at a SERP engine
+(DuckDuckGo's LITE endpoint by default; `--engine google_state` opts into the
+browser-cookie-gated Google path) to discover people by title and companies
+by their hiring posts, funding phrases, and buyer-intent phrases. This is
+the keyless route to "who is the VP Sales at a company we've never scraped"
+and "which unknown companies are hiring the role our service replaces" — the
+two discovery shapes the account-keyed fanout cannot do.
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli xray --kind hiring --role "head of sales"
@@ -350,13 +351,33 @@ shapes the account-keyed fanout cannot do.
   (`--attempts`, `--attempt-pause`) with pacing (`--pace`) and records the
   honest outcome; a challenge never parses as results. Budget: `--limit`
   queries per run.
-- **Robots exception + google NO-GO.** This is the second documented
+- **Engines** (`--engine`, default from `config/default.yaml`
+  `xray.default_engine`):
+  - `ddg_lite` (default) — keyless, stochastic, thin yield on operator
+    queries; the only probe-proven keyless path.
+  - `google_state` — Google embeds its full organic result set as
+    `window.W_jd` "2003" url+title state (the rendered hrefs are opaque
+    `/goto?url=` blobs, so the state blob is the only parse source;
+    snippets are always empty — the records carry url+title only, which is
+    what the company/profile extraction works from). It REQUIRES a fresh
+    browser-harvested cookie jar: run
+    `.venv\Scripts\python.exe scripts\google_cookie_refresh.py` before the
+    session (solve → harvest `data/xray/google_cookies.json` → replay).
+    Cookies are PER-SESSION (~24h max observed; they do NOT amortize ≥1
+    day, and stale jars correlate with 429 captchas — never replay them).
+    Intermittent IP-level captcha walls serve explicit `challenge` ledger
+    rows — never results. Robots-exception posture extends to it: manual,
+    opt-in, self-paced, and it spends browser-minutes (the refresh script)
+    plus a handful of paced replay fetches per session.
+- **Robots exception + probe record.** This is the second documented
   robots exception (see the ethics paragraph above): manual invocation only,
   never scheduled, never a cadence fanout, self-paced, a handful of requests
-  per run. Google SERP itself probed NO-GO on every transport including the
-  headed stealth-browser tier — a 200 JS-gate shell with zero organic
-  anchors — so `ddg_lite` is the only built engine
-  (`data/probe/XRAY_SERP_2026_10.md`).
+  per run. Google probed NO-GO *keylessly* on every transport (the 200
+  JS-gate shell), but the 2026-10 bypass ladder proved the headed-browser /
+  fresh-cookie-replay bodies carry full result sets as embedded state —
+  hence the opt-in `google_state` engine above. Bing/Brave/Mojeek probed
+  NO-GO (operators ignored / hard walls); SearXNG blocked on Docker.
+  Full verdict matrix: `data/probe/XRAY_SERP_2026_10.md`.
 
 ## Email delivery
 

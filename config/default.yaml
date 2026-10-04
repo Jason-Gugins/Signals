@@ -96,3 +96,10 @@ rerank:
 # GOOGLE_KGSEARCH_KEY), off by default. Both credentials absent = the stage
 # no-ops (status: unconfigured).
 gkg_backend: ekg
+
+# X-ray SERP prospecting (`signals xray`, src/sources/xray). default_engine
+# picks the SERP engine: "ddg_lite" (default; keyless, stochastic) or
+# "google_state" (browser-cookie gated — run scripts/google_cookie_refresh.py
+# before the session; see README "X-ray SERP prospecting").
+xray:
+  default_engine: ddg_lite

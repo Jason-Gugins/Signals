@@ -6,14 +6,26 @@ invokes the CLI), SELF-PACED (the pace budget below), and must NEVER be wired
 into a scheduler or the cadence fanout — nothing here runs unattended or on a
 timer. A handful of queries per invocation, on the operator's own cadence.
 
-Engine: ``ddg_lite`` ONLY — GET ``https://lite.duckduckgo.com/lite/?q=...`` is
-the ONLY probe-validated path (data/probe/XRAY_SERP_2026_10.md). Google is a
-documented NO-GO on every transport including the browser tier (the 200 JS-gate
-shell never renders anchors), so no engine parameter exists here and none is
-wanted. The lite endpoint is STOCHASTIC on operator queries — it serves 202
-anomaly challenges and 403 error-lites on some requests — hence the attempt
-loop below. Bodies are BODY-validated, never status-validated
-(``is_challenge`` decides; challenge bodies ship with 200 AND 202 alike).
+Engines (``engine`` keyword parameter; default ``ENGINE = "ddg_lite"``):
+
+- ``ddg_lite`` — the DEFAULT and only keyless path: GET
+  ``https://lite.duckduckgo.com/lite/?q=...`` via the chrome-TLS tier.
+  Probe-proven but STOCHASTIC on operator queries — it serves 202 anomaly
+  challenges and 403 error-lites on some requests — hence the attempt loop
+  below.
+- ``google_state`` — the browser-cookie-gated Google path (bypass ladder
+  Task 6): the SERP embeds its results as ``window.W_jd`` "2003" url+title
+  state. Fetching it REQUIRES a fresh browser-harvested cookie jar
+  (per-session via scripts/google_cookie_refresh.py — cookies do NOT
+  amortize ≥1 day; stale jars correlate with 429 captchas) and hits
+  intermittent IP-level captcha walls — those bodies surface as explicit
+  ledger ``challenge`` rows, never as results. Snippets are always ""
+  (W_jd records carry url+title only).
+- bing / brave / mojeek: probed NO-GO (data/probe/XRAY_SERP_2026_10.md) —
+  not built, and ``engine`` is validated against SUPPORTED_ENGINES up front.
+
+Bodies are BODY-validated, never status-validated (``is_challenge`` decides;
+challenge bodies ship with 200 AND 202 alike).
 
 Injected I/O (the runner never imports a transport and never reads a real
 clock, and its body only ever calls the injected ``sleep`` — the stdlib
@@ -76,13 +88,19 @@ from src.core.textutil import guess_seniority, stable_id
 from src.identity.domains import root_domain
 from src.sources.xray.hits import extract_companies, extract_profiles
 from src.sources.xray.ledger import append_event
-from src.sources.xray.serp import ParseError, is_challenge, parse_results
+from src.sources.xray.serp import (
+    ParseError,
+    SUPPORTED_ENGINES,
+    is_challenge,
+    parse_results,
+)
 from src.sources.xray.strings import build_query, encode_query
 
-__all__ = ["ENGINE", "run_xray"]
+__all__ = ["ENGINE", "SUPPORTED_ENGINES", "run_xray"]
 
-# The probe verdict constant (data/probe/XRAY_SERP_2026_10.md). The CLI reads
-# this as its default engine. There is deliberately no google path: NO-GO.
+# The DEFAULT engine (data/probe/XRAY_SERP_2026_10.md): ddg_lite is the
+# probe-proven stochastic GO; google_state is the browser-cookie-gated
+# alternative selected via --engine / config xray.default_engine.
 ENGINE = "ddg_lite"
 
 # Always-excluded host for company extraction — NOT the library's exclude
@@ -104,9 +122,12 @@ def run_xray(
     max_attempts: int = 2,
     attempt_pause_s: float = 45.0,
     max_queries: int | None = None,
+    engine: str = ENGINE,
 ) -> dict:
     """Run the string list end-to-end; return the run report.
 
+    ``engine`` selects the SERP parser/URL builder (default ``ddg_lite``);
+    anything outside SUPPORTED_ENGINES is a ValueError BEFORE any fetch.
     Statuses (ledger + report): ``ok`` | ``challenge`` (stochastic block,
     attempts exhausted) | ``error`` (fetch raised; no retry — transport errors
     are not the stochastic shape) | ``empty`` (clean zero-anchor body, attempts
@@ -114,6 +135,11 @@ def run_xray(
     skipped empty-query strings ledger as ``"empty"`` with ``attempts: 0`` and
     count toward ``report["empty"]`` only.
     """
+    if engine not in SUPPORTED_ENGINES:
+        raise ValueError(
+            f"unsupported engine {engine!r}: built engines are {SUPPORTED_ENGINES} "
+            "(bing/brave/mojeek probed NO-GO per data/probe/XRAY_SERP_2026_10.md)"
+        )
     slots = slots or {}
     known, name_index, root_index = _cohort(db)
     store = IdentityCandidateStore(db)
@@ -140,7 +166,7 @@ def run_xray(
                 {
                     "string_id": spec["id"],
                     "query": query,
-                    "engine": ENGINE,
+                    "engine": engine,
                     "status": "empty",
                     "attempts": 0,
                     "results": 0,
@@ -158,7 +184,7 @@ def run_xray(
             break  # cap reached: stop before starting a new query
 
         report["queries"] += 1
-        url = encode_query(query, ENGINE)
+        url = encode_query(query, engine)
 
         # --- attempt loop (body-validated, never status-validated) ---------
         attempts = 0
@@ -182,7 +208,7 @@ def run_xray(
                 status = "challenge"
                 break
             try:
-                results = parse_results(body, engine=ENGINE)
+                results = parse_results(body, engine=engine)
             except ParseError:
                 # is_challenge already ran clean on this body, so this is the
                 # clean zero-anchor shape: retry like a challenge attempt,
@@ -271,7 +297,7 @@ def run_xray(
         event = {
             "string_id": spec["id"],
             "query": query,
-            "engine": ENGINE,
+            "engine": engine,
             "status": status,
             "attempts": attempts,
             "results": len(results),

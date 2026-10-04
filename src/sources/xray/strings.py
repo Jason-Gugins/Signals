@@ -65,12 +65,21 @@ def build_query(spec: dict, **slots: str | None) -> str:
     return " ".join(parts)
 
 def encode_query(query: str, engine: str) -> str:
+    if engine == "google_state":
+        # google_state path (bypass ladder Task 6): the replay-proven URL
+        # shape — plain /search?q=...&hl=en, NO num/filter params (the
+        # cookie replay that returned the 12-record W_jd body fetched
+        # exactly this shape). Result-bearing fetches REQUIRE the fresh
+        # browser-harvested cookie jar; cookies ride the FETCH layer
+        # (cli._xray_google_state_fetch -> data/xray/google_cookies.json),
+        # not the URL.
+        return f"https://www.google.com/search?q={quote_plus(query)}&hl=en"
     if engine == "google":
         return f"https://www.google.com/search?q={quote_plus(query)}&num=20&hl=en&filter=0"
     if engine == "ddg_lite":
-        # The ONLY probe-validated path (data/probe/XRAY_SERP_2026_10.md):
+        # The ONLY probe-validated keyless path (data/probe/XRAY_SERP_2026_10.md):
         # lite.duckduckgo.com/lite/ GET — the html endpoint 403s operator
-        # queries and google is a NO-GO on every transport.
+        # queries and google is NO-GO keylessly on every transport.
         return f"https://lite.duckduckgo.com/lite/?q={quote_plus(query)}"
     if engine == "ddg":
         return f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"

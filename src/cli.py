@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -20,6 +21,7 @@ from src.pipeline.orchestrator import Orchestrator
 from src.sources.xray.library import load_library
 from src.sources.xray.ledger import load_events, string_stats
 from src.sources.xray.runner import run_xray
+from src.sources.xray.serp import SUPPORTED_ENGINES
 
 
 def _dirs(cfg: Config) -> list[Path]:
@@ -935,6 +937,7 @@ def sweep(ctx, url_or_name, force, deep, discover_names, ddg, competitor_names):
 
 
 XRAY_LEDGER_PATH = "data/xray/ledger.jsonl"
+XRAY_GOOGLE_COOKIES_PATH = "data/xray/google_cookies.json"
 
 
 def _xray_fetch():
@@ -959,6 +962,63 @@ def _xray_fetch():
     return fetch
 
 
+def _xray_google_state_fetch():
+    """Cookie-gated fetch adapter for the google_state engine: url -> (status, body).
+
+    Loads the browser-harvested cookie jar written by
+    ``scripts/google_cookie_refresh.py refresh`` (a JSON list of cookie dicts)
+    and passes the name/value pairs to ``CurlCffiFetcher.get(url, cookies=...)``
+    — the replay-proven posture (the 2026-10-02 fresh-jar replay returned the
+    499KB, 12-record W_jd body). Cookies are PER-SESSION (~24h max observed;
+    stale jars correlate with 429 captchas, never replay them), so a missing,
+    empty or malformed jar is a hard usage error — a cookie-less fetch only
+    ever returns the 93KB empty shell. Tests patch the XRAY_GOOGLE_COOKIES_PATH
+    seam and the curl_fetcher transport, never this jar contract.
+    """
+    from src.core.curl_fetcher import CurlCffiFetcher
+
+    try:
+        jar = json.loads(Path(XRAY_GOOGLE_COOKIES_PATH).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        jar = None
+    if not (
+        isinstance(jar, list)
+        and jar
+        and all(isinstance(c, dict) and c.get("name") and "value" in c for c in jar)
+    ):
+        click.echo(
+            f"no google cookie jar at {XRAY_GOOGLE_COOKIES_PATH} — run "
+            "scripts/google_cookie_refresh.py to solve+harvest a fresh jar "
+            "before using --engine google_state",
+            err=True,
+        )
+        # ctx.exit(1) without a ctx handle (this factory runs before the runner).
+        raise click.exceptions.Exit(1)
+
+    f = CurlCffiFetcher(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+    )
+
+    def fetch(url: str) -> tuple[int, str]:
+        resp = f.get(url, cookies=jar)
+        body = resp.body
+        text = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else str(body)
+        return resp.status, text
+
+    return fetch
+
+
+def _xray_default_engine(cfg: Config) -> str:
+    """``xray.default_engine`` from config/default.yaml; "ddg_lite" fallback."""
+    try:
+        block = (cfg.load_yaml("default") or {}).get("xray") or {}
+    except OSError:
+        block = {}
+    engine = str(block.get("default_engine") or "").strip()
+    return engine or "ddg_lite"
+
+
 @main.command(name="xray")
 @click.option("--kind", "kinds", multiple=True,
               type=click.Choice(["people", "company", "hiring", "intent"]),
@@ -978,16 +1038,22 @@ def _xray_fetch():
 @click.option("--attempt-pause", "attempt_pause", type=float, default=45.0, show_default=True,
               help="Seconds between retries of one query.")
 @click.option("--stats", is_flag=True, help="Print per-string ledger stats and exit.")
+@click.option("--engine", type=click.Choice(["ddg_lite", "google_state"]), default=None,
+              help="Default from config xray.default_engine (ddg_lite).")
 @click.pass_context
 def xray(ctx, kinds, title, location, niche, role, problem_phrase,
-         limit, attempts, pace, attempt_pause, stats):
+         limit, attempts, pace, attempt_pause, stats, engine):
     """X-ray SERP prospecting (manual, opt-in, self-paced).
 
-    Robots-exception source: lite.duckduckgo.com/lite/ via the chrome-TLS
-    tier — NEVER scheduled, never a cadence fanout. google is NO-GO on every
-    transport (data/probe/XRAY_SERP_2026_10.md). Company hits queue in
-    identity_candidates for human review; people hits matching a cohort
-    account become contacts. Every query lands in data/xray/ledger.jsonl.
+    Robots-exception source — NEVER scheduled, never a cadence fanout.
+    Engines: ddg_lite (default; keyless lite.duckduckgo.com via the
+    chrome-TLS tier) and google_state (Google results embedded as W_jd
+    state; REQUIRES the fresh cookie jar from scripts/google_cookie_refresh.py
+    — per-session cookies, intermittent IP walls surface as explicit
+    challenge rows). Verdicts: data/probe/XRAY_SERP_2026_10.md. Company hits
+    queue in identity_candidates for human review; people hits matching a
+    cohort account become contacts. Every query lands in
+    data/xray/ledger.jsonl.
     """
     if stats:
         table = string_stats(load_events(XRAY_LEDGER_PATH))
@@ -999,6 +1065,17 @@ def xray(ctx, kinds, title, location, niche, role, problem_phrase,
                 f"\t{s['company_hits']}\t{s['last_ts_utc'] or '-'}"
             )
         return
+
+    if engine is None:
+        engine = _xray_default_engine(ctx.obj["config"])
+    if engine not in SUPPORTED_ENGINES:
+        # config-sourced values bypass click.Choice — validate here.
+        click.echo(
+            f"unknown xray engine {engine!r} (config xray.default_engine; "
+            f"built engines: {', '.join(SUPPORTED_ENGINES)})",
+            err=True,
+        )
+        raise click.exceptions.Exit(1)
 
     strings = load_library("config/lists/xray_strings.yaml", kinds=set(kinds) or None)
     if not strings:
@@ -1017,9 +1094,10 @@ def xray(ctx, kinds, title, location, niche, role, problem_phrase,
         if val is not None
     }
 
+    fetch_factory = _xray_google_state_fetch if engine == "google_state" else _xray_fetch
     report = run_xray(
         strings=strings,
-        fetch=_xray_fetch(),
+        fetch=fetch_factory(),
         db=ctx.obj["get_orch"]().db,
         ledger_path=XRAY_LEDGER_PATH,
         clock=lambda: datetime.now(timezone.utc).isoformat(),
@@ -1030,7 +1108,9 @@ def xray(ctx, kinds, title, location, niche, role, problem_phrase,
         max_attempts=attempts,
         attempt_pause_s=attempt_pause,
         max_queries=limit,
+        engine=engine,
     )
+    click.echo(f"engine: {engine}")
     click.echo(
         f"X-ray run: {report['queries']} queries — ok {report['ok']} / "
         f"challenge {report['challenge']} / empty {report['empty']} / error {report['error']}"

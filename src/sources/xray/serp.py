@@ -1,15 +1,26 @@
 # src/sources/xray/serp.py
-"""PURE DDG-lite SERP-body parser + challenge detection for the X-ray runner.
+"""PURE SERP-body parsers + challenge detection for the X-ray runner.
 
-Re-scoped by the Task 3/3b probe verdict (data/probe/XRAY_SERP_2026_10.md):
-google is a final NO-GO on every transport including the browser tier (the
-200 JS-gate app shell never renders anchors), so the ONLY built engine is
-``ddg_lite`` — GET ``https://lite.duckduckgo.com/lite/?q=<encoded>`` via the
-curl_cffi chrome-TLS tier. The lite endpoint is STOCHASTIC on operator
-queries: it serves 202 anomaly challenges and 403 error-lites on some
-requests, so every body is classified BEFORE parsing (body-validated, never
-status-validated — ddg_ids.py lesson: challenge bodies ship with HTTP 200
-AND 202 alike).
+Two built engines (Google bypass ladder Task 6, verdicts in
+data/probe/XRAY_SERP_2026_10.md):
+
+- ``ddg_lite`` (DEFAULT) — GET ``https://lite.duckduckgo.com/lite/?q=<encoded>``
+  via the curl_cffi chrome-TLS tier. The lite endpoint is STOCHASTIC on
+  operator queries: it serves 202 anomaly challenges and 403 error-lites on
+  some requests, so every body is classified BEFORE parsing (body-validated,
+  never status-validated — ddg_ids.py lesson: challenge bodies ship with
+  HTTP 200 AND 202 alike).
+- ``google_state`` — Google serves its organic result set as EMBEDDED JS
+  STATE: the headed-browser and fresh-cookie-replay captures carry 12
+  plaintext ``"2003":[null,"<tok>","<url>","<title>",...]`` records inside
+  the ``window.W_jd`` window-state blob, while every rendered anchor href is
+  an opaque relative ``/goto?url=<b64>`` blob (the Task 1 "measurement
+  artifact" — zero external anchors, full result set). Parsing therefore
+  regexes the W_jd records, not anchors. Snippet is ALWAYS "" (the records
+  carry url+title only; hits.py works on titles/URLs so company/profile
+  extraction is unaffected). Fetching this engine REQUIRES a fresh
+  browser-harvested cookie jar (per-session — cookies do NOT amortize ≥1
+  day; the fetch layer owns that, see cli._xray_google_state_fetch).
 
 Real lite markup (recorded from tmp/probe_xray_ddg_lite_q1.html, the only
 organic operator-query body captured; the lite endpoint differs from the
@@ -30,8 +41,8 @@ Unwrapping: the ``uddg`` param is percent-encoded TWICE in the wild
 
 Purity: no I/O, no clock, no network imports — the runner task owns fetch,
 pacing and persistence. Tolerant in one direction only: a clean body with
-zero extractable organic anchors raises ``ParseError`` instead of returning
-an empty list — silent empties look like "no leads" and poison the ledger.
+zero extractable results raises ``ParseError`` instead of returning an empty
+list — silent empties look like "no leads" and poison the ledger.
 """
 from __future__ import annotations
 
@@ -39,7 +50,7 @@ import re
 from html import unescape
 from urllib.parse import parse_qs, unquote, urlsplit
 
-SUPPORTED_ENGINES = ("ddg_lite",)
+SUPPORTED_ENGINES = ("ddg_lite", "google_state")
 
 # Challenge/block markers, case-insensitive, most specific first (the first
 # hit is the recorded marker).
@@ -59,11 +70,16 @@ _DDG_CHALLENGE_MARKERS: tuple[str, ...] = (
     "error-lite",
 )
 
-# Google markers — google is a documented NO-GO on every transport including
-# the browser tier (probe verdict: the 200 JS-gate shell carries zero organic
-# anchors and no classic captcha markers; /httpservice/retry/enablejs is the
-# only stable block signal). Detection STAYS in the list so a future engine
-# swap inherits honest classification instead of parsing block shells.
+# Google markers — verified against the live bodies in
+# data/probe/XRAY_SERP_2026_10.md: the 429 captcha interstitial (ladder Tasks
+# 2+3) carries "unusual traffic" + "g-recaptcha"/"recaptcha" (the bare
+# "captcha" DDG marker also matches), so the existing list covers it — no new
+# google-specific marker was documented. Two recorded caveats: (a) the
+# enablejs noscript href ALSO appears on genuine result bodies (Task 1) — it
+# only stays honest because is_challenge scans the front-loaded 20k window
+# and real result pages carry it at ~141k; (b) the /sorry/ + X-Sorry-Redirect
+# strings in result captures are the app shell's own guard JS (never a served
+# body) — do NOT add X-Sorry-Redirect as a marker.
 _GOOGLE_CHALLENGE_MARKERS: tuple[str, ...] = (
     "/httpservice/retry/enablejs",
     "/sorry/",
@@ -164,19 +180,24 @@ def _is_internal(url: str) -> bool:
 def parse_results(body: str, *, engine: str = "ddg_lite") -> list[dict]:
     """Organic results as ``[{"url", "title", "snippet"}]`` (pure).
 
-    Deduped by final (unwrapped) URL, in document order. Internal
-    duckduckgo.com links and ad hrefs are dropped. Raises ``ParseError`` on a
-    challenge body (marker carried in the message) and on a clean body with
-    zero organic anchors — never returns a silent empty list.
+    Dispatches per engine: ``ddg_lite`` extracts ``result-link`` anchors from
+    the lite markup; ``google_state`` extracts the ``window.W_jd`` "2003"
+    url+title records (snippet always ""). Deduped by final URL, in document
+    order. Internal engine links and ad hrefs are dropped. Raises
+    ``ParseError`` on a challenge body (marker carried in the message) and on
+    a clean body with zero extractable results — never returns a silent empty
+    list.
     """
     if engine not in SUPPORTED_ENGINES:
         raise ValueError(
-            f"unsupported engine {engine!r}: only {SUPPORTED_ENGINES} is built "
-            "(google is NO-GO per data/probe/XRAY_SERP_2026_10.md)"
+            f"unsupported engine {engine!r}: built engines are {SUPPORTED_ENGINES} "
+            "(bing/brave/mojeek probed NO-GO per data/probe/XRAY_SERP_2026_10.md)"
         )
     marker = is_challenge(body)
     if marker is not None:
         raise ParseError(f"{engine}: challenge page served ({marker!r} in body)")
+    if engine == "google_state":
+        return _parse_google_state(body)
 
     anchors: list[tuple[int, str, str]] = []
     for match in _ANCHOR_RE.finditer(body or ""):
@@ -222,4 +243,84 @@ def parse_results(body: str, *, engine: str = "ddg_lite") -> list[dict]:
         )
     if not results:
         raise ParseError(f"{engine}: no organic anchors parsed from body")
+    return results
+
+
+# --- google_state: the window.W_jd embedded-state parser --------------------
+#
+# Extraction approach mirrors scripts/analyze_google_shell.py (the Task 1
+# analyzer): regex the raw body for the plaintext "2003" records — zero DOM
+# dependency, full plaintext URLs — and decode the JS \\xHH / \\uXXXX escapes
+# so escaped URLs become real. Record shape (verbatim from the captures):
+#
+#     "2003":[null,"<tok>","<url>","<title>", ...more elements...]
+#
+# The rendered anchors are useless for this engine: every href is an opaque
+# relative "/goto?url=<b64>" blob, so the state blob is the ONLY url+title
+# source.
+
+# The state blob's name — present on every result-bearing capture (Task 1:
+# 21 hits on the 751KB body, 0 on the 93KB cookie-less shells). Its presence
+# plus zero extractable records still raises (a torn/unknown layout must
+# never pass as "no leads").
+_WJD_STATE_RE = re.compile(r"W_jd")
+
+# ["2003":[null,"<tok>","<url>","<title>" — escape-aware quoted fields.
+_WJD_RECORD_RE = re.compile(
+    r'"2003"\s*:\s*\[\s*null\s*,\s*"[^"]*"\s*,\s*'
+    r'"(?P<url>(?:\\.|[^"\\])*)"\s*,\s*'
+    r'"(?P<title>(?:\\.|[^"\\])*)"'
+)
+
+# JS string escapes (analyze_google_shell.js_unescape) + the JSON "\/" form.
+_XESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})|\\u([0-9a-fA-F]{4})")
+
+_INTERNAL_GOOGLE_HOST = "google.com"
+
+_WJD_TITLE_MAX = 300
+
+
+def _js_unescape(value: str) -> str:
+    r"""Decode \\xHH / \\uXXXX JS escapes and the JSON "\/" form (pure)."""
+
+    def repl(match: re.Match) -> str:
+        return chr(int(match.group(1) or match.group(2), 16))
+
+    return _XESCAPE_RE.sub(repl, value).replace("\\/", "/")
+
+
+def _is_google_internal(url: str) -> bool:
+    try:
+        host = (urlsplit(url).hostname or "").casefold()
+    except ValueError:
+        return True
+    return host == _INTERNAL_GOOGLE_HOST or host.endswith("." + _INTERNAL_GOOGLE_HOST)
+
+
+def _parse_google_state(body: str) -> list[dict]:
+    """``window.W_jd`` "2003" records -> ``[{"url", "title", "snippet"}]``.
+
+    Snippet is ALWAYS "": the embedded records carry url+title only (a
+    documented engine limitation — hits.py works on titles/URLs, so company
+    and profile extraction are unaffected). Records are returned in document
+    order, deduped by URL; relative/non-http and google-internal URLs are
+    dropped. Missing W_jd state or zero records raises ``ParseError`` —
+    silent empties poison the ledger.
+    """
+    if not _WJD_STATE_RE.search(body or ""):
+        raise ParseError("google_state: no result records parsed from body")
+
+    results: list[dict] = []
+    seen: set[str] = set()
+    for match in _WJD_RECORD_RE.finditer(body or ""):
+        url = _js_unescape(match.group("url")).strip()
+        if not url or not url.casefold().startswith(("http://", "https://")):
+            continue
+        if _is_google_internal(url) or url in seen:
+            continue
+        seen.add(url)
+        title = _text(_js_unescape(match.group("title")))[:_WJD_TITLE_MAX]
+        results.append({"url": url, "title": title, "snippet": ""})
+    if not results:
+        raise ParseError("google_state: no result records parsed from body")
     return results

@@ -23,6 +23,7 @@ import pytest
 from click.testing import CliRunner
 
 import src.cli as cli
+import src.core.curl_fetcher as curl_fetcher_mod
 from src.pipeline.orchestrator import Orchestrator
 
 
@@ -160,3 +161,139 @@ def test_xray_zero_limit_and_empty_library_guard(fake_orch, monkeypatch):
     result = runner.invoke(cli.main, ["xray", "--kind", "intent"])
     assert result.exit_code == 1
     assert "no strings match" in result.output
+
+
+# --- 5. google_state engine (bypass ladder Task 6) ---------------------------
+#
+# The google_state fetch factory loads the browser-harvested cookie jar
+# (cli.XRAY_GOOGLE_COOKIES_PATH, same read-at-call-time seam as the ledger
+# path); the transport boundary is faked at src.core.curl_fetcher
+# .curl_cffi_get (the module's own documented test seam) so the real factory +
+# real CurlCffiFetcher cookie plumbing runs offline.
+
+GS_BODY = (
+    "<html><head><title>q - Google Search</title></head><body>"
+    '<script>(function(){var m={"k1":{"2003":[null,"tok1",'
+    '"https://newco.io/","Newco is hiring",null,0]}};var a=m;'
+    "if(window.W_jd)for(var b in a)window.W_jd[b]=a[b];"
+    "else window.W_jd=a;})();</script></body></html>"
+)
+
+
+def _fake_curl_get(recorder: dict):
+    from types import SimpleNamespace
+
+    def fake_get(url, **kwargs):
+        recorder["url"] = url
+        recorder["cookie_header"] = (kwargs.get("headers") or {}).get("Cookie")
+        # curl_cffi raw-response shape: status_code + .content bytes
+        return SimpleNamespace(
+            status_code=200, content=GS_BODY.encode("utf-8"), cookies={}, headers={}, url=url
+        )
+
+    return fake_get
+
+
+def _write_jar(path: Path) -> None:
+    path.write_text(
+        json.dumps([{"name": "NID", "value": "v1", "domain": ".google.com"}]),
+        encoding="utf-8",
+    )
+
+
+def test_xray_google_state_missing_cookie_jar_fails_cleanly(fake_orch, tmp_path, monkeypatch):
+    # No jar -> plain-language error pointing at the refresh procedure, exit 1.
+    monkeypatch.setattr(cli, "XRAY_GOOGLE_COOKIES_PATH", str(tmp_path / "nope.json"))
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["xray", "--engine", "google_state", "--kind", "hiring",
+         "--role", "head of sales", "--limit", "1"],
+    )
+    assert result.exit_code != 0
+    assert "no google cookie jar at" in result.output
+    assert "scripts/google_cookie_refresh.py" in result.output
+
+
+def test_xray_google_state_run_offline(fake_orch, tmp_path, monkeypatch):
+    jar = tmp_path / "google_cookies.json"
+    _write_jar(jar)
+    monkeypatch.setattr(cli, "XRAY_GOOGLE_COOKIES_PATH", str(jar))
+    seen: dict = {}
+    monkeypatch.setattr(curl_fetcher_mod, "curl_cffi_get", _fake_curl_get(seen))
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["xray", "--engine", "google_state", "--kind", "hiring",
+         "--role", "head of sales", "--limit", "1", "--pace", "0", "--attempt-pause", "0"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "engine: google_state" in result.output
+    assert "identity_candidates rows: 1" in result.output
+    assert seen["url"].startswith("https://www.google.com/search?q=")
+    assert seen["cookie_header"] == "NID=v1"  # jar -> Cookie header
+
+    events = [
+        json.loads(line)
+        for line in Path(cli.XRAY_LEDGER_PATH).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(events) == 1
+    assert events[0]["engine"] == "google_state"
+    assert events[0]["status"] == "ok"
+
+
+def test_xray_default_engine_from_config(fake_orch, tmp_path, monkeypatch):
+    # xray.default_engine: "ddg_lite" resolves without --engine; "google_state"
+    # from config flows exactly like the explicit flag.
+    jar = tmp_path / "google_cookies.json"
+    _write_jar(jar)
+    monkeypatch.setattr(cli, "XRAY_GOOGLE_COOKIES_PATH", str(jar))
+    seen: dict = {}
+    monkeypatch.setattr(curl_fetcher_mod, "curl_cffi_get", _fake_curl_get(seen))
+    monkeypatch.setattr(
+        cli.Config,
+        "load_yaml",
+        lambda self, name: {"xray": {"default_engine": "google_state"}}
+        if name == "default"
+        else {},
+    )
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["xray", "--kind", "hiring", "--role", "head of sales",
+         "--limit", "1", "--pace", "0", "--attempt-pause", "0"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "engine: google_state" in result.output  # config default, no --engine
+    assert seen["url"].startswith("https://www.google.com/search?q=")
+
+
+def test_xray_default_engine_falls_back_to_ddg_lite(fake_orch, monkeypatch):
+    # No xray block in the config -> the documented fallback "ddg_lite".
+    monkeypatch.setattr(cli.Config, "load_yaml", lambda self, name: {})
+    monkeypatch.setattr(cli, "_xray_fetch", lambda: (lambda url: (200, ORG_COMPANY)))
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["xray", "--kind", "hiring", "--role", "head of sales",
+         "--limit", "1", "--pace", "0", "--attempt-pause", "0"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "engine: ddg_lite" in result.output
+
+
+def test_xray_bogus_config_engine_fails_cleanly(fake_orch, monkeypatch):
+    # A bad value in config (bypasses click.Choice) is a clean usage error,
+    # never a traceback and never a fetch.
+    monkeypatch.setattr(
+        cli.Config,
+        "load_yaml",
+        lambda self, name: {"xray": {"default_engine": "bing"}}
+        if name == "default"
+        else {},
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["xray", "--kind", "hiring", "--limit", "1"])
+    assert result.exit_code != 0
+    assert "unknown xray engine" in result.output

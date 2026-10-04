@@ -44,6 +44,18 @@ def test_encode_query_ddg_lite():
     assert url.startswith("https://lite.duckduckgo.com/lite/?q=")
     assert "site%3Alinkedin.com%2Fin" in url
 
+def test_encode_query_google_state():
+    # Bypass ladder Task 6: the replay-proven URL shape — plain
+    # /search?q=...&hl=en, NO num/filter params (the cookie replay that
+    # returned the 12-record W_jd body fetched exactly this shape; cookies
+    # ride the fetch layer, not the URL).
+    url = encode_query('site:linkedin.com/in "head of growth"', "google_state")
+    assert url.startswith("https://www.google.com/search?q=")
+    assert url.endswith("&hl=en")
+    assert "num=20" not in url
+    assert "filter=0" not in url
+    assert "site%3Alinkedin.com%2Fin" in url
+
 def test_encode_query_unknown_engine_raises():
     with pytest.raises(ValueError):
         encode_query("x", "bing")

@@ -306,6 +306,17 @@ def test_board_token_candidates_includes_aliases():
     assert "security" in cands             # individual words of multi-word aliases
 
 
+def test_board_token_candidates_alias_before_name():
+    """Alias joined-forms outrank current-name variants (diagonal round 2 must
+    reach the former-brand token)."""
+    cands = board_token_candidates("Abnormal AI", "abnormal.ai",
+                                   aliases=["Abnormal Security"])
+    assert cands[0] == "abnormal"            # domain prefix still first
+    assert cands[1] == "abnormalsecurity"    # alias joined — round 2 token
+    assert "abnormalai" in cands             # name joined — later round
+    assert cands.index("abnormalsecurity") < cands.index("abnormalai")
+
+
 def test_board_token_candidates_filters_reserved_and_caps():
     cands = board_token_candidates("Jobs", "jobs.io", aliases=["www", "api"])
     assert "jobs" not in cands and "www" not in cands and "api" not in cands
@@ -523,7 +534,9 @@ def test_discover_ladder_probe_order_is_vendor_major(tmp_path):
     covers ALL candidate tokens on greenhouse first, then spills into lever —
     later vendors are never reached. The Abnormal input yields 6 tokens (5
     branded tokens plus the alias word "ltd", which survives the 3-char
-    floor), so the cap buys 6 greenhouse probes + 2 lever probes."""
+    floor), in alias-first order: domain, each alias (joined then words),
+    then the name. INTERIM pin — Task 3's diagonal rewrite replaces this
+    test entirely."""
     pages = {"https://abnormal.ai/careers": "<html><body>we are hiring</body></html>"}
     disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
     acct.domain = "abnormal.ai"
@@ -537,13 +550,13 @@ def test_discover_ladder_probe_order_is_vendor_major(tmp_path):
     probes = fake.seen[-MAX_VERIFY_REQUESTS:]
     assert probes == [
         "https://boards-api.greenhouse.io/v1/boards/abnormal/jobs",
-        "https://boards-api.greenhouse.io/v1/boards/abnormalai/jobs",
         "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs",
         "https://boards-api.greenhouse.io/v1/boards/security/jobs",
         "https://boards-api.greenhouse.io/v1/boards/abnormalsecurityltd/jobs",
         "https://boards-api.greenhouse.io/v1/boards/ltd/jobs",
+        "https://boards-api.greenhouse.io/v1/boards/abnormalai/jobs",
         "https://api.lever.co/v0/postings/abnormal?mode=json",
-        "https://api.lever.co/v0/postings/abnormalai?mode=json",
+        "https://api.lever.co/v0/postings/abnormalsecurity?mode=json",
     ]
 
 

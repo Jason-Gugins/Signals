@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from src.identity.ats_discovery import (
     MAX_BOARD_CANDIDATES,
     MAX_VERIFY_REQUESTS,
     _VERIFY_ENDPOINTS,
+    _board_payload_ok,
     board_token_candidates,
     careers_url_candidates,
     detect_ats,
@@ -562,3 +564,154 @@ def test_verify_board_endpoints_module_invariants():
         "recruitee",
         "teamtailor",
     }
+
+
+# --- Live-probe-pinned predicates (2026-10-04) ------------------------------
+# POS/NEG canned bodies from read-only GETs on 2026-10-04 (UA "Mozilla/5.0
+# (Windows NT 10.0; Win64; x64)", 15s timeouts, 8 requests total):
+#   breezy     POS euler.breezy.hr/json -> 200 application/json, top-level
+#              JSON list (19 items; item keys id/friendly_id/name/url/
+#              published_date/type/location/department/salary/company/
+#              locations — values below abbreviated)
+#              NEG notarealboardxyz123 -> 404 text/html SPA shell, not JSON
+#   recruitee  POS tether.recruitee.com/api/offers/ -> 200 application/json,
+#              top-level dict with a single "offers" list (Tether's official
+#              careers board; offer fields id/position/title/country/
+#              published_at/...)
+#              NEG notarealboardxyz123 -> 404 application/json {"error": ...}
+#   teamtailor POS recruitgo.teamtailor.com/jobs.json -> 200 application/
+#              feed+json, JSON Feed 1.1: {"version": ..., "title": ...,
+#              "items": [41 jobs]} — NOT a "jobs" wrapper
+#              NEG notarealboardxyz123 -> 404 application/json, EMPTY body
+
+
+def test_board_payload_ok_breezy_live_pinned():
+    """breezy pinned 2026-10-04 (POS euler): the real board payload is a
+    top-level JSON list; parse_breezy also reads {"positions"/"jobs": [...]}
+    dicts, so the predicate matches the parser. The 404 NEG body is an HTML
+    SPA shell that json.loads must reject, and an empty list is no board."""
+    pos = json.dumps(
+        [
+            {
+                "id": "64f0c9e2a1b3",
+                "friendly_id": "senior-backend-engineer",
+                "name": "Senior Backend Engineer",
+                "url": "https://euler.breezy.hr/senior-backend-engineer",
+                "published_date": "2026-09-30T10:12:34.567+00:00",
+                "type": {"id": "fullTime", "name": "Full-Time"},
+                "location": {"name": "Remote", "is_remote": True},
+                "department": "Engineering",
+                "salary": "",
+                "company": "Euler",
+                "locations": [],
+            }
+        ]
+    )
+    assert _board_payload_ok("breezy", pos)
+    assert _board_payload_ok("breezy", '{"positions": [{"id": "x"}]}')
+    # NEG: live 404 body is an HTML SPA shell — not JSON.
+    neg = (
+        '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+        '<meta http-equiv="X-UA-Compatible" content="IE=edge">'
+        '<meta name="viewport" content="width=device-width"></head>'
+        "<body></body></html>"
+    )
+    assert not _board_payload_ok("breezy", neg)
+    assert not _board_payload_ok("breezy", "[]")
+    assert not _board_payload_ok("breezy", '{"error": "not found"}')
+    assert not _board_payload_ok("breezy", "")
+
+
+def test_board_payload_ok_recruitee_live_pinned():
+    """recruitee pinned 2026-10-04 (POS tether): the real /api/offers/
+    payload wraps jobs under "offers" — the ONLY key parse_recruitee reads,
+    so the predicate must too (a real board carries no "jobs" key). The 404
+    NEG is a JSON {"error": ...} dict, which must never verify."""
+    pos = json.dumps(
+        {
+            "offers": [
+                {
+                    "id": 3774,
+                    "position": 3774,
+                    "title": "Event Design Coordinator",
+                    "country": "Netherlands",
+                    "state_name": "Noord-Holland",
+                    "postal_code": None,
+                    "published_at": "2026-10-01 14:34:00",
+                    "careers_url": "https://tether.recruitee.com/o/event-design-coordinator",
+                }
+            ]
+        }
+    )
+    assert _board_payload_ok("recruitee", pos)
+    # NEG: live 404 shape is {"error": "..."} (application/json).
+    neg = json.dumps({"error": "Not found"})
+    assert not _board_payload_ok("recruitee", neg)
+    # A jobs-wrapped body is not this endpoint's shape and parse_recruitee
+    # cannot read it — stay strict.
+    assert not _board_payload_ok("recruitee", '{"jobs": [{"id": 1}]}')
+    assert not _board_payload_ok("recruitee", json.dumps({"offers": []}))
+    assert not _board_payload_ok("recruitee", "")
+
+
+def test_board_payload_ok_teamtailor_live_pinned():
+    """teamtailor pinned 2026-10-04 (POS recruitgo): {t}.teamtailor.com/
+    jobs.json returns a JSON Feed 1.1 document — jobs live under "items",
+    which the old predicate (dict "jobs" only) silently REJECTED, making the
+    ladder entry dead. The embedded board-state "jobs" shape that
+    parse_teamtailor reads stays accepted. NEG: 404 with an EMPTY body."""
+    pos = json.dumps(
+        {
+            "version": "https://jsonfeed.org/version/1.1",
+            "title": "RecruitGo",
+            "home_page_url": "https://recruitgo.teamtailor.com/jobs",
+            "feed_url": "https://recruitgo.teamtailor.com/jobs.json",
+            "items": [
+                {
+                    "id": "8ec986c9-5743-4a5b-ba81-fc4b1e0a2a61",
+                    "title": "Senior Business Consultant",
+                    "url": "https://recruitgo.teamtailor.com/jobs/8495559-senior-business-consultant",
+                    "date_published": "2026-10-04T21:02:37+08:00",
+                    "content_html": "<p><strong>About Us:</strong></p>",
+                }
+            ],
+        }
+    )
+    assert _board_payload_ok("teamtailor", pos)
+    assert _board_payload_ok("teamtailor", '{"jobs": [{"id": 1}]}')
+    # NEG: live 404 body is empty (application/json, zero bytes).
+    assert not _board_payload_ok("teamtailor", "")
+    assert not _board_payload_ok(
+        "teamtailor", '{"version": "https://jsonfeed.org/version/1.1", "items": []}'
+    )
+    assert not _board_payload_ok("teamtailor", "<html>not json</html>")
+
+
+def test_verify_board_candidates_pinned_vendors_end_to_end():
+    """The three probe-pinned vendors verify through the real ladder: the
+    canned POS bodies from the 2026-10-04 live probes stamp; the canned NEG
+    bodies do not."""
+    fetch = FakeJsonFetcher(
+        {
+            "https://euler.breezy.hr/json": '[{"id": "64f0c9e2a1b3", "name": "Senior Backend Engineer"}]',
+            "https://notarealboardxyz123.breezy.hr/json": "<!DOCTYPE html><html><body>404</body></html>",
+            "https://tether.recruitee.com/api/offers/": '{"offers": [{"id": 3774, "title": "Event Design Coordinator"}]}',
+            "https://notarealboardxyz123.recruitee.com/api/offers/": '{"error": "Not found"}',
+            "https://recruitgo.teamtailor.com/jobs.json": '{"version": "https://jsonfeed.org/version/1.1", "items": [{"id": "x", "title": "SB"}]}',
+            "https://notarealboardxyz123.teamtailor.com/jobs.json": "",
+        }
+    )
+    pos = verify_board_candidates(
+        fetch,
+        [("breezy", "euler"), ("recruitee", "tether"), ("teamtailor", "recruitgo")],
+    )
+    assert pos and pos.vendor == "breezy" and pos.token == "euler"
+    neg = verify_board_candidates(
+        fetch,
+        [
+            ("breezy", "notarealboardxyz123"),
+            ("recruitee", "notarealboardxyz123"),
+            ("teamtailor", "notarealboardxyz123"),
+        ],
+    )
+    assert neg is None

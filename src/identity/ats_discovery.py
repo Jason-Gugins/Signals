@@ -232,6 +232,11 @@ def board_token_candidates(
 #   ashby          200 + non-empty "jobs"   via posting-api (NEG 404)
 #   workable       200 + non-empty "jobs"   (POS doist)
 #   smartrecruiters 200 + totalFound > 0    (200/empty exists for wrong tokens!)
+#   breezy         200 + JSON array (or {"positions"/"jobs": [...]})
+#                  (POS euler, NEG 404 text/html shell, not JSON)
+#   recruitee      200 + non-empty "offers" (POS tether, NEG 404 {"error": ...})
+#   teamtailor     200 + non-empty "items" (JSON Feed) or "jobs"
+#                  (POS recruitgo, NEG 404 empty body)
 MAX_VERIFY_REQUESTS = 8
 
 _VERIFY_ENDPOINTS: dict[str, str] = {
@@ -240,14 +245,24 @@ _VERIFY_ENDPOINTS: dict[str, str] = {
     "ashby": "https://api.ashbyhq.com/posting-api/job-board/{t}",
     "workable": "https://apply.workable.com/api/v1/widget/accounts/{t}?details=true",
     "smartrecruiters": "https://api.smartrecruiters.com/v1/companies/{t}/postings",
-    "breezy": "https://{t}.breezy.hr/json",            # probe 404 shape before trusting
-    "recruitee": "https://{t}.recruitee.com/api/offers/",  # probe-first
-    "teamtailor": "https://{t}.teamtailor.com/jobs.json",  # probe-first
+    "breezy": "https://{t}.breezy.hr/json",  # pinned 2026-10-04, POS=euler, NEG=404 text/html shell (not JSON)
+    "recruitee": "https://{t}.recruitee.com/api/offers/",  # pinned 2026-10-04, POS=tether, NEG=404 {"error": ...}
+    "teamtailor": "https://{t}.teamtailor.com/jobs.json",  # pinned 2026-10-04, POS=recruitgo, NEG=404 empty body
 }
 
 
 def _board_payload_ok(vendor: str, body: str) -> bool:
-    """PURE. Vendor-specific acceptance on the JSON payload text."""
+    """PURE. Vendor-specific acceptance on the JSON payload text.
+
+    Live-probed 2026-10-04: breezy boards are a top-level JSON list of
+    positions (parse_breezy also reads {"positions"/"jobs": [...]}); a
+    wrong token 404s with an HTML shell. recruitee wraps its offers in
+    {"offers": [...]} — the only key parse_recruitee reads; a wrong token
+    404s with {"error": ...}. teamtailor /jobs.json is a JSON Feed 1.1
+    document (jobs under "items"; the embedded board state parse_teamtailor
+    reads uses "jobs"); a wrong token 404s with an empty body. Anything
+    unparseable or empty is a MISS for every vendor.
+    """
     try:
         data = json.loads(body)
     except Exception:
@@ -256,8 +271,16 @@ def _board_payload_ok(vendor: str, body: str) -> bool:
         return isinstance(data, dict) and int(data.get("totalFound") or 0) > 0
     if isinstance(data, list):
         return len(data) > 0
-    jobs = data.get("jobs") if isinstance(data, dict) else None
-    return bool(jobs)
+    if isinstance(data, dict):
+        if vendor == "breezy":
+            return bool(data.get("positions") or data.get("jobs"))
+        if vendor == "recruitee":
+            return bool(data.get("offers"))
+        if vendor == "teamtailor":
+            # JSON Feed (the live jobs.json shape) or embedded board state.
+            return bool(data.get("items") or data.get("jobs"))
+        return bool(data.get("jobs"))
+    return False
 
 
 def verify_board_candidates(fetch_text, candidates: list[tuple[str, str]]) -> Optional[AtsMatch]:

@@ -215,6 +215,53 @@ def test_xray_google_state_missing_cookie_jar_fails_cleanly(fake_orch, tmp_path,
     assert "scripts/google_cookie_refresh.py" in result.output
 
 
+def test_xray_google_state_malformed_jar_fails_cleanly(fake_orch, tmp_path, monkeypatch):
+    # Wave-review fix: validation is TYPE-strict — a null/non-string value
+    # would join as "NID=None" into the Cookie header; it must be rejected
+    # with the same refresh-procedure guidance.
+    jar = tmp_path / "google_cookies.json"
+    jar.write_text(
+        json.dumps([
+            {"name": "NID", "value": None},
+            {"name": "SOCS", "value": 42},
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "XRAY_GOOGLE_COOKIES_PATH", str(jar))
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["xray", "--engine", "google_state", "--kind", "hiring",
+         "--role", "head of sales", "--limit", "1"],
+    )
+    assert result.exit_code != 0
+    assert "no google cookie jar at" in result.output
+
+
+def test_xray_google_state_multi_cookie_jar_joins_raw(fake_orch, tmp_path, monkeypatch):
+    # Cookie values carry '=', '/', '+' — the join must be RAW (Cookie wire
+    # format), never url-encoded, and order follows the jar.
+    jar = tmp_path / "google_cookies.json"
+    jar.write_text(
+        json.dumps([
+            {"name": "NID", "value": "v1=aa/bb+"},
+            {"name": "SOCS", "value": "CAE"},
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "XRAY_GOOGLE_COOKIES_PATH", str(jar))
+    seen: dict = {}
+    monkeypatch.setattr(curl_fetcher_mod, "curl_cffi_get", _fake_curl_get(seen))
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["xray", "--engine", "google_state", "--kind", "hiring",
+         "--role", "head of sales", "--limit", "1", "--pace", "0", "--attempt-pause", "0"],
+    )
+    assert result.exit_code == 0, result.output
+    assert seen["cookie_header"] == "NID=v1=aa/bb+; SOCS=CAE"
+
+
 def test_xray_google_state_run_offline(fake_orch, tmp_path, monkeypatch):
     jar = tmp_path / "google_cookies.json"
     _write_jar(jar)

@@ -984,7 +984,14 @@ def _xray_google_state_fetch():
     if not (
         isinstance(jar, list)
         and jar
-        and all(isinstance(c, dict) and c.get("name") and "value" in c for c in jar)
+        and all(
+            isinstance(c, dict)
+            and isinstance(c.get("name"), str)
+            and c["name"].strip()
+            and isinstance(c.get("value"), str)
+            and c["value"].strip()
+            for c in jar
+        )
     ):
         click.echo(
             f"no google cookie jar at {XRAY_GOOGLE_COOKIES_PATH} — run "

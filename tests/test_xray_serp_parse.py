@@ -241,6 +241,35 @@ def test_google_state_clean_body_without_wjd_raises():
     assert "no result records parsed from body" in str(excinfo.value)
 
 
+def test_google_state_early_enablejs_with_records_is_soft():
+    # Wave-review fix: enablejs appears in the <noscript> of EVERY Google page
+    # INCLUDING result-bearing ones (Task 1) — when the body carries W_jd
+    # records, an early enablejs marker must NOT classify the body as a
+    # challenge (results are record-gated, so this door admits no captcha).
+    body = (
+        '<html><head><title>Google Search</title></head><body>'
+        '<noscript><a href="/httpservice/retry/enablejs?sei=x">enable js</a></noscript>'
+        '<script>window.W_jd={"2003":[null,"tok","https://www.linkedin.com/in/janedoe","Jane Doe - Head of Growth"]};'
+        "</script></body></html>"
+    )
+    results = parse_results(body, engine="google_state")
+    assert [r["url"] for r in results] == ["https://www.linkedin.com/in/janedoe"]
+    assert results[0]["title"] == "Jane Doe - Head of Growth"
+
+
+def test_google_state_early_enablejs_without_records_still_challenge():
+    # The same early enablejs WITHOUT records (the 93KB shell family) still
+    # raises as a challenge — the soft-marker door admits nothing else.
+    body = (
+        '<html><head><title>Google Search</title></head><body>'
+        '<noscript><a href="/httpservice/retry/enablejs?sei=x">enable js</a></noscript>'
+        "<p>no results here</p></body></html>"
+    )
+    with pytest.raises(ParseError) as excinfo:
+        parse_results(body, engine="google_state")
+    assert "challenge page served" in str(excinfo.value)
+
+
 def test_google_state_wjd_without_records_raises():
     body = (
         "<html><script>var a={};if(window.W_jd)for(var b in a)"

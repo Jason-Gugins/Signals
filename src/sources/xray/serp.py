@@ -74,12 +74,16 @@ _DDG_CHALLENGE_MARKERS: tuple[str, ...] = (
 # data/probe/XRAY_SERP_2026_10.md: the 429 captcha interstitial (ladder Tasks
 # 2+3) carries "unusual traffic" + "g-recaptcha"/"recaptcha" (the bare
 # "captcha" DDG marker also matches), so the existing list covers it — no new
-# google-specific marker was documented. Two recorded caveats: (a) the
-# enablejs noscript href ALSO appears on genuine result bodies (Task 1) — it
-# only stays honest because is_challenge scans the front-loaded 20k window
-# and real result pages carry it at ~141k; (b) the /sorry/ + X-Sorry-Redirect
-# strings in result captures are the app shell's own guard JS (never a served
-# body) — do NOT add X-Sorry-Redirect as a marker.
+# google-specific marker was documented. Three recorded caveats: (a) the
+# enablejs noscript href ALSO appears on genuine result bodies (Task 1) — for
+# google_state it is overruled as a SOFT marker when the body actually carries
+# W_jd result records (_enablejs_is_soft; results are record-gated, so no
+# challenge body can ride that door). Real result bodies carry enablejs
+# anywhere from ~63k to ~141k chars in, so the positional guard alone was too
+# thin. (b) the /sorry/ + X-Sorry-Redirect strings in result captures are the
+# app shell's own guard JS (never a served body) — do NOT add
+# X-Sorry-Redirect as a marker. (c) the cookie-LESS 93KB shells classify as
+# challenges via enablejs sitting at ~337 chars — inside the 20k window.
 _GOOGLE_CHALLENGE_MARKERS: tuple[str, ...] = (
     "/httpservice/retry/enablejs",
     "/sorry/",
@@ -111,6 +115,23 @@ def is_challenge(body: str) -> str | None:
         if marker in low:
             return marker
     return None
+
+
+def _enablejs_is_soft(engine: str, body: str, marker: str) -> bool:
+    """True when the enablejs marker rides a genuine result body (pure).
+
+    enablejs appears in the standard <noscript> of EVERY Google page including
+    result-bearing ones (Task 1 proved it on both live captures), so for
+    google_state that one marker is overruled when the body actually carries
+    W_jd result records. Results can only come from "2003" records with
+    absolute non-google URLs, so no challenge body can slip through this door
+    — captcha/shell bodies carry no records and still raise.
+    """
+    return (
+        engine == "google_state"
+        and marker == "/httpservice/retry/enablejs"
+        and _WJD_RECORD_RE.search(body or "") is not None
+    )
 
 
 _ANCHOR_RE = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.S | re.I)
@@ -194,7 +215,7 @@ def parse_results(body: str, *, engine: str = "ddg_lite") -> list[dict]:
             "(bing/brave/mojeek probed NO-GO per data/probe/XRAY_SERP_2026_10.md)"
         )
     marker = is_challenge(body)
-    if marker is not None:
+    if marker is not None and not _enablejs_is_soft(engine, body, marker):
         raise ParseError(f"{engine}: challenge page served ({marker!r} in body)")
     if engine == "google_state":
         return _parse_google_state(body)

@@ -990,6 +990,58 @@ Plan: `.zcode/plans/2026-10-03_190648-techstack-improvements.md` (Revision 1 —
 - **Task 10 NOT executed (Jason's call)**: `job_text` rename (it matches homepage text, not job text) · `competitors.txt` cross-wire into `competitor_detected` (list ships empty by design) · multi-page fetch · non-Statuspage outage polling (probe-gated per provider).
 - **Open for Jason**: `contract_years` values (salesforce 2 / marketo 2 / snowflake 1) are estimation-adjacent — override with real terms; fresh recon probe for shopify/nextjs/nuxt/squarespace needles deferred per never-guess (fixtures had zero markers); cookie_name arm ships with NO needles (no fixture evidence).
 
+## ATS board candidate ladder (2026-10-03/04 — DELIVERED, abnormal.ai validated end-to-end)
+
+Plan: `.zcode/plans/2026-10-03_183335-ats-board-candidate-ladder.md` (serial subagent
+execution, one at a time; two-stage review wave). Fixes the JS-rendered-careers blind
+spot: `Abnormal AI`'s careers page is a 382KB shell with zero ATS markers, so no ATS
+adapter ever fired and `ats_careers_page` scraped nothing.
+
+- **Rungs added** (all identity-stage, `src/identity/ats_discovery.py`): Stage 5 hub
+  hop — follow ONE listing-hub link (`/careers/open-roles` pattern) from already-fetched
+  pages and re-scan it (`79621ee`); Stage 6 verified-candidate ladder — derive board
+  tokens from account name + domain prefix + human-gated `entity_aliases`
+  (`board_token_candidates`, `62dee76`), probe each vendor's keyless JSON board API,
+  accept only verified payload shapes (`verify_board_candidates`, `8053824`); wired
+  into `discover()` behind the existing COLLECTED_VENDORS stamping guard with
+  `registry.entity_aliases_for()` feeding alias tokens and MAX_DISCOVERY_REQUESTS
+  10→18 (`df096ac`). Review fixes: ladder-hit `careers_url` root guard, never-raises
+  wrap of `_board_payload_ok`, hub self-link dedup, ≥3-char token floor, honest
+  vendor-major coverage-math comment + ordering pin (`636f94f`).
+- **Probe-pinned predicates (live 2026-10-03)**: greenhouse
+  `boards-api.greenhouse.io/v1/boards/{t}/jobs` 200+`jobs`; lever
+  `api.lever.co/v0/postings/{t}?mode=json` 200+array; ashby
+  `api.ashbyhq.com/posting-api/job-board/{t}` 200+`jobs` (linear POS; abnormal NEG);
+  workable widget API 200+`jobs` (doist POS); smartrecruiters requires
+  `totalFound>0` (200-empty happens for wrong tokens). **TRAP (verified):
+  `jobs.ashbyhq.com/{anything}` is a byte-identical 200 SPA shell for real and
+  garbage tokens — HTML board URLs are never verification.** breezy/recruitee/
+  teamtailor kept with safe shape-predicates, 404 shapes unpinned (probe-first).
+  workday/jobvite/rippling excluded (compound token / HTML-only verification —
+  marker rungs cover them).
+- **Measured end-to-end (abnormal.ai showcase)**: seeded human-gated alias
+  `Abnormal Security → abnormal.ai`, one `intel abnormal.ai --force`: marker rungs +
+  hub hop found nothing (fetch_log shows the hop), ladder probed greenhouse
+  `abnormal`→404, `abnormalai`→404, `abnormalsecurity`→200 → stamped
+  `ats_vendor=greenhouse, ats_token=abnormalsecurity` → `ats_greenhouse` collected
+  (fetched=2, signals_new=1) and `jobsignals` **+16 hiring signals**. Signal types
+  4 → 9 (hiring_surge, leadership_job_open, office_open, internal_project_scoop,
+  tech_migration_mentioned now present). All other ATS adapters correctly
+  `ineligible_ats_vendor`; root guard kept careers_url; stamped accounts skip
+  discovery forever (orchestrator.py:155).
+- **Known limitation (documented + pinned by test)**: vendor-major probe order within
+  MAX_VERIFY_REQUESTS=8 means ≥4-candidate accounts only ever probe greenhouse+lever
+  — workable/smartrecruiters/ashby-only marker-free sites are a deterministic ladder
+  blind spot (marker rungs or a future budget bump cover them). Round-robin reorder
+  was rejected: it would break the Abnormal showcase (greenhouse 4th token).
+- **Commits**: 62dee76 · 79621ee · 8053824 · df096ac · 636f94f. Test lane: 52/52 on
+  the five ats/identity suites; full offline lane green except the documented
+  environmental TLS failures. (The `test_runner_marks_cloudflare_unsolved` red seen
+  mid-wave was the concurrent techstack wave's in-flight pin, fixed by its 9a6e2d4.)
+- **Ops follow-ups for Jason**: seed entity aliases for other rebranded accounts
+  (seed domains lowercase to match `acct.domain` exactly); probe breezy/recruitee/
+  teamtailor 404 shapes when convenient.
+
 ## Manual checklists (human setup, not code)
 
 - **2Captcha provider setup** — create account, key in `.env`, verify `TurnstileTaskProxyless` vs `AntiCloudflareTaskProxyless` against a real managed challenge, test headed fallback (`CLOUDFLARE_HEADED_FALLBACK=true`).

@@ -232,3 +232,19 @@ def test_meta_generator_evidence():
     assert [h.vendor for h in hits] == ["wordpress"]
     assert hits[0].evidence == "meta_generator"
     assert hits[0].confidence == 0.7
+
+
+def test_enterprise_vendors_carry_explicit_contract_years():
+    # Task 7 pin: renewal_window estimates default to 1-year contracts, which
+    # understates multi-year enterprise terms. Presence of the key (not its
+    # value — those are judgment calls) is what this pins, so any future
+    # tier: enterprise vendor must state its renewal horizon explicitly.
+    from src.sources.techstack.fingerprint import load_fingerprint_rules
+
+    rules = load_fingerprint_rules()
+    vendors = rules.get("vendors") or {}
+    ent = {k: s for k, s in vendors.items() if (s or {}).get("tier") == "enterprise"}
+    assert ent, "no enterprise vendors found"
+    for name, spec in ent.items():
+        cy = (spec or {}).get("contract_years")
+        assert isinstance(cy, int) and cy >= 1, f"{name} (tier=enterprise) needs an explicit contract_years >= 1"

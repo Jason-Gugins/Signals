@@ -21,11 +21,14 @@ vendors:
     display: "Salesforce"
     category: [crm]
     tier: enterprise
+    # Renewal estimate: ~2-year terms (annual true-ups) — judgment call,
+    # flagged for Jason to confirm against real contracts.
+    contract_years: 2
     match:
       script_src: ["force.com", "salesforceliveagent.com", "pardot.com"]
       spf_include: ["salesforce.com", "pardot.com", "exacttarget.com"]
       dns_cname: ["salesforce.com"]
-  marketo: { display: "Marketo", category: [marketing_automation], tier: enterprise,
+  marketo: { display: "Marketo", category: [marketing_automation], tier: enterprise, contract_years: 2,
              match: { script_src: ["munchkin.marketo.net"], dns_cname: ["mktoweb.com"], spf_include: ["mktomail.com"], inline_global: ["Munchkin.init"] } }
   google_workspace: { display: "Google Workspace", category: [email], tier: mid,
              match: { mx: ["google.com", "googlemail.com"] } }
@@ -37,7 +40,7 @@ vendors:
              match: { script_src: ["widget.intercom.io", "js.intercomcdn.com"] } }
   segment: { display: "Segment", category: [cdp], tier: mid,
              match: { script_src: ["cdn.segment.com"] } }
-  snowflake: { display: "Snowflake", category: [data_warehouse], tier: enterprise,
+  snowflake: { display: "Snowflake", category: [data_warehouse], tier: enterprise, contract_years: 1,
              match: { job_text: ["snowflake"] } }
   # Workday HCM deals typically run on multi-year contracts, so its renewal
   # window is estimated from first_seen + 3 years (renewal_window wiring).

@@ -53,6 +53,11 @@ Rules live in [`config/fingerprints.yaml`](../../../config/fingerprints.yaml).
 | `network_host` | HAR-lite host list (suffix match only) | `cdn.prod.website-files.com` → Webflow |
 | `dns_cname` / `mx` / `spf_include` | DNS probe, merged into `harvest_tech` (html-task-gated, fail-open) | `protection.outlook.com` → Microsoft 365 |
 | `job_text` | text blob | `snowflake` |
+| `header` | response headers (casefolded substring, any pair) | `server: cloudflare` → Cloudflare |
+| `html_marker` | raw-HTML substring (full body — asset paths are strong evidence; prose mentions can false-hit, mitigated by `tier: low`) | `/wp-content/` → WordPress |
+| `inline_global` | inline script globals: `window.X` captures + known init-call fragments (substring) | `hbspt.forms.create` → HubSpot |
+| `cookie_name` | Set-Cookie names (exact match, not substring) | `_shopify_s` → Shopify (no fixture-frozen needle yet — arm ships empty) |
+| `meta_generator` | `<meta name="generator">` content (casefolded substring) | `hubspot` → HubSpot |
 
 `network_host` matching is suffix-only (`host == needle` or `host.endswith("." + needle)`). `force.com` does **not** match `workforce.com`. `cdn-cookieyes.com` is **not** a suffix of `cookieyes.com` — both needles are required. Needles are copied into YAML only from a frozen fixture — never guessed.
 
@@ -122,9 +127,9 @@ non-default backoff). Env overrides: `CLOUDFLARE_SOLVER_API_KEY`, `CLOUDFLARE_SO
 
 ## Vendors in YAML now
 
-HubSpot, Salesforce, Marketo, Google Workspace, Microsoft 365, Zendesk, Intercom, Segment, Snowflake, Workday, Statuspage, Instatus, Better Stack, incident.io, Webflow, GTM, Google Analytics, Meta Pixel, CookieYes, Vector, OneTrust, Bing UET, Vimeo, Cloudflare.
+HubSpot, Salesforce, Marketo, Google Workspace, Microsoft 365, Zendesk, Intercom, Segment, Snowflake, Workday, Statuspage, Instatus, Better Stack, incident.io, Webflow, WordPress, GTM, Google Analytics, Meta Pixel, CookieYes, Vector, OneTrust, Bing UET, Vimeo, Cloudflare.
 
-Needles for Webflow / HubSpot / GTM / GA / Meta / CookieYes / Vector were frozen from `scanner.dev`. OneTrust / Bing / Vimeo from the 2026-08-23 levitate.ai and darktrace.com HARs. Instatus / Better Stack / incident.io and the `stspg-customer.com` needle on the Statuspage row were frozen from live DNS probes on 2026-10-03 (customer status CNAMEs: `status.basedash.com` → `cname.instatus.com`; `status.raycast.com` → `statuspage.betteruptime.com`; `status.plex.tv` → `statuspage.incident.io`; `status.render.com` → `<hash>.stspg-customer.com`). See [`tests/fixtures/techstack/NETWORK.md`](../../../tests/fixtures/techstack/NETWORK.md) and [`PROBE_2026-08-23.md`](../../../tests/fixtures/techstack/PROBE_2026-08-23.md).
+Needles for Webflow / HubSpot / GTM / GA / Meta / CookieYes / Vector were frozen from `scanner.dev`. OneTrust / Bing / Vimeo from the 2026-08-23 levitate.ai and darktrace.com HARs. WordPress' `/wp-content/` marker from the usercentrics.com HAR (`network_usercentrics.com.json`). Instatus / Better Stack / incident.io and the `stspg-customer.com` needle on the Statuspage row were frozen from live DNS probes on 2026-10-03 (customer status CNAMEs: `status.basedash.com` → `cname.instatus.com`; `status.raycast.com` → `statuspage.betteruptime.com`; `status.plex.tv` → `statuspage.incident.io`; `status.render.com` → `<hash>.stspg-customer.com`). See [`tests/fixtures/techstack/NETWORK.md`](../../../tests/fixtures/techstack/NETWORK.md) and [`PROBE_2026-08-23.md`](../../../tests/fixtures/techstack/PROBE_2026-08-23.md).
 
 ## Signals
 

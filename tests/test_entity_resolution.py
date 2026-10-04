@@ -6,6 +6,8 @@ Covers:
 - entity_aliases migration v4 (table created + user_version bump)
 - registry round-trip: add_entity_alias + resolve by entity alias
 - alias lookup wins over fuzzy; normalized match precedes fuzzy fallback
+- resolve-time seeding from config/lists/entity_aliases.yaml (idempotent,
+  fail-open on a missing file)
 """
 
 from __future__ import annotations
@@ -14,10 +16,13 @@ from pathlib import Path
 
 import pytest
 
+from src.core.config import Config
 from src.core.db import Database
-from src.core.models import Account
+from src.core.http import FetchResult
+from src.core.models import Account, Document
 from src.identity.registry import AccountRegistry
 from src.identity.resolve import fuzzy_match, normalize_entity
+from src.pipeline.orchestrator import Orchestrator
 
 
 # ── normalization table ────────────────────────────────────────────────────
@@ -197,3 +202,70 @@ def test_normalized_name_collision_falls_through(tmp_path):
     # 'Inc/Corp/Co' all collapse to 'acme', so use a distinct token:
     reg.add_alias("Zeta Analytics", "name", "acme.com", source="test")
     assert reg._normalized_name("Zeta Analytics Ltd").domain == "acme.com"
+
+
+# ── resolve-time seeding from config/lists/entity_aliases.yaml ─────────────
+
+class _NoFetch:
+    """Fetcher that 404s everything: the alias-seeding tests stay offline —
+    the ATS ladder runs its full budget against dead ends and never verifies."""
+
+    def get(self, task, **kw):
+        doc = Document(
+            doc_id=task.url[-16:],
+            source=task.source,
+            url=task.url,
+            domain=task.domain,
+            body=b"",
+            status=404,
+        )
+        return FetchResult(False, 404, doc, False, None, 1)
+
+
+def _resolve_orch(tmp_path: Path, *, with_alias_file: bool) -> Orchestrator:
+    cfg = Config()
+    cfg.contact_email = "recon@example.com"
+    cfg.http.respect_robots = False
+    cfg.storage.db_path = str(tmp_path / "s.db")
+    cfg.storage.raw_dir = str(tmp_path / "raw")
+    cfg.storage.briefs_dir = str(tmp_path / "briefs")
+    cfg.storage.export_dir = str(tmp_path / "exports")
+    cfg.config_dir = str(tmp_path / "config")
+    if with_alias_file:
+        lists_dir = tmp_path / "config" / "lists"
+        lists_dir.mkdir(parents=True, exist_ok=True)
+        (lists_dir / "entity_aliases.yaml").write_text(
+            '"Abnormal Security": abnormal.ai\n', encoding="utf-8"
+        )
+    orch = Orchestrator(cfg, fetcher=_NoFetch())
+    orch.registry.upsert(Account(domain="acme.com", name="Acme Inc", tier=1, score=80))
+    return orch
+
+
+def _ats_only_kwargs() -> dict:
+    return dict(
+        ats=True, cik=False, feeds=False, icp=False, g2=False,
+        appstore=False, bbb=False, linkedin=False,
+    )
+
+
+def test_resolve_loads_entity_aliases_from_config(tmp_path: Path) -> None:
+    """A config/lists/entity_aliases.yaml mapping {alias: domain} populates the
+    registry at resolve time — aliases reach the ATS ladder without manual DB
+    scripts, and survive DB rebuilds (config is the source of truth). A second
+    resolve is idempotent: the alias PK upsert must not duplicate rows."""
+    orch = _resolve_orch(tmp_path, with_alias_file=True)
+    out = orch.resolve(domains=["acme.com"], **_ats_only_kwargs())
+    assert out["accounts"] == 1
+    assert orch.registry.entity_aliases_for("abnormal.ai") == ["abnormal security"]
+    orch.resolve(domains=["acme.com"], **_ats_only_kwargs())
+    assert orch.registry.entity_aliases_for("abnormal.ai") == ["abnormal security"]
+
+
+def test_resolve_tolerates_missing_entity_aliases_yaml(tmp_path: Path) -> None:
+    """No entity_aliases.yaml in the config dir -> resolve still runs (fail-open
+    like every identity resolver) and seeds no aliases."""
+    orch = _resolve_orch(tmp_path, with_alias_file=False)
+    out = orch.resolve(domains=["acme.com"], **_ats_only_kwargs())
+    assert out["accounts"] == 1
+    assert orch.registry.entity_aliases_for("abnormal.ai") == []

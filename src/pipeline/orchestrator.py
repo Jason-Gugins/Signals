@@ -150,6 +150,21 @@ class Orchestrator:
             if ats:
                 from src.identity.ats_discovery import AtsDiscovery
 
+                # Config-driven alias seeding (config/lists/entity_aliases.yaml,
+                # {alias: canonical domain}): upserted ONCE per resolve, before
+                # the ladder loop, so former-brand tokens reach
+                # board_token_candidates without a manual DB script. Idempotent
+                # (entity_aliases PK = alias) and fail-open — a missing or
+                # broken file must never block resolve.
+                try:
+                    alias_cfg = self.config.load_yaml("lists/entity_aliases")
+                    if alias_cfg:
+                        self.registry.load_entity_aliases_from_config(
+                            {str(k): str(v) for k, v in alias_cfg.items()}
+                        )
+                except Exception:
+                    logger.warning("entity_aliases.yaml load failed; continuing")
+
                 disc = AtsDiscovery(self.fetcher or self._http_fetcher(ctx), self.registry)
                 for acct in accounts:
                     if acct.ats_token and acct.ats_vendor:

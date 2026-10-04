@@ -1,0 +1,7 @@
+# Human-curated company-name aliases: {alias: canonical domain}.
+# Fed to AccountRegistry.load_entity_aliases_from_config() at resolve time
+# (idempotent upserts). Human-gated like entity_aliases always were — never
+# auto-derived. Primary consumer: the ATS board-candidate ladder, where a
+# former brand name is often the live board token (e.g. Abnormal AI trades
+# as abnormal.ai but its greenhouse board is 'abnormalsecurity').
+"Abnormal Security": abnormal.ai

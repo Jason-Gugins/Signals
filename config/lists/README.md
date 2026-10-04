@@ -11,6 +11,12 @@ Drop these files here (one entry per line, `#` comments allowed):
   string kinds: `people`, `company`, `hiring`, `intent`). "Swap the niche" =
   edit this file — the five string families and slot mechanics are documented
   in the root README's *X-ray SERP prospecting* section.
+- entity_aliases.yaml — human-curated company-name aliases as
+  {alias: canonical domain} (ships tracked; seeded with
+  `"Abnormal Security": abnormal.ai`). Loaded into the registry at resolve
+  time via `load_entity_aliases_from_config` (idempotent upserts) so
+  former-brand tokens reach the ATS board ladder. Human-gated like all
+  entity_aliases — never auto-derived; add a row by editing this file.
 
 The three `.txt` lists ship as comment-only stubs — edit them in place.
 `champions.csv` does not ship; create it (and it stays untracked).

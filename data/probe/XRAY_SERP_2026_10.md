@@ -347,3 +347,9 @@ Selectors derived from the actual bodies (probe brief: derive from bodies, print
 Total: **9 of 12** (rung budget; the 3 unspent requests were the mojeek q3–q5 cells dropped after its 2-consecutive-block abort — budget headroom was moot). Every consecutive request ≥4 s apart (global PACE_S); zero hard-block retries; every cell classified from the body, never the status.
 
 Artifacts (tmp/, gitignored, NOT committed): `probe_xray_bing.html` (q1 operator-mangled 10-result SERP — negative fixture for any future bing parser, NOT an organic fixture), `probe_xray_brave_challenge.html`, `probe_xray_mojeek_challenge.html`. **No GO engine exists, so no Task 6 parser fixture body was required or captured** — the plan's "one full organic body per GO engine" stays unfulfilled for Leg B.
+
+## SearXNG spike — DOCKER_ABSENT (ladder Task 5, 2026-10-03)
+
+`docker --version` → command not found on this machine. Per the plan's own gate, the SearXNG spike STOPS here; the Docker-dependency decision is Jason's (pip-install SearXNG is the documented fallback but heavier to maintain).
+
+Honest caveat for that decision: the wall Google/Bing/Brave/Mojeek served this probe batch is **IP-reputation-level** (429 captcha / 403 automated-queries from the same home IP) — a local SearXNG egresses from the same IP and cannot fix IP reputation; its durable value is upstream-maintained *fetch* bypasses (cookies/selectors/params), not IP rehabilitation. Expect it to inherit some of these walls.

@@ -290,6 +290,8 @@ def test_board_token_candidates_from_name_and_domain():
     cands = board_token_candidates("Abnormal AI", "abnormal.ai", aliases=[])
     assert cands[0] == "abnormal"          # domain prefix first
     assert "abnormalai" in cands           # name joined
+    # sub-3-char tokens are collision noise: the bare word "ai" is dropped
+    assert "ai" not in cands
     # no dupes, all lowercase alnum
     assert len(cands) == len(set(cands))
     assert all(re.fullmatch(r"[a-z0-9_-]+", c) for c in cands)
@@ -373,6 +375,16 @@ def test_verify_board_candidates_smartrecruiters_needs_totalfound():
     assert verify_board_candidates(fetch, [("smartrecruiters", "x")]) is None
 
 
+def test_verify_board_candidates_never_raises_on_hostile_payload():
+    """Documented contract: verify_board_candidates never raises. The payload
+    predicate runs OUTSIDE the fetch try, so a hostile JSON body must be a
+    MISS — totalFound = 1e999 parses to float inf and int(inf) overflows."""
+    fetch = FakeJsonFetcher({
+        "https://api.smartrecruiters.com/v1/companies/x/postings": '{"totalFound": 1e999}',
+    })
+    assert verify_board_candidates(fetch, [("smartrecruiters", "x")]) is None
+
+
 def test_verify_board_candidates_ashby_never_trusts_html():
     """The ashby HTML board is a 200 catch-all — only posting-api JSON counts."""
     fetch = FakeJsonFetcher({
@@ -415,6 +427,22 @@ def test_discover_hub_hop_finds_vendor_on_listing_page(tmp_path):
     assert stored.careers_url == "https://acme.com/careers/open-roles"
 
 
+def test_discover_hub_hop_skips_self_linking_hub(tmp_path):
+    """A careers page whose hub link points back at itself must not be
+    refetched — the hub hop only spends its request on a NEW url. The path
+    must not collide with the hardcoded Stage-4 candidates (/careers, /jobs,
+    /join-us, ...), so /vacancies it is."""
+    pages = {
+        "https://acme.com/vacancies": '<html><body><a href="/vacancies">All roles</a></body></html>',
+    }
+    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    acct.careers_url = "https://acme.com/vacancies"
+    reg.upsert(acct)
+    assert disc.discover(reg.get("acme.com")) is None
+    # fetched once as the stored careers page, never again by the hub hop
+    assert fake.seen.count("https://acme.com/vacancies") == 1
+
+
 def test_discover_candidate_ladder_stamps_verified_alias_token(tmp_path):
     """No markers anywhere; the alias-derived token verified against the JSON API."""
     pages = {
@@ -433,6 +461,22 @@ def test_discover_candidate_ladder_stamps_verified_alias_token(tmp_path):
     assert stored.ats_token == "oldname"
     # a ladder hit never discovered a new careers page: the stored one stays
     assert stored.careers_url == "https://acme.com/careers"
+
+
+def test_discover_ladder_hit_never_stamps_site_root(tmp_path):
+    """Root guard: a ladder hit with NO stored careers_url must not stamp the
+    bare site root (here the only fetched page) as careers_url."""
+    pages = {
+        "https://acme.com/": "<html><body>we are hiring</body></html>",
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs": '{"jobs":[{"id":1}]}',
+    }
+    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    match = disc.discover(acct, alias_names=[])
+    assert match and match.vendor == "greenhouse" and match.token == "acme"
+    stored = reg.get("acme.com")
+    assert stored.ats_vendor == "greenhouse"
+    # the homepage root was the only careers-ish page seen — it is NOT one
+    assert stored.careers_url is None
 
 
 def test_discover_ladder_miss_still_persists_careers_url(tmp_path):
@@ -469,6 +513,36 @@ def test_discover_candidate_ladder_skipped_after_marker_hit(tmp_path, monkeypatc
     assert match and match.vendor == "lever" and match.token == "acme"
     stored = reg.get("acme.com")
     assert stored.ats_vendor == "lever"
+
+
+def test_discover_ladder_probe_order_is_vendor_major(tmp_path):
+    """Ordering invariant of the vendor-major crossing (see the Stage 6
+    comment; do NOT fix the coverage gap by reordering): the 8-probe budget
+    covers ALL candidate tokens on greenhouse first, then spills into lever —
+    later vendors are never reached. The Abnormal input yields 6 tokens (5
+    branded tokens plus the alias word "ltd", which survives the 3-char
+    floor), so the cap buys 6 greenhouse probes + 2 lever probes."""
+    pages = {"https://abnormal.ai/careers": "<html><body>we are hiring</body></html>"}
+    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    acct.domain = "abnormal.ai"
+    acct.name = "Abnormal AI"
+    acct.careers_url = "https://abnormal.ai/careers"
+    reg.upsert(acct)
+    assert disc.discover(
+        reg.get("abnormal.ai"),
+        alias_names=["Abnormal Security", "Abnormal Security Ltd."],
+    ) is None
+    probes = fake.seen[-MAX_VERIFY_REQUESTS:]
+    assert probes == [
+        "https://boards-api.greenhouse.io/v1/boards/abnormal/jobs",
+        "https://boards-api.greenhouse.io/v1/boards/abnormalai/jobs",
+        "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs",
+        "https://boards-api.greenhouse.io/v1/boards/security/jobs",
+        "https://boards-api.greenhouse.io/v1/boards/abnormalsecurityltd/jobs",
+        "https://boards-api.greenhouse.io/v1/boards/ltd/jobs",
+        "https://api.lever.co/v0/postings/abnormal?mode=json",
+        "https://api.lever.co/v0/postings/abnormalai?mode=json",
+    ]
 
 
 def test_verify_board_endpoints_module_invariants():

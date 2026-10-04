@@ -193,10 +193,13 @@ class AccountRegistry:
             self.add_entity_alias(alias, domain)
 
     def entity_aliases_for(self, domain: str) -> list[str]:
-        """Raw alias strings mapped to a domain (human/config-gated rows only).
+        """Normalized alias keys mapped to a domain (human/config-gated rows).
 
-        Read side of add_entity_alias: candidate board tokens for the ATS
-        ladder derive from these — former brand names live here.
+        Read side of add_entity_alias: rows are stored normalize_entity-
+        normalized ("Abnormal Security Ltd." is stored as "abnormal
+        security"), so this returns canonical keys, not raw alias strings.
+        Candidate board tokens for the ATS ladder derive from these —
+        former brand names live here.
         """
         return [
             row["alias"]

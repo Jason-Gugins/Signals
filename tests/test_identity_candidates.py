@@ -214,3 +214,21 @@ def test_doctor_pending_warns_with_pending_rows(tmp_path: Path) -> None:
         )
     finally:
         db.close()
+
+
+# ── AccountRegistry.entity_aliases_for: normalized-key round trip ──────────
+
+def test_entity_aliases_for_returns_normalized_keys(tmp_path: Path) -> None:
+    """entity_aliases_for is the read side of add_entity_alias, which stores
+    normalize_entity-normalized keys (legal suffixes stripped) — the ATS
+    ladder derives board tokens from these, so the raw-vs-normalized
+    distinction must be documented and pinned."""
+    from src.identity.registry import AccountRegistry
+
+    db = Database(tmp_path / "aliases.db")
+    try:
+        reg = AccountRegistry(db)
+        reg.add_entity_alias("Abnormal Security Ltd.", "x.test")
+        assert reg.entity_aliases_for("x.test") == ["abnormal security"]
+    finally:
+        db.close()

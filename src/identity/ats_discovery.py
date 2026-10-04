@@ -196,9 +196,11 @@ def board_token_candidates(
     """PURE. Bounded board-token candidates, best-first.
 
     Order: domain prefix, name joined ("abnormalai"), name first word, then
-    each alias joined + alias words. Reserved labels and duplicates dropped;
-    capped at MAX_BOARD_CANDIDATES. Verified acceptance happens later — a
-    wrong candidate costs one 404, never a stamp.
+    each alias joined + alias words. Reserved labels, sub-3-char tokens and
+    duplicates dropped; capped at MAX_BOARD_CANDIDATES. Verified acceptance
+    happens later — a wrong candidate costs one 404, never a stamp, UNLESS
+    another company owns that exact live board token (generic words carry a
+    small collision risk; the length floor shrinks it).
     """
     seen: list[str] = []
 
@@ -206,6 +208,10 @@ def board_token_candidates(
         joined = "".join(word_list)
         for tok in ([joined] if len(word_list) > 1 else []) + word_list:
             tok = tok.strip("-_")
+            # Generic 2-char tokens ("ai") are collision noise: if another
+            # company owns that live board token, verification would stamp it.
+            if len(tok) < 3:
+                continue
             if tok and tok not in seen and tok not in RESERVED_ATS_TOKENS:
                 seen.append(tok)
 
@@ -271,11 +277,18 @@ def verify_board_candidates(fetch_text, candidates: list[tuple[str, str]]) -> Op
             body = fetch_text(url)
         except Exception:
             continue
-        if body and _board_payload_ok(vendor, body):
-            return AtsMatch(
-                vendor=vendor, token=token, evidence_url=url,
-                confidence=0.75, extra={"source": "candidate_ladder"},
-            )
+        try:
+            # The payload predicate runs OUTSIDE the fetch try, so a hostile
+            # JSON body (e.g. totalFound = 1e999 parses to float inf and
+            # int() overflows) must be a MISS for the documented
+            # never-raises contract to hold.
+            if body and _board_payload_ok(vendor, body):
+                return AtsMatch(
+                    vendor=vendor, token=token, evidence_url=url,
+                    confidence=0.75, extra={"source": "candidate_ladder"},
+                )
+        except (TypeError, ValueError, OverflowError):
+            continue
     return None
 
 
@@ -445,10 +458,15 @@ class AtsDiscovery:
         # index (marker-free) from the page that embeds the ATS widget; follow
         # ONE hub link and scan it. Costs 1 request, only when markers failed.
         if not _has_collected_match(pages):
+            fetched_urls = {p_url for p_url, _ in pages}
             hub = None
             for url, html in pages:
-                hub = listing_hub_link(html, url)
-                if hub:
+                candidate = listing_hub_link(html, url)
+                # A careers page can link to itself as its own hub — skip any
+                # hub URL we already hold and keep scanning the remaining
+                # pages; refetching the same HTML spends a request for nothing.
+                if candidate and candidate not in fetched_urls:
+                    hub = candidate
                     break
             if hub and used < max_req:
                 hub_html = fetch(hub)
@@ -469,6 +487,12 @@ class AtsDiscovery:
             # token-major list would spend the whole cap on the first token and
             # never reach the alias-derived ones — the rebrand case (e.g. a
             # former brand name as greenhouse token) this ladder exists for.
+            #
+            # Coverage math (deliberate — do NOT fix by reordering): <=8 probes
+            # means with N candidate tokens only the first 8/N vendors get
+            # probed (N>=4 -> greenhouse+lever only); workable/smartrecruiters/
+            # ashby-only accounts whose sites are marker-free rely on the
+            # marker rungs or a future budget bump.
             candidates = [
                 (v, t)
                 for v in _VERIFY_ENDPOINTS
@@ -479,7 +503,15 @@ class AtsDiscovery:
             if match:
                 account.ats_vendor = match.vendor
                 account.ats_token = match.token
-                account.careers_url = account.careers_url or (pages[-1][0] if pages else None)
+                if not account.careers_url:
+                    # Root guard: a ladder hit verified a board API, not a
+                    # careers page, and the last fetched page can be the bare
+                    # site root — never stamp that as careers_url. Fill from
+                    # the last non-root page fetched, else leave it unset.
+                    for url, _html in reversed(pages):
+                        if not _is_site_root(url):
+                            account.careers_url = url
+                            break
                 self.registry.upsert(account, source="ats_discovery")
                 return match
 

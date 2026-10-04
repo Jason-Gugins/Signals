@@ -74,31 +74,40 @@ def is_first_party(host: str, domain: str) -> bool:
     return bool(d) and (h == d or h.endswith("." + d))
 
 
-def observed_hosts(ev, *, domain: str) -> tuple[str, ...]:
-    hosts = list(getattr(ev, "hosts", ()) or [])
+def _observed_host_items(ev, *, domain: str) -> tuple[tuple[str, str], ...]:
+    """Third-party observed hosts paired with the channel that surfaced
+    them: ("network_host", from ev.hosts / HAR-lite) or ("script_src",
+    from <script src> hostnames). Network channel is walked first so a
+    synthetic dual-channel object labels each host from its own source
+    and first-seen wins, matching the historical ordering."""
+    items: list[tuple[str, str]] = []
+    for h in getattr(ev, "hosts", ()) or []:
+        items.append((h, "network_host"))
     for src in getattr(ev, "script_srcs", []) or []:
-        h = (urlsplit(src).hostname or "").casefold()
-        if h:
-            hosts.append(h)
-    out = []
-    for h in hosts:
+        items.append(((urlsplit(src).hostname or "").casefold(), "script_src"))
+    out: list[tuple[str, str]] = []
+    for h, label in items:
         if not h or is_first_party(h, domain):
             continue
-        if h not in out:
-            out.append(h)
+        if h not in [x[0] for x in out]:
+            out.append((h, label))
     return tuple(out)
+
+
+def observed_hosts(ev, *, domain: str) -> tuple[str, ...]:
+    return tuple(h for h, _ in _observed_host_items(ev, domain=domain))
 
 
 def dynamic_matches(ev, *, domain: str) -> list[TechMatch]:
     out = []
-    for h in observed_hosts(ev, domain=domain):
+    for h, label in _observed_host_items(ev, domain=domain):
         out.append(
             TechMatch(
                 vendor=f"host:{h}",
                 display=h,
                 category=["observed"],
                 tier="unknown",
-                evidence="network_host",
+                evidence=label,
                 confidence=0.4,
             )
         )

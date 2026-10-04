@@ -40,6 +40,42 @@ def test_dynamic_matches_are_unknown_tier():
     assert not any(m.vendor.startswith("host:scanner.dev") for m in ms)
 
 
+def test_dynamic_matches_label_script_src_hosts():
+    # HttpEvidence: hostname extracted from <script src>, no hosts attr
+    ev = extract_http_evidence(
+        b"<html><script src='https://ajax.googleapis.com/ajax/libs/x.js'></script></html>",
+        {}, "https://acme.com/",
+    )
+    ms = dynamic_matches(ev, domain="acme.com")
+    row = [m for m in ms if m.vendor == "host:ajax.googleapis.com"][0]
+    assert row.evidence == "script_src"
+    assert row.confidence == 0.4
+    assert row.tier == "unknown"
+
+
+def test_dynamic_matches_label_network_hosts():
+    # NetworkEvidence: HAR-lite fixture hosts keep the network_host label
+    ev = extract_network_evidence(NET_FIX.read_bytes())
+    ms = dynamic_matches(ev, domain="scanner.dev")
+    row = [m for m in ms if m.vendor == "host:cdn-cookieyes.com"][0]
+    assert row.evidence == "network_host"
+
+
+def test_observed_host_sources_mixed_object_labels_each_channel():
+    # Defensive: a synthetic evidence carrying BOTH channels labels each
+    # host from its own channel (network first, matching current ordering).
+    ev = extract_http_evidence(
+        b"<html><script src='https://ajax.googleapis.com/x.js'></script></html>",
+        {}, "https://acme.com/",
+    )
+    ev.hosts = ("cdn-cookieyes.com",)  # synthetic dual-channel object
+    from src.sources.techstack.fingerprint import _observed_host_items
+
+    items = dict(_observed_host_items(ev, domain="acme.com"))
+    assert items["ajax.googleapis.com"] == "script_src"
+    assert items["cdn-cookieyes.com"] == "network_host"
+
+
 def test_named_majority_from_scanner_fixture():
     from src.sources.techstack.fingerprint import load_fingerprint_rules
 

@@ -48,6 +48,12 @@ vendors:
     match:
       network_host: ["website-files.com"]
       script_src: ["website-files.com"]
+  wordpress:
+    display: WordPress
+    category: [cms]
+    tier: low
+    match:
+      html_marker: ["/wp-content/"]
   gtm:
     display: Google Tag Manager
     category: [tag_manager]

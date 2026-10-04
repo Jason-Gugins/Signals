@@ -21,6 +21,7 @@ class HttpEvidence:
     meta: dict[str, str]
     inline_globals: list[str]
     text_sample: str
+    html: str = ""
 
 
 @dataclass(frozen=True)
@@ -166,6 +167,7 @@ def extract_http_evidence(body: bytes, headers: dict, url: str) -> HttpEvidence:
         meta=p.meta,
         inline_globals=globals_,
         text_sample=text[:2000],
+        html=html,
     )
 
 
@@ -247,11 +249,14 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
     mx = " ".join(getattr(ev, "mx", []) or [])
     spf = " ".join(getattr(ev, "spf_includes", []) or [])
     job_text = getattr(ev, "text_sample", "") or ""
+    html_low = getattr(ev, "html", "").casefold()
     for key, spec in vendors.items():
         match = spec.get("match") or {}
         evidence = None
         if any(s in script_blob for s in match.get("script_src") or []):
             evidence = "script_src"
+        if any(m.casefold() in html_low for m in match.get("html_marker") or []):
+            evidence = evidence or "html_marker"
         if any(s in cnames for s in match.get("dns_cname") or []):
             evidence = evidence or "dns_cname"
         if any(s in spf for s in match.get("spf_include") or []):
@@ -278,7 +283,7 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
                     category=list(cat),
                     tier=spec.get("tier") or "mid",
                     evidence=evidence,
-                    confidence=0.8 if evidence in {"script_src", "mx", "network_host", "header"} else 0.7,
+                    confidence=0.8 if evidence in {"script_src", "html_marker", "mx", "network_host", "header"} else 0.7,
                 )
             )
     return hits

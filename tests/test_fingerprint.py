@@ -4,6 +4,7 @@ from src.sources.techstack.collector import tech_to_candidates, upsert_technolog
 from src.sources.techstack.fingerprint import (
     TechMatch,
     dynamic_matches,
+    extract_http_evidence,
     extract_network_evidence,
     match_fingerprints,
     observed_hosts,
@@ -145,3 +146,21 @@ def test_classify_no_challenge_returns_none():
 
 def test_classify_disabled_when_status_200_and_no_markers():
     assert classify_cloudflare_challenge(status=200, body=b"") is None
+
+
+def test_html_marker_evidence_matches():
+    ev = extract_http_evidence(b"<html><body data-shopify><script src='/x.js'></script></body></html>", {}, "https://d.com/")
+    spec = {"shopify": {"match": {"html_marker": ["data-shopify"]}, "tier": "mid", "category": ["ecommerce"]}}
+    hits = match_fingerprints(ev, {"vendors": spec})
+    assert [h.vendor for h in hits] == ["shopify"]
+    assert hits[0].evidence == "html_marker"
+    assert hits[0].confidence == 0.8
+
+
+def test_html_marker_no_false_match_on_other_vendors():
+    ev = extract_http_evidence(b"<html><body><p>plain marketing page</p></body></html>", {}, "https://d.com/")
+    spec = {
+        "shopify": {"match": {"html_marker": ["data-shopify"]}, "tier": "mid", "category": ["ecommerce"]},
+        "wordpress": {"match": {"html_marker": ["/wp-content/"]}, "tier": "low", "category": ["cms"]},
+    }
+    assert match_fingerprints(ev, {"vendors": spec}) == []

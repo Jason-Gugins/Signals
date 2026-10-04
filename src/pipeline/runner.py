@@ -908,11 +908,14 @@ class CollectorRunner:
                 # cycle's registry provided) is the vendor set that churned in
                 # the IMMEDIATELY PRIOR diff, persisted in
                 # extra_data["tech_flap"] — the diff suppresses churn for those
-                # vendors so a flapping vendor cannot emit churn+install every
-                # cycle.
-                prior_flap = set(
-                    (getattr(account, "extra_data", None) or {}).get("tech_flap") or []
-                )
+                # vendors so immediate re-churn is silenced. An alternating
+                # flapper (absent->present->absent) still emits: the churn-free
+                # return cycle clears the guard. isinstance guard: a corrupt
+                # non-sequence tech_flap must not raise inside the pass loop
+                # (fail-open, like the persistence below) or degrade a stray
+                # string into a char-set guard.
+                _raw_flap = (getattr(account, "extra_data", None) or {}).get("tech_flap")
+                prior_flap = set(_raw_flap) if isinstance(_raw_flap, (list, tuple, set)) else set()
                 churned = None  # sentinel: diff failed -> no-evidence cycle
                 try:
                     previous = {r["vendor"] for r in prev_rows}

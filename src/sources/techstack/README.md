@@ -39,7 +39,7 @@ Cadence is 168h. `--force` bypasses the cursor.
 1. Collect third-party hosts from HAR-lite and/or HTML `<script src>`.
 2. Drop first-party (`account.domain` / `www.`).
 3. Named YAML rules **promote** matching hosts (HubSpot, Webflow, GTM, GA, Meta Pixel, CookieYes, Vector, …).
-4. Leftovers stay `host:{hostname}` in `technologies` (inventory). They do **not** emit `tech_install_new`.
+4. Leftovers stay `host:{hostname}` in `technologies` (inventory). The prior-cycle diff treats them like any vendor (install/churn); only `tech_removed` is named-only.
 
 `harvest_tech` upserts the full promote-or-observe list. `parse` is pure and signals **named** vendors only. `tech_removed` is named-only (`host:` rows still get `missing_runs`).
 
@@ -158,9 +158,11 @@ set against the previous cycle's and persists `tech_install_new` (confidence
 0.7, natural key `techchg:{domain}:{vendor}:{today}`) for additions and
 `tech_churn` for removals — vendor displacement is the sales signal. The diff
 is fail-open: a DB error logs and skips change emission without blocking the
-harvest. A `flap_guard` parameter (vendors seen churn in the immediately
-prior diff) exists to suppress flapping vendors; wiring its persistence is a
-roadmap item.
+harvest. The `flap_guard` parameter (vendors seen churn in the immediately
+prior diff) is wired: the runner persists each cycle's churned set in
+`extra_data["tech_flap"]` (REPLACE semantics — a churn-free cycle clears the
+guard) and passes it to the diff, so a vendor cannot re-churn two cycles
+running; an alternating flapper still emits honestly.
 
 The same pass also feeds the stored rows (vendor + `first_seen_at`) through
 `renewal_candidates` (`src/sources/wayback/renewal.py`): when a vendor's

@@ -488,9 +488,12 @@ def test_runner_marks_cloudflare_unsolved_on_bypass_failure(tmp_path):
     )
     runner.run([TechstackSource()], [acct], force=True, max_passes=1)
     ctx.__exit__(None, None, None)
-    # honest hard stop: only 'cloudflare' recorded, no fabricated vendors
+    # honest hard stop: the unsolved cycle is no-evidence for change
+    # detection (the runner skips the diff/upsert block entirely), so no
+    # technologies rows land this cycle — not even the cloudflare
+    # observation — and nothing is fabricated.
     rows = {r["vendor"] for r in db.query("SELECT vendor FROM technologies WHERE domain=?", ("acme.com",))}
-    assert rows == {"cloudflare"}
+    assert rows == set()
 
 
 def test_full_board_marks_missing_job_closed(tmp_path):

@@ -7,7 +7,8 @@ Last reviewed: 2026-09-14. Baseline: **1,962 tests collected, offline lane:
 (2026-09-05). Legacy Cloudflare-bypass checklist archived at the
 bottom.
 
-Note from the P1 review sweep (P3 candidates): `flap_guard` persistence,
+Note from the P1 review sweep (P3 candidates): `flap_guard` persistence
+(delivered 2026-10-03 — see the techstack improvements record),
 `effective_cadence` dead code, `_DELIVERED` eviction, raw-vs-blended confidence
 audit trail, concurrent-watch JSON write locking.
 
@@ -975,6 +976,19 @@ Plan: `.zcode/plans/2026-10-03_181725-google-serp-bypass-ladder.md` (serialized 
 - **Shipped**: `google_state` engine behind `xray --engine` (ddg_lite stays default): W_jd "2003" parser (challenge-first, enablejs soft-marker overruled only when records exist, snippet always empty — documented W_jd limitation), cookie-jar fetch factory (`data/xray/google_cookies.json`, missing jar → refresh-procedure guidance), config `xray.default_engine`, runner engine threading + docstring corrections, README Engines paragraph, 21 new tests.
 - **Commits**: e15b8bb (shell re-analysis) · db57aa5 (cookie amortization + UA cells + refresh procedure; ff'd from a subagent's detached-HEAD commit — new dispatch rule: verify `On branch master` before committing) · d68ea1d (engine probe) · ca8428b (DOCKER_ABSENT) · 0609d9d (google_state) · 637ff70 (review fixes: enablejs soft-marker exemption + type-strict jar validation + raw-join test) · 21ab8f8 (verdict matrix). Two-stage review on Task 6: spec PASS, quality PASS (cookie raw-join semantics verified correct — no auth corruption).
 - **Open (Jason's call, unbuilt by design)**: Google CSE JSON API bridge — free 100/day keyed, sunsets 2027-01-01, GKG credential-gated precedent; say the word and it ships as `xray_cse`.
+
+## Techstack module improvements (2026-10-03 — DELIVERED)
+
+Plan: `.zcode/plans/2026-10-03_190648-techstack-improvements.md` (Revision 1 — independent LLM re-verified every file:line anchor and fixed 5 plan bugs pre-dispatch; serial subagent execution, one at a time; two-stage review per wave). Closes the P1-sweep P3 candidate "`flap_guard` persistence".
+
+- **Wave 1 — signal correctness**: challenge-unsolved cycles now skip the ENTIRE change-detection block (diff + renewal + `upsert_technologies` + `tech_removed`) — previously a hardened domain fabricated `tech_churn` for every vendor and false `tech_removed` within two cycles (`1cb5cf4`); the diff pass is the SOLE owner of `tech_install_new` — parse-time monthly re-fire removed (`tech_install_new:{v}:{iso_month}` re-emitted every install every month), `high_ticket_tech`/`competitor_detected` untouched (`8312efe`); flap-guard persistence wired — prior-churn set REPLACE-persisted in `extra_data["tech_flap"]` via the registry MERGE pattern, fail-open, corrupt-value guard (`7a04923`).
+- **Wave 2 — coverage from evidence already captured**: four new evidence arms in `match_fingerprints` — `html_marker` (raw-HTML substring, conf 0.8), `inline_global` / `cookie_name` / `meta_generator` (conf 0.7) — against channels `HttpEvidence` already extracted but never matched (`c2f32b7`, `750a20a`); vendors 21→25: `wordpress` (`/wp-content/` frozen from the usercentrics.com HAR), `instatus` / `better_stack` / `incident_io` + `stspg-customer.com` on the statuspage row (live-DNS-probe-confirmed on real customer CNAMEs; status.io/Freshstatus/StatusCake skipped as unconfirmed) (`12c1738`); every `tier: enterprise` vendor now carries explicit `contract_years` (pin test) (`9a1b368`).
+- **Wave 3 — hygiene**: `load_fingerprint_rules()` memoized by mtime (was re-reading YAML per parse/harvest/renewal call; all callers verified read-only) (`5bdf2b5`); dead `host:` inventory rows pruned after 6 consecutive misses (named rows never pruned — they feed `tech_removed`) (`fc66e2d`).
+- **Commits**: 1cb5cf4 · 8312efe · 8ae3cf1 (parent-side stale-pin flips: `test_fingerprint` high_ticket, `test_header_evidence` install) · 7a04923 · 9a6e2d4 (Wave-1 review fixes: old `test_runner` hard-stop pin flipped to the new no-evidence contract — the one real regression review caught; fail-open `tech_flap` read; README flap-guard truth) · c2f32b7 · 750a20a · 12c1738 · 9a1b368 · 96aabcb (README evidence table gains the four arms + WordPress provenance) · 5bdf2b5 · fc66e2d.
+- **Two-stage reviews (spec + quality per wave)**: Wave 1 spec PASS / quality FAIL→fixed (quality caught the stale `test_runner_marks_cloudflare_unsolved_on_bypass_failure` pin the wave missed — suite red at wave HEAD, green after 9a6e2d4); Wave 2 spec PASS / quality PASS (html_marker full-HTML substring can false-hit on prose/hotlinked `/wp-content/` — demonstrated by probe, judged acceptable at `tier: low`, documented in the evidence table); Wave 3 spec PASS / quality PASS (shared-cache dict verified read-only across every caller; GIL-atomic swap; stat→read_text race self-heals next call).
+- **Test lane**: full suite green except the 6 pre-existing environmental TLS-cert failures (`test_antibot_engine` / `test_antibot_parity`, live-cert verification — clean-worktree bisect confirms they predate this work).
+- **Task 10 NOT executed (Jason's call)**: `job_text` rename (it matches homepage text, not job text) · `competitors.txt` cross-wire into `competitor_detected` (list ships empty by design) · multi-page fetch · non-Statuspage outage polling (probe-gated per provider).
+- **Open for Jason**: `contract_years` values (salesforce 2 / marketo 2 / snowflake 1) are estimation-adjacent — override with real terms; fresh recon probe for shopify/nextjs/nuxt/squarespace needles deferred per never-guess (fixtures had zero markers); cookie_name arm ships with NO needles (no fixture evidence).
 
 ## Manual checklists (human setup, not code)
 

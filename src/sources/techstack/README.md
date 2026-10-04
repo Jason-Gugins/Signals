@@ -41,7 +41,7 @@ Cadence is 168h. `--force` bypasses the cursor.
 3. Named YAML rules **promote** matching hosts (HubSpot, Webflow, GTM, GA, Meta Pixel, CookieYes, Vector, …).
 4. Leftovers stay `host:{hostname}` in `technologies` (inventory). The prior-cycle diff treats them like any vendor (install/churn); only `tech_removed` is named-only.
 
-`harvest_tech` upserts the full promote-or-observe list. `parse` is pure and signals **named** vendors only. `tech_removed` is named-only (`host:` rows still get `missing_runs`).
+`harvest_tech` upserts the full promote-or-observe list. `parse` is pure and signals **named** vendors only. `tech_removed` is named-only (`host:` rows get `missing_runs` and are pruned from the table after 6 consecutive misses; named rows are never pruned).
 
 ## How a vendor is detected
 

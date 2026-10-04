@@ -28,9 +28,12 @@ if TYPE_CHECKING:
 # the careers page), so the budget is larger than the old 4: the map stages run
 # first, the leftover budget is what the homepage hop and the hardcoded guesses
 # get, and the new rungs only spend what the marker rungs left behind — one
-# listing-hub fetch plus up to MAX_VERIFY_REQUESTS board-API probes. Rate
-# limiting (1 req/s/host) still bounds wall-clock cost.
-MAX_DISCOVERY_REQUESTS = 18
+# listing-hub fetch plus up to MAX_VERIFY_REQUESTS board-API probes (12 =
+# round 1 (t1 x N pinned vendors) + as much of round 2 (t2 x N) as the cap
+# allows). The raise costs <=12 extra 404 GETs per UNDETECTED account per
+# resolve — misses are unstored 404s, and stamped accounts never probe again —
+# with hosts paced by the 1 req/s/host limiter.
+MAX_DISCOVERY_REQUESTS = 22
 
 ATS_PATTERNS: dict[str, list[re.Pattern]] = {
     "greenhouse": [
@@ -240,7 +243,13 @@ def board_token_candidates(
 #   recruitee      200 + non-empty "offers" (POS tether, NEG 404 {"error": ...})
 #   teamtailor     200 + non-empty "items" (JSON Feed) or "jobs"
 #                  (POS recruitgo, NEG 404 empty body)
-MAX_VERIFY_REQUESTS = 8
+# Budget 12 = round 1 (t1 x N pinned vendors) + as much of round 2 (t2 x N)
+# as the cap allows — with today's 8 pinned vendors round 1 completes and the
+# first 4 probes of round 2 fire, so the alias-token showcase
+# (greenhouse, abnormalsecurity) lands at probe #9. Cost: <=12 extra 404 GETs
+# per UNDETECTED account per resolve; hosts stay paced by the limiter and
+# stamped accounts never probe again.
+MAX_VERIFY_REQUESTS = 12
 
 _VERIFY_ENDPOINTS: dict[str, str] = {
     "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{t}/jobs",
@@ -252,6 +261,25 @@ _VERIFY_ENDPOINTS: dict[str, str] = {
     "recruitee": "https://{t}.recruitee.com/api/offers/",  # pinned 2026-10-04, POS=tether, NEG=404 {"error": ...}
     "teamtailor": "https://{t}.teamtailor.com/jobs.json",  # pinned 2026-10-04, POS=recruitgo, NEG=404 empty body
 }
+
+# Diagonal rotation (Stage 6): the 5 probe-pinned majors first, in this exact
+# order, then the remaining pinned vendors appended after them — appending
+# keeps a major from ever being displaced out of round 1. Invariant: every
+# entry is a key of _VERIFY_ENDPOINTS AND a member of COLLECTED_VENDORS
+# (pinned by test_verify_board_endpoints_module_invariants).
+_LADDER_VENDORS: tuple[str, ...] = (
+    "greenhouse",
+    "lever",
+    "ashby",
+    "workable",
+    "smartrecruiters",
+    # breezy/recruitee/teamtailor: probe-pinned 2026-10-04 (Task 1 kept all
+    # three) — appended after the majors so they widen coverage without
+    # reshuffling it.
+    "breezy",
+    "recruitee",
+    "teamtailor",
+)
 
 
 def _board_payload_ok(vendor: str, body: str) -> bool:
@@ -503,28 +531,19 @@ class AtsDiscovery:
         # are untrustworthy catch-alls — see _VERIFY_ENDPOINTS note). Tokens from
         # name/domain/entity aliases; acceptance = vendor's canonical API shape.
         if not _has_collected_match(pages):
-            from src.sources.registry import COLLECTED_VENDORS
-
             tokens = board_token_candidates(
                 account.name, account.domain, aliases=alias_names or []
             )
-            # Vendor-major crossing: within the MAX_VERIFY_REQUESTS cap every
-            # candidate token must get a probe on at least the top vendor. A
-            # token-major list would spend the whole cap on the first token and
-            # never reach the alias-derived ones — the rebrand case (e.g. a
-            # former brand name as greenhouse token) this ladder exists for.
-            #
-            # Coverage math (deliberate — do NOT fix by reordering): <=8 probes
-            # means with N candidate tokens only the first 8/N vendors get
-            # probed (N>=4 -> greenhouse+lever only); workable/smartrecruiters/
-            # ashby-only accounts whose sites are marker-free rely on the
-            # marker rungs or a future budget bump.
-            candidates = [
-                (v, t)
-                for v in _VERIFY_ENDPOINTS
-                for t in tokens
-                if v in COLLECTED_VENDORS
-            ]
+            # Diagonal crossing: token-outer, vendor-inner. Every account
+            # probes its domain-prefix token on ALL 8 pinned vendors in round
+            # 1 — the old vendor-major order deterministically starved
+            # workable/smartrecruiters/ashby (8 probes bought greenhouse x 6 +
+            # lever x 2 on the Abnormal input). Round 2 reaches the alias
+            # tokens — the rebrand case this ladder exists for. Budget 12
+            # covers round 1 complete plus the first 4 probes of round 2; the
+            # showcase (greenhouse, abnormalsecurity) lands at probe #9 with
+            # 8 vendors.
+            candidates = [(v, t) for t in tokens for v in _LADDER_VENDORS]
             match = verify_board_candidates(fetch, candidates)
             if match:
                 account.ats_vendor = match.vendor

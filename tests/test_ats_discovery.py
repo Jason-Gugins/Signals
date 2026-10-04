@@ -9,6 +9,7 @@ from pathlib import Path
 from src.identity.ats_discovery import (
     MAX_BOARD_CANDIDATES,
     MAX_VERIFY_REQUESTS,
+    _LADDER_VENDORS,
     _VERIFY_ENDPOINTS,
     _board_payload_ok,
     board_token_candidates,
@@ -528,19 +529,18 @@ def test_discover_candidate_ladder_skipped_after_marker_hit(tmp_path, monkeypatc
     assert stored.ats_vendor == "lever"
 
 
-def test_discover_ladder_probe_order_is_vendor_major(tmp_path):
-    """Ordering invariant of the vendor-major crossing (see the Stage 6
-    comment; do NOT fix the coverage gap by reordering): the 8-probe budget
-    covers ALL candidate tokens on greenhouse first, then spills into lever —
-    later vendors are never reached. The Abnormal input yields 6 tokens (5
-    branded tokens plus the alias word "ltd", which survives the 3-char
-    floor), in alias-first order: domain, each alias (joined then words),
-    then the name. INTERIM pin — Task 3's diagonal rewrite replaces this
-    test entirely."""
+def test_discover_ladder_probe_order_is_diagonal(tmp_path):
+    """Diagonal round-robin (see the Stage 6 comment): token 1 across ALL
+    pinned vendors, then token 2, budget-capped. Alias-derived token
+    'abnormalsecurity' is round-2 probe #1 — overall #9 with the 8 pinned
+    vendors — so the showcase stays reachable AND ashby/workable/
+    smartrecruiters now see the domain-prefix token, which the old
+    vendor-major order starved deterministically (8 probes bought
+    greenhouse x 6 + lever x 2)."""
     pages = {"https://abnormal.ai/careers": "<html><body>we are hiring</body></html>"}
+    # canned API hits: nothing verifies -> pure order assertion
     disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
-    acct.domain = "abnormal.ai"
-    acct.name = "Abnormal AI"
+    acct.domain, acct.name = "abnormal.ai", "Abnormal AI"
     acct.careers_url = "https://abnormal.ai/careers"
     reg.upsert(acct)
     assert disc.discover(
@@ -548,23 +548,66 @@ def test_discover_ladder_probe_order_is_vendor_major(tmp_path):
         alias_names=["Abnormal Security", "Abnormal Security Ltd."],
     ) is None
     probes = fake.seen[-MAX_VERIFY_REQUESTS:]
-    assert probes == [
+    # Round 1 opens with the majors seeing the domain-prefix token...
+    assert probes[:5] == [
         "https://boards-api.greenhouse.io/v1/boards/abnormal/jobs",
-        "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs",
-        "https://boards-api.greenhouse.io/v1/boards/security/jobs",
-        "https://boards-api.greenhouse.io/v1/boards/abnormalsecurityltd/jobs",
-        "https://boards-api.greenhouse.io/v1/boards/ltd/jobs",
-        "https://boards-api.greenhouse.io/v1/boards/abnormalai/jobs",
         "https://api.lever.co/v0/postings/abnormal?mode=json",
-        "https://api.lever.co/v0/postings/abnormalsecurity?mode=json",
+        "https://api.ashbyhq.com/posting-api/job-board/abnormal",
+        "https://apply.workable.com/api/v1/widget/accounts/abnormal?details=true",
+        "https://api.smartrecruiters.com/v1/companies/abnormal/postings",
     ]
+    # ...and round 1 is the whole pinned rotation; round-2 probe #1 is
+    # greenhouse with the alias token. n = len(_LADDER_VENDORS) keeps this
+    # correct if vendors are appended later (8 today -> overall probe #9).
+    n = len(_LADDER_VENDORS)
+    assert probes[:n] == [
+        _VERIFY_ENDPOINTS[v].format(t="abnormal") for v in _LADDER_VENDORS
+    ]
+    assert probes[n] == "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs"
+
+
+def test_discover_ladder_diagonal_hit_on_round2(tmp_path):
+    """(greenhouse, abnormalsecurity) verifies on round 2 -> stamped. The
+    full round-1 rotation must fire before the hit: the showcase is reached
+    by the diagonal, not by the old vendor-major probe #2."""
+    pages = {
+        "https://abnormal.ai/careers": "<html>hiring</html>",
+        "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs":
+            '{"jobs": [{"title": "AE", "absolute_url": "https://abnormal.ai/careers/jobs/1"}]}',
+    }
+    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    acct.domain, acct.name = "abnormal.ai", "Abnormal AI"
+    acct.careers_url = "https://abnormal.ai/careers"
+    reg.upsert(acct)
+    match = disc.discover(
+        reg.get("abnormal.ai"),
+        alias_names=["Abnormal Security", "Abnormal Security Ltd."],
+    )
+    assert match and match.vendor == "greenhouse" and match.token == "abnormalsecurity"
+    assert "candidate_ladder" in match.extra.get("source", "")
+    stored = reg.get("abnormal.ai")
+    assert stored.ats_vendor == "greenhouse"
+    assert stored.ats_token == "abnormalsecurity"
+    assert stored.careers_url == "https://abnormal.ai/careers"
+    # probe path: the whole round-1 rotation on the domain-prefix token, THEN
+    # the hit — round-2 probe #1, overall #9 with 8 pinned vendors.
+    n = len(_LADDER_VENDORS)
+    probes = fake.seen[-(n + 1):]
+    assert probes[:n] == [
+        _VERIFY_ENDPOINTS[v].format(t="abnormal") for v in _LADDER_VENDORS
+    ]
+    assert probes[-1] == "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs"
 
 
 def test_verify_board_endpoints_module_invariants():
     """Module-level pins: ashby verifies via the posting-api JSON ONLY (the
     jobs.ashbyhq.com HTML board returns an identical 200 SPA shell for real
     and garbage tokens alike), and the ladder covers only vendors with a
-    keyless verifiable JSON API — workday/jobvite/rippling stay out."""
+    keyless verifiable JSON API — workday/jobvite/rippling stay out. The
+    diagonal rotation tuple must match the endpoint map exactly and contain
+    only collector-backed vendors."""
+    from src.sources.registry import COLLECTED_VENDORS
+
     assert "ashby" in _VERIFY_ENDPOINTS
     assert all("jobs.ashbyhq.com" not in u for u in _VERIFY_ENDPOINTS.values())
     assert set(_VERIFY_ENDPOINTS) <= {
@@ -577,6 +620,10 @@ def test_verify_board_endpoints_module_invariants():
         "recruitee",
         "teamtailor",
     }
+    # Diagonal rotation (Stage 6): every entry has a verify endpoint AND a
+    # collector, and the tuple covers the endpoint map exactly.
+    assert set(_LADDER_VENDORS) == set(_VERIFY_ENDPOINTS)
+    assert set(_LADDER_VENDORS) <= COLLECTED_VENDORS
 
 
 # --- Live-probe-pinned predicates (2026-10-04) ------------------------------

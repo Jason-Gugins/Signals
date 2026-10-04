@@ -353,3 +353,20 @@ Artifacts (tmp/, gitignored, NOT committed): `probe_xray_bing.html` (q1 operator
 `docker --version` → command not found on this machine. Per the plan's own gate, the SearXNG spike STOPS here; the Docker-dependency decision is Jason's (pip-install SearXNG is the documented fallback but heavier to maintain).
 
 Honest caveat for that decision: the wall Google/Bing/Brave/Mojeek served this probe batch is **IP-reputation-level** (429 captcha / 403 automated-queries from the same home IP) — a local SearXNG egresses from the same IP and cannot fix IP reputation; its durable value is upstream-maintained *fetch* bypasses (cookies/selectors/params), not IP rehabilitation. Expect it to inherit some of these walls.
+
+## Bypass ladder — final verdict matrix (2026-10-03)
+
+| Leg | Attempt | Verdict |
+|---|---|---|
+| A (Google) | Offline shell re-analysis | **RESULTS_AS_DATA** — the "JS-gate holds headed" verdict was a measurement artifact: result bodies embed 12 url+title records in `window.W_jd` state; enablejs noscript is on every Google page and is NOT a block discriminator |
+| A (Google) | Cookie amortization ≥1 day | **FALSIFIED** — 23.9h-old jar → 429 captcha; cookies are PER-SESSION, refresh via `scripts/google_cookie_refresh.py` |
+| A (Google) | Keyless no-JS variants (old-Firefox UA, iPhone UA, cookies+gbv=1) | **ALL DEAD** — closes the basic-HTML question permanently from this machine |
+| A (Google) | Refresh pipeline (solve→harvest→replay) | **Mechanics proven end-to-end**; yield blocked during the run by an intermittent IP-level captcha wall (external evidence shows it lifting) |
+| B (engine swap) | Bing web SERP | **NO-GO** — full 10-result SERPs but ALL operators silently dropped (site:/quotes/intitle: → dictionary lookups, 0 linkedin results) |
+| B (engine swap) | Brave | **NO-GO** — 429 JS-captcha wall, keyless-unsolvable |
+| B (engine swap) | Mojeek | **NO-GO** — 403 "automated queries" IP block |
+| C (SearXNG) | Docker | **DOCKER_ABSENT** — plan gate stops; note: the observed walls are IP-reputation-level, which a local SearXNG cannot fix |
+
+**Shipped from the ladder:** `google_state` engine behind `xray --engine` (commit 0609d9d + review fixes 637ff70) — Google results parsed from W_jd state, cookie-jar gated (missing jar → refresh-procedure guidance), challenges surface as explicit ledger rows, snippet always empty (W_jd limitation). ddg_lite remains the default engine. Google access posture: **available in calm windows behind a manual per-session cookie refresh** — manual-effort, accept-the-risk, same posture family as the LinkedIn scraper.
+
+**Open decision (unbuilt by design):** Google CSE JSON API bridge — free 100/day keyed, sunsets 2027-01-01; needs Jason's sign-off (Task 7 of the ladder plan).

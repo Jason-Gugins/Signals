@@ -17,6 +17,8 @@ Drop these files here (one entry per line, `#` comments allowed):
   time via `load_entity_aliases_from_config` (idempotent upserts) so
   former-brand tokens reach the ATS board ladder. Human-gated like all
   entity_aliases — never auto-derived; add a row by editing this file.
+  The config file wins over manual DB edits: it is re-applied on every
+  resolve.
 
 The three `.txt` lists ship as comment-only stubs — edit them in place.
 `champions.csv` does not ship; create it (and it stays untracked).

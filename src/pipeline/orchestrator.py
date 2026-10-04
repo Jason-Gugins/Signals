@@ -147,23 +147,38 @@ class Orchestrator:
                 accounts = self._accounts(cohort=cohort, limit=limit)
             ctx.bump(accounts=len(accounts))
             out = {"accounts": len(accounts), "cik": 0, "ats": 0, "feeds": 0, "icp": 0, "g2": 0, "appstore": 0, "bbb": 0, "linkedin": 0}
+            # Config-driven alias seeding (config/lists/entity_aliases.yaml,
+            # {alias: canonical domain}): upserted ONCE per resolve, BEFORE the
+            # stage gates — entity_aliases also feed collect-time identity
+            # resolution (sec formd / bbb / trustradius read _by_entity_alias),
+            # not just the ATS ladder, so seeding must not be gated on
+            # ats=True. Idempotent (entity_aliases PK = alias) and fail-open —
+            # a missing or broken file must never block resolve. Rows whose
+            # alias or domain is not a string are skipped with a warning:
+            # str()-coercion would turn a YAML bool-ish `no` into the domain
+            # "False" and a nested mapping into its repr, silently poisoning
+            # alias lookups. The config file wins over manual DB edits — it is
+            # re-applied (upserted) on every resolve.
+            try:
+                alias_cfg = self.config.load_yaml("lists/entity_aliases")
+                if alias_cfg:
+                    entries: dict[str, str] = {}
+                    for k, v in alias_cfg.items():
+                        if not isinstance(k, str) or not isinstance(v, str):
+                            logger.warning(
+                                "entity_aliases.yaml: skipping malformed row {!r} -> {!r} "
+                                "(alias and domain must be strings)",
+                                k,
+                                v,
+                            )
+                            continue
+                        entries[k] = v
+                    if entries:
+                        self.registry.load_entity_aliases_from_config(entries)
+            except Exception:
+                logger.warning("entity_aliases.yaml load failed; continuing")
             if ats:
                 from src.identity.ats_discovery import AtsDiscovery
-
-                # Config-driven alias seeding (config/lists/entity_aliases.yaml,
-                # {alias: canonical domain}): upserted ONCE per resolve, before
-                # the ladder loop, so former-brand tokens reach
-                # board_token_candidates without a manual DB script. Idempotent
-                # (entity_aliases PK = alias) and fail-open — a missing or
-                # broken file must never block resolve.
-                try:
-                    alias_cfg = self.config.load_yaml("lists/entity_aliases")
-                    if alias_cfg:
-                        self.registry.load_entity_aliases_from_config(
-                            {str(k): str(v) for k, v in alias_cfg.items()}
-                        )
-                except Exception:
-                    logger.warning("entity_aliases.yaml load failed; continuing")
 
                 disc = AtsDiscovery(self.fetcher or self._http_fetcher(ctx), self.registry)
                 for acct in accounts:

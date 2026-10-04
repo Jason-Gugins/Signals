@@ -269,3 +269,40 @@ def test_resolve_tolerates_missing_entity_aliases_yaml(tmp_path: Path) -> None:
     out = orch.resolve(domains=["acme.com"], **_ats_only_kwargs())
     assert out["accounts"] == 1
     assert orch.registry.entity_aliases_for("abnormal.ai") == []
+
+
+def test_resolve_seeds_entity_aliases_without_ats_stage(tmp_path: Path) -> None:
+    """entity_aliases also feed collect-time identity resolution (sec formd /
+    bbb / trustradius read _by_entity_alias), so seeding must NOT be gated on
+    the ATS stage: resolve(ats=False) still loads entity_aliases.yaml."""
+    orch = _resolve_orch(tmp_path, with_alias_file=True)
+    out = orch.resolve(
+        domains=["acme.com"], ats=False, cik=False, feeds=False, icp=False,
+        g2=False, appstore=False, bbb=False, linkedin=False,
+    )
+    assert out["accounts"] == 1
+    assert orch.registry.entity_aliases_for("abnormal.ai") == ["abnormal security"]
+
+
+def test_resolve_skips_non_string_alias_rows(tmp_path: Path) -> None:
+    """Loader guard: rows whose alias or domain is not a string (a YAML
+    bool-ish `no` -> False, null, a nested mapping) must be skipped with a
+    warning instead of str()-coerced into garbage rows ("False", "None",
+    "{'a': 'b'}"); valid rows still load and resolve never raises."""
+    orch = _resolve_orch(tmp_path, with_alias_file=False)
+    lists_dir = tmp_path / "config" / "lists"
+    lists_dir.mkdir(parents=True, exist_ok=True)
+    (lists_dir / "entity_aliases.yaml").write_text(
+        '"Abnormal Security": abnormal.ai\n'
+        "acme: no\n"  # YAML 1.1: bare `no` parses to False, not a string
+        '"Null Domain": null\n'
+        "nested: {a: b}\n",
+        encoding="utf-8",
+    )
+    out = orch.resolve(domains=["acme.com"], **_ats_only_kwargs())
+    assert out["accounts"] == 1
+    rows = orch.registry.db.query("SELECT alias, domain FROM entity_aliases")
+    assert [(r["alias"], r["domain"]) for r in rows] == [
+        ("abnormal security", "abnormal.ai")
+    ]
+    assert orch.registry.entity_aliases_for("abnormal.ai") == ["abnormal security"]

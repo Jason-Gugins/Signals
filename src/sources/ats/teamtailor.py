@@ -1,14 +1,20 @@
 """PURE Teamtailor job-board parser + collector adapter.
 
 Teamtailor public career boards live at ``https://{token}.teamtailor.com``.
-The board HTML embeds a JSON blob (``#component-listing-json`` /
-``window.__INITIAL_STATE__``-style) whose ``jobs`` entries carry
-``id``, ``title``, ``hosted_url`` (or ``url``), ``created_at`` /
-``published_at`` (ISO-8601), ``department`` (``{"name": ...}`` or string),
-``location`` (``{"name"/"city"/"region"/"country", "remote": bool}``), and
-``description``. This parser accepts the extracted jobs payload directly
-(dict with ``jobs``, bare list, or ``data``-wrapped) — hand-built fixture,
-no live probe used. Conservative aliases throughout.
+Two shapes are parsed:
+- LIVE ``/jobs.json`` (JSON Feed 1.1, probed on recruitgo.teamtailor.com
+  2026-10-04): a ``{"version", "title", "items": [...]}`` document where
+  each item carries ``id``, ``title``, ``url``, ``date_published``
+  (ISO-8601), ``content_html``/``summary``, and (best-effort)
+  ``tags``/``location``. The collector fetches the SAME URL the Stage-6
+  verifier probes, so this parser and ``_board_payload_ok`` must agree on
+  the shape.
+- the board HTML's embedded JSON blob (``#component-listing-json`` /
+  ``window.__INITIAL_STATE__``-style) whose ``jobs`` entries carry
+  ``id``, ``title``, ``hosted_url`` (or ``url``), ``created_at`` /
+  ``published_at`` (ISO-8601), ``department`` (``{"name": ...}`` or string),
+  ``location`` (``{"name"/"city"/"region"/"country", "remote": bool}``), and
+  ``description`` — hand-built fixture. Conservative aliases throughout.
 """
 
 from __future__ import annotations
@@ -36,23 +42,44 @@ def _dept(d) -> Optional[str]:
     return d if isinstance(d, str) and d else None
 
 
+def _dept_from_tags(tags) -> Optional[str]:
+    """Best-effort department for JSON Feed items, which carry ``tags``
+    (JSON Feed 1.1's list-of-strings labels field) and no department key:
+    the first non-empty tag wins."""
+    if isinstance(tags, list):
+        return next((t for t in tags if isinstance(t, str) and t.strip()), None)
+    return None
+
+
 def parse_teamtailor(body: bytes) -> list[JobPost]:
     raw = json.loads(body)
     if isinstance(raw, list):
         jobs = raw
     elif isinstance(raw, dict):
-        # Accept: bare list under jobs; {"data": [jobs]} (JSON:API style);
-        # {"data": {"jobs": [...]}} (embedded initial-state style); plain
-        # {"jobs": [...]}.
-        data = raw.get("data")
-        if isinstance(data, dict) and isinstance(data.get("jobs"), list):
-            jobs = data["jobs"]
-        elif isinstance(raw.get("jobs"), list):
-            jobs = raw["jobs"]
-        elif isinstance(data, list):
-            jobs = data
+        # JSON Feed 1.1 — the LIVE /jobs.json shape (probed on
+        # recruitgo.teamtailor.com 2026-10-04): the job list sits under
+        # "items" with title/url/date_published/content_html directly on
+        # each item. This branch must stay in sync with _board_payload_ok
+        # (ats_discovery), which accepts "items" or "jobs": the collector
+        # fetches the SAME URL the verifier probes, so a payload the
+        # verifier accepts but this parser cannot read stamps the account
+        # with a collector that collects nothing.
+        items = raw.get("items")
+        if isinstance(items, list) and items:
+            jobs = items
         else:
-            jobs = []
+            # Accept: bare list under jobs; {"data": [jobs]} (JSON:API style);
+            # {"data": {"jobs": [...]}} (embedded initial-state style); plain
+            # {"jobs": [...]}.
+            data = raw.get("data")
+            if isinstance(data, dict) and isinstance(data.get("jobs"), list):
+                jobs = data["jobs"]
+            elif isinstance(raw.get("jobs"), list):
+                jobs = raw["jobs"]
+            elif isinstance(data, list):
+                jobs = data
+            else:
+                jobs = []
     else:
         jobs = []
     if not isinstance(jobs, list):
@@ -76,16 +103,26 @@ def parse_teamtailor(body: bytes) -> list[JobPost]:
                 title=attrs.get("title") or "",
                 url=attrs.get("hosted_url") or attrs.get("url") or attrs.get("careers_url") or "",
                 posted_at=to_iso_date(
-                    attrs.get("created_at") or attrs.get("published_at") or attrs.get("created")
+                    attrs.get("created_at")
+                    or attrs.get("published_at")
+                    or attrs.get("date_published")  # JSON Feed items
+                    or attrs.get("created")
                 ),
-                department=_dept(attrs.get("department")),
+                department=(
+                    _dept(attrs.get("department"))
+                    or _dept_from_tags(attrs.get("tags"))  # JSON Feed items
+                ),
                 location_raw=loc,
                 city=city,
                 region=region,
                 country=country,
                 remote=remote,
                 employment_type=attrs.get("employment_type") or attrs.get("contract_type"),
-                description=strip_html(attrs.get("description")),
+                description=strip_html(
+                    attrs.get("description")
+                    or attrs.get("content_html")  # JSON Feed items
+                    or attrs.get("summary")
+                ),
             )
         )
     out.sort(key=lambda x: x.external_id)

@@ -534,15 +534,21 @@ class AtsDiscovery:
             tokens = board_token_candidates(
                 account.name, account.domain, aliases=alias_names or []
             )
-            # Diagonal crossing: token-outer, vendor-inner. Every account
-            # probes its domain-prefix token on ALL 8 pinned vendors in round
-            # 1 — the old vendor-major order deterministically starved
-            # workable/smartrecruiters/ashby (8 probes bought greenhouse x 6 +
-            # lever x 2 on the Abnormal input). Round 2 reaches the alias
-            # tokens — the rebrand case this ladder exists for. Budget 12
-            # covers round 1 complete plus the first 4 probes of round 2; the
-            # showcase (greenhouse, abnormalsecurity) lands at probe #9 with
-            # 8 vendors.
+            # Diagonal crossing: token-outer, vendor-inner. The ladder spends
+            # whatever request budget stages 1-5 left behind (a full sitemap +
+            # path-guess walk can burn all but ~3 slots; typical marker-free
+            # accounts spend far less), so round 1 covers the domain-prefix
+            # token across ALL 8 pinned vendors only when the budget survives —
+            # the old vendor-major order, by contrast, deterministically
+            # starved workable/smartrecruiters/ashby (8 probes bought
+            # greenhouse x 6 + lever x 2 on the Abnormal input). Round 2
+            # reaches the alias tokens — the rebrand case this ladder exists
+            # for; the showcase (greenhouse, abnormalsecurity) lands at probe
+            # #9 with 8 vendors. Budget 12 = round 1 complete + the FIRST 4
+            # probes of round 2 only (greenhouse/lever/ashby/workable x t2):
+            # at today's cap breezy, recruitee and teamtailor never see
+            # depth-2 tokens — raise MAX_VERIFY_REQUESTS past 24 before
+            # counting on their round-2 coverage.
             candidates = [(v, t) for t in tokens for v in _LADDER_VENDORS]
             match = verify_board_candidates(fetch, candidates)
             if match:

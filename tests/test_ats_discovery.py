@@ -564,6 +564,14 @@ def test_discover_ladder_probe_order_is_diagonal(tmp_path):
         _VERIFY_ENDPOINTS[v].format(t="abnormal") for v in _LADDER_VENDORS
     ]
     assert probes[n] == "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs"
+    # Round-2 tail pinned: the 12-probe budget buys only the first 4 probes of
+    # round 2 — the majors in ladder order on the round-2 (alias) token. At
+    # today's cap breezy/recruitee/teamtailor never see depth-2 tokens (see
+    # the Stage 6 budget comment).
+    assert probes[n : n + 4] == [
+        _VERIFY_ENDPOINTS[v].format(t="abnormalsecurity")
+        for v in ("greenhouse", "lever", "ashby", "workable")
+    ]
 
 
 def test_discover_ladder_diagonal_hit_on_round2(tmp_path):
@@ -775,3 +783,90 @@ def test_verify_board_candidates_pinned_vendors_end_to_end():
         ],
     )
     assert neg is None
+
+
+# --- VERIFIER->PARSER round-trip ---------------------------------------------
+# Canned POS bodies = the 2026-10-04 live probe captures (same key shapes the
+# pinned predicate tests above record).
+
+BREEZY_EULER_POS = json.dumps(
+    [
+        {
+            "id": "64f0c9e2a1b3",
+            "friendly_id": "senior-backend-engineer",
+            "name": "Senior Backend Engineer",
+            "url": "https://euler.breezy.hr/senior-backend-engineer",
+            "published_date": "2026-09-30T10:12:34.567+00:00",
+            "type": {"id": "fullTime", "name": "Full-Time"},
+            "location": {"name": "Remote", "is_remote": True},
+            "department": "Engineering",
+            "salary": "",
+            "company": "Euler",
+            "locations": [],
+        }
+    ]
+)
+RECRUITEE_TETHER_POS = json.dumps(
+    {
+        "offers": [
+            {
+                "id": 3774,
+                "position": 3774,
+                "title": "Event Design Coordinator",
+                "country": "Netherlands",
+                "state_name": "Noord-Holland",
+                "postal_code": None,
+                "published_at": "2026-10-01 14:34:00",
+                "careers_url": "https://tether.recruitee.com/o/event-design-coordinator",
+            }
+        ]
+    }
+)
+TEAMTAILOR_RECRUITGO_POS = json.dumps(
+    {
+        "version": "https://jsonfeed.org/version/1.1",
+        "title": "RecruitGo",
+        "home_page_url": "https://recruitgo.teamtailor.com/jobs",
+        "feed_url": "https://recruitgo.teamtailor.com/jobs.json",
+        "items": [
+            {
+                "id": "8ec986c9-5743-4a5b-ba81-fc4b1e0a2a61",
+                "title": "Senior Business Consultant",
+                "url": "https://recruitgo.teamtailor.com/jobs/8495559-senior-business-consultant",
+                "date_published": "2026-10-04T21:02:37+08:00",
+                "content_html": "<p><strong>About Us:</strong></p>",
+            }
+        ],
+    }
+)
+
+
+def test_verifier_parser_round_trip_all_pinned_vendors():
+    """Whatever _board_payload_ok accepts, the SAME vendor's parser must turn
+    into >=1 JobPost. Each pinned collector fetches the SAME URL the verifier
+    probes (TeamtailorSource.plan -> {t}.teamtailor.com/jobs.json), so a
+    verifier-accepted payload the parser cannot read stamps the account with
+    a collector that collects nothing — and the stamp suppresses the
+    ats_careers_page fallback that would otherwise have collected."""
+    from src.sources.ats.breezy import parse_breezy
+    from src.sources.ats.recruitee import parse_recruitee
+    from src.sources.ats.teamtailor import parse_teamtailor
+
+    cases = [
+        ("breezy", BREEZY_EULER_POS, parse_breezy),
+        ("recruitee", RECRUITEE_TETHER_POS, parse_recruitee),
+        ("teamtailor", TEAMTAILOR_RECRUITGO_POS, parse_teamtailor),
+    ]
+    for vendor, body, parse in cases:
+        assert _board_payload_ok(vendor, body), vendor
+        jobs = parse(body.encode("utf-8"))
+        assert len(jobs) > 0, (
+            f"{vendor}: verifier accepts the live payload but the parser yielded 0 jobs"
+        )
+    # Field mapping on the live teamtailor JSON Feed item.
+    job = parse_teamtailor(TEAMTAILOR_RECRUITGO_POS.encode("utf-8"))[0]
+    assert job.title == "Senior Business Consultant"
+    assert job.url == "https://recruitgo.teamtailor.com/jobs/8495559-senior-business-consultant"
+    assert job.external_id == "8ec986c9-5743-4a5b-ba81-fc4b1e0a2a61"
+    assert job.posted_at == "2026-10-04"  # date_published via to_iso_date
+    assert job.description == "About Us:"  # strip_html(content_html)

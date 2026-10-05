@@ -7,13 +7,16 @@ factory. Task 3 adds the policy building blocks: mode resolution
 code-level scope enforcement (attach_decider — only run_intel attaches a
 live decider). Task 4 adds the five boundary gates (G1 plan qualification,
 G2 posture audit, G3 routing, G4 citation soundness, G5 need promotion) with
-the per-run DecideLedger and the shared state helpers. Off by default —
+the per-run DecideLedger and the shared state helpers. Task 6 adds the
+consistency sampler (sample_consistency) for repeat-and-measure calibration
+audits. Off by default —
 without keys/consent everything degrades to NullDecider and the
 deterministic pipeline.
 """
 
 from __future__ import annotations
 
+from src.decide.audit import sample_consistency
 from src.decide.gates import (
     DOC_EVIDENCE_MIN,
     DOC_INJECTION_MAX,
@@ -72,5 +75,6 @@ __all__ = [
     "get_decider",
     "lexical_overlap",
     "resolve_mode",
+    "sample_consistency",
     "state_hash",
 ]

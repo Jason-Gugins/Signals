@@ -113,6 +113,11 @@ def _choice(qid: str, value: str, tokens: int = 10) -> MockDecider:
     )
 
 
+def _choice_ans(label: str, prob: float) -> dict:
+    """A choice-shaped answer: top label + its probability (Jev's shape)."""
+    return {"choice": label, "probabilities": {label: prob}}
+
+
 STEP = PlanStep(
     source_ids=["company_feed"],
     budget_knobs={"article_follow_max": 3},
@@ -266,7 +271,13 @@ def test_ledger_aggregate_counts_mean_noul_and_tokens_per_gate():
 
     agg5 = ledger.aggregate("need_promotion")
     assert agg5["gate"] == "need_promotion"
-    assert agg5["counts"] == {"called": 1, "accepted": 1, "dropped": 0, "errored": 0}
+    assert agg5["counts"] == {
+        "called": 1,
+        "accepted": 1,
+        "dropped": 0,
+        "errored": 0,
+        "reviewed": 0,
+    }
     assert agg5["mean_noul"] == 0.9
     assert agg5["input_tokens"] == 50
 
@@ -277,24 +288,30 @@ def test_ledger_aggregate_counts_mean_noul_and_tokens_per_gate():
 
     # Unknown gate: zeroed aggregate, not an error.
     empty = ledger.aggregate("no_such_gate")
-    assert empty["counts"] == {"called": 0, "accepted": 0, "dropped": 0, "errored": 0}
+    assert empty["counts"] == {
+        "called": 0,
+        "accepted": 0,
+        "dropped": 0,
+        "errored": 0,
+        "reviewed": 0,
+    }
     assert empty["mean_noul"] is None
     assert empty["input_tokens"] == 0
     assert empty["detail"] == []
 
 
-def test_ledger_detail_holds_only_dropped_or_disagreed_rows():
+def test_ledger_detail_holds_dropped_reviewed_or_disagreed_rows():
     ledger = DecideLedger()
     # accepted + agree (det=True, jev promote) -> NOT in detail
     gate_need_promotion(NEED, EVIDENCE, True, _noul("promotion", 0.9), {}, ledger, RUN, "enforce")
-    # dropped below floor (det=True, jev no) -> in detail (dropped AND disagreed)
-    gate_need_promotion(NEED, EVIDENCE, True, _noul("promotion", 0.3), {}, ledger, RUN, "enforce")
-    # agreed drop (det=False, jev no) -> still in detail: the content IS dropped
-    gate_need_promotion(NEED, EVIDENCE, False, _noul("promotion", 0.3), {}, ledger, RUN, "enforce")
+    # dropped below band_low (det=True, jev no) -> in detail (dropped AND disagreed)
+    gate_need_promotion(NEED, EVIDENCE, True, _noul("promotion", 0.2), {}, ledger, RUN, "enforce")
+    # review band (det=True, jev abstain) -> review rows join detail too
+    gate_need_promotion(NEED, EVIDENCE, True, _noul("promotion", 0.5), {}, ledger, RUN, "enforce")
     detail = ledger.aggregate("need_promotion")["detail"]
     assert len(detail) == 2
-    assert all(row["outcome"] == "dropped" for row in detail)
-    assert [row["deterministic_action"] for row in detail] == ["promote", "drop"]
+    assert [row["outcome"] for row in detail] == ["dropped", "reviewed"]
+    assert all(row["deterministic_action"] == "promote" for row in detail)
 
 
 def test_ledger_detail_text_fields_truncated_to_400():
@@ -594,26 +611,33 @@ def test_citation_batch_accepts_claim_above_floor():
     ledger = DecideLedger()
     claims = [Claim(GOOD_CLAIM, "doc1")]
     accepted, decision = gate_citation_batch(
-        claims, "doc1", DOC, _batch_decider({"claim_0": {"noul": 0.9}}), {}, ledger, RUN, "enforce"
+        claims,
+        "doc1",
+        DOC,
+        _batch_decider({"claim_0": _choice_ans("supports", 0.9)}),
+        {},
+        ledger,
+        RUN,
+        "enforce",
     )
     assert accepted == claims
     assert decision.ok is True
     row = ledger.rows[0]
     assert row["gate"] == "citation_soundness"
-    assert row["noul"] == 0.9
+    assert row["noul"] == 0.9  # the top label's probability IS the stored noul
     assert row["outcome"] == "accepted"
     assert row["called"] is True
     assert row["raw_tokens"] == 120
     assert row.get("reason") is None
 
 
-def test_citation_batch_drops_claim_below_floor():
+def test_citation_batch_contradicted_drops_claim():
     ledger = DecideLedger()
     accepted, _ = gate_citation_batch(
         [Claim(GOOD_CLAIM, "doc1")],
         "doc1",
         DOC,
-        _batch_decider({"claim_0": {"noul": 0.3}}),
+        _batch_decider({"claim_0": _choice_ans("contradicted", 0.9)}),
         {},
         ledger,
         RUN,
@@ -621,14 +645,14 @@ def test_citation_batch_drops_claim_below_floor():
     )
     assert accepted == []
     row = ledger.rows[0]
-    assert row["reason"] == "floor"
+    assert row["reason"] == "contradicted"
     assert row["outcome"] == "dropped"
-    assert row["noul"] == 0.3
-    assert row["agree"] is False  # floor rejected content the additive path would keep
+    assert row["noul"] == 0.9
+    assert row["agree"] is False  # the drop rejected content the additive path would keep
     assert row["error"] is None
     # Dropped claim lands in the aggregate detail.
     detail = ledger.aggregate("citation_soundness")["detail"]
-    assert len(detail) == 1 and detail[0]["reason"] == "floor"
+    assert len(detail) == 1 and detail[0]["reason"] == "contradicted"
 
 
 def test_citation_batch_missing_doc_dropped_before_jev():
@@ -679,12 +703,19 @@ def test_citation_batch_shadow_returns_all_judged_claims():
     ledger = DecideLedger()
     claims = [Claim(GOOD_CLAIM, "doc1")]
     accepted, _ = gate_citation_batch(
-        claims, "doc1", DOC, _batch_decider({"claim_0": {"noul": 0.1}}), {}, ledger, RUN, "shadow"
+        claims,
+        "doc1",
+        DOC,
+        _batch_decider({"claim_0": _choice_ans("contradicted", 0.9)}),
+        {},
+        ledger,
+        RUN,
+        "shadow",
     )
     assert accepted == claims  # shadow never drops on the Jev verdict...
     row = ledger.rows[0]
     assert row["outcome"] == "dropped"  # ...but records what enforce WOULD do
-    assert row["reason"] == "floor"
+    assert row["reason"] == "contradicted"
     assert len(ledger.aggregate("citation_soundness")["detail"]) == 1
 
 
@@ -715,7 +746,7 @@ def test_citation_batch_null_decider_fails_closed():
 
 
 def test_citation_batch_anchor_window_state_reaches_past_head():
-    decider = CountingDecider({"claim": _ok({"claim_0": {"noul": 0.9}})})
+    decider = CountingDecider({"claim": _ok({"claim_0": _choice_ans("supports", 0.9)})})
     gate_citation_batch(
         [Claim(GOOD_CLAIM, "doc1")], "doc1", DOC, decider, {}, DecideLedger(), RUN, "enforce"
     )
@@ -726,7 +757,8 @@ def test_citation_batch_anchor_window_state_reaches_past_head():
     assert MID in state["claim_0"]
     assert "Nav header" in state["claim_0"]  # head excerpt rides along
     assert list(questions) == ["claim_0"]
-    assert questions["claim_0"]["type"] == "noul"
+    assert questions["claim_0"]["type"] == "choice"
+    assert set(questions["claim_0"]["criteria"]) == {"supports", "contradicted", "says_nothing"}
 
 
 def test_citation_batch_one_jev_request_per_document():
@@ -739,9 +771,9 @@ def test_citation_batch_one_jev_request_per_document():
         {
             "claim": _ok(
                 {
-                    "claim_0": {"noul": 0.9},
-                    "claim_1": {"noul": 0.8},
-                    "claim_2": {"noul": 0.7},
+                    "claim_0": _choice_ans("supports", 0.9),
+                    "claim_1": _choice_ans("supports", 0.8),
+                    "claim_2": _choice_ans("supports", 0.7),
                 },
                 tokens=120,
             )
@@ -764,7 +796,7 @@ def test_citation_batch_question_ids_index_the_full_claim_list():
     # claims[0] is prefilter-dropped; the surviving claim must still be
     # question claim_1 (stable ids over the FULL original list).
     claims = [Claim(BAD_CLAIM, "doc1"), Claim(GOOD_CLAIM, "doc1")]
-    decider = CountingDecider({"claim": _ok({"claim_1": {"noul": 0.9}})})
+    decider = CountingDecider({"claim": _ok({"claim_1": _choice_ans("supports", 0.9)})})
     ledger = DecideLedger()
     accepted, _ = gate_citation_batch(claims, "doc1", DOC, decider, {}, ledger, RUN, "enforce")
     assert accepted == [claims[1]]
@@ -795,20 +827,20 @@ def test_need_promotion_above_floor_promotes():
     assert row["called"] is True
 
 
-def test_need_promotion_below_floor_drops_but_probability_stored():
+def test_need_promotion_below_band_low_drops_but_probability_stored():
     ledger = DecideLedger()
     promote, noul, _ = gate_need_promotion(
-        NEED, EVIDENCE, True, _noul("promotion", 0.3), {}, ledger, RUN, "enforce"
+        NEED, EVIDENCE, True, _noul("promotion", 0.2), {}, ledger, RUN, "enforce"
     )
     assert promote is False
-    assert noul == 0.3  # the probability is stored regardless of the outcome
+    assert noul == 0.2  # the probability is stored regardless of the outcome
     row = ledger.rows[0]
-    assert row["noul"] == 0.3
+    assert row["noul"] == 0.2
     assert row["outcome"] == "dropped"
     assert row["agree"] is False
     assert row["agree_direction"] == "jev_no_det_yes"  # floor vetoed what det would promote
     assert row["error"] is None
-    assert ledger.aggregate("need_promotion")["mean_noul"] == 0.3
+    assert ledger.aggregate("need_promotion")["mean_noul"] == 0.2
 
 
 def test_need_promotion_error_does_not_promote():
@@ -885,3 +917,221 @@ def test_need_promotion_state_anchor_windows_the_evidence():
     assert "Nav header" in state["evidence_excerpt"]  # head excerpt rides along
     assert list(questions) == ["promotion"]
     assert questions["promotion"]["type"] == "noul"
+
+
+# --- wave-1 task 2: G4 quote-span check + 3-way Choice, G4/G5 bands, review ----
+
+
+# A document whose supporting sentence carries typographic quotes and a line
+# break — the span check's normalization (curly-quote fold + whitespace
+# collapse + casefold) must see through both.
+CURLY_DOC = (
+    HEAD + "The vendor \u201cdisclosed a breach\u201d affecting\n  2.4 million"
+    " records in March." + TAIL
+)
+
+
+def test_g4_fabricated_quote_dropped_zero_jev():
+    """A claim whose quote_span is absent from the document (after
+    normalization) drops BEFORE any Jev spend — zero decider calls."""
+    ledger = DecideLedger()
+    decider = CountingDecider({"claim": _ok({"claim_0": _choice_ans("supports", 0.95)})})
+    claim = Claim(GOOD_CLAIM, "doc1", quote_span="The vendor paid no ransom whatsoever")
+    accepted, _ = gate_citation_batch([claim], "doc1", DOC, decider, {}, ledger, RUN, "enforce")
+    assert accepted == []
+    assert decider.n_calls == 0  # the fabricated quote never reaches Jev
+    row = ledger.rows[0]
+    assert row["outcome"] == "dropped"
+    assert row["reason"] == "fabricated_quote"
+    assert row["called"] is False
+
+
+def test_g4_quote_found_passes_to_jev():
+    """A quote wrapped across a line break (with extra whitespace and curly
+    quotes) still matches after normalization — the claim proceeds to Jev."""
+    ledger = DecideLedger()
+    decider = CountingDecider({"claim": _ok({"claim_0": _choice_ans("supports", 0.9)})})
+    claim = Claim(
+        GOOD_CLAIM,
+        "doc1",
+        quote_span="disclosed a breach\u201d  affecting 2.4\nmillion records",
+    )
+    accepted, _ = gate_citation_batch(
+        [claim], "doc1", CURLY_DOC, decider, {}, ledger, RUN, "enforce"
+    )
+    assert accepted == [claim]
+    assert decider.n_calls == 1
+    assert ledger.rows[0]["outcome"] == "accepted"
+
+
+def test_g4_missing_quote_skips_span_check():
+    """quote_span None = not provided: the span check is skipped and a good
+    claim reaches Jev (no fabricated drop)."""
+    ledger = DecideLedger()
+    decider = CountingDecider({"claim": _ok({"claim_0": _choice_ans("supports", 0.9)})})
+    claim = Claim(GOOD_CLAIM, "doc1")  # quote_span None
+    accepted, _ = gate_citation_batch([claim], "doc1", DOC, decider, {}, ledger, RUN, "enforce")
+    assert accepted == [claim]
+    assert decider.n_calls == 1  # reached the Jev call
+    assert ledger.rows[0]["outcome"] == "accepted"
+
+
+def test_g4_three_way_choice_routing():
+    """All four branches: supports (prob >= floor) accepts; contradicted
+    drops; says_nothing reviews; label probability < floor reviews."""
+
+    def _run(answer: dict):
+        ledger = DecideLedger()
+        claim = Claim(GOOD_CLAIM, "doc1")
+        accepted, _ = gate_citation_batch(
+            [claim], "doc1", DOC, _batch_decider({"claim_0": answer}), {}, ledger, RUN, "enforce"
+        )
+        return accepted, ledger.rows[0]
+
+    accepted, row = _run(_choice_ans("supports", 0.9))
+    assert len(accepted) == 1
+    assert row["outcome"] == "accepted"
+    assert row.get("reason") is None
+    assert row["noul"] == 0.9
+
+    accepted, row = _run(_choice_ans("contradicted", 0.9))
+    assert accepted == []
+    assert row["outcome"] == "dropped"
+    assert row["reason"] == "contradicted"
+
+    accepted, row = _run(_choice_ans("says_nothing", 0.9))
+    assert accepted == []  # review: the claim is NOT returned in enforce
+    assert row["outcome"] == "reviewed"
+    assert row["reason"] == "says_nothing"
+
+    accepted, row = _run(_choice_ans("supports", 0.5))  # prob < floor
+    assert accepted == []
+    assert row["outcome"] == "reviewed"
+    assert row["reason"] == "review_label_prob"
+
+
+def test_g4_band_on_choice_probability():
+    """A supports answer with its probability in [band_low, floor) routes to
+    review, not accept (top-prob-or-abstain: prob < floor never accepts)."""
+    ledger = DecideLedger()
+    accepted, _ = gate_citation_batch(
+        [Claim(GOOD_CLAIM, "doc1")],
+        "doc1",
+        DOC,
+        _batch_decider({"claim_0": _choice_ans("supports", 0.45)}),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+    )
+    assert accepted == []
+    row = ledger.rows[0]
+    assert row["outcome"] == "reviewed"
+    assert row["reason"] == "review_label_prob"
+    assert row["noul"] == 0.45  # the probability is still stored
+
+
+def test_g4_legacy_noul_answers_keep_floor_routing():
+    """Pre-Choice callers (screen_and_gate_claims until Task 3 migrates) still
+    hand the gate noul-shaped verdicts: they route on the hard floor,
+    unchanged, and never crash the Choice reader."""
+    ledger = DecideLedger()
+    accepted, _ = gate_citation_batch(
+        [Claim(GOOD_CLAIM, "doc1")],
+        "doc1",
+        DOC,
+        _batch_decider({"claim_0": {"noul": 0.9}}),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+    )
+    assert len(accepted) == 1
+    assert ledger.rows[0]["outcome"] == "accepted"
+
+    ledger = DecideLedger()
+    accepted, _ = gate_citation_batch(
+        [Claim(GOOD_CLAIM, "doc1")],
+        "doc1",
+        DOC,
+        _batch_decider({"claim_0": {"noul": 0.3}}),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+    )
+    assert accepted == []
+    assert ledger.rows[0]["outcome"] == "dropped"
+    assert ledger.rows[0]["reason"] == "floor"
+
+
+def test_g5_band_routing():
+    """G5's two-sided band: >= floor promotes; [band_low, floor) reviews (NOT
+    promoted, probability stored); < band_low drops."""
+    cfg = {"floor": 0.70, "band_low": 0.30}
+
+    ledger = DecideLedger()
+    promote, noul, _ = gate_need_promotion(
+        NEED, EVIDENCE, False, _noul("promotion", 0.8), cfg, ledger, RUN, "enforce"
+    )
+    assert promote is True
+    assert noul == 0.8
+    assert ledger.rows[0]["outcome"] == "accepted"
+
+    ledger = DecideLedger()
+    promote, noul, _ = gate_need_promotion(
+        NEED, EVIDENCE, False, _noul("promotion", 0.5), cfg, ledger, RUN, "enforce"
+    )
+    assert promote is False  # review: NOT promoted
+    assert noul == 0.5  # the probability is still measured and returned
+    row = ledger.rows[0]
+    assert row["outcome"] == "reviewed"
+    assert row["reason"] == "review_below_floor"
+    assert row["noul"] == 0.5
+
+    ledger = DecideLedger()
+    promote, noul, _ = gate_need_promotion(
+        NEED, EVIDENCE, False, _noul("promotion", 0.1), cfg, ledger, RUN, "enforce"
+    )
+    assert promote is False
+    assert noul == 0.1  # stored regardless
+    row = ledger.rows[0]
+    assert row["outcome"] == "dropped"
+    assert row.get("reason") is None
+
+
+def test_ledger_counts_reviewed():
+    """Aggregate counts gain ``reviewed``; review rows land in detail."""
+    ledger = DecideLedger()
+    gate_need_promotion(NEED, EVIDENCE, True, _noul("promotion", 0.5), {}, ledger, RUN, "enforce")
+    agg = ledger.aggregate("need_promotion")
+    assert agg["counts"]["reviewed"] == 1
+    assert agg["counts"]["accepted"] == 0
+    assert agg["counts"]["dropped"] == 0
+    detail = agg["detail"]
+    assert len(detail) == 1
+    assert detail[0]["outcome"] == "reviewed"
+    assert detail[0]["reason"] == "review_below_floor"
+
+
+def test_span_check_binds_in_shadow():
+    """The quote-span check is DETERMINISTIC machinery (like the lexical
+    prefilter), so it binds in shadow too — while the Jev Choice verdict
+    stays shadow-inert."""
+    ledger = DecideLedger()
+    fabricated = Claim(GOOD_CLAIM, "doc1", quote_span="The vendor paid no ransom whatsoever")
+    judged = Claim("Vendor disclosed breach records in March", "doc1")  # no quote_span
+    decider = CountingDecider({"claim": _ok({"claim_1": _choice_ans("contradicted", 0.9)})})
+    accepted, _ = gate_citation_batch(
+        [fabricated, judged], "doc1", DOC, decider, {}, ledger, RUN, "shadow"
+    )
+    # The fabricated claim is dropped in shadow BEFORE Jev; the survivor is
+    # still Jev-judged (one call) ...
+    assert accepted == [judged]
+    assert decider.n_calls == 1
+    assert ledger.rows[0]["reason"] == "fabricated_quote"
+    assert ledger.rows[0]["outcome"] == "dropped"
+    # ... and the Choice verdict does NOT bind in shadow: the contradicted
+    # claim is returned while its row records the would-be drop.
+    assert ledger.rows[1]["outcome"] == "dropped"
+    assert ledger.rows[1]["reason"] == "contradicted"

@@ -46,9 +46,13 @@ stable). The single call's ``called``/``raw_tokens``/``latency_ms`` are
 attributed to the FIRST judged row so per-gate aggregates count requests and
 tokens once, not once per claim.
 
-G4 deterministic stages bind in EVERY mode — only the Jev floor is
-shadow-inert. A missing document or a sub-floor lexical overlap drops claims
-in shadow too; they are deterministic machinery, not Jev verdicts.
+G4 deterministic stages bind in EVERY mode — only the Jev verdict routing is
+shadow-inert. A missing document, a sub-floor lexical overlap, or a
+quote_span that is not a substring of the document (the quote-span check)
+drops claims in shadow too; they are deterministic machinery, not Jev
+verdicts. This asymmetry is deliberate: the span check is a deterministic
+check (like the prefilter), NOT a gate verdict, so shadow-inertness — which
+applies to Choice/probability verdicts — never extends to it.
 
 No network anywhere in this module except through the injected decider.
 """
@@ -80,6 +84,18 @@ _BAND_LOW = 0.30
 # word tokens with the cited document than this are dropped BEFORE any Jev
 # call — a cheap catch for plausible-but-uncited confabulations.
 LEXICAL_OVERLAP_FLOOR = 0.15
+
+# G4's three Choice labels (stage d): the per-claim Noul became a 3-way
+# Choice — supports / contradicted / says_nothing — routed by top-label
+# probability.
+_G4_CHOICE_LABELS = frozenset({"supports", "contradicted", "says_nothing"})
+
+# Curly-quote fold (quote-span normalization): implementer-copied quotes
+# routinely carry typographic quotes the stored document renders as ASCII
+# (or vice versa) — fold both onto the ASCII pair before matching.
+_CURLY_QUOTE_MAP = str.maketrans(
+    {"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'}
+)
 
 # G3 tie band: within +/-20% of route_threshold Jev breaks the tie; outside
 # it the heuristic fires without a call.
@@ -120,14 +136,15 @@ def lexical_overlap(claim_text: str, doc_text: str) -> float:
 
 
 def _normalize_with_map(text: str) -> tuple[str, list[int]]:
-    """Casefolded, whitespace-collapsed copy of ``text`` plus a map from each
-    normalized char index back to its ORIGINAL char index (casefold can
-    expand one char into many; every emitted char gets its source index, so
-    the map stays aligned with the normalized string)."""
+    """Casefolded, whitespace-collapsed, curly-quote-folded copy of ``text``
+    plus a map from each normalized char index back to its ORIGINAL char
+    index (casefold can expand one char into many; every emitted char gets
+    its source index, so the map stays aligned with the normalized string).
+    The curly-quote fold is a 1:1 char mapping, so it preserves alignment."""
     chars: list[str] = []
     idx: list[int] = []
     pending_space = False
-    for i, ch in enumerate(text):
+    for i, ch in enumerate(text.translate(_CURLY_QUOTE_MAP)):
         if ch.isspace():
             # Collapse whitespace runs to one space; no leading space.
             if chars and not pending_space:
@@ -140,6 +157,15 @@ def _normalize_with_map(text: str) -> tuple[str, list[int]]:
             chars.append(folded)
             idx.append(i)
     return "".join(chars), idx
+
+
+def _normalize_text(text: str) -> str:
+    """The quote-span check's normalization for BOTH sides: casefold +
+    whitespace collapse + curly-quote fold. The document side goes through
+    :func:`_normalize_with_map` (same fold, plus the original-index map, kept
+    open for span-position reporting in a later task); the quote side only
+    needs the normalized string."""
+    return _normalize_with_map(text)[0]
 
 
 def anchor_window(doc_text: str, anchor: str, window_tokens: int = 300) -> str:
@@ -182,12 +208,14 @@ class DecideLedger:
     document) from row conventions:
 
     - ``called`` truthy  -> the Jev call counter (requests, not claims).
-    - ``outcome`` of "accepted" | "dropped" | "errored" -> the matching count.
+    - ``outcome`` of "accepted" | "dropped" | "errored" | "reviewed" -> the
+      matching count ("reviewed" = the calibration band's review outcome —
+      recorded, not applied).
     - numeric ``noul``   -> the mean-noul sample.
     - ``raw_tokens``     -> summed as ``input_tokens``.
-    - ``detail``         ONLY rows for dropped/errored/disagreed content,
-      each a capped copy (string fields truncated to 400 chars, mirroring the
-      repo's EVIDENCE_TEXT_LIMIT habit).
+    - ``detail``         ONLY rows for dropped/errored/reviewed/disagreed
+      content, each a capped copy (string fields truncated to 400 chars,
+      mirroring the repo's EVIDENCE_TEXT_LIMIT habit).
 
     Rows where Jev never applied (NullDecider, unmatched mock: ``called``
     falsy, ``outcome`` absent, ``agree`` None) are recorded but inflate none
@@ -206,6 +234,7 @@ class DecideLedger:
                 "accepted": 0,
                 "dropped": 0,
                 "errored": 0,
+                "reviewed": 0,
                 "noul_sum": 0.0,
                 "noul_n": 0,
                 "raw_tokens": 0,
@@ -221,7 +250,7 @@ class DecideLedger:
         if row.get("called"):
             agg["called"] += 1
         outcome = row.get("outcome")
-        if outcome in ("accepted", "dropped", "errored"):
+        if outcome in ("accepted", "dropped", "errored", "reviewed"):
             agg[outcome] += 1
         noul = row.get("noul")
         if isinstance(noul, (int, float)) and not isinstance(noul, bool):
@@ -230,7 +259,7 @@ class DecideLedger:
         raw = row.get("raw_tokens") or 0
         if isinstance(raw, (int, float)):
             agg["raw_tokens"] += int(raw)
-        if outcome in ("dropped", "errored") or row.get("agree") is False:
+        if outcome in ("dropped", "errored", "reviewed") or row.get("agree") is False:
             agg["detail"].append(_bounded_row(row))
 
     def aggregate(self, gate: str) -> dict:
@@ -239,7 +268,13 @@ class DecideLedger:
         if agg is None:
             return {
                 "gate": gate,
-                "counts": {"called": 0, "accepted": 0, "dropped": 0, "errored": 0},
+                "counts": {
+                    "called": 0,
+                    "accepted": 0,
+                    "dropped": 0,
+                    "errored": 0,
+                    "reviewed": 0,
+                },
                 "mean_noul": None,
                 "input_tokens": 0,
                 "detail": [],
@@ -251,6 +286,7 @@ class DecideLedger:
                 "accepted": agg["accepted"],
                 "dropped": agg["dropped"],
                 "errored": agg["errored"],
+                "reviewed": agg["reviewed"],
             },
             "mean_noul": (agg["noul_sum"] / agg["noul_n"]) if agg["noul_n"] else None,
             "input_tokens": agg["raw_tokens"],
@@ -359,6 +395,20 @@ def _floor(gate_cfg: dict | None, default: float) -> float:
         return default
 
 
+def _band_low(gate_cfg: dict | None) -> float:
+    """The calibration band's low edge (G4/G5): outcomes in
+    [band_low, floor) route to a review instead of a hard drop."""
+    try:
+        return float((gate_cfg or {}).get("band_low", _BAND_LOW))
+    except (TypeError, ValueError):
+        logger.warning(
+            "decide layer: bad band_low {!r}; using default {}",
+            (gate_cfg or {}).get("band_low"),
+            _BAND_LOW,
+        )
+        return _BAND_LOW
+
+
 def _noul_of(answers, qid: str) -> float | None:
     ans = (answers or {}).get(qid)
     if isinstance(ans, dict):
@@ -374,6 +424,19 @@ def _choice_of(answers, qid: str) -> str | None:
         value = ans.get("choice")
         if isinstance(value, str):
             return value.strip().lower()
+    return None
+
+
+def _choice_prob(answers, qid: str, label: str) -> float | None:
+    """The probability Jev reported for a choice answer's top ``label``
+    (None when the answer carries no usable probability for it)."""
+    ans = (answers or {}).get(qid)
+    if isinstance(ans, dict):
+        probs = ans.get("probabilities")
+        if isinstance(probs, dict):
+            value = probs.get(label)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return float(value)
     return None
 
 
@@ -662,19 +725,37 @@ def gate_citation_batch(
     Sequence: (a) deterministic doc existence (the caller supplies
     ``doc_text``; None/empty drops every claim BEFORE Jev), (b) a per-claim
     lexical-overlap prefilter (below :data:`LEXICAL_OVERLAP_FLOOR` drops
-    before Jev), (c) ONE batched Jev request for the survivors — state
-    ``{"doc_id": ..., "claim_<i>": anchor_window(...)}`` with one Noul
-    question per claim, ids indexing the FULL original list so they are
-    stable — then (d) the floor.
+    before Jev), (b2) a deterministic quote-span check (a claim carrying a
+    truthy ``quote_span`` whose normalized text is NOT a substring of the
+    normalized document drops, reason "fabricated_quote" — BEFORE any Jev
+    spend), (c) ONE batched Jev request for the remaining survivors — state
+    ``{"doc_id": ..., "claim_<i>": anchor_window(...)}`` with one 3-way
+    Choice question per claim (supports / contradicted / says_nothing; ids
+    index the FULL original list so they are stable) — then (d) routing by
+    the top label and its probability: probability >= floor routes the label
+    (supports ⇒ accept / contradicted ⇒ drop, reason "contradicted" /
+    says_nothing ⇒ review); probability < floor ⇒ review (reason
+    "review_label_prob" — the cookbook's top-prob-or-abstain rule).
 
-    Stages (a)+(b) are DETERMINISTIC machinery and bind in every mode; only
-    the Jev floor is shadow-inert (shadow returns all judged claims and rows
-    record the would-be outcome). Enforce drops below-floor claims (reason
-    "floor", into the aggregate detail); a Jev error drops ALL batch claims —
-    implementer output is additive, so the outage degrades to exactly today's
-    dossier. Not-applicable (NullDecider) fails closed for LLM content too.
+    Stages (a)+(b)+(b2) are DETERMINISTIC machinery and bind in EVERY mode —
+    including shadow. The span check is a deterministic check like the
+    lexical prefilter, NOT a Jev verdict, so the shadow-inertness of gate
+    verdicts does NOT extend to it (documented asymmetry). The Choice
+    verdicts and their probability band NEVER bind in shadow: shadow returns
+    all judged claims and the rows record the would-be outcome. Enforce
+    drops contradicted claims (into the aggregate detail) and does not
+    return reviewed ones; a Jev error drops ALL batch claims — implementer
+    output is additive, so the outage degrades to exactly today's dossier.
+    Not-applicable (NullDecider) fails closed for LLM content too.
 
-    Returns (accepted_claims, decision).
+    Backward-compat: noul-shaped verdicts (pre-Choice callers/fixtures)
+    route on the hard floor, unchanged, until Task 3 migrates the
+    downstream (screen_and_gate_claims / claims_to_candidates) to read the
+    Choice answers; malformed/missing verdicts route to review (reason
+    "no_answer") — fail-closed for content, recorded for audit.
+
+    Returns (accepted_claims, decision); the per-claim Choice answers ride
+    in ``decision.answers`` under the existing ``claim_<i>`` ids.
     """
     cfg = _cfg(gate_cfg)
     floor = _floor(cfg, CLAIM_FLOOR)
@@ -712,14 +793,33 @@ def gate_citation_batch(
     if not survivors:
         return [], not_applicable
 
+    # (b2) deterministic quote-span check — before any Jev spend, and it
+    # BINDS in every mode (shadow included): like the prefilter, it is
+    # deterministic machinery, not a gate verdict.
+    grounded: list[tuple[int, Claim]] = []
+    norm_doc = _normalize_text(doc_text)
+    for i, claim in survivors:
+        if claim.quote_span and _normalize_text(claim.quote_span) not in norm_doc:
+            _drop_row(i, claim, "fabricated_quote")
+        else:
+            grounded.append((i, claim))
+    survivors = grounded
+    if not survivors:
+        return [], not_applicable
+
     # (c) ONE batched request per document; ids index the FULL claim list.
     state: dict = {"doc_id": doc_id}
     questions: dict[str, dict] = {}
     for i, claim in survivors:
         state[f"claim_{i}"] = anchor_window(doc_text, claim.text)
         questions[f"claim_{i}"] = {
-            "type": "noul",
-            "instructions": "Does this claim follow from the cited document excerpt? Answer noul.",
+            "type": "choice",
+            "instructions": "Judge the claim against its cited document excerpt.",
+            "criteria": {
+                "supports": "the excerpt states the claim or directly implies it",
+                "contradicted": "the excerpt states the opposite or implies it is false",
+                "says_nothing": "the excerpt does not address what the claim asserts",
+            },
         }
     decision, latency_ms = _call(decider, state, questions)
     called = bool(decision.applies)
@@ -752,20 +852,41 @@ def gate_citation_batch(
         logger.debug("G4 batch for {} errored; all LLM claims dropped (run={})", doc_id, run_id)
         return [], decision
 
-    # (d) the floor — one row per judged claim; the batch call's called/
-    # raw_tokens/latency ride on the FIRST row so aggregates count once.
+    # (d) verdict routing — one row per judged claim; the batch call's
+    # called/raw_tokens/latency ride on the FIRST row so aggregates count
+    # once.
     accepted: list[Claim] = []
     first = True
     for i, claim in survivors:
         qid = f"claim_{i}"
-        noul = _noul_of(decision.answers, qid)
-        if noul is not None and noul >= floor:
-            outcome, reason = "accepted", None
-        elif noul is None:
-            outcome, reason = "dropped", "no_answer"  # malformed/missing verdict: fail-closed
+        label = _choice_of(decision.answers, qid)
+        prob = _choice_prob(decision.answers, qid, label) if label is not None else None
+        noul = _noul_of(decision.answers, qid)  # legacy noul-shaped verdicts
+        if label in _G4_CHOICE_LABELS and prob is not None:
+            # Choice verdict: top label + its probability. prob >= floor
+            # routes the label; prob < floor reviews (abstain).
+            row_noul = prob
+            if prob >= floor:
+                if label == "supports":
+                    outcome, reason = "accepted", None
+                elif label == "contradicted":
+                    outcome, reason = "dropped", "contradicted"
+                else:
+                    outcome, reason = "reviewed", "says_nothing"
+            else:
+                outcome, reason = "reviewed", "review_label_prob"
+        elif noul is not None:
+            # Legacy noul-shaped verdict (downstream callers pre-Task 3):
+            # hard floor, unchanged.
+            row_noul = noul
+            outcome = "accepted" if noul >= floor else "dropped"
+            reason = None if outcome == "accepted" else "floor"
         else:
-            outcome, reason = "dropped", "floor"
-        # Enforce applies the floor; shadow lets the claim through (the
+            # Malformed/missing verdict: fail-closed for content (enforce
+            # returns nothing) with a review row for the audit trail.
+            row_noul = None
+            outcome, reason = "reviewed", "no_answer"
+        # Enforce applies the verdict; shadow lets the claim through (the
         # deterministic stages above already bound) and records the would-be.
         if enforce:
             take = outcome == "accepted"
@@ -773,7 +894,7 @@ def gate_citation_batch(
             take = True
         if take:
             accepted.append(claim)
-        agree = noul is not None and outcome == "accepted"
+        agree = row_noul is not None and outcome == "accepted"
         ledger.record(
             _row(
                 "citation_soundness", state, decider, run_id,
@@ -783,10 +904,12 @@ def gate_citation_batch(
                 latency_ms=latency_ms if first else 0.0,
                 raw_tokens=raw_tokens if first else 0,
                 called=True if first else False, outcome=outcome,
-                noul=noul, reason=reason,
+                noul=row_noul, reason=reason,
             )
         )
         first = False
+    # Task 3 migrates the downstream (screen_and_gate_claims /
+    # claims_to_candidates) to read the per-claim Choice answers above.
     return accepted, decision
 
 
@@ -805,14 +928,19 @@ def gate_need_promotion(
 ) -> tuple[bool, float | None, Decision]:
     """G5 — gate promotion of an extracted need (implement -> score boundary).
 
-    noul >= floor promotes; the noul value (the "probability") is stored in
-    the row and returned REGARDLESS of the promote/drop outcome. On a Jev
+    Two-sided calibration band on the noul: noul >= floor promotes; noul in
+    [band_low, floor) routes to a REVIEW (NOT promoted — the review is a
+    recorded outcome, not a promotion; the probability is still stored in
+    the row and returned); noul < band_low drops. The noul value (the
+    "probability") is stored/returned REGARDLESS of the outcome. On a Jev
     error (``on_error: drop_llm``) the LLM need is not promoted;
     deterministic needs are unaffected. Not-applicable returns the caller's
     ``deterministic_promote``. Shadow returns the deterministic action and
     records the verdict + agree/agree_direction (``match`` |
     ``jev_yes_det_no`` | ``jev_no_det_yes`` — agreement rate alone conflates
-    added strictness with added recall loss).
+    added strictness with added recall loss); like every Jev verdict, the
+    band's review/drop NEVER binds in shadow (rows record the would-be
+    outcome, promotions are not applied).
 
     Returns (promote, noul, decision).
     """
@@ -862,7 +990,19 @@ def gate_need_promotion(
         return promote, None, decision
 
     noul = _noul_of(decision.answers, "promotion")
-    would = noul is not None and noul >= floor
+    band_low = _band_low(cfg)
+    # The two-sided band routes the WOULD-BE enforce outcome: >= floor
+    # promotes; [band_low, floor) reviews (recorded, NOT promoted);
+    # < band_low drops. A malformed verdict (noul None) keeps the
+    # fail-closed drop.
+    if noul is None:
+        would, outcome, reason = False, "dropped", None
+    elif noul >= floor:
+        would, outcome, reason = True, "accepted", None
+    elif noul >= band_low:
+        would, outcome, reason = False, "reviewed", "review_below_floor"
+    else:
+        would, outcome, reason = False, "dropped", None
     if noul is None:
         agree, direction = None, None
     else:
@@ -885,7 +1025,7 @@ def gate_need_promotion(
             answers=dict(decision.answers), deterministic_action=det_action,
             agree=agree, agree_direction=direction, error=None,
             latency_ms=latency_ms, raw_tokens=raw_tokens, called=called,
-            outcome="accepted" if would else "dropped", noul=noul,
+            outcome=outcome, noul=noul, reason=reason,
         )
     )
     return promote, noul, decision

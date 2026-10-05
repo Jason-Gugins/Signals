@@ -402,6 +402,7 @@ def screen_and_gate_claims(
     ledger,
     run_id: str,
     mode: str,
+    screen_cfg: dict | None = None,
 ) -> list[tuple[Claim, dict]]:
     """The G4 path for one document's atomized claims.
 
@@ -429,7 +430,10 @@ def screen_and_gate_claims(
       returns claims whose span was found in the document or absent).
 
     ``mode`` and ``gates_cfg`` pass straight through to the gate (shadow is
-    gate-inert; enforce applies the floor). Never raises: gate failures come
+    gate-inert; enforce applies the floor). ``screen_cfg`` — the
+    ``decider.gates.output_screen`` block, ``None`` (the default) = the
+    output screen rider is disabled — threads straight through to
+    :func:`gate_citation_batch` too. Never raises: gate failures come
     back as dropped claims per the additive invariant.
     """
     survivors: list[Claim] = []
@@ -440,7 +444,7 @@ def screen_and_gate_claims(
         survivors.append(claim)
 
     accepted, decision = gate_citation_batch(
-        survivors, batch_doc_id, doc_text, decider, gates_cfg, ledger, run_id, mode
+        survivors, batch_doc_id, doc_text, decider, gates_cfg, ledger, run_id, mode, screen_cfg
     )
 
     accepted_ids = {id(c) for c in accepted}

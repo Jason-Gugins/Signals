@@ -32,6 +32,8 @@ from src.decide import (
     DOC_INJECTION_MAX,
     DOC_RELEVANT_MIN,
     LEXICAL_OVERLAP_FLOOR,
+    OUTPUT_ACTION_THRESHOLD,
+    OUTPUT_REVIEW_THRESHOLD,
     Claim,
     DecideLedger,
     MockDecider,
@@ -1409,3 +1411,205 @@ def test_doc_gate_malformed_verdict_includes_with_error_row():
     assert row["outcome"] == "included"
     assert row["reason"] == "no_answer"
     assert row["error"] == "no_answer"
+
+
+# --- wave-1 task 5: output screen rider (batch-level claim screening) ----------
+
+SCREEN_CFG = {"enabled": True, "review_threshold": 0.35, "action_threshold": 0.70}
+
+BATCH_CLAIMS = [
+    Claim(GOOD_CLAIM, "doc1"),
+    Claim("Vendor disclosed breach records in March", "doc1"),
+]
+
+
+def _screen_decider(
+    claim_answers: dict[str, dict],
+    wrong_entity: float,
+    out_of_excerpt: float,
+    tokens: int = 140,
+) -> MockDecider:
+    """A MockDecider answering ONE batched Decision: the per-claim Choice
+    answers AND the two output-screen Nouls coexist in the answers map."""
+    answers = dict(claim_answers)
+    answers["wrong_entity"] = {"noul": wrong_entity}
+    answers["out_of_excerpt"] = {"noul": out_of_excerpt}
+    return MockDecider(
+        {"claim": Decision(applies=True, ok=True, answers=answers, raw_tokens=tokens)}
+    )
+
+
+def _claim_answers() -> dict[str, dict]:
+    return {
+        "claim_0": _choice_ans("supports", 0.9),
+        "claim_1": _choice_ans("supports", 0.8),
+    }
+
+
+def test_output_screen_threshold_constants():
+    assert OUTPUT_REVIEW_THRESHOLD == 0.35
+    assert OUTPUT_ACTION_THRESHOLD == 0.70
+
+
+def test_output_screen_block_drops_batch():
+    """wrong_entity >= action_threshold (0.70) drops ALL batch claims with
+    reason "wrong_entity" — block wins over everything — and the screen rides
+    the EXISTING per-document request (still exactly ONE Jev request)."""
+    ledger = DecideLedger()
+    decider = CountingDecider(
+        {"claim": _ok(_claim_answers() | {"wrong_entity": {"noul": 0.8},
+                                         "out_of_excerpt": {"noul": 0.1}})}
+    )
+    accepted, _ = gate_citation_batch(
+        BATCH_CLAIMS, "doc1", DOC, decider, {}, ledger, RUN, "enforce", screen_cfg=SCREEN_CFG
+    )
+    assert accepted == []
+    assert decider.n_calls == 1  # the two Nouls rode the existing request
+    _state, questions = decider.calls[0]
+    assert "out_of_excerpt" in questions and "wrong_entity" in questions
+    assert questions["out_of_excerpt"]["type"] == "noul"
+    assert questions["wrong_entity"]["type"] == "noul"
+    assert len(ledger.rows) == 2
+    assert all(r["outcome"] == "dropped" for r in ledger.rows)
+    assert all(r["reason"] == "wrong_entity" for r in ledger.rows)
+    # The batch answers are visible in the row's answers map.
+    assert ledger.rows[0]["answers"]["wrong_entity"] == {"noul": 0.8}
+    assert ledger.rows[0]["answers"]["out_of_excerpt"] == {"noul": 0.1}
+    assert ledger.rows[0]["answers"]["claim_0"] == _choice_ans("supports", 0.9)
+    agg = ledger.aggregate("citation_soundness")
+    assert agg["counts"]["dropped"] == 2
+    assert agg["counts"]["called"] == 1  # attributed once, not per claim
+
+
+def test_output_screen_block_out_of_excerpt():
+    """out_of_excerpt >= action_threshold (wrong_entity clean) drops ALL batch
+    claims with reason "unfounded_claims"."""
+    ledger = DecideLedger()
+    accepted, _ = gate_citation_batch(
+        BATCH_CLAIMS,
+        "doc1",
+        DOC,
+        _screen_decider(_claim_answers(), wrong_entity=0.1, out_of_excerpt=0.9),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+        screen_cfg=SCREEN_CFG,
+    )
+    assert accepted == []
+    assert len(ledger.rows) == 2
+    assert all(r["outcome"] == "dropped" for r in ledger.rows)
+    assert all(r["reason"] == "unfounded_claims" for r in ledger.rows)
+
+
+def test_output_screen_review_band():
+    """A hazard in [review_threshold, action_threshold) holds the batch for
+    review: claims NOT returned in enforce, rows outcome "reviewed" with
+    reason "output_review" (recorded, never applied — Task 2 semantics)."""
+    ledger = DecideLedger()
+    decider = _screen_decider(_claim_answers(), wrong_entity=0.5, out_of_excerpt=0.0)
+    accepted, _ = gate_citation_batch(
+        BATCH_CLAIMS, "doc1", DOC, decider, {}, ledger, RUN, "enforce", screen_cfg=SCREEN_CFG
+    )
+    assert accepted == []  # review: the batch is held, not applied
+    assert len(ledger.rows) == 2
+    assert all(r["outcome"] == "reviewed" for r in ledger.rows)
+    assert all(r["reason"] == "output_review" for r in ledger.rows)
+    assert ledger.rows[0]["noul"] == 0.9  # the per-claim probability still stored
+    # Review rows land in the aggregate detail alongside dropped/errored.
+    detail = ledger.aggregate("citation_soundness")["detail"]
+    assert len(detail) == 2
+
+
+def test_output_screen_disabled():
+    """screen_cfg None (or enabled: false) = the screen never existed: NO
+    out_of_excerpt/wrong_entity questions are asked and per-claim verdicts
+    route unchanged (today's behavior exactly)."""
+    for screen_cfg in (None, {"enabled": False, "review_threshold": 0.35,
+                              "action_threshold": 0.70}):
+        ledger = DecideLedger()
+        decider = CountingDecider({"claim": _ok(_claim_answers())})
+        accepted, _ = gate_citation_batch(
+            BATCH_CLAIMS, "doc1", DOC, decider, {}, ledger, RUN, "enforce",
+            screen_cfg=screen_cfg,
+        )
+        assert len(accepted) == 2  # per-claim verdicts stand
+        _state, questions = decider.calls[0]
+        assert "out_of_excerpt" not in questions
+        assert "wrong_entity" not in questions
+        assert set(questions) == {"claim_0", "claim_1"}
+
+
+def test_output_screen_shadow():
+    """Shadow: the screen NEVER binds — claims are returned exactly as the
+    per-claim verdicts dictated while the rows record the would-be screen
+    outcome; the two batch Nouls are still asked (they are the input)."""
+    ledger = DecideLedger()
+    decider = CountingDecider(
+        {"claim": _ok(_claim_answers() | {"wrong_entity": {"noul": 0.9},
+                                          "out_of_excerpt": {"noul": 0.1}})}
+    )
+    accepted, _ = gate_citation_batch(
+        BATCH_CLAIMS, "doc1", DOC, decider, {}, ledger, RUN, "shadow", screen_cfg=SCREEN_CFG
+    )
+    assert accepted == BATCH_CLAIMS  # per-claim verdicts stood; screen did not bind
+    assert decider.n_calls == 1
+    _state, questions = decider.calls[0]
+    assert "out_of_excerpt" in questions and "wrong_entity" in questions
+    assert len(ledger.rows) == 2
+    assert all(r["outcome"] == "dropped" for r in ledger.rows)  # would-be outcome
+    assert all(r["reason"] == "wrong_entity" for r in ledger.rows)
+
+
+def test_output_screen_block_beats_review():
+    """Both hazards fire at different levels: the block (wrong_entity >=
+    action) wins over the review band (out_of_excerpt in [review, action))."""
+    ledger = DecideLedger()
+    accepted, _ = gate_citation_batch(
+        BATCH_CLAIMS,
+        "doc1",
+        DOC,
+        _screen_decider(_claim_answers(), wrong_entity=0.8, out_of_excerpt=0.5),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+        screen_cfg=SCREEN_CFG,
+    )
+    assert accepted == []
+    assert all(r["reason"] == "wrong_entity" for r in ledger.rows)
+
+
+def test_output_screen_wrong_entity_wins():
+    """Both hazards block: wrong_entity takes precedence (first-listed rule)
+    over out_of_excerpt's "unfounded_claims"."""
+    ledger = DecideLedger()
+    accepted, _ = gate_citation_batch(
+        BATCH_CLAIMS,
+        "doc1",
+        DOC,
+        _screen_decider(_claim_answers(), wrong_entity=0.9, out_of_excerpt=0.9),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+        screen_cfg=SCREEN_CFG,
+    )
+    assert accepted == []
+    assert all(r["reason"] == "wrong_entity" for r in ledger.rows)
+
+
+def test_output_screen_jev_error_keeps_existing_drop_all_path():
+    """The screen adds NO error branch of its own: a Jev error on the batch
+    takes the existing drop-all path (on_error drop_llm semantics) unchanged."""
+    ledger = DecideLedger()
+    decider = CountingDecider({"claim": _fail()})
+    accepted, decision = gate_citation_batch(
+        BATCH_CLAIMS, "doc1", DOC, decider, {}, ledger, RUN, "enforce", screen_cfg=SCREEN_CFG
+    )
+    assert accepted == []
+    assert decision.ok is False
+    assert decider.n_calls == 1  # the screen questions rode the same (failed) request
+    assert len(ledger.rows) == 2
+    assert all(r["outcome"] == "errored" for r in ledger.rows)
+    assert all(r["error"] == "jev_error" for r in ledger.rows)

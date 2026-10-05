@@ -83,6 +83,12 @@ DOC_RELEVANT_MIN = 0.45
 DOC_EVIDENCE_MIN = 0.55
 DOC_INJECTION_MAX = 0.70
 
+# Output screen thresholds (wave-1, the G4 rider): batch-level noul routing
+# IN CODE — block beats review; thresholds are read from the
+# ``output_screen`` gate block via ``_threshold`` over these defaults.
+OUTPUT_REVIEW_THRESHOLD = 0.35
+OUTPUT_ACTION_THRESHOLD = 0.70
+
 # Document gate state cap: the judged text is the document head-truncated to
 # ~this many tokens (the house truncate habit, 4 chars/token).
 _DOC_STATE_TOKENS = 2400
@@ -435,6 +441,13 @@ def _threshold(gate_cfg: dict | None, key: str, default: float) -> float:
         return default
 
 
+def _screen_active(screen_cfg: dict | None) -> bool:
+    """Whether the output screen rider rides this G4 request: only an
+    explicitly passed, enabled ``output_screen`` config block turns it on
+    (``None`` — the default — keeps the pre-rider request shape exactly)."""
+    return bool(screen_cfg) and bool(screen_cfg.get("enabled", True))
+
+
 def _noul_of(answers, qid: str) -> float | None:
     ans = (answers or {}).get(qid)
     if isinstance(ans, dict):
@@ -745,6 +758,7 @@ def gate_citation_batch(
     ledger: DecideLedger,
     run_id: str,
     mode: str,
+    screen_cfg: dict | None = None,
 ) -> tuple[list[Claim], Decision]:
     """G4 — citation soundness for one document's claim batch.
 
@@ -762,6 +776,31 @@ def gate_citation_batch(
     (supports ⇒ accept / contradicted ⇒ drop, reason "contradicted" /
     says_nothing ⇒ review); probability < floor ⇒ review (reason
     "review_label_prob" — the cookbook's top-prob-or-abstain rule).
+
+    Output screen rider (``screen_cfg`` — the ``output_screen`` gate block;
+    ``None``, the default, = disabled = today's behavior exactly): when
+    enabled, TWO batch-level Nouls — ``out_of_excerpt`` ("Do any of the
+    claims assert specific facts (numbers, dates, names, amounts) that the
+    supplied document excerpts do not contain?") and ``wrong_entity`` ("Do
+    any of the claims concern an entity other than the account this document
+    is about?") — ride the SAME per-document request (mixed question types
+    in one batched request are fine) in EVERY mode, shadow included: they are
+    the screen's input. Routing is IN CODE, after the per-claim verdicts,
+    with BLOCK BEATING REVIEW and the thresholds read from ``screen_cfg``
+    via ``_threshold`` (:data:`OUTPUT_REVIEW_THRESHOLD`,
+    :data:`OUTPUT_ACTION_THRESHOLD`): ``wrong_entity`` >= ``action_threshold``
+    drops ALL batch claims (reason "wrong_entity"); else ``out_of_excerpt``
+    >= ``action_threshold`` drops ALL (reason "unfounded_claims"); else
+    either hazard >= ``review_threshold`` (but < action) holds the batch for
+    review (rows outcome "reviewed", reason "output_review" — claims NOT
+    returned in enforce, exactly Task 2's review semantics); otherwise the
+    per-claim verdicts stand unchanged. The screen NEVER binds in shadow:
+    rows record the would-be outcome, claims are returned exactly as the
+    per-claim verdicts dictated. The screen adds NO error branch of its own —
+    a Jev error still takes the batch's existing drop-all path below, which
+    IS the screen's ``on_error: use_deterministic`` in effect. When the
+    screen is enabled its two batch answers ride every judged row's
+    ``answers`` map alongside the per-claim answer.
 
     Stages (a)+(b)+(b2) are DETERMINISTIC machinery and bind in EVERY mode —
     including shadow. The span check is a deterministic check like the
@@ -781,11 +820,13 @@ def gate_citation_batch(
     "no_answer") — fail-closed for content, recorded for audit.
 
     Returns (accepted_claims, decision); the per-claim Choice answers ride
-    in ``decision.answers`` under the existing ``claim_<i>`` ids.
+    in ``decision.answers`` under the existing ``claim_<i>`` ids (plus the
+    two screen ids when the rider is enabled).
     """
     cfg = _cfg(gate_cfg)
     floor = _floor(cfg, CLAIM_FLOOR)
     enforce = mode == "enforce"
+    screen_on = _screen_active(screen_cfg)
     not_applicable = Decision(applies=False, ok=True, answers={}, raw_tokens=0)
 
     def _drop_row(i: int, claim: Claim, reason: str) -> None:
@@ -847,6 +888,25 @@ def gate_citation_batch(
                 "says_nothing": "the excerpt does not address what the claim asserts",
             },
         }
+    # Output screen rider: the two batch Nouls ride the SAME request (mixed
+    # question types are fine) and are asked in EVERY mode when enabled —
+    # they are the screen's input, shadow included. Disabled: never asked
+    # (zero marginal cost, zero behavioral delta).
+    if screen_on:
+        questions["out_of_excerpt"] = {
+            "type": "noul",
+            "instructions": (
+                "Do any of the claims assert specific facts (numbers, dates, names, "
+                "amounts) that the supplied document excerpts do not contain?"
+            ),
+        }
+        questions["wrong_entity"] = {
+            "type": "noul",
+            "instructions": (
+                "Do any of the claims concern an entity other than the account this "
+                "document is about?"
+            ),
+        }
     decision, latency_ms = _call(decider, state, questions)
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
@@ -860,7 +920,8 @@ def gate_citation_batch(
 
     # Jev error: the whole batch degrades (drop_llm / use_deterministic
     # coincide here — the only fail-open option would be accepting
-    # unverified claims, which no config offers).
+    # unverified claims, which no config offers). The output screen adds NO
+    # error branch of its own: this drop-all path IS its on_error behavior.
     if not decision.ok:
         first = True
         for i, claim in survivors:
@@ -880,9 +941,9 @@ def gate_citation_batch(
 
     # (d) verdict routing — one row per judged claim; the batch call's
     # called/raw_tokens/latency ride on the FIRST row so aggregates count
-    # once.
-    accepted: list[Claim] = []
-    first = True
+    # once. Verdicts are computed first so the output screen (d2) can
+    # override the whole batch BEFORE any row is recorded.
+    verdicts: list[tuple[int, Claim, str, str, str | None, float | None]] = []
     for i, claim in survivors:
         qid = f"claim_{i}"
         label = _choice_of(decision.answers, qid)
@@ -912,8 +973,45 @@ def gate_citation_batch(
             # returns nothing) with a review row for the audit trail.
             row_noul = None
             outcome, reason = "reviewed", "no_answer"
-        # Enforce applies the verdict; shadow lets the claim through (the
-        # deterministic stages above already bound) and records the would-be.
+        verdicts.append((i, claim, qid, outcome, reason, row_noul))
+
+    # (d2) output screen rider — batch-level routing IN CODE, after the
+    # per-claim verdicts, with BLOCK BEATING REVIEW and the first-listed
+    # hazard winning among blocks (wrong_entity before out_of_excerpt).
+    block_reason: str | None = None
+    review_fire = False
+    screen_answers: dict = {}
+    if screen_on:
+        review_at = _threshold(screen_cfg, "review_threshold", OUTPUT_REVIEW_THRESHOLD)
+        action_at = _threshold(screen_cfg, "action_threshold", OUTPUT_ACTION_THRESHOLD)
+        wrong_entity = _noul_of(decision.answers, "wrong_entity")
+        out_of_excerpt = _noul_of(decision.answers, "out_of_excerpt")
+        screen_answers = {
+            k: decision.answers.get(k) for k in ("out_of_excerpt", "wrong_entity")
+        }
+        if wrong_entity is not None and wrong_entity >= action_at:
+            block_reason = "wrong_entity"
+        elif out_of_excerpt is not None and out_of_excerpt >= action_at:
+            block_reason = "unfounded_claims"
+        elif (
+            (wrong_entity is not None and wrong_entity >= review_at)
+            or (out_of_excerpt is not None and out_of_excerpt >= review_at)
+        ):
+            review_fire = True
+
+    accepted: list[Claim] = []
+    first = True
+    for i, claim, qid, outcome, reason, row_noul in verdicts:
+        # The screen's batch verdict overrides the per-claim outcome/reason
+        # on every row; in shadow it only RECORDS (take stays True) — the
+        # screen never binds, the per-claim return shape stands.
+        if block_reason is not None:
+            outcome, reason = "dropped", block_reason
+        elif review_fire:
+            outcome, reason = "reviewed", "output_review"
+        # Enforce applies the (screen-overridden) verdict; shadow lets the
+        # claim through (the deterministic stages above already bound) and
+        # records the would-be.
         if enforce:
             take = outcome == "accepted"
         else:
@@ -921,10 +1019,12 @@ def gate_citation_batch(
         if take:
             accepted.append(claim)
         agree = row_noul is not None and outcome == "accepted"
+        answers = dict(screen_answers)
+        answers[qid] = decision.answers.get(qid)
         ledger.record(
             _row(
                 "citation_soundness", state, decider, run_id,
-                answers={qid: decision.answers.get(qid)},
+                answers=answers,
                 deterministic_action="accept", agree=agree,
                 agree_direction="match" if agree else None, error=None,
                 latency_ms=latency_ms if first else 0.0,

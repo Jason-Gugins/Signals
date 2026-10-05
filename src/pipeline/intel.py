@@ -425,6 +425,9 @@ def _implement_pass(
     routing_cfg = _gate_cfg(decide_cfg, "routing")
     citation_cfg = _gate_cfg(decide_cfg, "citation_soundness")
     promotion_cfg = _gate_cfg(decide_cfg, "need_promotion")
+    # The output screen RIDES the citation gate's per-document request: its
+    # config block threads through screen_and_gate_claims -> gate_citation_batch.
+    screen_cfg = _gate_cfg(decide_cfg, "output_screen")
 
     def _heuristic_route(text: str) -> str:
         """G3's deterministic heuristic alone (gate disabled: no Jev consult)."""
@@ -468,6 +471,7 @@ def _implement_pass(
             ledger=ledger,
             run_id=run_id,
             mode=mode,
+            screen_cfg=screen_cfg,
         )
 
     # SERIAL in v1 (the shared llm_implement contract): the loop stays on the
@@ -606,6 +610,7 @@ def _implement_pass(
                 ledger=ledger,
                 run_id=run_id,
                 mode=mode,
+                screen_cfg=screen_cfg,
             )
         else:
             # Citation gate disabled: the deterministic baseline (accept)

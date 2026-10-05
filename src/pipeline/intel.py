@@ -116,11 +116,12 @@ _ICP_EXCERPT_CHARS = 1200
 _TOKEN_CAP_PER_DOC = 2400
 
 #: Per-gate allowances for the pre-flight projection, modelling the REAL
-#: call structure: G4 makes one batched Jev call PER document (its input
-#: state is the per-doc cap above plus call overhead), G1 is one batched
-#: call over the plan steps, G2 is one posture call, and G5 makes one call
-#: per accepted candidate bounded by :data:`MAX_G5_CALLS` at ~300 tokens per
-#: call. A documented cost envelope, not an exact token count.
+#: call structure: the document gate (wave-1) makes ONE request per staged
+#: doc over the same capped text, G4 makes one batched Jev call PER document
+#: (its input state is the per-doc cap above plus call overhead), G1 is one
+#: batched call over the plan steps, G2 is one posture call, and G5 makes one
+#: call per accepted candidate bounded by :data:`MAX_G5_CALLS` at ~300 tokens
+#: per call. A documented cost envelope, not an exact token count.
 _G1_TOKEN_ALLOWANCE = 700
 _G2_TOKEN_ALLOWANCE = 700
 _G5_TOKEN_ALLOWANCE = MAX_G5_CALLS * 300
@@ -257,13 +258,15 @@ def _implement_pass(
     """The implement sub-stage body: G3 routing, bulk claim extraction, G4
     citation gating, five G4-gated dossier fields, G5-gated promotion.
 
-    Returns ``{"docs", "claims_accepted", "promoted", "llm_fields",
-    "degraded", "projected_tokens", "token_ceiling", "gaps"}``. NEVER raises
-    past the caller's try/except; degradation is expressed by return value,
-    never by aborting the run.
+    Returns ``{"docs", "docs_screened", "docs_excluded", "claims_accepted",
+    "promoted", "llm_fields", "degraded", "projected_tokens",
+    "token_ceiling", "gaps"}``. NEVER raises past the caller's try/except;
+    degradation is expressed by return value, never by aborting the run.
     """
     result: dict = {
         "docs": 0,
+        "docs_screened": 0,
+        "docs_excluded": 0,
         "claims_accepted": 0,
         "promoted": 0,
         "llm_fields": {},
@@ -328,15 +331,21 @@ def _implement_pass(
     # Token pre-flight (a documented cost envelope, see the module constants):
     # every loaded document's gate state capped at _TOKEN_CAP_PER_DOC plus
     # per-gate allowances (G1/G2 one call each, G5 bounded by MAX_G5_CALLS).
-    # Over the ceiling the WHOLE RUN degrades to shadow — never a mid-run
-    # abort (a partially-gated dossier is not comparable to anything).
+    # The document gate (wave-1) adds ONE Jev request per staged doc over the
+    # same capped text — the term is counted here, BEFORE the first Jev call
+    # of the run, so the whole-run shadow degradation stays honest. Over the
+    # ceiling the WHOLE RUN degrades to shadow — never a mid-run abort (a
+    # partially-gated dossier is not comparable to anything).
     # NOTE the ordering: the plan sub-stage's G1 spend (bounded by
     # max_plan_steps) has already happened by the time this projection runs,
     # so the ceiling binds everything from here on; the degradation flag makes
     # that visible in the artifact (invariant 3).
-    projected = sum(
+    per_doc_tokens = [
         min(decide_gates.estimate_tokens(text), _TOKEN_CAP_PER_DOC) for _doc, text in docs
-    )
+    ]
+    projected = sum(per_doc_tokens)
+    if _gate_enabled(decide_cfg, "document_gate"):
+        projected += sum(per_doc_tokens)  # one doc-gate request per staged doc
     projected += _G1_TOKEN_ALLOWANCE + _G2_TOKEN_ALLOWANCE + _G5_TOKEN_ALLOWANCE
     decider_cfg = decide_cfg.get("decider") or {}
     try:
@@ -358,6 +367,49 @@ def _implement_pass(
     if not bulk_model:
         result["gaps"].append("llm implementers unavailable (no bulk model configured)")
         return result
+
+    # Document gate (wave-1): screen each staged doc BEFORE any implementer
+    # spend — an excluded doc NEVER enters doc_specs, so the bulk extraction
+    # (the dominant layer cost) never runs for it. The gate is disabled-by-
+    # config SKIPPED here (the per-gate enabled pattern: deterministic path
+    # proceeds, no rows); a NullDecider yields not-applicable include rows.
+    doc_gate_cfg = _gate_cfg(decide_cfg, "document_gate")
+    if doc_gate_cfg.get("enabled", True) and decider is not None:
+        account_name = str(getattr(account, "name", None) or domain)
+        excluded_reasons: dict[str, int] = {}
+        screened: list[tuple[object, str]] = []
+        for doc, text in docs:
+            include, _decision = decide_gates.gate_document(
+                str(getattr(doc, "doc_id", "") or ""),
+                text,
+                account_name,
+                decider,
+                doc_gate_cfg,
+                ledger,
+                run_id,
+                mode,
+            )
+            if include:
+                screened.append((doc, text))
+            else:
+                # The gate just recorded the row; the exclusion reason rides
+                # on it for the stage-record breakdown.
+                reason = str((ledger.rows[-1].get("reason") if ledger.rows else None) or "unknown")
+                excluded_reasons[reason] = excluded_reasons.get(reason, 0) + 1
+        result["docs_screened"] = len(docs)
+        result["docs_excluded"] = len(docs) - len(screened)
+        if excluded_reasons:
+            result["docs_excluded_reasons"] = excluded_reasons
+        docs = screened
+        if not docs:
+            # All staged docs excluded in enforce: the implement pass is a
+            # documented no-op — the deterministic derive output is unaffected
+            # (this stage is additive) and the run completes.
+            result["gaps"].append(
+                f"document gate excluded all {result['docs_screened']} staged documents; "
+                "implement pass no-op"
+            )
+            return result
 
     doc_specs = [
         {
@@ -1264,6 +1316,7 @@ def run_intel(
                 docs_count = int(impl.get("docs", 0))
                 claims_count = int(impl.get("claims_accepted", 0))
                 promoted_count = int(impl.get("promoted", 0))
+                reasons = impl.get("docs_excluded_reasons") or {}
                 record(
                     "implement",
                     "ran",
@@ -1271,6 +1324,9 @@ def run_intel(
                     claims_accepted=claims_count,
                     promoted=promoted_count,
                     llm_fields=bool(llm_fields),
+                    docs_screened=int(impl.get("docs_screened", 0)),
+                    docs_excluded=int(impl.get("docs_excluded", 0)),
+                    **({"docs_excluded_reasons": reasons} if reasons else {}),
                 )
         except Exception as exc:
             logger.exception("intel implement sub-stage failed for {}", domain)

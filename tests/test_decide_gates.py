@@ -28,6 +28,9 @@ import yaml
 
 from src.core.textutil import truncate
 from src.decide import (
+    DOC_EVIDENCE_MIN,
+    DOC_INJECTION_MAX,
+    DOC_RELEVANT_MIN,
     LEXICAL_OVERLAP_FLOOR,
     Claim,
     DecideLedger,
@@ -37,6 +40,7 @@ from src.decide import (
     anchor_window,
     estimate_tokens,
     gate_citation_batch,
+    gate_document,
     gate_need_promotion,
     gate_plan_step,
     gate_posture_audit,
@@ -1135,3 +1139,273 @@ def test_span_check_binds_in_shadow():
     # claim is returned while its row records the would-be drop.
     assert ledger.rows[1]["outcome"] == "dropped"
     assert ledger.rows[1]["reason"] == "contradicted"
+
+
+# --- wave-1 task 4: document gate (pre-implementer relevance screen) ----------
+
+
+def _doc_decider(relevant: float, evidence: float, injection: float, tokens: int = 25):
+    """A MockDecider answering the doc gate's THREE noul questions: the one
+    batched Decision's answers map carries all three question ids."""
+    return MockDecider(
+        {
+            "is_relevant": Decision(
+                applies=True,
+                ok=True,
+                answers={
+                    "is_relevant": {"noul": relevant},
+                    "contains_signal_evidence": {"noul": evidence},
+                    "contains_prompt_injection": {"noul": injection},
+                },
+                raw_tokens=tokens,
+            )
+        }
+    )
+
+
+def test_doc_gate_module_threshold_defaults():
+    assert DOC_RELEVANT_MIN == 0.45
+    assert DOC_EVIDENCE_MIN == 0.55
+    assert DOC_INJECTION_MAX == 0.70
+
+
+def test_doc_gate_injection_above_max_excludes_first():
+    """First-match-wins: a planted injection post excludes regardless of how
+    relevant/evidential it looks (the cookbook's ranked-#1 attack)."""
+    ledger = DecideLedger()
+    include, decision = gate_document(
+        "doc1",
+        DOC,
+        "Acme",
+        _doc_decider(0.95, 0.95, 0.9),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+    )
+    assert include is False
+    assert decision.ok is True
+    row = ledger.rows[0]
+    assert row["gate"] == "document_gate"
+    assert row["boundary"] == "document_gate"
+    assert row["outcome"] == "excluded"
+    assert row["reason"] == "injection"
+    assert row["deterministic_action"] == "include"
+    assert row["agree"] is False  # vetoed content the additive path would keep
+    assert row["called"] is True
+    assert row["raw_tokens"] == 25
+    assert row["answers"]["contains_prompt_injection"] == {"noul": 0.9}
+
+
+def test_doc_gate_irrelevant_excludes():
+    ledger = DecideLedger()
+    include, _ = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.2, 0.9, 0.0), {}, ledger, RUN, "enforce"
+    )
+    assert include is False
+    row = ledger.rows[0]
+    assert row["outcome"] == "excluded"
+    assert row["reason"] == "irrelevant"
+
+
+def test_doc_gate_weak_evidence_excludes():
+    """Relevant but evidence-poor: below evidence_min excludes."""
+    ledger = DecideLedger()
+    include, _ = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.9, 0.3, 0.0), {}, ledger, RUN, "enforce"
+    )
+    assert include is False
+    row = ledger.rows[0]
+    assert row["outcome"] == "excluded"
+    assert row["reason"] == "weak_evidence"
+
+
+def test_doc_gate_relevant_evidential_clean_doc_includes():
+    ledger = DecideLedger()
+    include, _ = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.9, 0.9, 0.0), {}, ledger, RUN, "enforce"
+    )
+    assert include is True
+    row = ledger.rows[0]
+    assert row["outcome"] == "included"
+    assert row.get("reason") is None
+    assert row["agree"] is True  # jev include == deterministic include
+    assert row["agree_direction"] == "match"
+
+
+def test_doc_gate_threshold_boundaries():
+    """Strict > for injection, strict < for relevant, >= for evidence."""
+    ledger = DecideLedger()
+    # injection == injection_max (0.70) does NOT exclude on injection ...
+    include, _ = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.9, 0.9, 0.70), {}, ledger, RUN, "enforce"
+    )
+    assert include is True
+    # ... but evidence == evidence_min (0.55) DOES include.
+    include, _ = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.9, 0.55, 0.0), {}, ledger, RUN, "enforce"
+    )
+    assert include is True
+    # relevant == relevant_min (0.45) is NOT irrelevant.
+    include, _ = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.45, 0.9, 0.0), {}, ledger, RUN, "enforce"
+    )
+    assert include is True
+    assert len(ledger.rows) == 3
+
+
+def test_doc_gate_jev_error_includes_deterministically():
+    """on_error use_deterministic: a Jev error is a deterministic pass-through
+    (include) with the error recorded on the row."""
+    ledger = DecideLedger()
+    include, decision = gate_document(
+        "doc1", DOC, "Acme", _error("is_relevant"), {}, ledger, RUN, "enforce"
+    )
+    assert include is True
+    assert decision.ok is False
+    row = ledger.rows[0]
+    assert row["outcome"] == "included"
+    assert row["reason"] == "jev_error"
+    assert row["error"] == "jev_error"
+    assert row["called"] is True
+    assert row["agree"] is False  # enforce on_error fallback convention
+
+
+def test_doc_gate_null_decider_includes_with_not_applicable_row():
+    ledger = DecideLedger()
+    include, decision = gate_document(
+        "doc1", DOC, "Acme", NullDecider(), {}, ledger, RUN, "enforce"
+    )
+    assert include is True
+    assert decision.applies is False
+    row = ledger.rows[0]
+    assert row["called"] is False
+    assert row["answers"] is None
+    assert row["agree"] is None
+    assert "outcome" not in row  # not-applicable rows carry no outcome
+    agg = ledger.aggregate("document_gate")
+    assert agg["counts"]["called"] == 0  # NullDecider rows inflate no counts
+    assert agg["input_tokens"] == 0
+
+
+def test_doc_gate_shadow_screens_but_never_excludes():
+    """Shadow never binds: the doc is returned even when the verdict would
+    exclude it in enforce — the row records the WOULD-BE exclusion."""
+    ledger = DecideLedger()
+    include, _ = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.2, 0.9, 0.0), {}, ledger, RUN, "shadow"
+    )
+    assert include is True
+    row = ledger.rows[0]
+    assert row["outcome"] == "excluded"  # what enforce WOULD do
+    assert row["reason"] == "irrelevant"
+    assert row["called"] is True
+
+
+def test_doc_gate_empty_text_includes_without_jev():
+    """Nothing to judge: empty/None text includes deterministically (fail-open
+    for empty docs) with a not-applicable row and zero Jev spend."""
+    for empty in (None, "", "   "):
+        ledger = DecideLedger()
+        decider = CountingDecider({"is_relevant": _ok({"is_relevant": {"noul": 0.9}})})
+        include, _ = gate_document("doc1", empty, "Acme", decider, {}, ledger, RUN, "enforce")
+        assert include is True
+        assert decider.n_calls == 0
+        row = ledger.rows[0]
+        assert row["called"] is False
+        assert "outcome" not in row
+
+
+def test_doc_gate_one_request_per_doc_state_and_questions():
+    decider = CountingDecider(
+        {"is_relevant": _ok(
+            {
+                "is_relevant": {"noul": 0.9},
+                "contains_signal_evidence": {"noul": 0.9},
+                "contains_prompt_injection": {"noul": 0.0},
+            },
+            tokens=25,
+        )}
+    )
+    ledger = DecideLedger()
+    gate_document("doc1", DOC, "Acme", decider, {}, ledger, RUN, "enforce")
+    assert decider.n_calls == 1  # ONE Jev request per document
+    state, questions = decider.calls[0]
+    assert state["doc_id"] == "doc1"
+    assert state["source"] == "Acme"
+    assert "breach" in state["text"]  # the (truncated) document body rides in
+    assert list(questions) == [
+        "is_relevant",
+        "contains_signal_evidence",
+        "contains_prompt_injection",
+    ]
+    assert all(q["type"] == "noul" for q in questions.values())
+    assert len(ledger.rows) == 1  # one row per doc
+
+
+def test_doc_gate_state_text_truncated_to_token_cap():
+    long_doc = "Filler sentence about nothing relevant. " * 500  # ~10k tokens
+    decider = CountingDecider(
+        {"is_relevant": _ok(
+            {
+                "is_relevant": {"noul": 0.9},
+                "contains_signal_evidence": {"noul": 0.9},
+                "contains_prompt_injection": {"noul": 0.0},
+            }
+        )}
+    )
+    gate_document("doc1", long_doc, "Acme", decider, {}, DecideLedger(), RUN, "enforce")
+    state, _questions = decider.calls[0]
+    # ~2400 tokens at the house 4-chars/token estimate.
+    assert len(state["text"]) <= 2400 * 4
+    assert len(state["text"]) < len(long_doc)
+
+
+def test_doc_gate_thresholds_read_from_gate_cfg():
+    """Config overrides beat the module defaults — tightened evidence_min
+    excludes a doc the defaults would include."""
+    ledger = DecideLedger()
+    cfg = {"evidence_min": 0.95}
+    include, _ = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.9, 0.9, 0.0), cfg, ledger, RUN, "enforce"
+    )
+    assert include is False
+    assert ledger.rows[0]["reason"] == "weak_evidence"
+
+    # A raised injection_max lets a borderline injection through.
+    ledger = DecideLedger()
+    include, _ = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.9, 0.9, 0.75), {"injection_max": 0.80},
+        ledger, RUN, "enforce",
+    )
+    assert include is True
+
+    # A lowered relevant_min keeps a borderline-relevant doc.
+    ledger = DecideLedger()
+    include, _ = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.40, 0.9, 0.0), {"relevant_min": 0.30},
+        ledger, RUN, "enforce",
+    )
+    assert include is True
+
+
+def test_doc_gate_malformed_verdict_includes_with_error_row():
+    """A missing noul (malformed verdict) is no verdict: the deterministic
+    baseline (include) stands and the gap is recorded."""
+    ledger = DecideLedger()
+    partial = MockDecider(
+        {
+            "is_relevant": Decision(
+                applies=True,
+                ok=True,
+                answers={"is_relevant": {"noul": 0.9}},  # two ids missing
+                raw_tokens=5,
+            )
+        }
+    )
+    include, _ = gate_document("doc1", DOC, "Acme", partial, {}, ledger, RUN, "enforce")
+    assert include is True
+    row = ledger.rows[0]
+    assert row["outcome"] == "included"
+    assert row["reason"] == "no_answer"
+    assert row["error"] == "no_answer"

@@ -1287,3 +1287,226 @@ def test_doctor_decide_lines_silent_when_fully_configured(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     lines = cli_mod._decide_doctor_lines(_CfgStub({"mode": "enforce"}))
     assert lines == []
+
+
+# ---------------------------------------------------------------------------
+# 11. Document gate: staged docs screened BEFORE implementer spend
+# ---------------------------------------------------------------------------
+
+
+DOC_GATE_CFG = {
+    "enabled": True,
+    "relevant_min": 0.45,
+    "evidence_min": 0.55,
+    "injection_max": 0.70,
+    "on_error": "use_deterministic",
+}
+
+
+class _DocGateSelectiveDecider:
+    """Doc-gate-aware decider: excludes docs named in ``exclude`` (reason
+    irrelevant: the relevant noul drops below relevant_min); delegates every
+    other question to an inner decider."""
+
+    def __init__(self, exclude, inner) -> None:
+        self.exclude = set(exclude)
+        self.inner = inner
+
+    def decide(self, state, questions):
+        if "is_relevant" in questions:
+            relevant = 0.1 if state.get("doc_id") in self.exclude else 0.9
+            return Decision(
+                applies=True,
+                ok=True,
+                answers={
+                    "is_relevant": {"noul": relevant},
+                    "contains_signal_evidence": {"noul": 0.9},
+                    "contains_prompt_injection": {"noul": 0.0},
+                },
+                raw_tokens=5,
+            )
+        return self.inner.decide(state, questions)
+
+
+def _patch_doc_recorder(monkeypatch, *, fields=None):
+    """Implementer recorder that captures WHICH doc each call extracts from."""
+    rec = {"bulk": [], "fields": []}
+
+    def fake_call_implementer(
+        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0
+    ):
+        doc_id = messages[1]["content"].split("Document doc_id: ", 1)[1].splitlines()[0].strip()
+        if "REASONING IMPLEMENTER" in messages[0]["content"]:
+            rec["fields"].append(doc_id)
+            return fields or {}
+        rec["bulk"].append(doc_id)
+        return {"claims": [{"text": CLAIM_TEXT, "doc_id": doc_id}]}
+
+    monkeypatch.setattr(intel.llm_implement, "call_implementer", fake_call_implementer)
+    return rec
+
+
+def _doc_gate_orch(docs):
+    orch = FakeOrchLlm(docs=docs)
+    orch.snapshot = _snapshot()
+    return orch
+
+
+@respx.mock
+def test_document_gate_excluded_doc_never_reaches_implementer(tmp_path, monkeypatch):
+    """Enforce: the excluded doc is screened out BEFORE doc_specs — the bulk
+    implementer is never spent on it."""
+    cfg = _decide_cfg("enforce")
+    cfg["decider"]["gates"]["document_gate"] = DOC_GATE_CFG
+    orch = _doc_gate_orch([_doc("doc-1", DOC_TEXT_1), _doc("doc-2", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    _patch_coverage(monkeypatch)
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=cfg,
+        decider=_DocGateSelectiveDecider({"doc-1"}, _high_decider()),
+    )
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    rec = _patch_doc_recorder(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"
+    assert stage["docs_screened"] == 2
+    assert stage["docs_excluded"] == 1
+    assert stage["docs_excluded_reasons"] == {"irrelevant": 1}
+    assert rec["bulk"] == ["doc-2"]  # doc-1 never reached the implementer
+    assert stage["claims_accepted"] == 1
+
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    doc_rows = [r for r in rows if r["gate"] == "document_gate"]
+    assert len(doc_rows) == 2  # one row per screened doc
+    assert [r["outcome"] for r in doc_rows] == ["excluded", "included"]
+    assert doc_rows[0]["reason"] == "irrelevant"
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_document_gate_all_excluded_records_gap_and_skips_implementer(
+    tmp_path, monkeypatch
+):
+    """Enforce + every staged doc excluded => the gap says so, the implementer
+    loop never runs, and the deterministic run completes unharmed."""
+    cfg = _decide_cfg("enforce")
+    cfg["decider"]["gates"]["document_gate"] = DOC_GATE_CFG
+    orch = _doc_gate_orch([_doc("doc-1", DOC_TEXT_1), _doc("doc-2", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    _patch_coverage(monkeypatch)
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=cfg,
+        decider=_DocGateSelectiveDecider({"doc-1", "doc-2"}, _high_decider()),
+    )
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    rec = _patch_doc_recorder(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    assert any(
+        "document gate excluded all 2 staged documents; implement pass no-op"
+        in gap
+        for gap in result["gaps"]
+    ), result["gaps"]
+    assert rec["bulk"] == [] and rec["fields"] == []  # no implementer spend at all
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"  # the run completes
+    assert stage["docs_excluded"] == 2
+    assert stage["claims_accepted"] == 0
+    assert orch.signal_store.upserted == []
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    assert [r["outcome"] for r in rows if r["gate"] == "document_gate"] == [
+        "excluded",
+        "excluded",
+    ]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_document_gate_term_counts_in_preflight_degradation(tmp_path, monkeypatch):
+    """The pre-flight models the doc gate's per-doc request BEFORE the first
+    Jev call: two ~700-token docs over a 21000-token ceiling degrade the whole
+    run to shadow ONLY because of the doc-gate term (G4 term + allowances fit)."""
+    body = "Acme breach quarter evaluating vendors. " * 70  # 2800 chars ~ 700 tokens
+    cfg = _decide_cfg("enforce", max_decide_tokens_per_run=21000)
+    cfg["decider"]["gates"]["document_gate"] = DOC_GATE_CFG
+    orch = _doc_gate_orch([_doc("doc-1", body), _doc("doc-2", body)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    _patch_coverage(monkeypatch)
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=cfg,
+        decider=_DocGateSelectiveDecider({"doc-1"}, _high_decider()),
+    )
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    rec = _patch_doc_recorder(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    # G4 term (2x700) + doc-gate term (2x700) + allowances (700+700+60*300):
+    # the gap line carries the exact projection vs the ceiling.
+    assert any(
+        "decide token budget exceeded (22200 > 21000)" in gap for gap in result["gaps"]
+    ), result["gaps"]
+    assert any("decide token budget exceeded" in gap for gap in result["gaps"])
+    assert result["decide"]["mode"] == "shadow"  # whole-run degradation
+    assert result["decide"]["degraded"] is True
+    # Degraded to shadow: the gate screened every doc but excluded NOTHING.
+    assert result["stages"]["implement"]["docs_excluded"] == 0
+    assert sorted(rec["bulk"]) == ["doc-1", "doc-2"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_document_gate_shadow_screens_but_excludes_nothing(tmp_path, monkeypatch):
+    """Shadow: every staged doc is screened (rows recorded with the would-be
+    exclusion) but none is dropped — shadow never binds."""
+    cfg = _decide_cfg("shadow")
+    cfg["decider"]["gates"]["document_gate"] = DOC_GATE_CFG
+    orch = _doc_gate_orch([_doc("doc-1", DOC_TEXT_1), _doc("doc-2", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    _patch_coverage(monkeypatch)
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=cfg,
+        decider=_DocGateSelectiveDecider({"doc-1"}, _high_decider()),
+    )
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    rec = _patch_doc_recorder(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["docs_screened"] == 2
+    assert stage["docs_excluded"] == 0  # shadow never binds
+    assert sorted(rec["bulk"]) == ["doc-1", "doc-2"]  # both still implemented
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    doc_rows = [r for r in rows if r["gate"] == "document_gate"]
+    assert [r["outcome"] for r in doc_rows] == ["excluded", "included"]  # would-be
+    assert respx.calls.call_count == 0

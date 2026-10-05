@@ -15,11 +15,15 @@ deterministic pipeline.
 from __future__ import annotations
 
 from src.decide.gates import (
+    DOC_EVIDENCE_MIN,
+    DOC_INJECTION_MAX,
+    DOC_RELEVANT_MIN,
     LEXICAL_OVERLAP_FLOOR,
     DecideLedger,
     anchor_window,
     estimate_tokens,
     gate_citation_batch,
+    gate_document,
     gate_need_promotion,
     gate_plan_step,
     gate_posture_audit,
@@ -42,6 +46,9 @@ __all__ = [
     "DecideLedger",
     "Decision",
     "Decider",
+    "DOC_EVIDENCE_MIN",
+    "DOC_INJECTION_MAX",
+    "DOC_RELEVANT_MIN",
     "LEXICAL_OVERLAP_FLOOR",
     "LiveDecider",
     "MockDecider",
@@ -53,6 +60,7 @@ __all__ = [
     "compose",
     "estimate_tokens",
     "gate_citation_batch",
+    "gate_document",
     "gate_need_promotion",
     "gate_plan_step",
     "gate_posture_audit",

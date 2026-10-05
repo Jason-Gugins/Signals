@@ -72,6 +72,10 @@ CLAIM_FLOOR = 0.70
 PROMOTION_FLOOR = 0.70
 ROUTE_THRESHOLD = 2000
 
+# Calibration band low edge (G4/G5): noul in [band_low, floor) routes to a
+# recorded review outcome instead of a hard drop.
+_BAND_LOW = 0.30
+
 # Lexical-overlap prefilter floor (G4 stage b): claims sharing fewer of their
 # word tokens with the cited document than this are dropped BEFORE any Jev
 # call — a cheap catch for plausible-but-uncited confabulations.

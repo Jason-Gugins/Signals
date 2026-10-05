@@ -55,9 +55,12 @@ class Claim:
     ``doc_id`` is the citation anchor and REQUIRED — the claim must name the
     document it rests on (RawStore is doc_id-keyed). ``evidence_id`` is the
     dossier's ``ev-NNNN`` id: None at claim-creation time, assigned later
-    during dossier packaging when ``add_evidence`` runs.
+    during dossier packaging when ``add_evidence`` runs. ``quote_span`` is
+    the verbatim quote the implementer copied from the document; None =
+    not provided (the span check is skipped).
     """
 
     text: str
     doc_id: str
     evidence_id: str | None = None
+    quote_span: str | None = None

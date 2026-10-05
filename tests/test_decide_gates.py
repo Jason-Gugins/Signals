@@ -22,6 +22,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from pathlib import Path
+
+import yaml
 
 from src.core.textutil import truncate
 from src.decide import (
@@ -44,6 +47,8 @@ from src.decide import (
 from src.decide.shapes import Decision
 
 RUN = "run-gates-test"
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # All invariant-5 ledger row keys (gates may add extras: called/outcome/noul/reason).
 INVARIANT_KEYS = {
@@ -164,6 +169,56 @@ def test_lexical_overlap_full_partial_zero():
 
 def test_lexical_overlap_floor_constant():
     assert LEXICAL_OVERLAP_FLOOR == 0.15
+
+
+# --- wave-1: config schema + Claim.quote_span + band constant ------------------
+
+
+def test_decide_yaml_wave1_keys():
+    """decide.yaml gains the wave-1 keys; existing gate entries are unchanged."""
+    with open(REPO_ROOT / "config" / "decide.yaml", encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
+    gates = cfg["decider"]["gates"]
+    # Band keys NEW: review band = [band_low, floor).
+    assert gates["citation_soundness"]["band_low"] == 0.30
+    assert gates["need_promotion"]["band_low"] == 0.30
+    # Document gate NEW: per-doc screen before implementer spend.
+    assert gates["document_gate"] == {
+        "enabled": True,
+        "relevant_min": 0.45,
+        "evidence_min": 0.55,
+        "injection_max": 0.70,
+        "on_error": "use_deterministic",
+    }
+    # Output screen NEW (rider): batch-level claim screening on the G4 request.
+    assert gates["output_screen"] == {
+        "enabled": True,
+        "review_threshold": 0.35,
+        "action_threshold": 0.70,
+        "on_error": "use_deterministic",
+    }
+    # Unchanged entries stay untouched.
+    assert gates["plan_qualification"] == {"enabled": True, "floor": 0.70, "on_error": "drop_llm"}
+    assert gates["posture_audit"] == {"enabled": True, "shadow_only": True}
+    assert gates["routing"] == {
+        "enabled": True,
+        "route_threshold": 2000,
+        "on_error": "use_deterministic",
+    }
+
+
+def test_claim_quote_span_default_and_roundtrip():
+    """Claim.quote_span: None = not provided (span check skipped); provided spans round-trip."""
+    assert Claim("t", "d").quote_span is None
+    claim = Claim("t", "d", evidence_id="ev-0001", quote_span="some quote")
+    assert claim.quote_span == "some quote"
+    assert claim.evidence_id == "ev-0001"
+
+
+def test_band_low_constant():
+    from src.decide import gates
+
+    assert gates._BAND_LOW == 0.30
 
 
 def test_anchor_window_mid_document_contains_anchor_and_head():

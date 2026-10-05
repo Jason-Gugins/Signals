@@ -559,7 +559,9 @@ def _implement_pass(
             # Citation gate disabled: the deterministic baseline (accept)
             # stands — see _per_doc.
             gated_field_pairs = [(claim, None) for claim in field_claims]
-        for claim, _noul in gated_field_pairs:
+        # (claim, meta) pairs — the meta carries the Choice verdict; the
+        # wiring (filtering by verdict, quote provenance) lands in Task 4.
+        for claim, _meta in gated_field_pairs:
             field = field_by_claim.get(id(claim))
             if field is None:
                 # Defensive: the filters above mirror each other, so every

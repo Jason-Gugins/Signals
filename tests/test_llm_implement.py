@@ -371,6 +371,11 @@ def test_answer_choice_reader():
     # the same way the gate normalizes it.
     ans = {"claim_0": {"choice": " Supports ", "probabilities": {"supports": 0.9}}}
     assert _answer_choice(ans, "claim_0") == ("supports", 0.9)
+    # A case-mismatched answer (capitalized label + capitalized probabilities
+    # key) still yields the probability: the reader falls back to the RAW
+    # label as the map key when the lowercased lookup misses.
+    cased = {"claim_0": {"choice": "Supports", "probabilities": {"Supports": 0.9}}}
+    assert _answer_choice(cased, "claim_0") == ("supports", 0.9)
     # A choice without probabilities: label present, probability absent.
     bare = {"claim_0": {"choice": "contradicted"}}
     assert _answer_choice(bare, "claim_0") == ("contradicted", None)

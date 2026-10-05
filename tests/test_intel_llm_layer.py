@@ -1510,3 +1510,95 @@ def test_document_gate_shadow_screens_but_excludes_nothing(tmp_path, monkeypatch
     doc_rows = [r for r in rows if r["gate"] == "document_gate"]
     assert [r["outcome"] for r in doc_rows] == ["excluded", "included"]  # would-be
     assert respx.calls.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 12. Output screen wiring: screen_cfg reaches BOTH G4 call sites
+# ---------------------------------------------------------------------------
+
+
+SCREEN_CFG = {
+    "enabled": True,
+    "review_threshold": 0.35,
+    "action_threshold": 0.70,
+    "on_error": "use_deterministic",
+}
+
+
+class _ScreenDecider(MockDecider):
+    """Decider whose batch answers carry a high wrong_entity noul on top of
+    per-claim Choice verdicts (the screen's batch-rides-the-request shape)."""
+
+    def __init__(self) -> None:
+        batch = Decision(
+            applies=True,
+            ok=True,
+            answers={
+                "claim_0": {"choice": "supports", "probabilities": {"supports": 0.95}},
+                "out_of_excerpt": {"noul": 0.0},
+                "wrong_entity": {"noul": 0.9},
+            },
+            raw_tokens=40,
+        )
+        super().__init__(
+            {
+                "step": Decision(
+                    applies=True, ok=True, answers={"step": {"noul": 0.9}}, raw_tokens=10
+                ),
+                "claim": batch,
+                "posture": Decision(
+                    applies=True,
+                    ok=True,
+                    answers={"posture": {"choice": "within_posture"}},
+                    raw_tokens=5,
+                ),
+                "routing": Decision(
+                    applies=True, ok=True, answers={"routing": {"choice": "quick"}}, raw_tokens=5
+                ),
+                "promotion": Decision(
+                    applies=True, ok=True, answers={"promotion": {"noul": 0.9}}, raw_tokens=10
+                ),
+            }
+        )
+
+
+@respx.mock
+def test_output_screen_wiring_blocks_batch_on_wrong_entity(tmp_path, monkeypatch):
+    """Intel-level pin of the output_screen threading (intel.py resolves
+    ``screen_cfg = _gate_cfg(decide_cfg, "output_screen")`` and threads it
+    into BOTH screen_and_gate_claims call sites): with the screen enabled and
+    a wrong_entity noul >= action_threshold, every claim batch is blocked
+    (claims_accepted == 0) and the ledger carries reason "wrong_entity".
+    Dropping the screen_cfg kwarg would silently disable the screen while the
+    gate-level tests stay green — this test fails if either call site loses
+    the kwarg."""
+    cfg = _decide_cfg("enforce")
+    cfg["decider"]["gates"]["output_screen"] = SCREEN_CFG
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    _patch_layer(monkeypatch, decide_cfg=cfg, decider=_ScreenDecider())
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch,
+        claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}],
+        fields=FIVE_FIELDS,
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    # The block binds in enforce: zero accepted claims, zero promotions.
+    assert result["stages"]["implement"]["claims_accepted"] == 0
+    assert orch.signal_store.upserted == []
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    citation_rows = [r for r in rows if r["gate"] == "citation_soundness"]
+    assert citation_rows  # the claims were judged, then blocked
+    assert any(r.get("reason") == "wrong_entity" for r in citation_rows)
+    assert respx.calls.call_count == 0

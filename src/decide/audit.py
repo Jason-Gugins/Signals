@@ -40,7 +40,10 @@ from typing import Protocol, runtime_checkable
 __all__ = ["sample_consistency"]
 
 DEFAULT_SAMPLES = 15
-DEFAULT_UID_KEY = "uid"
+# The uid buster's key: namespaced (leading underscore) so the per-call stamp
+# can never clobber a legitimate state field named "uid". An explicit
+# ``uid_key`` argument still wins.
+DEFAULT_UID_KEY = "_audit_uid"
 
 
 @runtime_checkable
@@ -51,7 +54,9 @@ class _DeciderLike(Protocol):
 
 
 def _stamped_state(state: str | dict, uid_key: str, uid: str) -> str | dict:
-    """Return a fresh per-call state carrying ``uid`` — never mutates input."""
+    """Return a fresh per-call state carrying ``uid`` under ``uid_key`` (the
+    default key ``_audit_uid`` is namespaced so a legitimate state field
+    named "uid" survives the per-call copy) — never mutates input."""
     if isinstance(state, dict):
         stamped = copy.deepcopy(state)
         stamped[uid_key] = uid

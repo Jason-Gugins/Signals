@@ -251,6 +251,17 @@ def test_anchor_window_is_case_and_whitespace_insensitive():
     assert MID in window
 
 
+def test_anchor_window_folds_curly_quotes():
+    """An anchor carrying typographic quotes matches a document rendered the
+    same way: the curly-quote fold applies to BOTH sides, so the window
+    centers on the anchor instead of silently falling back to head-only."""
+    doc = HEAD + "The vendor \u201cdisclosed a breach\u201d in March." + TAIL
+    window = anchor_window(doc, "vendor \u201cdisclosed a breach\u201d")
+    assert "Nav header" in window  # head excerpt still included
+    assert "in March." in window  # text ADJACENT to the anchor: window centered
+    assert "Filler sentence" in window  # context past the head, beyond the anchor
+
+
 # --- DecideLedger -------------------------------------------------------------
 
 
@@ -1035,6 +1046,53 @@ def test_g4_band_on_choice_probability():
     assert row["outcome"] == "reviewed"
     assert row["reason"] == "review_label_prob"
     assert row["noul"] == 0.45  # the probability is still stored
+
+
+def test_g4_case_mismatched_choice_label_falls_back_to_raw_key():
+    """A Jev answer echoing the label with its original capitalization
+    ({"choice": "Supports", "probabilities": {"Supports": 0.9}}) still routes
+    on the probability — no spurious review_label_prob from the lowercased
+    label missing in the probabilities map."""
+    ledger = DecideLedger()
+    accepted, _ = gate_citation_batch(
+        [Claim(GOOD_CLAIM, "doc1")],
+        "doc1",
+        DOC,
+        _batch_decider({"claim_0": {"choice": "Supports", "probabilities": {"Supports": 0.9}}}),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+    )
+    assert len(accepted) == 1
+    row = ledger.rows[0]
+    assert row["outcome"] == "accepted"
+    assert row["noul"] == 0.9
+    assert row.get("reason") is None
+
+
+def test_g4_nan_noul_answer_treated_as_no_answer():
+    """A NaN noul is not a number: the verdict routes to no_answer (review)
+    and the value is NOT counted in the noul samples (a NaN row noul would
+    poison mean_noul and make json.dumps emit invalid bare NaN)."""
+    ledger = DecideLedger()
+    accepted, _ = gate_citation_batch(
+        [Claim(GOOD_CLAIM, "doc1")],
+        "doc1",
+        DOC,
+        _batch_decider({"claim_0": {"noul": float("nan")}}),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+    )
+    assert accepted == []
+    row = ledger.rows[0]
+    assert row["outcome"] == "reviewed"
+    assert row["reason"] == "no_answer"
+    assert "noul" not in row
+    agg = ledger.aggregate("citation_soundness")
+    assert agg["mean_noul"] is None  # zero noul samples
 
 
 def test_g4_legacy_noul_answers_keep_floor_routing():

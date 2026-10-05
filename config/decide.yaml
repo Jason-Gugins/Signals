@@ -24,7 +24,7 @@ decider:
     plan_qualification: {enabled: true, floor: 0.70, on_error: drop_llm}          # unchanged (hard floor; plan steps have no review semantics)
     posture_audit:      {enabled: true, shadow_only: true}                        # unchanged
     routing:            {enabled: true, route_threshold: 2000, on_error: use_deterministic}   # route_threshold = token count above which deep-context extraction is used; within ±20% is a tie (Jev breaks it)
-    citation_soundness: {enabled: true, floor: 0.70, band_low: 0.30, on_error: drop_llm}      # band_low NEW: review band = [band_low, floor)
+    citation_soundness: {enabled: true, floor: 0.70, band_low: 0.30, on_error: drop_llm}      # Choice rule = top-prob-or-abstain: prob < floor => review; band_low here is informational (the band applies to the NOUL gate, need_promotion)
     need_promotion:     {enabled: true, floor: 0.70, band_low: 0.30, on_error: drop_llm}      # band_low NEW
     document_gate:      {enabled: true, relevant_min: 0.45, evidence_min: 0.55, injection_max: 0.70, on_error: use_deterministic}   # NEW
     output_screen:      {enabled: true, review_threshold: 0.35, action_threshold: 0.70, on_error: use_deterministic}                # NEW (rider)

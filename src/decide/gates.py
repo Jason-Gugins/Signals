@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import time
 from pathlib import Path
@@ -93,8 +94,9 @@ OUTPUT_ACTION_THRESHOLD = 0.70
 # ~this many tokens (the house truncate habit, 4 chars/token).
 _DOC_STATE_TOKENS = 2400
 
-# Calibration band low edge (G4/G5): noul in [band_low, floor) routes to a
-# recorded review outcome instead of a hard drop.
+# Calibration band low edge (G5's review edge — G4's Choice rule abstains
+# below the floor instead): noul in [band_low, floor) routes to a recorded
+# review outcome instead of a hard drop.
 _BAND_LOW = 0.30
 
 # Lexical-overlap prefilter floor (G4 stage b): claims sharing fewer of their
@@ -190,8 +192,9 @@ def anchor_window(doc_text: str, anchor: str, window_tokens: int = 300) -> str:
 
     Document heads are frequently nav/boilerplate and claims are supported by
     mid-page content, so head-only state systematically drops legitimate
-    claims. The anchor is located via normalized substring match (casefold +
-    whitespace-collapsed); when found the window spans +/-``window_tokens``
+    claims. The anchor is located via normalized substring match (curly-quote
+    fold + casefold + whitespace-collapsed — the same normalization as the
+    document side); when found the window spans +/-``window_tokens``
     around the match (~600 tokens total at the 4-chars/token estimate) on top
     of a ~100-token head. When the anchor is NOT found the state falls back
     to the head (``textutil.truncate`` word-boundary cut, the house
@@ -203,7 +206,7 @@ def anchor_window(doc_text: str, anchor: str, window_tokens: int = 300) -> str:
     if not anchor or not anchor.strip():
         return head
     norm_doc, idx = _normalize_with_map(doc_text)
-    norm_anchor = " ".join(anchor.split()).casefold()
+    norm_anchor = " ".join(anchor.translate(_CURLY_QUOTE_MAP).split()).casefold()
     pos = norm_doc.find(norm_anchor)
     if pos < 0:
         return head
@@ -413,8 +416,8 @@ def _floor(gate_cfg: dict | None, default: float) -> float:
 
 
 def _band_low(gate_cfg: dict | None) -> float:
-    """The calibration band's low edge (G4/G5): outcomes in
-    [band_low, floor) route to a review instead of a hard drop."""
+    """The calibration band's low edge (G5): outcomes in [band_low, floor)
+    route to a review instead of a hard drop."""
     try:
         return float((gate_cfg or {}).get("band_low", _BAND_LOW))
     except (TypeError, ValueError):
@@ -452,7 +455,11 @@ def _noul_of(answers, qid: str) -> float | None:
     ans = (answers or {}).get(qid)
     if isinstance(ans, dict):
         value = ans.get("noul")
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and not math.isnan(value)
+        ):
             return float(value)
     return None
 
@@ -468,12 +475,18 @@ def _choice_of(answers, qid: str) -> str | None:
 
 def _choice_prob(answers, qid: str, label: str) -> float | None:
     """The probability Jev reported for a choice answer's top ``label``
-    (None when the answer carries no usable probability for it)."""
+    (None when the answer carries no usable probability for it). The RAW
+    (un-normalized) choice text is tried as a fallback key when the
+    lowercased label misses — a case-mismatched Jev answer still routes."""
     ans = (answers or {}).get(qid)
     if isinstance(ans, dict):
         probs = ans.get("probabilities")
         if isinstance(probs, dict):
             value = probs.get(label)
+            if value is None:
+                raw = ans.get("choice")
+                if isinstance(raw, str):
+                    value = probs.get(raw.strip())
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 return float(value)
     return None

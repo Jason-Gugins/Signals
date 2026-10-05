@@ -99,7 +99,7 @@ def test_uid_fresh_and_non_mutating():
     assert result["samples"] == 6
     assert len(decider.states) == 6
 
-    uids = [s["uid"] for s in decider.states]
+    uids = [s["_audit_uid"] for s in decider.states]
     assert len(set(uids)) == 6  # fresh uid per call
     for uid in uids:
         assert isinstance(uid, str) and len(uid) == 32  # uuid4 hex
@@ -107,7 +107,8 @@ def test_uid_fresh_and_non_mutating():
 
     # The caller's original state is byte-identical and gains no uid key.
     assert original == snapshot
-    assert "uid" not in original
+    assert "_audit_uid" not in original
+    assert "uid" not in original  # a legitimate "uid" state field is not clobbered
     assert original["notes"] == ["a", "b"]
 
 

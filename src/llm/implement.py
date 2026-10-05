@@ -356,18 +356,23 @@ def _answer_choice(answers: dict | None, qid: str) -> tuple[str | None, float | 
     """``(label, probability)`` from a Choice answer (``{"choice",
     "probabilities"}``); ``(None, None)`` for a missing, None or malformed
     answer. The label is normalized (strip + casefold) the same way
-    ``gate_citation_batch`` normalizes it. A choice without a usable
-    probability for its own label yields ``(label, None)``. Sits next to
-    :func:`_answer_noul` (the pre-Choice reader, kept for legacy fixtures)."""
+    ``gate_citation_batch`` normalizes it; the RAW (un-normalized) choice
+    text is tried as a fallback key when the lowercased label misses in the
+    probabilities map (a case-mismatched Jev answer still carries its
+    probability). A choice without a usable probability for its own label
+    yields ``(label, None)``. Sits next to :func:`_answer_noul` (the
+    pre-Choice reader, kept for legacy fixtures)."""
     ans = (answers or {}).get(qid)
     if isinstance(ans, dict):
-        label = ans.get("choice")
-        if isinstance(label, str) and label.strip():
-            label = label.strip().lower()
+        raw = ans.get("choice")
+        if isinstance(raw, str) and raw.strip():
+            label = raw.strip().lower()
             prob = None
             probs = ans.get("probabilities")
             if isinstance(probs, dict):
                 value = probs.get(label)
+                if value is None:
+                    value = probs.get(raw.strip())
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     prob = float(value)
             return label, prob

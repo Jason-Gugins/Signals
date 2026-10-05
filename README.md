@@ -236,16 +236,28 @@ Then run:
 **Gates.** Jev answers typed questions at the stage boundaries; every decision
 lands in a per-run `decisions.jsonl` beside the package, and each boundary
 adds one aggregate evidence record (`kind: "jev_decision"`) to the dossier.
-The five gates (all floors 0.70 noul — Jev's typed numeric score — all
-configurable in `config/decide.yaml`):
+The seven gates — five numbered, plus two unnumbered screens placed where
+they run in the pipeline — have G1/G4/G5 floors of 0.70 noul (Jev's typed
+numeric score) and every threshold configurable in `config/decide.yaml`:
 
 | Gate | Boundary | What it does | On Jev error |
 |---|---|---|---|
 | G1 plan qualification | plan → collect | in enforce, keeps/drops each LLM plan step | step reverts to deterministic collection (never dropped from collection) |
 | G2 posture audit | after collect | shadow-only audit — logs, NEVER binds (the deterministic posture machinery is the gate) | n/a |
 | G3 routing | per document | deterministic token heuristic first; Jev breaks ties only (±20% of `route_threshold`) | deterministic heuristic |
-| G4 citation soundness | per document's claim batch | in enforce, after a deterministic doc-existence + lexical-overlap prefilter, a claim survives only above the floor | LLM claims for that boundary dropped |
-| G5 need promotion | implement → score | in enforce, `llm_need` candidates promote only above the floor (probability stored regardless) | LLM-promoted need dropped |
+| Document gate | before implementer spend | in enforce, screens each staged document with three questions — relevant to the account, contains citable evidence, contains prompt-injection instructions — and irrelevant/weak/injected docs never reach the implementers | docs pass through un-screened |
+| G4 citation soundness | per document's claim batch | in enforce, after deterministic doc-existence + lexical-overlap prefilter + a verbatim quote-span check, matched after case/whitespace/quote-mark normalization (a claim whose quote is not in the document dies at zero Jev cost, in every mode), a 3-way Choice routes each claim: supported → kept, contradicted → dropped, says-nothing or sub-floor probability → review | LLM claims for that boundary dropped |
+| Output screen | on the citation request | in enforce, two batch questions (do claims assert facts absent from the excerpt? do they concern the wrong entity?) can hold the whole claim batch for review or drop it — its decisions fold into the citation-soundness record | existing citation-gate error path |
+| G5 need promotion | implement → score | in enforce, `llm_need` candidates promote at noul ≥ the floor, land in the review band (`band_low`, default 0.30) below it, or drop under it — the probability is stored regardless | LLM-promoted need dropped |
+
+**Review outcomes.** Verdicts inside the review band (or a says-nothing Choice) are
+NEVER applied in any mode. In enforce, the content does not land in this run. In
+shadow, nothing binds, so the pre-review shadow behavior stands and only the detail
+row records the would-be review. The decision is always recorded (`reviewed` counts
+in the decide aggregates, detail rows in the dossier and `decisions.jsonl`) so the
+floors can be calibrated from real traffic instead of guesses
+(`src/decide/audit.py` ships the repeat-and-measure sampler). Review is
+bookkeeping, not a third mode.
 
 **Fail rules.** The deterministic derive/package output is always produced in
 full — LLM content is additive on top. A Jev outage drops all LLM content and
@@ -257,10 +269,11 @@ changes the applied path; it only logs. Narrow-only invariant: no gate verdict
 can add sources, budget, or posture.
 
 **Cost.** ≈ $0.15–0.30 per `intel` run at ~200 stored documents — the
-implementers dominate; each individual Jev decision is sub-cent. The token
-budget is pre-flighted per run (`decider.max_decide_tokens_per_run`, default
-400,000); over the ceiling the whole run degrades to shadow, never aborts
-mid-run.
+implementers dominate, and the document gate cuts their spend by excluding
+irrelevant documents before any implementer call (each individual Jev decision
+is sub-cent). The token budget is pre-flighted per run
+(`decider.max_decide_tokens_per_run`, default 400,000); over the ceiling the
+whole run degrades to shadow, never aborts mid-run.
 
 **Determinism caveat.** Run-to-run byte-identity and backtest reproducibility
 hold only at `mode: "off"`. With the layer on, outputs may differ between

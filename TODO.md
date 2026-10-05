@@ -877,6 +877,13 @@ Adoption candidates (each becomes its own scoped roadmap wave when scheduled):
   competitor_news, xray — xray keys rows on raw SERP query strings, not normalized
   names). Addendum in the plan file
   (`.hermes/plans/2026-10-02_174907-typesafe-cookbooks-application-map.md`).
+- **Scope decision 2026-10-04 (#3):** the guardrails INPUT battery (per-document
+  injection screening of scraped pages) is DECLINED — residual risk is bounded (G4
+  fail-closed + #1 quote spans catch poisoned claims; #4's doc gate carries the
+  injection head if adopted) and the loss is defense-in-depth only (implementer tokens
+  still spent on poisoned docs). The guardrails OUTPUT battery (screening emitted claims
+  vs the cited excerpt) is RETAINED as a Tier 1 candidate riding the same per-document
+  request. First wave revised to #1 + #2 + #4, with #3-output as an optional rider.
 
 ## Run-speed tuning: news/aggregator rates + the googlenewsdecoder finding (2026-10-02) — DELIVERED (rates) / FOUND (bottleneck)
 

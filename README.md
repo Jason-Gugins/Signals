@@ -259,6 +259,39 @@ floors can be calibrated from real traffic instead of guesses
 (`src/decide/audit.py` ships the repeat-and-measure sampler). Review is
 bookkeeping, not a third mode.
 
+**Enrichment passes.** Beyond the gates, the enforce path adds calibrated
+enrichment to candidates and the dossier (all fail-open to skip with rows in
+`decisions.jsonl`; shadow records only — none of it lands in shadow dossiers):
+
+- **Completeness cascade** (`completeness_verify`) — after the five dossier fields
+  are extracted, a per-field verify battery (bad=TRUE heads: "the doc states it, so
+  unknown is wrong" / "this fill is not supported by the doc") decides with max-style
+  routing: unsupported fills are quarantined, unknown-but-supported fields escalate
+  the document to the reasoning model for a re-extract (capped per run).
+- **Taxonomy typing** (`taxonomy_typing`) — one Choice per accepted claim over the 54
+  signal types; confidence ≥ 0.90 with a clear top/second separation proposes a type,
+  a near-tie or lower confidence proposes only the parent category. Proposals ride
+  `evidence_data` — the deterministic pipeline's `signal_type` is never changed.
+- **Event dates** (`event_dates`) — for claim-bearing documents, seven Choice
+  questions (mode/month/day/year/anchors) and the CODE does all calendar math against
+  the document's fetch date as the pinned reference; a low-confidence or unstated
+  date records `event_at_needs_review` and nothing else. `observed_at` is unchanged.
+- **Value extraction** (`value_extraction`) — a deterministic regex proposes money
+  spans in accepted claims, Jev picks which span (if any) states the asserted amount
+  and whether it is a raise rather than a valuation, and code copies the span
+  verbatim and normalizes (`amount_usd`, currency; no FX conversion in v1). The
+  model can never invent or transpose a digit.
+- **Evidence re-rank** (`evidence_rerank`) — rides the document-gate request: a
+  strength head orders the implement loop (strongest first) and an optional `keep_n`
+  caps how many documents get implementer calls at all.
+- **Entity alignment** (`entity_alignment`) — in `sweep --discover` /
+  `--competitors` (scope-guard v2 authorizes the discover frames; watch/scheduler
+  remain excluded), the top candidate pairs get one request each: a three-level
+  Score (different / related / same — routed by round-to-nearest-level, no
+  thresholds) plus per-field Nouls. Queued candidates carry `jev_alignment` with
+  the per-field disagreement evidence — exactly what the human review queue lacked.
+  The deterministic apex auto-accept ladder is untouched.
+
 **Fail rules.** The deterministic derive/package output is always produced in
 full — LLM content is additive on top. A Jev outage drops all LLM content and
 the artifact says so: `decide_degraded: true` in `manifest.json` plus a gap

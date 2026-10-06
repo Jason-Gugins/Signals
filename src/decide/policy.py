@@ -11,12 +11,16 @@ Three small offline building blocks the gates and the run_intel wiring
   ``{"allow", "ask", "hold", "deny"}``: deny > hold > ask > allow. Later
   checks tighten, never skip; nothing upgrades a ``deny``.
 - ``attach_decider(handle)`` — code-level scope enforcement. The ONLY call
-  site allowed to attach a live decider is ``run_intel`` in
-  ``src/pipeline/intel.py`` (wired in Task 7); every other entry point
-  (orchestrator collect/score/watch_loop/sweep/run_all, CLI) gets a
-  ``NullDecider``. Watch/scheduler cycles cannot reach the decide layer by
-  construction — they call ``orch.collect``/``orch.score`` directly and
-  never ``run_intel`` — this guard is defense-in-depth on top of that.
+  sites allowed to attach a live decider are the (co_name, file-basename)
+  pairs in ``_ALLOWED_FRAMES``: ``run_intel`` in ``src/pipeline/intel.py``
+  (the intel pipeline) and the human-triggered sweep entry points
+  ``discover``/``discover_competitors`` in ``src/pipeline/orchestrator.py``
+  (wave-2/3 Task 7: entity alignment needs the decider while candidates
+  are ranked); every other entry point (orchestrator
+  collect/score/watch_loop/sweep/run_all, CLI) gets a ``NullDecider``.
+  Watch/scheduler cycles cannot reach the decide layer by construction —
+  they call ``orch.collect``/``orch.score`` directly and never
+  ``discover`` — this guard is defense-in-depth on top of that.
 """
 
 from __future__ import annotations
@@ -36,10 +40,19 @@ _VALID_MODES = frozenset({"off", "shadow", "enforce"})
 # per-run lever); an invalid value is ignored with a warning.
 _MODE_ENV_VAR = "SIGNALS_DECIDE_MODE"
 
-# Basename of the only module whose run_intel() may attach a live decider.
-# A module constant so tests can point it at a test file; production code
-# never reassigns it.
-_INTEL_FILENAME = "intel.py"
+# (co_name, file-basename) pairs whose frames may attach a live decider.
+# run_intel@intel.py is the intel pipeline's attach site; discover and
+# discover_competitors in orchestrator.py are the human-triggered sweep
+# entry points (wave-2/3 Task 7: entity alignment needs the decider while
+# candidates are ranked). Watch/scheduler stay excluded BY CONSTRUCTION:
+# they call collect/score directly, never discover — and collect is
+# deliberately not an allowed frame name. A module constant so tests can
+# point it at a test file; production code never reassigns it.
+_ALLOWED_FRAMES = {
+    ("run_intel", "intel.py"),
+    ("discover", "orchestrator.py"),
+    ("discover_competitors", "orchestrator.py"),
+}
 
 # Gate actions, weak -> strong. compose() returns the stronger of its two
 # arguments: a later check can only tighten the outcome, never skip or
@@ -120,28 +133,36 @@ def compose(a: str, b: str) -> str:
     return a if strength_a >= strength_b else b
 
 
-def _in_run_intel() -> bool:
-    """True when the call stack contains ``run_intel`` from intel.py.
+def _in_allowed_frame() -> bool:
+    """True when any stack frame's (name, file-basename) pair is allowed.
 
-    Frame walk via ``inspect.stack()``: a frame qualifies only when its
-    code object is NAMED ``run_intel`` AND its file basename equals
-    ``_INTEL_FILENAME`` — a function of the same name elsewhere (tests,
-    another module) does not count unless the constant is repointed.
+    Frame walk via ``inspect.stack()``: a frame qualifies only when the
+    pair ``(co_name, basename(co_filename))`` is in ``_ALLOWED_FRAMES`` —
+    a function with an allowed name in some other file (tests, another
+    module) does not count, and neither does any other name in an allowed
+    file (orchestrator.py also hosts ``collect``, which stays refused).
     """
     for frame_info in inspect.stack():
         code = frame_info.frame.f_code
-        if code.co_name == "run_intel" and os.path.basename(code.co_filename) == _INTEL_FILENAME:
+        if (code.co_name, os.path.basename(code.co_filename)) in _ALLOWED_FRAMES:
             return True
     return False
 
 
 def attach_decider(handle: Decider) -> Decider:
-    """Attach a decider to the decide layer, enforcing the run_intel scope.
+    """Attach a decider to the decide layer, enforcing the allowed-frames scope.
 
     - ``NullDecider`` passes through unchanged: attaching null anywhere is
       always safe (it is what every out-of-scope entry point ends up with).
-    - A ``LiveDecider`` passes through unchanged ONLY when called from
-      ``run_intel`` in intel.py — the sole production call site (Task 7).
+    - A ``LiveDecider`` passes through unchanged ONLY when called from a
+      stack frame whose (name, file basename) pair is in
+      ``_ALLOWED_FRAMES``: ``run_intel`` in intel.py (the intel pipeline)
+      and the human-triggered sweep entry points ``discover`` /
+      ``discover_competitors`` in orchestrator.py (wave-2/3 Task 7 —
+      entity alignment at the discover flow). Watch/scheduler cycles stay
+      excluded by construction (they call ``orch.collect``/``orch.score``
+      directly, never ``discover``); this guard is defense-in-depth on top
+      of that.
     - Anything else (a LiveDecider out of scope, or any other decider such
       as a MockDecider reaching production code) warns and returns a fresh
       ``NullDecider()``. Never raises: a scope violation degrades to the
@@ -149,10 +170,11 @@ def attach_decider(handle: Decider) -> Decider:
     """
     if isinstance(handle, NullDecider):
         return handle
-    if isinstance(handle, LiveDecider) and _in_run_intel():
+    if isinstance(handle, LiveDecider) and _in_allowed_frame():
         return handle
     logger.warning(
-        "decide layer: live decider attach refused outside run_intel (handle={})",
+        "decide layer: live decider attach refused outside allowed frames {} (handle={})",
+        sorted(_ALLOWED_FRAMES),
         type(handle).__name__,
     )
     return NullDecider()

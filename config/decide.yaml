@@ -28,3 +28,8 @@ decider:
     need_promotion:     {enabled: true, floor: 0.70, band_low: 0.30, on_error: drop_llm}      # band_low NEW
     document_gate:      {enabled: true, relevant_min: 0.45, evidence_min: 0.55, injection_max: 0.70, on_error: use_deterministic}   # NEW
     output_screen:      {enabled: true, review_threshold: 0.35, action_threshold: 0.70, on_error: use_deterministic}                # NEW (rider)
+    completeness_verify: {enabled: true, fire_threshold: 0.70, max_escalations: 20, on_error: skip}
+    taxonomy_typing:     {enabled: true, confident: 0.90, ambiguous: 0.60, on_error: skip}
+    event_dates:         {enabled: true, review_below: 0.60, on_error: skip}
+    value_extraction:    {enabled: true, on_error: skip}
+    evidence_rerank:     {enabled: true, keep_n: 0, on_error: keep_order}   # keep_n 0 = no cap; rides the document-gate request

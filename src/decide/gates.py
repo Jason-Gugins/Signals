@@ -1346,3 +1346,219 @@ def gate_document(
     # Enforce: the exclusion BINDS. Shadow: the row recorded the would-be
     # outcome and the doc proceeds — shadow never binds (invariant 5).
     return (include if enforce else True), decision
+
+
+# --- completeness-verify cascade (wave-2): five-fields escalation battery -----
+
+
+#: P(wrong) above which a completeness head fires (max-style: ANY head above
+#: the threshold fires the field; never a mean). Read from the
+#: ``completeness_verify`` gate block's ``fire_threshold`` via ``_threshold``
+#: over this default.
+FIRE_THRESHOLD = 0.70
+
+
+def _five_fields() -> tuple[str, ...]:
+    """The five dossier field names, read from the house constant (lazy
+    import: ``src.llm.implement`` imports THIS module at its own module
+    level, so a top-level import here would be circular)."""
+    from src.llm.implement import FIVE_FIELDS
+
+    return FIVE_FIELDS
+
+
+def five_field_is_present(five_fields_result: dict | None, field: str) -> bool:
+    """The shared present/unknown rule for one five-fields entry: PRESENT
+    when the value is a dict whose ``text`` is a non-empty string other than
+    the bare "unknown" — exactly ``five_fields_to_claims``' keep-filter, so
+    the gate, the caller's present/unknown interpretation and the claim
+    conversion can never drift apart."""
+    value = (five_fields_result or {}).get(field)
+    text = value.get("text") if isinstance(value, dict) else None
+    return (
+        isinstance(text, str) and bool(text.strip()) and text.strip().casefold() != "unknown"
+    )
+
+
+def gate_completeness(
+    doc_id: str,
+    doc_text: str | None,
+    five_fields_result: dict | None,
+    decider,
+    gate_cfg: dict | None,
+    ledger: DecideLedger,
+    run_id: str,
+    mode: str,
+) -> tuple[list[str], Decision]:
+    """The completeness-verify battery — the SDE-cascade verify step applied
+    to the FIVE dossier fields of one document (the reasoning implementer's
+    ``extract_five_fields`` result).
+
+    Claims are NOT re-judged here: G4 (``gate_citation_batch``) already gates
+    them. The five fields, however, reach the dossier as WRITTEN CONTENT, not
+    as claims, so G4 never passed judgment on the raw fills — this battery is
+    their only check. ONE batched Jev request per document, one Noul head per
+    field, ``bad = TRUE`` semantics throughout:
+
+    - field UNKNOWN/missing (per :func:`five_field_is_present`) ⇒ head
+      ``<field>::absence_wrong``: TRUE = "the document states the information
+      this field asks for, so returning unknown is wrong"; FALSE = "the
+      document does not state it; unknown is honest".
+    - field PRESENT ⇒ head ``<field>::grounded``: TRUE = "the text given for
+      this field is NOT supported by the document" — a hallucinated fill
+      fires even though G4 never saw five-fields text (the battery's real
+      teeth); FALSE = the document supports the text.
+
+    Gate: MAX-style — the gate fires if ANY head's P(wrong) is strictly above
+    ``fire_threshold`` (:data:`FIRE_THRESHOLD`, read via ``_threshold``);
+    never a mean. A head without a usable numeric noul fires too (fail-closed,
+    the G5 posture: no verdict ⇒ the content does not stand unverified).
+
+    Returns ``(fired_fields, decision)`` where ``fired_fields`` lists the
+    field names whose head fired, in the five-fields order. SEMANTICS are the
+    CALLER's to apply (src/pipeline/intel.py): a fired PRESENT field is
+    QUARANTINED (its fill is dropped — a hallucinated fill must not survive);
+    a fired UNKNOWN field marks the doc for ESCALATION (a reasoning-model
+    re-run of the extraction). Enforce returns the fired list; shadow returns
+    an EMPTY list (nothing quarantined, nothing escalated — the caller's
+    behavior must not change) while the row records the would-be outcome.
+
+    Rows: boundary "completeness_verify", ONE row per doc carrying every head
+    value in ``answers`` (outcome "quarantined" beating "escalated" when both
+    kinds fire, "passed" otherwise; ``reason`` names the fired heads;
+    ``noul`` is the max head value). NullDecider ⇒ skip (not-applicable row,
+    empty fired list). A Jev error skips the same way (this gate's
+    ``on_error: skip`` posture — the deterministic output is untouched) with
+    the error recorded on the row. An empty/None ``doc_text`` skips
+    deterministically before any spend (nothing to verify against).
+
+    ``max_escalations`` is the CALLER's concern (the escalation count is per
+    run, tracked where the re-runs happen), not this gate's.
+    """
+    cfg = _cfg(gate_cfg)
+    fire_threshold = _threshold(cfg, "fire_threshold", FIRE_THRESHOLD)
+    enforce = mode == "enforce"
+    if not (doc_text or "").strip():
+        # Nothing to verify against: deterministic skip, no Jev spend (the
+        # five-fields pass only runs on docs with text, so this is defensive).
+        state = {"doc_id": doc_id, "text": ""}
+        ledger.record(
+            _row(
+                "completeness_verify", state, decider, run_id,
+                answers=None, deterministic_action="pass", agree=None,
+                agree_direction=None, error=None, latency_ms=0.0, raw_tokens=0,
+                called=False,
+            )
+        )
+        return [], Decision(applies=False, ok=True, answers={}, raw_tokens=0)
+
+    state: dict = {
+        "doc_id": doc_id,
+        "text": truncate(doc_text, _DOC_STATE_TOKENS * _WINDOW_CHARS_PER_TOKEN) or "",
+    }
+    questions: dict[str, dict] = {}
+    field_head: list[tuple[str, str]] = []
+    for field in _five_fields():
+        if five_field_is_present(five_fields_result, field):
+            head = f"{field}::grounded"
+            state[field] = five_fields_result[field]["text"]
+            questions[head] = {
+                "type": "noul",
+                "instructions": (
+                    f"Verify the {field} field of a dossier, extracted from this "
+                    "document. Answer noul. TRUE = the text given for this field "
+                    "is NOT supported by the document. FALSE = the document "
+                    "supports the text given for this field."
+                ),
+            }
+        else:
+            head = f"{field}::absence_wrong"
+            questions[head] = {
+                "type": "noul",
+                "instructions": (
+                    f"Verify the {field} field of a dossier, returned as unknown "
+                    "for this document. Answer noul. TRUE = the document states "
+                    "the information this field asks for, so returning unknown is "
+                    "wrong. FALSE = the document does not state it; unknown is "
+                    "honest."
+                ),
+            }
+        field_head.append((field, head))
+
+    decision, latency_ms = _call(decider, state, questions)
+    called = bool(decision.applies)
+    raw_tokens = int(decision.raw_tokens or 0)
+
+    if not decision.applies:
+        # Not applicable (NullDecider / unmatched mock): the deterministic
+        # baseline stands — nothing quarantined, nothing escalated; the row
+        # records nothing judged and inflates no aggregate counts.
+        ledger.record(
+            _row(
+                "completeness_verify", state, decider, run_id,
+                answers=None, deterministic_action="pass", agree=None,
+                agree_direction=None, error=None, latency_ms=latency_ms,
+                raw_tokens=raw_tokens, called=False,
+            )
+        )
+        return [], decision
+
+    if not decision.ok:
+        # on_error: skip — no escalation, no quarantine, the deterministic
+        # output stands; the row records the error (enforce fallback
+        # convention: agree False, matching G1/G3/G5).
+        ledger.record(
+            _row(
+                "completeness_verify", state, decider, run_id,
+                answers=None, deterministic_action="pass",
+                agree=False if enforce else None, agree_direction=None,
+                error="jev_error", latency_ms=latency_ms, raw_tokens=raw_tokens,
+                called=called, outcome="errored",
+            )
+        )
+        logger.debug(
+            "completeness gate errored for {}; nothing quarantined or escalated (run={})",
+            doc_id,
+            run_id,
+        )
+        return [], decision
+
+    # Verdict routing: MAX over the heads — ANY head strictly above the
+    # threshold fires its field (a mean would dilute a single confident
+    # "wrong" into silence). A head without a usable noul fires fail-closed.
+    fired: list[str] = []
+    head_values: dict[str, float | None] = {}
+    for field, head in field_head:
+        value = _noul_of(decision.answers, head)
+        head_values[head] = value
+        if value is None or value > fire_threshold:
+            fired.append(field)
+    present_fired = [f for f in fired if five_field_is_present(five_fields_result, f)]
+    unknown_fired = [f for f in fired if f not in present_fired]
+    if present_fired:
+        # The binding outcome wins the row's summary: a quarantine removes
+        # dossier content, an escalation only re-runs the extractor.
+        outcome = "quarantined"
+    elif unknown_fired:
+        outcome = "escalated"
+    else:
+        outcome = "passed"
+    numeric = [v for v in head_values.values() if v is not None]
+    noul = max(numeric) if numeric else None
+    fired_set = set(fired)
+    fired_heads = [head for field, head in field_head if field in fired_set]
+    agree = outcome == "passed"
+    ledger.record(
+        _row(
+            "completeness_verify", state, decider, run_id,
+            answers=dict(decision.answers), deterministic_action="pass",
+            agree=agree, agree_direction="match" if agree else None, error=None,
+            latency_ms=latency_ms, raw_tokens=raw_tokens, called=called,
+            outcome=outcome, noul=noul,
+            reason=",".join(fired_heads) if fired else None,
+        )
+    )
+    # Enforce: the fired list binds (the caller quarantines/escalates).
+    # Shadow: NOTHING binds — the empty list keeps the caller's behavior
+    # identical while the row above carries the would-be verdict.
+    return (fired if enforce else []), decision

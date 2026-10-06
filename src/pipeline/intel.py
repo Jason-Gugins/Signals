@@ -126,6 +126,15 @@ _G1_TOKEN_ALLOWANCE = 700
 _G2_TOKEN_ALLOWANCE = 700
 _G5_TOKEN_ALLOWANCE = MAX_G5_CALLS * 300
 
+#: The completeness-verify cascade's per-request allowance (wave-2): ONE
+#: verify request per five-fields doc (v1 verifies only the LONGEST doc) plus
+#: ONE re-verification per potential escalation, ~700 tokens each.
+_COMPLETENESS_TOKEN_ALLOWANCE = 700
+
+#: Default cap on completeness escalations per run (config/decide.yaml
+#: ``decider.gates.completeness_verify.max_escalations``).
+_DEFAULT_MAX_ESCALATIONS = 20
+
 #: Whole-run decide-token ceiling default (config/decide.yaml
 #: ``decider.max_decide_tokens_per_run``).
 _DEFAULT_MAX_DECIDE_TOKENS = 400000
@@ -260,7 +269,8 @@ def _implement_pass(
 
     Returns ``{"docs", "docs_screened", "docs_excluded", "claims_accepted",
     "promoted", "llm_fields", "degraded", "projected_tokens",
-    "token_ceiling", "gaps"}``. NEVER raises past the caller's try/except;
+    "token_ceiling", "gaps", "five_fields_escalations",
+    "five_fields_quarantined"}``. NEVER raises past the caller's try/except;
     degradation is expressed by return value, never by aborting the run.
     """
     result: dict = {
@@ -274,6 +284,8 @@ def _implement_pass(
         "projected_tokens": 0,
         "token_ceiling": 0,
         "gaps": [],
+        "five_fields_escalations": 0,
+        "five_fields_quarantined": 0,
     }
     raw_store = orc.raw
     taxonomy = getattr(orc, "taxonomy", None)
@@ -289,6 +301,7 @@ def _implement_pass(
     reasoning_cfg = impl_cfg.get("reasoning") or {}
     bulk_model = str(bulk_cfg.get("model") or "")
     bulk_base_url = str(bulk_cfg.get("base_url") or "")
+    fields_model = str(reasoning_cfg.get("model") or "")
     api_key = os.environ.get("OPENROUTER_API_KEY")
     try:
         bulk_timeout = float(bulk_cfg.get("timeout_s", 60.0))
@@ -346,6 +359,19 @@ def _implement_pass(
     projected = sum(per_doc_tokens)
     if _gate_enabled(decide_cfg, "document_gate"):
         projected += sum(per_doc_tokens)  # one doc-gate request per staged doc
+    # Completeness-verify cascade (wave-2): OPT-IN — the term (and the gate
+    # below) is counted only when the config block EXISTS and is enabled, so
+    # cfgs without the block (every pre-wave-2 config) keep today's exact
+    # projection. One verify request per five-fields doc + one per potential
+    # escalation, ~700 tokens each.
+    completeness_cfg = _gate_cfg(decide_cfg, "completeness_verify")
+    completeness_on = bool(completeness_cfg) and completeness_cfg.get("enabled", True)
+    try:
+        max_escalations = int(completeness_cfg.get("max_escalations", _DEFAULT_MAX_ESCALATIONS))
+    except (TypeError, ValueError):
+        max_escalations = _DEFAULT_MAX_ESCALATIONS
+    if completeness_on and docs and fields_model:
+        projected += 2 * _COMPLETENESS_TOKEN_ALLOWANCE
     projected += _G1_TOKEN_ALLOWANCE + _G2_TOKEN_ALLOWANCE + _G5_TOKEN_ALLOWANCE
     decider_cfg = decide_cfg.get("decider") or {}
     try:
@@ -558,78 +584,142 @@ def _implement_pass(
 
     # --- five dossier fields (reasoning implementer, G4-gated; G5 does NOT
     # apply — they are dossier content, not signals) --------------------------
-    fields_model = str(reasoning_cfg.get("model") or "")
     if docs and fields_model:
         longest_doc, longest_text = max(docs, key=lambda pair: len(pair[1]))
+        longest_doc_id = str(getattr(longest_doc, "doc_id", "") or "")
         try:
             reasoning_timeout = float(
                 reasoning_cfg.get("timeout_s", llm_implement.DEFAULT_REASONING_TIMEOUT_S)
             )
         except (TypeError, ValueError):
             reasoning_timeout = llm_implement.DEFAULT_REASONING_TIMEOUT_S
-        fields = llm_implement.extract_five_fields(
-            getattr(longest_doc, "doc_id", ""),
-            longest_text,
-            model=fields_model,
-            base_url=str(reasoning_cfg.get("base_url") or ""),
-            api_key=os.environ.get("OPENROUTER_API_KEY"),
-            reasoning_effort=str(
-                reasoning_cfg.get("reasoning_effort", llm_implement.DEFAULT_REASONING_EFFORT)
-            ),
-            timeout_s=reasoning_timeout,
-        )
-        # Mirror five_fields_to_claims' keep-filter (same order, same rules):
-        # it emits ONE claim per kept field, in FIVE_FIELDS order, so each
-        # claim can be mapped back to its canonical field name BY CLAIM
-        # IDENTITY. A positional zip against the gate's surviving pairs would
-        # mis-pair every field after any gate drop (prefilter/floor/mismatch).
-        kept_fields = []
-        for field in llm_implement.FIVE_FIELDS:
-            value = (fields or {}).get(field)
-            if not isinstance(value, dict):
-                continue
-            text = value.get("text")
-            if (
-                not isinstance(text, str)
-                or not text.strip()
-                or text.strip().casefold() == "unknown"
-            ):
-                continue
-            kept_fields.append(field)
-        field_claims = llm_implement.five_fields_to_claims(
-            fields, batch_doc_id=getattr(longest_doc, "doc_id", "")
-        )
-        field_by_claim = {id(claim): field for field, claim in zip(kept_fields, field_claims)}
-        if citation_cfg.get("enabled", True):
-            gated_field_pairs = llm_implement.screen_and_gate_claims(
-                field_claims,
-                batch_doc_id=getattr(longest_doc, "doc_id", ""),
-                doc_text=longest_text,
-                decider=decider,
-                gates_cfg=citation_cfg,
-                ledger=ledger,
-                run_id=run_id,
-                mode=mode,
-                screen_cfg=screen_cfg,
+
+        def _extract_and_screen() -> tuple[dict | None, dict[str, dict]]:
+            """One reasoning-model pass for the longest doc: extract the five
+            fields, convert them to claims, run the SAME G4 screen, and
+            return (raw fields, field -> dossier entry) for the fields that
+            survived. The escalation re-run reuses this exact call shape and
+            credentials path."""
+            fields = llm_implement.extract_five_fields(
+                longest_doc_id,
+                longest_text,
+                model=fields_model,
+                base_url=str(reasoning_cfg.get("base_url") or ""),
+                api_key=os.environ.get("OPENROUTER_API_KEY"),
+                reasoning_effort=str(
+                    reasoning_cfg.get("reasoning_effort", llm_implement.DEFAULT_REASONING_EFFORT)
+                ),
+                timeout_s=reasoning_timeout,
             )
-        else:
-            # Citation gate disabled: the deterministic baseline (accept)
-            # stands — see _per_doc.
-            gated_field_pairs = [(claim, None) for claim in field_claims]
-        # (claim, meta) pairs — the meta carries the Choice verdict; the
-        # wiring (filtering by verdict, quote provenance) lands in Task 4.
-        for claim, _meta in gated_field_pairs:
-            field = field_by_claim.get(id(claim))
-            if field is None:
-                # Defensive: the filters above mirror each other, so every
-                # surviving claim has a field; never invent a name.
-                continue
-            result["llm_fields"][field] = {
-                "text": claim.text,
-                "doc_id": claim.doc_id,
-                "llm_authored": True,
-                "model": fields_model,
-            }
+            # Mirror five_fields_to_claims' keep-filter (same order, same
+            # rules — five_field_is_present IS that filter): it emits ONE
+            # claim per kept field, in FIVE_FIELDS order, so each claim can
+            # be mapped back to its canonical field name BY CLAIM IDENTITY.
+            # A positional zip against the gate's surviving pairs would
+            # mis-pair every field after any gate drop (prefilter/floor).
+            kept_fields = [
+                field
+                for field in llm_implement.FIVE_FIELDS
+                if decide_gates.five_field_is_present(fields, field)
+            ]
+            field_claims = llm_implement.five_fields_to_claims(
+                fields, batch_doc_id=longest_doc_id
+            )
+            field_by_claim = {id(claim): field for field, claim in zip(kept_fields, field_claims)}
+            if citation_cfg.get("enabled", True):
+                gated_field_pairs = llm_implement.screen_and_gate_claims(
+                    field_claims,
+                    batch_doc_id=longest_doc_id,
+                    doc_text=longest_text,
+                    decider=decider,
+                    gates_cfg=citation_cfg,
+                    ledger=ledger,
+                    run_id=run_id,
+                    mode=mode,
+                    screen_cfg=screen_cfg,
+                )
+            else:
+                # Citation gate disabled: the deterministic baseline (accept)
+                # stands — see _per_doc.
+                gated_field_pairs = [(claim, None) for claim in field_claims]
+            # (claim, meta) pairs — the meta carries the Choice verdict; the
+            # wiring (filtering by verdict, quote provenance) lands in Task 4.
+            filled: dict[str, dict] = {}
+            for claim, _meta in gated_field_pairs:
+                field = field_by_claim.get(id(claim))
+                if field is None:
+                    # Defensive: the filters above mirror each other, so every
+                    # surviving claim has a field; never invent a name.
+                    continue
+                filled[field] = {
+                    "text": claim.text,
+                    "doc_id": claim.doc_id,
+                    "llm_authored": True,
+                    "model": fields_model,
+                }
+            return fields, filled
+
+        fields, filled = _extract_and_screen()
+        result["llm_fields"].update(filled)
+
+        # Completeness-verify cascade (wave-2): the battery judges the RAW
+        # extract (the caller interpretation matches on the same present/
+        # unknown rule the gate used). Fired PRESENT fields are QUARANTINED —
+        # a hallucinated fill must not survive (G4 never judged the raw
+        # fill). Fired UNKNOWN fields ESCALATE: one reasoning-model re-run
+        # (re-screened through the same G4 path) replaces the fired unknown
+        # fields it fills, marked "escalated"; the re-run is then
+        # RE-VERIFIED, so a doc that stays unknown re-escalates until the
+        # per-run cap. Shadow rows record the verdict while the gate returns
+        # an empty fired list — this block then changes nothing.
+        if completeness_on:
+            escalations = 0
+            quarantined = 0
+            while True:
+                fired, _decision = decide_gates.gate_completeness(
+                    longest_doc_id,
+                    longest_text,
+                    fields,
+                    decider,
+                    completeness_cfg,
+                    ledger,
+                    run_id,
+                    mode,
+                )
+                if not fired:
+                    break
+                present_fired = [
+                    f for f in fired if decide_gates.five_field_is_present(fields, f)
+                ]
+                unknown_fired = [f for f in fired if f not in present_fired]
+                for field in present_fired:
+                    result["llm_fields"].pop(field, None)
+                    quarantined += 1
+                    logger.debug(
+                        "completeness: quarantined field {} of {} (run={})",
+                        field,
+                        longest_doc_id,
+                        run_id,
+                    )
+                if not unknown_fired:
+                    break
+                if escalations >= max_escalations:
+                    result["gaps"].append(
+                        f"completeness escalation cap reached ({max_escalations}); "
+                        "remaining docs unverified"
+                    )
+                    break
+                escalations += 1
+                fields, refilled = _extract_and_screen()
+                for field in unknown_fired:
+                    if field in refilled:
+                        entry = dict(refilled[field])
+                        entry["escalated"] = True
+                        result["llm_fields"][field] = entry
+            if escalations:
+                result["five_fields_escalations"] = escalations
+            if quarantined:
+                result["five_fields_quarantined"] = quarantined
     elif docs and not fields_model:
         result["gaps"].append("llm field extraction unavailable (no reasoning model configured)")
 
@@ -1322,6 +1412,8 @@ def run_intel(
                 claims_count = int(impl.get("claims_accepted", 0))
                 promoted_count = int(impl.get("promoted", 0))
                 reasons = impl.get("docs_excluded_reasons") or {}
+                escalations = int(impl.get("five_fields_escalations", 0) or 0)
+                quarantined = int(impl.get("five_fields_quarantined", 0) or 0)
                 record(
                     "implement",
                     "ran",
@@ -1332,6 +1424,8 @@ def run_intel(
                     docs_screened=int(impl.get("docs_screened", 0)),
                     docs_excluded=int(impl.get("docs_excluded", 0)),
                     **({"docs_excluded_reasons": reasons} if reasons else {}),
+                    **({"five_fields_escalations": escalations} if escalations else {}),
+                    **({"five_fields_quarantined": quarantined} if quarantined else {}),
                 )
         except Exception as exc:
             logger.exception("intel implement sub-stage failed for {}", domain)

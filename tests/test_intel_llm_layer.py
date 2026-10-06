@@ -1602,3 +1602,260 @@ def test_output_screen_wiring_blocks_batch_on_wrong_entity(tmp_path, monkeypatch
     assert citation_rows  # the claims were judged, then blocked
     assert any(r.get("reason") == "wrong_entity" for r in citation_rows)
     assert respx.calls.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 13. Completeness-verify cascade wiring (wave-2 task 2)
+# ---------------------------------------------------------------------------
+#
+# The battery runs on the five-fields result of the LONGEST doc, AFTER the
+# existing G4 screening (extract -> screen -> llm_fields). Fired PRESENT
+# fields are QUARANTINED (dropped from llm_fields); fired UNKNOWN fields
+# ESCALATE: one reasoning-model re-run of extract_five_fields, re-screened
+# through the same G4 path, replacing the fired unknown fields it fills
+# (meta gains "escalated": True), then RE-VERIFIED (the loop's one-request-
+# per-escalation pre-flight term) until quiet or the max_escalations cap.
+
+
+COMP_GATE_CFG = {
+    "enabled": True,
+    "fire_threshold": 0.70,
+    "max_escalations": 20,
+    "on_error": "skip",
+}
+
+
+def _comp_cfg(**gate_overrides):
+    """A decide cfg WITH the completeness_verify block (the wave-2 opt-in:
+    cfgs without the block keep today's behavior exactly)."""
+    cfg = _decide_cfg("enforce")
+    block = dict(COMP_GATE_CFG)
+    block.update(gate_overrides)
+    cfg["decider"]["gates"]["completeness_verify"] = block
+    return cfg
+
+
+#: why_now comes back unknown: the escalation trigger.
+FIELDS_V1 = {
+    "operational_need": {"text": CLAIM_TEXT, "doc_id": "doc-1"},
+    "why_now": {"text": "unknown", "doc_id": "doc-1"},
+}
+
+#: The escalation re-run fills why_now.
+FIELDS_V2 = {
+    "operational_need": {"text": CLAIM_TEXT, "doc_id": "doc-1"},
+    "why_now": {"text": WHY_NOW_TEXT, "doc_id": "doc-1"},
+}
+
+
+class _CompletenessDecider:
+    """Answers the completeness battery per script (head ids carry the
+    ``<field>::absence_wrong`` / ``<field>::grounded`` suffixes); every other
+    question goes to ``inner``. Scripted heads get their noul, unscripted
+    heads a quiet 0.1."""
+
+    def __init__(self, values, inner) -> None:
+        self.values = dict(values)
+        self.inner = inner
+
+    def decide(self, state, questions):
+        if any("::absence_wrong" in q or "::grounded" in q for q in questions):
+            answers = {q: {"noul": self.values.get(q, 0.1)} for q in questions}
+            return Decision(applies=True, ok=True, answers=answers, raw_tokens=30)
+        return self.inner.decide(state, questions)
+
+
+def _patch_field_sequence(monkeypatch, *, fields_sequence):
+    """Implementer recorder returning fields_sequence[i] on the i-th
+    REASONING call (clamped to the last) and one bulk claim per doc."""
+    rec = {"bulk": [], "fields": []}
+
+    def fake_call_implementer(
+        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0
+    ):
+        doc_id = messages[1]["content"].split("Document doc_id: ", 1)[1].splitlines()[0].strip()
+        if "REASONING IMPLEMENTER" in messages[0]["content"]:
+            rec["fields"].append(doc_id)
+            return fields_sequence[min(len(rec["fields"]) - 1, len(fields_sequence) - 1)]
+        rec["bulk"].append(doc_id)
+        return {"claims": [{"text": CLAIM_TEXT, "doc_id": doc_id}]}
+
+    monkeypatch.setattr(intel.llm_implement, "call_implementer", fake_call_implementer)
+    return rec
+
+
+def _comp_run(tmp_path, monkeypatch, *, cfg, decider, fields_sequence, body=DOC_TEXT_1):
+    """One full run with the completeness cascade configured; returns the
+    result, the written dossier and the implementer recorder."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", body)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    _patch_layer(monkeypatch, decide_cfg=cfg, decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    rec = _patch_field_sequence(monkeypatch, fields_sequence=fields_sequence)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+    dossier = json.loads(
+        Path(result["paths"]["package_dir"]).joinpath("dossier.json").read_text(encoding="utf-8")
+    )
+    return result, dossier, rec
+
+
+@respx.mock
+def test_completeness_escalation_reruns_reasoning_model_and_marks_fields(
+    tmp_path, monkeypatch
+):
+    """An unknown field whose absence_wrong head fires: extract_five_fields
+    runs TWICE for the doc, the re-run's fill replaces the unknown with
+    ``escalated: True`` meta, and the stage record counts the escalation."""
+    decider = _CompletenessDecider({"why_now::absence_wrong": 0.95}, _high_decider())
+    result, dossier, rec = _comp_run(
+        tmp_path, monkeypatch, cfg=_comp_cfg(), decider=decider,
+        fields_sequence=[FIELDS_V1, FIELDS_V2],
+    )
+
+    assert rec["fields"] == ["doc-1", "doc-1"]  # extract called TWICE for the doc
+    llm = dossier["llm_fields"]
+    assert set(llm) == {"operational_need", "why_now"}
+    assert llm["why_now"]["text"] == WHY_NOW_TEXT
+    assert llm["why_now"]["escalated"] is True
+    assert "escalated" not in llm["operational_need"]  # only the re-run is marked
+    assert result["stages"]["implement"]["five_fields_escalations"] == 1
+
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    comp_rows = [r for r in rows if r["gate"] == "completeness_verify"]
+    # initial verification fired; the RE-VERIFICATION of the re-run passed
+    assert [r["outcome"] for r in comp_rows] == ["escalated", "passed"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_completeness_quarantine_drops_hallucinated_field(tmp_path, monkeypatch):
+    """A present field whose grounded head fires: it is REMOVED from
+    llm_fields (a hallucinated fill must not survive) and nothing escalates."""
+    decider = _CompletenessDecider({"operational_need::grounded": 0.95}, _high_decider())
+    result, dossier, rec = _comp_run(
+        tmp_path, monkeypatch, cfg=_comp_cfg(), decider=decider,
+        fields_sequence=[FIVE_FIELDS],
+    )
+
+    assert rec["fields"] == ["doc-1"]  # no escalation: the fired field was PRESENT
+    assert set(dossier["llm_fields"]) == {"why_now"}  # operational_need quarantined
+    stage = result["stages"]["implement"]
+    assert "five_fields_escalations" not in stage
+    assert stage["five_fields_quarantined"] == 1
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_completeness_cap_blocks_second_escalation_and_records_gap(
+    tmp_path, monkeypatch
+):
+    """max_escalations 1 with two escalating versions of the doc (the re-run
+    comes back unknown too): the first escalation happens, the second is
+    blocked, the gap line fires, extract runs exactly twice."""
+    cfg = _comp_cfg(max_escalations=1)
+    decider = _CompletenessDecider({"why_now::absence_wrong": 0.95}, _high_decider())
+    result, dossier, rec = _comp_run(
+        tmp_path, monkeypatch, cfg=cfg, decider=decider,
+        fields_sequence=[FIELDS_V1, FIELDS_V1],  # the re-run is unknown too
+    )
+
+    assert rec["fields"] == ["doc-1", "doc-1"]  # one escalation re-run, no more
+    assert "why_now" not in dossier["llm_fields"]  # never filled
+    assert result["stages"]["implement"]["five_fields_escalations"] == 1
+    assert any(
+        "completeness escalation cap reached (1); remaining docs unverified" in gap
+        for gap in result["gaps"]
+    ), result["gaps"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_completeness_disabled_gate_leaves_the_pass_unchanged(tmp_path, monkeypatch):
+    """enabled: false (or the block absent) => zero behavioral delta: one
+    extract call, no cascade, no completeness_verify rows."""
+    cfg = _comp_cfg(enabled=False)
+    decider = _CompletenessDecider({"why_now::absence_wrong": 0.95}, _high_decider())
+    result, dossier, rec = _comp_run(
+        tmp_path, monkeypatch, cfg=cfg, decider=decider,
+        fields_sequence=[FIELDS_V1],
+    )
+
+    assert rec["fields"] == ["doc-1"]  # extract once — no escalation re-run
+    assert set(dossier["llm_fields"]) == {"operational_need"}
+    stage = result["stages"]["implement"]
+    assert "five_fields_escalations" not in stage
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    assert all(row["gate"] != "completeness_verify" for row in rows)
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_completeness_layer_off_config_present_does_nothing(tmp_path, monkeypatch):
+    """The completeness block in decide.yaml alone does nothing: without
+    --with-llm the run stays byte-identical (no extract, no rows)."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    _patch_coverage(monkeypatch)
+    _patch_package_recorder(monkeypatch)
+    _patch_layer(monkeypatch, decide_cfg=_comp_cfg(), decider=_high_decider())
+    _patch_planner(monkeypatch)
+    rec = _patch_field_sequence(monkeypatch, fields_sequence=[FIELDS_V1])
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch)  # no with_llm
+
+    assert "decide" not in result
+    assert rec["fields"] == [] and rec["bulk"] == []
+    assert not any("completeness" in gap for gap in result["gaps"])
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_completeness_preflight_term_degrades_run_to_shadow(tmp_path, monkeypatch):
+    """The pre-flight models the cascade BEFORE the first Jev call: one
+    ~700-token verify request per five-fields doc + one per potential
+    escalation. Without the block the same run stays under the ceiling."""
+    body = "Acme breach quarter evaluating vendors. " * 70  # 2800 chars ~ 700 tokens
+    cfg = _comp_cfg()
+    cfg["decider"]["max_decide_tokens_per_run"] = 22000
+    decider = _CompletenessDecider({"why_now::absence_wrong": 0.95}, _high_decider())
+    result, _dossier, rec = _comp_run(
+        tmp_path, monkeypatch, cfg=cfg, decider=decider, fields_sequence=[FIELDS_V1],
+        body=body,
+    )
+
+    # G4 (700) + doc gate (700) + completeness (2x700) + allowances (19400):
+    # the degradation is caused by the completeness term alone (20800 fits).
+    assert any(
+        "decide token budget exceeded (22200 > 22000)" in gap for gap in result["gaps"]
+    ), result["gaps"]
+    assert result["decide"]["mode"] == "shadow"
+    assert result["decide"]["degraded"] is True
+    # Degraded to shadow the battery records but binds NOTHING: no escalation.
+    assert rec["fields"] == ["doc-1"]
+
+    # The same setup WITHOUT the completeness block stays under the ceiling:
+    # the term is opt-in (cfgs without the block keep today's projection).
+    orch = FakeOrchLlm(docs=[_doc("doc-1", body)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers2")
+    orch.snapshot = _snapshot()
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=_decide_cfg("enforce", max_decide_tokens_per_run=22000),
+        decider=decider,
+    )
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+    assert result["decide"]["mode"] == "enforce"
+    assert result["decide"]["degraded"] is False
+    assert not any("token budget" in gap for gap in result["gaps"])
+    assert respx.calls.call_count == 0

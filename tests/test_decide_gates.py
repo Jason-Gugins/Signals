@@ -31,6 +31,7 @@ from src.decide import (
     DOC_EVIDENCE_MIN,
     DOC_INJECTION_MAX,
     DOC_RELEVANT_MIN,
+    FIRE_THRESHOLD,
     LEXICAL_OVERLAP_FLOOR,
     OUTPUT_ACTION_THRESHOLD,
     OUTPUT_REVIEW_THRESHOLD,
@@ -42,6 +43,7 @@ from src.decide import (
     anchor_window,
     estimate_tokens,
     gate_citation_batch,
+    gate_completeness,
     gate_document,
     gate_need_promotion,
     gate_plan_step,
@@ -51,6 +53,7 @@ from src.decide import (
     state_hash,
 )
 from src.decide.shapes import Decision
+from src.llm.implement import FIVE_FIELDS as DOSSIER_FIELDS
 
 RUN = "run-gates-test"
 
@@ -1671,3 +1674,305 @@ def test_output_screen_jev_error_keeps_existing_drop_all_path():
     assert len(ledger.rows) == 2
     assert all(r["outcome"] == "errored" for r in ledger.rows)
     assert all(r["error"] == "jev_error" for r in ledger.rows)
+
+
+# --- wave-2 task 2: completeness-verify cascade (five-fields battery) ---------
+#
+# The SDE-cascade battery applied to the FIVE dossier fields ONLY: claims are
+# NOT re-judged here (G4 already gates them). One batched request per doc,
+# one Noul head per field — ``<field>::absence_wrong`` when the extractor
+# returned unknown (bad = the document actually states it) and
+# ``<field>::grounded`` when it returned text (bad = the text is NOT
+# supported — a hallucinated fill G4 never saw as a claim). Max-style gate:
+# ANY head above fire_threshold fires; never a mean.
+
+
+def _fields_fixture(*, unknown: tuple[str, ...] = ()) -> dict:
+    """A five-fields result with every field filled from the document except
+    the named ones (the bare-"unknown" absence shape the extractor emits)."""
+    supported = {
+        "operational_need": "evaluating SIEM vendors",
+        "buying_window": "a breach last quarter",
+        "displacement_risk": "consolidate three monitoring tools into one",
+        "expansion_signal": "the platform team plans to consolidate",
+        "why_now": "a breach last quarter",
+    }
+    fields: dict = {}
+    for field in DOSSIER_FIELDS:
+        if field in unknown:
+            fields[field] = {"text": "unknown", "doc_id": "doc1"}
+        else:
+            fields[field] = {"text": supported[field], "doc_id": "doc1"}
+    return fields
+
+
+def _heads(fields: dict) -> dict[str, str]:
+    """field -> the head id the battery asks for it under (the caller-side
+    mirror of the present/unknown routing; pins the head-id format)."""
+    heads: dict[str, str] = {}
+    for field in DOSSIER_FIELDS:
+        value = fields.get(field)
+        text = value.get("text") if isinstance(value, dict) else None
+        present = (
+            isinstance(text, str)
+            and bool(text.strip())
+            and text.strip().casefold() != "unknown"
+        )
+        heads[field] = f"{field}::{'grounded' if present else 'absence_wrong'}"
+    return heads
+
+
+def _comp_decider(
+    fields: dict, high: dict[str, float], *, ok: bool = True, tokens: int = 60
+) -> CountingDecider:
+    """A decider for the completeness battery: one Decision carrying a noul
+    for EVERY head (scripted values win, the rest answer a quiet 0.1)."""
+    heads = _heads(fields)
+    answers = {
+        head: {"noul": high.get(head, 0.1)} for head in heads.values()
+    }
+    decision = Decision(
+        applies=True,
+        ok=ok,
+        answers=answers if ok else {},
+        raw_tokens=tokens if ok else 0,
+    )
+    return CountingDecider({head: decision for head in heads.values()})
+
+
+def test_completeness_module_threshold_default():
+    assert FIRE_THRESHOLD == 0.70
+
+
+def test_completeness_absence_wrong_fires_for_unknown_field():
+    """The doc supports what the extractor returned unknown for: the
+    absence_wrong head fires (bad=TRUE) and the row says escalated."""
+    fields = _fields_fixture(unknown=("why_now",))
+    heads = _heads(fields)
+    ledger = DecideLedger()
+    fired, decision = gate_completeness(
+        "doc1", DOC, fields, _comp_decider(fields, {heads["why_now"]: 0.95}),
+        {}, ledger, RUN, "enforce",
+    )
+    assert fired == ["why_now"]
+    assert decision.ok is True
+    row = ledger.rows[0]
+    assert row["gate"] == "completeness_verify"
+    assert row["boundary"] == "completeness_verify"
+    assert row["outcome"] == "escalated"
+    assert row["reason"] == "why_now::absence_wrong"
+    assert row["deterministic_action"] == "pass"
+    assert row["agree"] is False  # the battery added work the baseline lacks
+    assert row["agree_direction"] is None
+    assert row["called"] is True
+    assert row["noul"] == 0.95
+    assert row["answers"]["why_now::absence_wrong"] == {"noul": 0.95}
+    assert row["error"] is None
+
+
+def test_completeness_grounded_fires_for_hallucinated_field():
+    """A present fill the document does not support: the grounded head fires
+    (bad=TRUE — G4 never judged the raw fill, this is its only check) and the
+    row says quarantined."""
+    fields = _fields_fixture()
+    heads = _heads(fields)
+    ledger = DecideLedger()
+    fired, _ = gate_completeness(
+        "doc1", DOC, fields, _comp_decider(fields, {heads["operational_need"]: 0.9}),
+        {}, ledger, RUN, "enforce",
+    )
+    assert fired == ["operational_need"]
+    row = ledger.rows[0]
+    assert row["outcome"] == "quarantined"
+    assert row["reason"] == "operational_need::grounded"
+
+
+def test_completeness_no_head_fires_passes():
+    fields = _fields_fixture()
+    ledger = DecideLedger()
+    fired, _ = gate_completeness(
+        "doc1", DOC, fields, _comp_decider(fields, {}), {}, ledger, RUN, "enforce"
+    )
+    assert fired == []
+    row = ledger.rows[0]
+    assert row["outcome"] == "passed"
+    assert "reason" not in row  # nothing fired, nothing to name
+    assert row["agree"] is True  # verdict == deterministic pass-through
+    assert row["agree_direction"] == "match"
+
+
+def test_completeness_max_aggregate_not_mean():
+    """One head at 0.95 plus four quiet heads: the mean (~0.27) would stay
+    under the threshold — the MAX routing must fire regardless."""
+    fields = _fields_fixture()
+    heads = _heads(fields)
+    ledger = DecideLedger()
+    fired, _ = gate_completeness(
+        "doc1", DOC, fields, _comp_decider(fields, {heads["expansion_signal"]: 0.95}),
+        {}, ledger, RUN, "enforce",
+    )
+    assert fired == ["expansion_signal"]
+    assert ledger.rows[0]["outcome"] == "quarantined"
+
+
+def test_completeness_fire_threshold_is_strict_and_configurable():
+    """P(wrong) == fire_threshold does NOT fire (strict >); a config override
+    moves the edge."""
+    fields = _fields_fixture()
+    heads = _heads(fields)
+    ledger = DecideLedger()
+    fired, _ = gate_completeness(
+        "doc1", DOC, fields, _comp_decider(fields, {heads["why_now"]: 0.70}),
+        {}, ledger, RUN, "enforce",
+    )
+    assert fired == []  # exactly at the default: no fire
+
+    ledger = DecideLedger()
+    fired, _ = gate_completeness(
+        "doc1", DOC, fields, _comp_decider(fields, {heads["why_now"]: 0.71}),
+        {}, ledger, RUN, "enforce",
+    )
+    assert fired == ["why_now"]
+
+    ledger = DecideLedger()
+    fired, _ = gate_completeness(
+        "doc1", DOC, fields, _comp_decider(fields, {heads["why_now"]: 0.55}),
+        {"fire_threshold": 0.50}, ledger, RUN, "enforce",
+    )
+    assert fired == ["why_now"]
+
+    ledger = DecideLedger()
+    fired, _ = gate_completeness(
+        "doc1", DOC, fields, _comp_decider(fields, {heads["why_now"]: 0.45}),
+        {"fire_threshold": 0.50}, ledger, RUN, "enforce",
+    )
+    assert fired == []
+
+
+def test_completeness_jev_error_skips():
+    """on_error skip: a Jev error quarantines nothing and escalates nothing —
+    the deterministic output stands, the row records the error."""
+    fields = _fields_fixture()
+    ledger = DecideLedger()
+    fired, decision = gate_completeness(
+        "doc1", DOC, fields, _comp_decider(fields, {}, ok=False), {}, ledger, RUN, "enforce"
+    )
+    assert fired == []
+    assert decision.ok is False
+    row = ledger.rows[0]
+    assert row["outcome"] == "errored"
+    assert row["error"] == "jev_error"
+    assert row["called"] is True
+    assert row["answers"] is None
+    assert row["agree"] is False  # enforce on_error fallback convention
+    agg = ledger.aggregate("completeness_verify")
+    assert agg["counts"]["errored"] == 1
+
+
+def test_completeness_null_decider_skips():
+    ledger = DecideLedger()
+    fired, decision = gate_completeness(
+        "doc1", DOC, _fields_fixture(), NullDecider(), {}, ledger, RUN, "enforce"
+    )
+    assert fired == []
+    assert decision.applies is False
+    row = ledger.rows[0]
+    assert row["called"] is False
+    assert row["answers"] is None
+    assert "outcome" not in row  # not-applicable rows carry no outcome
+    agg = ledger.aggregate("completeness_verify")
+    assert agg["counts"]["called"] == 0  # NullDecider rows inflate no counts
+    assert agg["input_tokens"] == 0
+
+
+def test_completeness_shadow_records_but_returns_empty():
+    """Shadow never binds: the fired list comes back EMPTY (nothing is
+    quarantined or escalated) while the row records the would-be outcome."""
+    fields = _fields_fixture(unknown=("why_now",))
+    heads = _heads(fields)
+    ledger = DecideLedger()
+    fired, _ = gate_completeness(
+        "doc1", DOC, fields, _comp_decider(fields, {heads["why_now"]: 0.95}),
+        {}, ledger, RUN, "shadow",
+    )
+    assert fired == []  # the caller's behavior must not change in shadow
+    row = ledger.rows[0]
+    assert row["outcome"] == "escalated"  # what enforce WOULD do
+    assert row["reason"] == "why_now::absence_wrong"
+    assert row["called"] is True
+
+
+def test_completeness_one_request_per_doc_state_and_questions():
+    fields = _fields_fixture(unknown=("why_now",))
+    heads = _heads(fields)
+    decider = _comp_decider(fields, {})
+    ledger = DecideLedger()
+    gate_completeness("doc1", DOC, fields, decider, {}, ledger, RUN, "enforce")
+    assert decider.n_calls == 1  # ONE Jev request per document
+    state, questions = decider.calls[0]
+    assert state["doc_id"] == "doc1"
+    assert "breach" in state["text"]  # the (truncated) document body rides in
+    assert state["operational_need"] == "evaluating SIEM vendors"  # fills ride in
+    assert "why_now" not in state  # unknown fields carry no text to verify
+    assert list(questions) == [heads[field] for field in DOSSIER_FIELDS]
+    assert all(q["type"] == "noul" for q in questions.values())
+    # the true/false criteria are spelled out in the instructions
+    assert "returning unknown is wrong" in questions[heads["why_now"]]["instructions"]
+    assert "unknown is honest" in questions[heads["why_now"]]["instructions"]
+    assert (
+        "NOT supported by the document"
+        in questions[heads["operational_need"]]["instructions"]
+    )
+    assert len(ledger.rows) == 1  # one row per doc
+
+
+def test_completeness_empty_doc_text_skips_without_jev():
+    """Nothing to verify against: deterministic skip, no Jev spend."""
+    for empty in (None, "", "   "):
+        ledger = DecideLedger()
+        decider = _comp_decider(_fields_fixture(), {})
+        fired, _ = gate_completeness(
+            "doc1", empty, _fields_fixture(), decider, {}, ledger, RUN, "enforce"
+        )
+        assert fired == []
+        assert decider.n_calls == 0
+        assert ledger.rows[0]["called"] is False
+        assert "outcome" not in ledger.rows[0]
+
+
+def test_completeness_malformed_head_fires_fail_closed():
+    """A head without a usable noul is no verdict: fail-closed (the G5
+    posture) — that field fires rather than standing unverified."""
+    fields = _fields_fixture()
+    heads = _heads(fields)
+    answers = {
+        head: {"noul": 0.1} for head in heads.values() if head != heads["displacement_risk"]
+    }
+    decider = CountingDecider(
+        {
+            head: Decision(applies=True, ok=True, answers=answers, raw_tokens=30)
+            for head in heads.values()
+        }
+    )
+    ledger = DecideLedger()
+    fired, _ = gate_completeness("doc1", DOC, fields, decider, {}, ledger, RUN, "enforce")
+    assert fired == ["displacement_risk"]
+    assert ledger.rows[0]["outcome"] == "quarantined"
+
+
+def test_completeness_mixed_fire_quarantine_wins_and_reason_lists_heads():
+    """A present field and an unknown field fire together: the fired list
+    keeps FIVE_FIELDS order, the row summarizes with quarantine winning (the
+    binding outcome) and the reason names every fired head."""
+    fields = _fields_fixture(unknown=("why_now",))
+    heads = _heads(fields)
+    ledger = DecideLedger()
+    fired, _ = gate_completeness(
+        "doc1", DOC, fields,
+        _comp_decider(fields, {heads["displacement_risk"]: 0.9, heads["why_now"]: 0.8}),
+        {}, ledger, RUN, "enforce",
+    )
+    assert fired == ["displacement_risk", "why_now"]
+    row = ledger.rows[0]
+    assert row["outcome"] == "quarantined"
+    assert row["reason"] == "displacement_risk::grounded,why_now::absence_wrong"

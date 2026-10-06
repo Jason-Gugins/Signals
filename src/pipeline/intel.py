@@ -303,6 +303,7 @@ def _implement_pass(
         "docs": 0,
         "docs_screened": 0,
         "docs_excluded": 0,
+        "docs_reranked": 0,
         "claims_accepted": 0,
         "claims_typed": 0,
         "event_dates_extracted": 0,
@@ -459,12 +460,28 @@ def _implement_pass(
     # config SKIPPED here (the per-gate enabled pattern: deterministic path
     # proceeds, no rows); a NullDecider yields not-applicable include rows.
     doc_gate_cfg = _gate_cfg(decide_cfg, "document_gate")
-    if doc_gate_cfg.get("enabled", True) and decider is not None:
-        account_name = str(getattr(account, "name", None) or domain)
+    # Evidence re-rank (wave-3): the re-rank head RIDES the doc-gate request
+    # (zero marginal requests), so it is INERT without the doc gate — one
+    # debug log when it is asked for but the doc gate is off. OPT-IN pattern
+    # (completeness/typing/dates): the evidence_rerank block must EXIST and be
+    # enabled — _gate_enabled defaults absent blocks ON, which would silently
+    # re-rank every pre-wave-3 config — AND the doc gate must be enabled with
+    # a decider in scope (exactly when the screening block below runs).
+    rerank_cfg = _gate_cfg(decide_cfg, "evidence_rerank")
+    rerank_requested = bool(rerank_cfg) and bool(rerank_cfg.get("enabled", True))
+    doc_gate_on = bool(doc_gate_cfg.get("enabled", True))
+    rerank_active = rerank_requested and doc_gate_on and decider is not None
+    if rerank_requested and not doc_gate_on:
+        logger.debug(
+            "evidence_rerank enabled but document_gate disabled; re-rank inert (run={})",
+            run_id,
+        )
+    account_name = str(getattr(account, "name", None) or domain)
+    if doc_gate_on and decider is not None:
         excluded_reasons: dict[str, int] = {}
-        screened: list[tuple[object, str]] = []
+        screened: list[tuple[object, str, float | None]] = []
         for doc, text in docs:
-            include, _decision = decide_gates.gate_document(
+            include, _decision, strength = decide_gates.gate_document(
                 str(getattr(doc, "doc_id", "") or ""),
                 text,
                 account_name,
@@ -473,9 +490,10 @@ def _implement_pass(
                 ledger,
                 run_id,
                 mode,
+                rerank=rerank_active,
             )
             if include:
-                screened.append((doc, text))
+                screened.append((doc, text, strength))
             else:
                 # The gate just recorded the row; the exclusion reason rides
                 # on it for the stage-record breakdown.
@@ -485,8 +503,8 @@ def _implement_pass(
         result["docs_excluded"] = len(docs) - len(screened)
         if excluded_reasons:
             result["docs_excluded_reasons"] = excluded_reasons
-        docs = screened
-        if not docs:
+        ranked = screened
+        if not screened:
             # All staged docs excluded in enforce: the implement pass is a
             # documented no-op — the deterministic derive output is unaffected
             # (this stage is additive) and the run completes.
@@ -495,6 +513,46 @@ def _implement_pass(
                 "implement pass no-op"
             )
             return result
+    else:
+        ranked = [(doc, text, None) for doc, text in docs]
+    if rerank_active:
+        # The head rode EVERY gate request (both modes): docs_reranked counts
+        # the included docs carrying a usable strength — Jev errors,
+        # NullDeciders and missing heads stay None and are never invented.
+        result["docs_reranked"] = sum(1 for _doc, _text, s in ranked if s is not None)
+
+    # Evidence re-rank (wave-3): ORDERING + keep_n cap, ENFORCE-ONLY. Shadow
+    # keeps fetched_at order and never caps (the rows still record the
+    # strength — a clean A/B). Ungraded docs (Jev error / NullDecider /
+    # missing head) carry strength None: they sort LAST — the keep_order
+    # posture — and an all-None run keeps fetched_at order because sorted()
+    # is stable. The cap applies to the ordered list REGARDLESS of
+    # gradedness, so None-strength docs are the first a binding cap cuts;
+    # each capped-out doc gets a document_gate row (reason "rerank_cap",
+    # state_hash joined to its include row) and joins docs_excluded.
+    if rerank_active and mode == "enforce":
+        ranked = sorted(ranked, key=lambda triple: (triple[2] is None, -(triple[2] or 0.0)))
+        try:
+            keep_n = int(rerank_cfg.get("keep_n", 0))
+        except (TypeError, ValueError):
+            keep_n = 0
+        if keep_n > 0 and len(ranked) > keep_n:
+            capped_out = ranked[keep_n:]
+            ranked = ranked[:keep_n]
+            for doc, text, _strength in capped_out:
+                ledger.record(
+                    decide_gates.rerank_cap_row(
+                        str(getattr(doc, "doc_id", "") or ""),
+                        text,
+                        account_name,
+                        decider,
+                        run_id,
+                    )
+                )
+            result["docs_excluded"] += len(capped_out)
+            reasons = result.setdefault("docs_excluded_reasons", {})
+            reasons["rerank_cap"] = reasons.get("rerank_cap", 0) + len(capped_out)
+    docs = [(doc, text) for doc, text, _strength in ranked]
 
     doc_specs = [
         {
@@ -1568,6 +1626,7 @@ def run_intel(
                 quarantined = int(impl.get("five_fields_quarantined", 0) or 0)
                 dates_extracted = int(impl.get("event_dates_extracted", 0) or 0)
                 amounts_extracted = int(impl.get("amounts_extracted", 0) or 0)
+                reranked_count = int(impl.get("docs_reranked", 0) or 0)
                 record(
                     "implement",
                     "ran",
@@ -1583,6 +1642,7 @@ def run_intel(
                     **({"five_fields_quarantined": quarantined} if quarantined else {}),
                     **({"event_dates_extracted": dates_extracted} if dates_extracted else {}),
                     **({"amounts_extracted": amounts_extracted} if amounts_extracted else {}),
+                    **({"docs_reranked": reranked_count} if reranked_count else {}),
                 )
         except Exception as exc:
             logger.exception("intel implement sub-stage failed for {}", domain)

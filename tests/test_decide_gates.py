@@ -59,6 +59,7 @@ from src.decide import (
     gate_posture_audit,
     gate_routing,
     lexical_overlap,
+    rerank_cap_row,
     separation_ratio,
     state_hash,
 )
@@ -1222,19 +1223,29 @@ def test_span_check_binds_in_shadow():
 # --- wave-1 task 4: document gate (pre-implementer relevance screen) ----------
 
 
-def _doc_decider(relevant: float, evidence: float, injection: float, tokens: int = 25):
-    """A MockDecider answering the doc gate's THREE noul questions: the one
-    batched Decision's answers map carries all three question ids."""
+def _doc_decider(
+    relevant: float,
+    evidence: float,
+    injection: float,
+    tokens: int = 25,
+    strength: float | None = None,
+):
+    """A MockDecider answering the doc gate's THREE noul questions (plus the
+    wave-3 ``evidence_strength`` head when ``strength`` is given): the one
+    batched Decision's answers map carries every asked question id."""
+    answers = {
+        "is_relevant": {"noul": relevant},
+        "contains_signal_evidence": {"noul": evidence},
+        "contains_prompt_injection": {"noul": injection},
+    }
+    if strength is not None:
+        answers["evidence_strength"] = {"noul": strength}
     return MockDecider(
         {
             "is_relevant": Decision(
                 applies=True,
                 ok=True,
-                answers={
-                    "is_relevant": {"noul": relevant},
-                    "contains_signal_evidence": {"noul": evidence},
-                    "contains_prompt_injection": {"noul": injection},
-                },
+                answers=answers,
                 raw_tokens=tokens,
             )
         }
@@ -1251,7 +1262,7 @@ def test_doc_gate_injection_above_max_excludes_first():
     """First-match-wins: a planted injection post excludes regardless of how
     relevant/evidential it looks (the cookbook's ranked-#1 attack)."""
     ledger = DecideLedger()
-    include, decision = gate_document(
+    include, decision, _ = gate_document(
         "doc1",
         DOC,
         "Acme",
@@ -1277,7 +1288,7 @@ def test_doc_gate_injection_above_max_excludes_first():
 
 def test_doc_gate_irrelevant_excludes():
     ledger = DecideLedger()
-    include, _ = gate_document(
+    include, _, _ = gate_document(
         "doc1", DOC, "Acme", _doc_decider(0.2, 0.9, 0.0), {}, ledger, RUN, "enforce"
     )
     assert include is False
@@ -1289,7 +1300,7 @@ def test_doc_gate_irrelevant_excludes():
 def test_doc_gate_weak_evidence_excludes():
     """Relevant but evidence-poor: below evidence_min excludes."""
     ledger = DecideLedger()
-    include, _ = gate_document(
+    include, _, _ = gate_document(
         "doc1", DOC, "Acme", _doc_decider(0.9, 0.3, 0.0), {}, ledger, RUN, "enforce"
     )
     assert include is False
@@ -1300,7 +1311,7 @@ def test_doc_gate_weak_evidence_excludes():
 
 def test_doc_gate_relevant_evidential_clean_doc_includes():
     ledger = DecideLedger()
-    include, _ = gate_document(
+    include, _, _ = gate_document(
         "doc1", DOC, "Acme", _doc_decider(0.9, 0.9, 0.0), {}, ledger, RUN, "enforce"
     )
     assert include is True
@@ -1315,17 +1326,17 @@ def test_doc_gate_threshold_boundaries():
     """Strict > for injection, strict < for relevant, >= for evidence."""
     ledger = DecideLedger()
     # injection == injection_max (0.70) does NOT exclude on injection ...
-    include, _ = gate_document(
+    include, _, _ = gate_document(
         "doc1", DOC, "Acme", _doc_decider(0.9, 0.9, 0.70), {}, ledger, RUN, "enforce"
     )
     assert include is True
     # ... but evidence == evidence_min (0.55) DOES include.
-    include, _ = gate_document(
+    include, _, _ = gate_document(
         "doc1", DOC, "Acme", _doc_decider(0.9, 0.55, 0.0), {}, ledger, RUN, "enforce"
     )
     assert include is True
     # relevant == relevant_min (0.45) is NOT irrelevant.
-    include, _ = gate_document(
+    include, _, _ = gate_document(
         "doc1", DOC, "Acme", _doc_decider(0.45, 0.9, 0.0), {}, ledger, RUN, "enforce"
     )
     assert include is True
@@ -1336,7 +1347,7 @@ def test_doc_gate_jev_error_includes_deterministically():
     """on_error use_deterministic: a Jev error is a deterministic pass-through
     (include) with the error recorded on the row."""
     ledger = DecideLedger()
-    include, decision = gate_document(
+    include, decision, _ = gate_document(
         "doc1", DOC, "Acme", _error("is_relevant"), {}, ledger, RUN, "enforce"
     )
     assert include is True
@@ -1351,7 +1362,7 @@ def test_doc_gate_jev_error_includes_deterministically():
 
 def test_doc_gate_null_decider_includes_with_not_applicable_row():
     ledger = DecideLedger()
-    include, decision = gate_document(
+    include, decision, _ = gate_document(
         "doc1", DOC, "Acme", NullDecider(), {}, ledger, RUN, "enforce"
     )
     assert include is True
@@ -1370,7 +1381,7 @@ def test_doc_gate_shadow_screens_but_never_excludes():
     """Shadow never binds: the doc is returned even when the verdict would
     exclude it in enforce — the row records the WOULD-BE exclusion."""
     ledger = DecideLedger()
-    include, _ = gate_document(
+    include, _, _ = gate_document(
         "doc1", DOC, "Acme", _doc_decider(0.2, 0.9, 0.0), {}, ledger, RUN, "shadow"
     )
     assert include is True
@@ -1386,7 +1397,7 @@ def test_doc_gate_empty_text_includes_without_jev():
     for empty in (None, "", "   "):
         ledger = DecideLedger()
         decider = CountingDecider({"is_relevant": _ok({"is_relevant": {"noul": 0.9}})})
-        include, _ = gate_document("doc1", empty, "Acme", decider, {}, ledger, RUN, "enforce")
+        include, _, _ = gate_document("doc1", empty, "Acme", decider, {}, ledger, RUN, "enforce")
         assert include is True
         assert decider.n_calls == 0
         row = ledger.rows[0]
@@ -1444,7 +1455,7 @@ def test_doc_gate_thresholds_read_from_gate_cfg():
     excludes a doc the defaults would include."""
     ledger = DecideLedger()
     cfg = {"evidence_min": 0.95}
-    include, _ = gate_document(
+    include, _, _ = gate_document(
         "doc1", DOC, "Acme", _doc_decider(0.9, 0.9, 0.0), cfg, ledger, RUN, "enforce"
     )
     assert include is False
@@ -1452,7 +1463,7 @@ def test_doc_gate_thresholds_read_from_gate_cfg():
 
     # A raised injection_max lets a borderline injection through.
     ledger = DecideLedger()
-    include, _ = gate_document(
+    include, _, _ = gate_document(
         "doc1", DOC, "Acme", _doc_decider(0.9, 0.9, 0.75), {"injection_max": 0.80},
         ledger, RUN, "enforce",
     )
@@ -1460,7 +1471,7 @@ def test_doc_gate_thresholds_read_from_gate_cfg():
 
     # A lowered relevant_min keeps a borderline-relevant doc.
     ledger = DecideLedger()
-    include, _ = gate_document(
+    include, _, _ = gate_document(
         "doc1", DOC, "Acme", _doc_decider(0.40, 0.9, 0.0), {"relevant_min": 0.30},
         ledger, RUN, "enforce",
     )
@@ -1481,12 +1492,223 @@ def test_doc_gate_malformed_verdict_includes_with_error_row():
             )
         }
     )
-    include, _ = gate_document("doc1", DOC, "Acme", partial, {}, ledger, RUN, "enforce")
+    include, _, _ = gate_document("doc1", DOC, "Acme", partial, {}, ledger, RUN, "enforce")
     assert include is True
     row = ledger.rows[0]
     assert row["outcome"] == "included"
     assert row["reason"] == "no_answer"
     assert row["error"] == "no_answer"
+
+
+# --- wave-3: evidence re-rank head RIDES the document gate ---------------------
+
+
+def test_doc_gate_rerank_adds_fourth_noul_question():
+    """rerank=True: ONE fourth Noul head (evidence_strength) rides the SAME
+    batched request — zero marginal requests (the wave-3 design)."""
+    decider = CountingDecider(
+        {"is_relevant": _ok(
+            {
+                "is_relevant": {"noul": 0.9},
+                "contains_signal_evidence": {"noul": 0.9},
+                "contains_prompt_injection": {"noul": 0.0},
+                "evidence_strength": {"noul": 0.8},
+            },
+            tokens=25,
+        )}
+    )
+    ledger = DecideLedger()
+    include, decision, strength = gate_document(
+        "doc1", DOC, "Acme", decider, {}, ledger, RUN, "enforce", rerank=True
+    )
+    assert decider.n_calls == 1  # still ONE Jev request per document
+    _state, questions = decider.calls[0]
+    assert list(questions) == [
+        "is_relevant",
+        "contains_signal_evidence",
+        "contains_prompt_injection",
+        "evidence_strength",
+    ]
+    assert questions["evidence_strength"]["type"] == "noul"
+    assert "named action" in questions["evidence_strength"]["instructions"]
+    assert include is True
+    assert decision.ok is True
+    assert strength == 0.8
+
+
+def test_doc_gate_without_rerank_keeps_the_exact_request_set():
+    """rerank=False (the default): the request set is byte-identical to the
+    wave-1 shape — the fourth head is NEVER asked and no strength is returned."""
+    decider = CountingDecider(
+        {"is_relevant": _ok(
+            {
+                "is_relevant": {"noul": 0.9},
+                "contains_signal_evidence": {"noul": 0.9},
+                "contains_prompt_injection": {"noul": 0.0},
+                "evidence_strength": {"noul": 0.8},
+            }
+        )}
+    )
+    ledger = DecideLedger()
+    include, _decision, strength = gate_document(
+        "doc1", DOC, "Acme", decider, {}, ledger, RUN, "enforce"
+    )
+    assert decider.n_calls == 1
+    _state, questions = decider.calls[0]
+    assert list(questions) == [
+        "is_relevant",
+        "contains_signal_evidence",
+        "contains_prompt_injection",
+    ]
+    assert strength is None
+    assert include is True
+    assert "evidence_strength" not in ledger.rows[0]  # off-path rows byte-identical
+
+
+def test_doc_gate_rerank_row_carries_strength_for_ordering_audits():
+    """The strength rides BOTH the answers map (the verbatim verdict) and an
+    explicit ``evidence_strength`` row field — the ordering audit reads the
+    field, not the nested answers."""
+    ledger = DecideLedger()
+    include, _decision, strength = gate_document(
+        "doc1",
+        DOC,
+        "Acme",
+        _doc_decider(0.9, 0.9, 0.0, strength=0.8),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+        rerank=True,
+    )
+    assert include is True
+    assert strength == 0.8
+    row = ledger.rows[0]
+    assert row["evidence_strength"] == 0.8
+    assert row["answers"]["evidence_strength"] == {"noul": 0.8}
+
+
+def test_doc_gate_rerank_excluded_doc_still_carries_strength():
+    """The strength is returned and recorded even when the routing EXCLUDES the
+    doc (injection wins first-match) — the ledger keeps the full verdict."""
+    ledger = DecideLedger()
+    include, _decision, strength = gate_document(
+        "doc1",
+        DOC,
+        "Acme",
+        _doc_decider(0.95, 0.95, 0.9, strength=0.1),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+        rerank=True,
+    )
+    assert include is False
+    assert strength == 0.1
+    row = ledger.rows[0]
+    assert row["reason"] == "injection"
+    assert row["evidence_strength"] == 0.1
+
+
+def test_doc_gate_rerank_strength_none_on_jev_error():
+    """A Jev error includes deterministically (unchanged) and returns NO
+    invented strength — the caller's keep_order posture sorts it last."""
+    ledger = DecideLedger()
+    include, decision, strength = gate_document(
+        "doc1", DOC, "Acme", _error("is_relevant"), {}, ledger, RUN, "enforce", rerank=True
+    )
+    assert include is True
+    assert decision.ok is False
+    assert strength is None
+    row = ledger.rows[0]
+    assert row["error"] == "jev_error"
+    assert "evidence_strength" not in row
+
+
+def test_doc_gate_rerank_strength_none_on_null_decider():
+    """NullDecider: not-applicable include, no strength — nothing invented."""
+    ledger = DecideLedger()
+    include, decision, strength = gate_document(
+        "doc1", DOC, "Acme", NullDecider(), {}, ledger, RUN, "enforce", rerank=True
+    )
+    assert include is True
+    assert decision.applies is False
+    assert strength is None
+    row = ledger.rows[0]
+    assert row["called"] is False
+    assert "evidence_strength" not in row
+
+
+def test_doc_gate_rerank_missing_head_returns_none_but_routes_normally():
+    """The three gate heads answered, evidence_strength missing: the gate
+    routes on its OWN heads (include stands) and the missing re-rank head is a
+    None strength — no error, no invented value."""
+    ledger = DecideLedger()
+    include, _decision, strength = gate_document(
+        "doc1", DOC, "Acme", _doc_decider(0.9, 0.9, 0.0), {}, ledger, RUN, "enforce", rerank=True
+    )
+    assert include is True
+    assert strength is None
+    assert ledger.rows[0].get("reason") is None
+    assert "evidence_strength" not in ledger.rows[0]
+
+
+def test_doc_gate_rerank_shadow_records_strength_and_never_binds():
+    """Shadow: the head rides the request, the row records the value, the
+    would-be outcome still rides — ordering/capping are the CALLER's
+    enforce-only concern; the gate itself never orders, caps or excludes."""
+    ledger = DecideLedger()
+    include, _decision, strength = gate_document(
+        "doc1",
+        DOC,
+        "Acme",
+        _doc_decider(0.2, 0.9, 0.0, strength=0.4),
+        {},
+        ledger,
+        RUN,
+        "shadow",
+        rerank=True,
+    )
+    assert include is True  # shadow never binds
+    assert strength == 0.4
+    row = ledger.rows[0]
+    assert row["outcome"] == "excluded"  # what enforce WOULD do
+    assert row["evidence_strength"] == 0.4
+
+
+def test_doc_gate_rerank_empty_text_no_call_strength_none():
+    """Empty text with rerank on: the deterministic include fires BEFORE any
+    Jev spend and the strength is None."""
+    ledger = DecideLedger()
+    decider = CountingDecider({})
+    include, _decision, strength = gate_document(
+        "doc1", "   ", "Acme", decider, {}, ledger, RUN, "enforce", rerank=True
+    )
+    assert include is True
+    assert strength is None
+    assert decider.n_calls == 0
+
+
+def test_rerank_cap_row_marks_the_document_gate_boundary():
+    """The keep_n cap's excluded-by-cap row: SAME boundary and state shape as
+    the gate's own rows (state_hash joins the include row), outcome excluded,
+    reason rerank_cap, no Jev spend, agree None (no verdict judged HERE)."""
+    ledger = DecideLedger()
+    decider = _doc_decider(0.9, 0.9, 0.0)
+    gate_document("doc1", DOC, "Acme", decider, {}, ledger, RUN, "enforce")
+    gate_row = ledger.rows[0]
+    cap_row = rerank_cap_row("doc1", DOC, "Acme", decider, RUN)
+    ledger.record(cap_row)
+    assert cap_row["gate"] == "document_gate"
+    assert cap_row["boundary"] == "document_gate"
+    assert cap_row["state_hash"] == gate_row["state_hash"]
+    assert cap_row["outcome"] == "excluded"
+    assert cap_row["reason"] == "rerank_cap"
+    assert cap_row["deterministic_action"] == "include"
+    assert cap_row["called"] is False
+    assert cap_row["agree"] is None
+    assert cap_row["raw_tokens"] == 0
+    assert cap_row["run_id"] == RUN
 
 
 # --- wave-1 task 5: output screen rider (batch-level claim screening) ----------

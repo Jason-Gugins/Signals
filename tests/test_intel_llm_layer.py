@@ -31,6 +31,7 @@ from types import SimpleNamespace
 import respx
 import yaml
 from click.testing import CliRunner
+from loguru import logger
 
 import src.cli as cli_mod
 import src.pipeline.intel as intel_mod
@@ -1509,6 +1510,249 @@ def test_document_gate_shadow_screens_but_excludes_nothing(tmp_path, monkeypatch
     ]
     doc_rows = [r for r in rows if r["gate"] == "document_gate"]
     assert [r["outcome"] for r in doc_rows] == ["excluded", "included"]  # would-be
+    assert respx.calls.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 11b. Evidence re-rank (wave-3): the head rides the doc gate; the caller
+#      orders and caps the implement loop (enforce-only)
+# ---------------------------------------------------------------------------
+
+
+RERANK_CFG = {"enabled": True, "keep_n": 0, "on_error": "keep_order"}
+
+
+def _rerank_cfg(mode="enforce", **rerank_overrides):
+    """decide.yaml-shaped cfg with BOTH the document gate and the wave-3
+    evidence_rerank block enabled (the re-rank is inert without either)."""
+    cfg = _decide_cfg(mode)
+    cfg["decider"]["gates"]["document_gate"] = DOC_GATE_CFG
+    cfg["decider"]["gates"]["evidence_rerank"] = {**RERANK_CFG, **rerank_overrides}
+    return cfg
+
+
+class _RerankDocGateDecider:
+    """Doc-gate decider answering the wave-3 evidence_strength head from a
+    {doc_id: noul} map — only when the head is ASKED (a wave-1-shaped request
+    gets the three gate heads alone). Doc ids named in ``errors`` get an
+    ok=False verdict (the Jev error path). Everything else delegates."""
+
+    def __init__(self, strengths, inner, *, errors=()) -> None:
+        self.strengths = dict(strengths)
+        self.errors = set(errors)
+        self.inner = inner
+
+    def decide(self, state, questions):
+        if "is_relevant" in questions:
+            doc_id = state.get("doc_id")
+            if doc_id in self.errors:
+                return Decision(applies=True, ok=False, answers={}, raw_tokens=3)
+            answers = {
+                "is_relevant": {"noul": 0.9},
+                "contains_signal_evidence": {"noul": 0.9},
+                "contains_prompt_injection": {"noul": 0.0},
+            }
+            if "evidence_strength" in questions:
+                answers["evidence_strength"] = {"noul": self.strengths.get(doc_id, 0.5)}
+            return Decision(applies=True, ok=True, answers=answers, raw_tokens=5)
+        return self.inner.decide(state, questions)
+
+
+_RERANK_DOCS = [
+    _doc("doc-1", DOC_TEXT_1, fetched_at="2026-08-15T00:00:00+00:00"),
+    _doc("doc-2", DOC_TEXT_1, fetched_at="2026-08-15T01:00:00+00:00"),
+    _doc("doc-3", DOC_TEXT_1, fetched_at="2026-08-15T02:00:00+00:00"),
+]
+#: strengths chosen so strength-desc != fetched_at order for every doc
+_RERANK_STRENGTHS = {"doc-1": 0.5, "doc-2": 0.9, "doc-3": 0.7}
+
+
+def _rerank_run(tmp_path, monkeypatch, *, cfg, decider, docs=None):
+    """One layer-active run with the doc-gate + re-rank config; returns
+    (result, implementer recorder)."""
+    orch = _doc_gate_orch(docs if docs is not None else _RERANK_DOCS)
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    _patch_coverage(monkeypatch)
+    _patch_layer(monkeypatch, decide_cfg=cfg, decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    rec = _patch_doc_recorder(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+    return result, rec
+
+
+def _decisions_rows(result):
+    return [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+
+
+@respx.mock
+def test_evidence_rerank_orders_implement_loop_by_strength(tmp_path, monkeypatch):
+    """Enforce + rerank on: included docs reach the implementer in DESCENDING
+    evidence_strength order (the recording implementer pins the order); rows
+    keep screening order with the strength aboard."""
+    result, rec = _rerank_run(
+        tmp_path,
+        monkeypatch,
+        cfg=_rerank_cfg(),
+        decider=_RerankDocGateDecider(_RERANK_STRENGTHS, _high_decider()),
+    )
+
+    assert rec["bulk"] == ["doc-2", "doc-3", "doc-1"]  # strength desc, NOT fetched_at
+    assert rec["fields"] == ["doc-2"]  # five-fields rides the ordered list
+    stage = result["stages"]["implement"]
+    assert stage["docs_reranked"] == 3  # every included doc was graded
+    doc_rows = [r for r in _decisions_rows(result) if r["gate"] == "document_gate"]
+    # screening order is untouched (rows recorded during the gate pass) ...
+    assert [r["evidence_strength"] for r in doc_rows] == [0.5, 0.9, 0.7]
+    # ... and every row carries the explicit field the ordering audit reads.
+    assert all(r["outcome"] == "included" for r in doc_rows)
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_evidence_rerank_keep_n_caps_doc_specs_and_records_cap_rows(tmp_path, monkeypatch):
+    """Enforce + keep_n=2: only the TOP 2 docs by strength reach doc_specs; the
+    capped-out doc gets a document_gate row (outcome excluded, reason
+    rerank_cap) whose state_hash joins its own include row."""
+    result, rec = _rerank_run(
+        tmp_path,
+        monkeypatch,
+        cfg=_rerank_cfg(keep_n=2),
+        decider=_RerankDocGateDecider(_RERANK_STRENGTHS, _high_decider()),
+    )
+
+    assert rec["bulk"] == ["doc-2", "doc-3"]  # doc-1 (0.5) capped out
+    stage = result["stages"]["implement"]
+    assert stage["docs_reranked"] == 3  # all three were graded BEFORE the cut
+    assert stage["docs_excluded"] == 1
+    assert stage["docs_excluded_reasons"] == {"rerank_cap": 1}
+    doc_rows = [r for r in _decisions_rows(result) if r["gate"] == "document_gate"]
+    cap_rows = [r for r in doc_rows if r.get("reason") == "rerank_cap"]
+    assert len(cap_rows) == 1
+    assert cap_rows[0]["outcome"] == "excluded"
+    assert cap_rows[0]["called"] is False  # the cap row spends nothing
+    strength_by_hash = {
+        r["state_hash"]: r.get("evidence_strength")
+        for r in doc_rows
+        if r.get("reason") != "rerank_cap"
+    }
+    assert strength_by_hash[cap_rows[0]["state_hash"]] == 0.5  # the capped doc IS doc-1
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_evidence_rerank_shadow_records_strength_but_never_orders_or_caps(tmp_path, monkeypatch):
+    """Shadow: rows record the strength (a clean A/B), but the implement loop
+    keeps fetched_at order and the cap NEVER binds."""
+    result, rec = _rerank_run(
+        tmp_path,
+        monkeypatch,
+        cfg=_rerank_cfg("shadow", keep_n=2),
+        decider=_RerankDocGateDecider(_RERANK_STRENGTHS, _high_decider()),
+    )
+
+    assert rec["bulk"] == ["doc-1", "doc-2", "doc-3"]  # fetched_at order kept
+    stage = result["stages"]["implement"]
+    assert stage["docs_reranked"] == 3  # the head rode the shadow rows too
+    assert stage["docs_excluded"] == 0  # shadow never caps
+    doc_rows = [r for r in _decisions_rows(result) if r["gate"] == "document_gate"]
+    assert [r["evidence_strength"] for r in doc_rows] == [0.5, 0.9, 0.7]
+    assert not [r for r in doc_rows if r.get("reason") == "rerank_cap"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_evidence_rerank_inert_without_the_document_gate(tmp_path, monkeypatch):
+    """The re-rank head RIDES the doc-gate request: with the doc gate disabled
+    the re-rank is inert — one debug log, no gate rows at all, fetched_at
+    order, no cap, no docs_reranked."""
+    cfg = _decide_cfg("enforce")
+    cfg["decider"]["gates"]["document_gate"] = {**DOC_GATE_CFG, "enabled": False}
+    cfg["decider"]["gates"]["evidence_rerank"] = dict(RERANK_CFG)
+    messages: list[str] = []
+    handler_id = logger.add(messages.append, level="DEBUG")
+    try:
+        result, rec = _rerank_run(
+            tmp_path,
+            monkeypatch,
+            cfg=cfg,
+            decider=_RerankDocGateDecider(_RERANK_STRENGTHS, _high_decider()),
+        )
+    finally:
+        logger.remove(handler_id)
+
+    assert any("evidence_rerank" in m and "document_gate" in m for m in messages), messages
+    assert rec["bulk"] == ["doc-1", "doc-2", "doc-3"]  # unchanged behavior
+    assert "docs_reranked" not in result["stages"]["implement"]
+    assert not [r for r in _decisions_rows(result) if r["gate"] == "document_gate"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_evidence_rerank_errored_docs_sort_last(tmp_path, monkeypatch):
+    """on_error keep_order: a doc whose gate request errored has NO strength —
+    it sorts AFTER every graded doc but is never dropped (the deterministic
+    include stands) and its row records the error, not a strength."""
+    result, rec = _rerank_run(
+        tmp_path,
+        monkeypatch,
+        cfg=_rerank_cfg(),
+        decider=_RerankDocGateDecider(
+            {"doc-2": 0.9, "doc-3": 0.7}, _high_decider(), errors={"doc-1"}
+        ),
+    )
+
+    assert rec["bulk"] == ["doc-2", "doc-3", "doc-1"]  # the ungraded doc rides last
+    stage = result["stages"]["implement"]
+    assert stage["docs_reranked"] == 2  # doc-1 has no usable strength
+    doc_rows = [r for r in _decisions_rows(result) if r["gate"] == "document_gate"]
+    assert doc_rows[0]["error"] == "jev_error"
+    assert "evidence_strength" not in doc_rows[0]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_evidence_rerank_all_errored_keeps_fetched_at_order(tmp_path, monkeypatch):
+    """Every gate request errored => every strength None => the STABLE sort
+    keeps fetched_at order (the keep_order posture, end to end)."""
+    result, rec = _rerank_run(
+        tmp_path,
+        monkeypatch,
+        cfg=_rerank_cfg(),
+        decider=_RerankDocGateDecider(
+            {}, _high_decider(), errors={"doc-1", "doc-2", "doc-3"}
+        ),
+    )
+
+    assert rec["bulk"] == ["doc-1", "doc-2", "doc-3"]  # natural order preserved
+    # zero-graded => the counter is recorded only when non-zero (house rule)
+    assert "docs_reranked" not in result["stages"]["implement"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_evidence_rerank_opt_in_without_block_unchanged(tmp_path, monkeypatch):
+    """Layer-off for the re-rank: NO evidence_rerank block (the doc gate on) —
+    the wave-1 doc-gate behavior EXACTLY: fetched_at order, no docs_reranked
+    key, no strength on any row (the opt-in pattern: the block must exist)."""
+    cfg = _decide_cfg("enforce")
+    cfg["decider"]["gates"]["document_gate"] = DOC_GATE_CFG
+    result, rec = _rerank_run(
+        tmp_path,
+        monkeypatch,
+        cfg=cfg,
+        decider=_RerankDocGateDecider(_RERANK_STRENGTHS, _high_decider()),
+    )
+
+    assert rec["bulk"] == ["doc-1", "doc-2", "doc-3"]  # no ordering without opt-in
+    assert "docs_reranked" not in result["stages"]["implement"]
+    doc_rows = [r for r in _decisions_rows(result) if r["gate"] == "document_gate"]
+    assert all("evidence_strength" not in r for r in doc_rows)
     assert respx.calls.call_count == 0
 
 

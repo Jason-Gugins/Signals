@@ -45,6 +45,7 @@ from src.decide.gates import (
     gate_posture_audit,
     gate_routing,
     lexical_overlap,
+    rerank_cap_row,
     separation_ratio,
     state_hash,
 )
@@ -97,6 +98,7 @@ __all__ = [
     "gate_routing",
     "get_decider",
     "lexical_overlap",
+    "rerank_cap_row",
     "resolve_mode",
     "sample_consistency",
     "separation_ratio",

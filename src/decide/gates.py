@@ -1184,7 +1184,8 @@ def gate_document(
     ledger: DecideLedger,
     run_id: str,
     mode: str,
-) -> tuple[bool, Decision]:
+    rerank: bool = False,
+) -> tuple[bool, Decision, float | None]:
     """The document gate — screen ONE staged document BEFORE the bulk
     implementer spends on it (the implement pass's dominant cost).
 
@@ -1198,6 +1199,23 @@ def gate_document(
     Nouls — ``is_relevant``, ``contains_signal_evidence``,
     ``contains_prompt_injection`` (the contradicts-existing-premise question
     deliberately DEFERS to v2: it needs the dossier's premises in scope).
+
+    Evidence re-rank (wave-3, ``rerank=True``): the CALLER derives the flag
+    from the ``evidence_rerank`` gate being enabled AND this doc gate being
+    enabled — the re-rank head RIDES this gate's batched request (zero
+    marginal requests), so re-rank without the doc gate is inert by
+    construction. A FOURTH zero-policy Noul head, ``evidence_strength`` (TRUE
+    = strong evidence: a named action, a dated event, or a concrete number
+    affecting the account, rather than generic or promotional content), joins
+    the question set. Its value is returned as the THIRD tuple element — the
+    explicit contract (ordering/capping are the CALLER's enforce-only concern:
+    this gate never orders, never caps) — and lands on the row as an
+    ``evidence_strength`` field for ordering audits (the verbatim verdict
+    rides the ``answers`` map too). With ``rerank=False`` the request set is
+    byte-identical to the wave-1 shape, the head is NEVER asked, the row
+    carries no strength field and the strength is None. Every no-verdict path
+    (empty text, NullDecider, Jev error, missing head) returns None — never an
+    invented value.
 
     Routing is FIRST-MATCH-WINS, in code, with the thresholds read from the
     gate config over the module defaults (:data:`DOC_RELEVANT_MIN`,
@@ -1218,9 +1236,11 @@ def gate_document(
     counts. Shadow NEVER excludes: rows record what enforce WOULD do (the
     would-be outcome rides in ``outcome``/``reason``); in enforce mode the
     exclusions BIND. One ledger row per doc on the "document_gate" boundary,
-    carrying the three noul values in ``answers``.
+    carrying the noul values in ``answers``.
 
-    Returns (include, decision): whether the doc may proceed to doc_specs.
+    Returns ``(include, decision, evidence_strength)``: whether the doc may
+    proceed to doc_specs, the raw Decision, and the re-rank head's noul (None
+    unless ``rerank=True`` AND the head was answered).
     """
     cfg = _cfg(gate_cfg)
     enforce = mode == "enforce"
@@ -1241,7 +1261,7 @@ def gate_document(
                 called=False, reason="empty_text",
             )
         )
-        return True, Decision(applies=False, ok=True, answers={}, raw_tokens=0)
+        return True, Decision(applies=False, ok=True, answers={}, raw_tokens=0), None
 
     state = {
         "doc_id": doc_id,
@@ -1271,9 +1291,25 @@ def gate_document(
             ),
         },
     }
+    if rerank:
+        # The wave-3 re-rank head RIDES this request (zero marginal requests):
+        # TRUE = strong evidence for a sales-intel analyst. Appended LAST so
+        # the rerank-off request set stays byte-identical to the wave-1 shape.
+        questions["evidence_strength"] = {
+            "type": "noul",
+            "instructions": (
+                "How strong is this document's evidence for a sales-intel analyst — does "
+                "it report a named action, a dated event, or a concrete number affecting "
+                "the account, rather than generic or promotional content? Answer noul."
+            ),
+        }
     decision, latency_ms = _call(decider, state, questions)
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
+    # The re-rank head's noul, read straight off the answers map. None unless
+    # rerank is on AND the head was answered — every no-verdict path below
+    # carries the None through, never an invented value.
+    strength = _noul_of(decision.answers, "evidence_strength") if rerank else None
 
     if not decision.applies:
         # Not applicable (NullDecider / unmatched mock): the deterministic
@@ -1287,7 +1323,7 @@ def gate_document(
                 raw_tokens=raw_tokens, called=False,
             )
         )
-        return True, decision
+        return True, decision, None
 
     if not decision.ok:
         # on_error: use_deterministic — deterministic pass-through INCLUDES the
@@ -1305,7 +1341,7 @@ def gate_document(
         logger.debug(
             "document gate errored for {}; included deterministically (run={})", doc_id, run_id
         )
-        return True, decision
+        return True, decision, None
 
     injection = _noul_of(decision.answers, "contains_prompt_injection")
     relevant = _noul_of(decision.answers, "is_relevant")
@@ -1313,17 +1349,19 @@ def gate_document(
     if injection is None or relevant is None or evidence is None:
         # Malformed verdict (a missing noul): no usable Jev judgment — the
         # deterministic baseline (include) stands, gap recorded (the G3
-        # invalid_choice posture).
-        ledger.record(
-            _row(
-                "document_gate", state, decider, run_id,
-                answers=dict(decision.answers), deterministic_action="include",
-                agree=None, agree_direction=None, error="no_answer",
-                latency_ms=latency_ms, raw_tokens=raw_tokens, called=called,
-                outcome="included", reason="no_answer",
-            )
+        # invalid_choice posture). A strength answered alongside a malformed
+        # gate verdict is still the re-rank head's honest value and rides.
+        row = _row(
+            "document_gate", state, decider, run_id,
+            answers=dict(decision.answers), deterministic_action="include",
+            agree=None, agree_direction=None, error="no_answer",
+            latency_ms=latency_ms, raw_tokens=raw_tokens, called=called,
+            outcome="included", reason="no_answer",
         )
-        return True, decision
+        if strength is not None:
+            row["evidence_strength"] = strength
+        ledger.record(row)
+        return True, decision, strength
 
     # First-match-wins routing IN CODE — thresholds are configuration, the
     # ORDER and COMPARISON DIRECTION are not (see docstring).
@@ -1336,18 +1374,52 @@ def gate_document(
     else:
         include, outcome, reason = False, "excluded", "weak_evidence"
     agree = outcome == "included"
-    ledger.record(
-        _row(
-            "document_gate", state, decider, run_id,
-            answers=dict(decision.answers), deterministic_action="include",
-            agree=agree, agree_direction="match" if agree else None, error=None,
-            latency_ms=latency_ms, raw_tokens=raw_tokens, called=called,
-            outcome=outcome, reason=reason,
-        )
+    row = _row(
+        "document_gate", state, decider, run_id,
+        answers=dict(decision.answers), deterministic_action="include",
+        agree=agree, agree_direction="match" if agree else None, error=None,
+        latency_ms=latency_ms, raw_tokens=raw_tokens, called=called,
+        outcome=outcome, reason=reason,
     )
+    if strength is not None:
+        row["evidence_strength"] = strength
+    ledger.record(row)
     # Enforce: the exclusion BINDS. Shadow: the row recorded the would-be
     # outcome and the doc proceeds — shadow never binds (invariant 5).
-    return (include if enforce else True), decision
+    return (include if enforce else True), decision, strength
+
+
+def rerank_cap_row(
+    doc_id: str,
+    doc_text: str | None,
+    account_name: str,
+    decider,
+    run_id: str,
+) -> dict:
+    """One ledger row marking a document EXCLUDED from the implement loop by
+    the evidence re-rank's ``keep_n`` cap (wave-3).
+
+    The ordering and the keep_n cut are the CALLER's enforce-only decision
+    (src/pipeline/intel.py); this only makes each capped-out doc ledger-visible
+    on the SAME document_gate boundary as the gate's own include row — same
+    state shape (doc_id/source/truncated text, mirroring :func:`gate_document`),
+    so ``state_hash`` joins the cap row to the include row that supplied the
+    strength. ``outcome: "excluded"`` + ``reason: "rerank_cap"``; ``called``
+    False and ``agree`` None (no verdict judged ON this row — the verdict rode
+    the include row), so the aggregates and the agreement appendix inflate by
+    nothing. Shadow never caps, so the caller never emits these rows there.
+    """
+    state = {
+        "doc_id": doc_id,
+        "source": account_name,
+        "text": truncate(doc_text, _DOC_STATE_TOKENS * _WINDOW_CHARS_PER_TOKEN) or "",
+    }
+    return _row(
+        "document_gate", state, decider, run_id,
+        answers=None, deterministic_action="include", agree=None,
+        agree_direction=None, error=None, latency_ms=0.0, raw_tokens=0,
+        called=False, outcome="excluded", reason="rerank_cap",
+    )
 
 
 # --- completeness-verify cascade (wave-2): five-fields escalation battery -----

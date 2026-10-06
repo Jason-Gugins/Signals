@@ -131,6 +131,17 @@ _G5_TOKEN_ALLOWANCE = MAX_G5_CALLS * 300
 #: ONE re-verification per potential escalation, ~700 tokens each.
 _COMPLETENESS_TOKEN_ALLOWANCE = 700
 
+#: The taxonomy-typing battery's flat per-doc allowance (wave-2): ONE typing
+#: request per doc WITH accepted claims — doc-capped claim excerpts plus a
+#: 54-option criteria block per claim. Acceptance is known only AFTER G4,
+#: which runs after this projection, so the term is counted for EVERY staged
+#: doc (docs that yield no accepted claims cost nothing but are counted) and
+#: the flat ~800 stays an honest upper bound for the post-gate claim sparsity
+#: ("usually few after gating"); a doc that kept many claims can exceed it —
+#: the ceiling's whole-run shadow degradation is the safety net, not this
+#: envelope, an approximation by design like every allowance here.
+_TYPING_TOKEN_ALLOWANCE = 800
+
 #: Default cap on completeness escalations per run (config/decide.yaml
 #: ``decider.gates.completeness_verify.max_escalations``).
 _DEFAULT_MAX_ESCALATIONS = 20
@@ -278,6 +289,7 @@ def _implement_pass(
         "docs_screened": 0,
         "docs_excluded": 0,
         "claims_accepted": 0,
+        "claims_typed": 0,
         "promoted": 0,
         "llm_fields": {},
         "degraded": False,
@@ -372,6 +384,15 @@ def _implement_pass(
         max_escalations = _DEFAULT_MAX_ESCALATIONS
     if completeness_on and docs and fields_model:
         projected += 2 * _COMPLETENESS_TOKEN_ALLOWANCE
+    # Taxonomy typing (wave-2): OPT-IN like the cascade — the term (and the
+    # battery below) is counted only when the config block EXISTS and is
+    # enabled, so cfgs without the block keep today's exact projection. ONE
+    # request per doc WITH accepted claims; see _TYPING_TOKEN_ALLOWANCE for
+    # why the flat per-staged-doc term stays an honest upper bound.
+    typing_cfg = _gate_cfg(decide_cfg, "taxonomy_typing")
+    typing_on = bool(typing_cfg) and typing_cfg.get("enabled", True)
+    if typing_on and docs:
+        projected += len(docs) * _TYPING_TOKEN_ALLOWANCE
     projected += _G1_TOKEN_ALLOWANCE + _G2_TOKEN_ALLOWANCE + _G5_TOKEN_ALLOWANCE
     decider_cfg = decide_cfg.get("decider") or {}
     try:
@@ -517,11 +538,33 @@ def _implement_pass(
             # promotion, so nothing is attempted (deterministic needs, which
             # never pass through here, are unaffected).
             continue
+        # Taxonomy typing (wave-2): ONE Jev request per doc over the claims
+        # that survived G4 for THIS doc (in enforce, exactly the accepted
+        # ones). Enrichment only — the proposals never change a candidate's
+        # signal_type; in shadow the battery still runs but returns no
+        # proposals (enforce-only enrichment, a clean A/B). Disabled by
+        # config (the wave-2 opt-in) or no taxonomy in scope: skipped, zero
+        # delta to the pre-typing behavior.
+        proposals: dict[int, dict] = {}
+        if typing_on and taxonomy is not None and decider is not None and pairs:
+            proposals = decide_gates.classify_claims(
+                [claim for claim, _meta in pairs],
+                spec["text"],
+                taxonomy,
+                decider,
+                typing_cfg,
+                ledger,
+                run_id,
+                mode,
+            )
+            if proposals:
+                result["claims_typed"] += len(proposals)
         candidates = llm_implement.claims_to_candidates(
             pairs,
             domain=domain,
             fetched_at=spec["fetched_at"],
             model=bulk_model,
+            proposals=proposals or None,
         )
         for cand in candidates:
             if g5_calls >= MAX_G5_CALLS:
@@ -1411,6 +1454,7 @@ def run_intel(
                 docs_count = int(impl.get("docs", 0))
                 claims_count = int(impl.get("claims_accepted", 0))
                 promoted_count = int(impl.get("promoted", 0))
+                typed_count = int(impl.get("claims_typed", 0) or 0)
                 reasons = impl.get("docs_excluded_reasons") or {}
                 escalations = int(impl.get("five_fields_escalations", 0) or 0)
                 quarantined = int(impl.get("five_fields_quarantined", 0) or 0)
@@ -1424,6 +1468,7 @@ def run_intel(
                     docs_screened=int(impl.get("docs_screened", 0)),
                     docs_excluded=int(impl.get("docs_excluded", 0)),
                     **({"docs_excluded_reasons": reasons} if reasons else {}),
+                    **({"claims_typed": typed_count} if typed_count else {}),
                     **({"five_fields_escalations": escalations} if escalations else {}),
                     **({"five_fields_quarantined": quarantined} if quarantined else {}),
                 )

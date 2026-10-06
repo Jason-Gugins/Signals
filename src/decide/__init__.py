@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from src.decide.audit import sample_consistency
 from src.decide.gates import (
+    AMBIGUOUS,
+    CONFIDENT,
     DOC_EVIDENCE_MIN,
     DOC_INJECTION_MAX,
     DOC_RELEVANT_MIN,
@@ -25,8 +27,10 @@ from src.decide.gates import (
     LEXICAL_OVERLAP_FLOOR,
     OUTPUT_ACTION_THRESHOLD,
     OUTPUT_REVIEW_THRESHOLD,
+    SEPARATION_MIN,
     DecideLedger,
     anchor_window,
+    classify_claims,
     estimate_tokens,
     gate_citation_batch,
     gate_completeness,
@@ -36,6 +40,7 @@ from src.decide.gates import (
     gate_posture_audit,
     gate_routing,
     lexical_overlap,
+    separation_ratio,
     state_hash,
 )
 from src.decide.jev import (
@@ -49,7 +54,9 @@ from src.decide.policy import attach_decider, compose, resolve_mode
 from src.decide.shapes import Claim, Decision, Plan, PlanStep
 
 __all__ = [
+    "AMBIGUOUS",
     "Claim",
+    "CONFIDENT",
     "DecideLedger",
     "Decision",
     "Decider",
@@ -65,8 +72,10 @@ __all__ = [
     "OUTPUT_REVIEW_THRESHOLD",
     "Plan",
     "PlanStep",
+    "SEPARATION_MIN",
     "anchor_window",
     "attach_decider",
+    "classify_claims",
     "compose",
     "estimate_tokens",
     "gate_citation_batch",
@@ -80,5 +89,6 @@ __all__ = [
     "lexical_overlap",
     "resolve_mode",
     "sample_consistency",
+    "separation_ratio",
     "state_hash",
 ]

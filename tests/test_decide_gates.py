@@ -28,6 +28,8 @@ import yaml
 
 from src.core.textutil import truncate
 from src.decide import (
+    AMBIGUOUS,
+    CONFIDENT,
     DOC_EVIDENCE_MIN,
     DOC_INJECTION_MAX,
     DOC_RELEVANT_MIN,
@@ -35,12 +37,14 @@ from src.decide import (
     LEXICAL_OVERLAP_FLOOR,
     OUTPUT_ACTION_THRESHOLD,
     OUTPUT_REVIEW_THRESHOLD,
+    SEPARATION_MIN,
     Claim,
     DecideLedger,
     MockDecider,
     NullDecider,
     PlanStep,
     anchor_window,
+    classify_claims,
     estimate_tokens,
     gate_citation_batch,
     gate_completeness,
@@ -50,10 +54,12 @@ from src.decide import (
     gate_posture_audit,
     gate_routing,
     lexical_overlap,
+    separation_ratio,
     state_hash,
 )
 from src.decide.shapes import Decision
 from src.llm.implement import FIVE_FIELDS as DOSSIER_FIELDS
+from src.signals.taxonomy import Taxonomy
 
 RUN = "run-gates-test"
 
@@ -151,6 +157,10 @@ EVIDENCE = (
     + "Their VP of IT said the team needs SOC2 aligned managed detection for a 500 seat fleet."
     + TAIL
 )
+
+# The REAL signal taxonomy (config/signals.yaml): the typing battery's
+# criteria MUST be built from this object, never a hardcoded list.
+TAX = Taxonomy.load("config/signals.yaml")
 
 
 # --- helpers: estimate_tokens / state_hash / lexical_overlap / anchor_window ---
@@ -1976,3 +1986,279 @@ def test_completeness_mixed_fire_quarantine_wins_and_reason_lists_heads():
     row = ledger.rows[0]
     assert row["outcome"] == "quarantined"
     assert row["reason"] == "displacement_risk::grounded,why_now::absence_wrong"
+
+
+# --- taxonomy typing (wave-2): accepted-claim type proposals -------------------
+#
+# classify_claims asks ONE batched Choice request per doc over the ACCEPTED
+# claims the CALLER passes (id type_<i>, criteria = the REAL taxonomy's types
+# as compact "key: label (category)" strings). Granularity is IN CODE, no
+# second call: top-label probability >= confident (0.90) AND separation
+# (top/second) >= 2.0 proposes the type; >= ambiguous (0.60) proposes the
+# type's category; below that records only. A near-tie (separation < 2.0)
+# forces the category fallback even above confident; an unknown label
+# proposes nothing. Shadow records the would-be rows and returns NO
+# proposals (enforce-only enrichment).
+
+
+def _type_ans(key: str, top: float, second: float | None = None, second_key: str = "award") -> dict:
+    """A typing answer: the chosen type key, its probability and (when given)
+    a runner-up probability — the distribution separation_ratio reads."""
+    probs = {key: top}
+    if second is not None:
+        probs[second_key] = second
+    return {"choice": key, "probabilities": probs}
+
+
+def _typing_decider(answers: dict[str, dict], *, ok: bool = True, tokens: int = 40):
+    """A decider for the typing battery: ONE Decision answering every
+    type_<i> question (scripted per-claim answers)."""
+    decision = Decision(
+        applies=True, ok=ok, answers=answers if ok else {}, raw_tokens=tokens if ok else 0
+    )
+    return CountingDecider({"type": decision})
+
+
+def _claim() -> Claim:
+    return Claim(text=GOOD_CLAIM, doc_id="doc1")
+
+
+def test_typing_threshold_constants():
+    assert CONFIDENT == 0.90
+    assert AMBIGUOUS == 0.60
+    assert SEPARATION_MIN == 2.0
+
+
+def test_separation_ratio_unit_table():
+    """top/second with second = the best NON-top probability; documented
+    degenerate edges: fewer than 2 entries -> 1.0, non-positive top -> 0.0,
+    a non-positive runner-up -> 1.0 (no tie evidence to report)."""
+    assert separation_ratio({"a": 0.9, "b": 0.3}) == 0.9 / 0.3
+    # second = the best runner-up, not the second ENTRY
+    assert separation_ratio({"a": 0.4, "b": 0.1, "c": 0.1}) == 0.4 / 0.1
+    assert separation_ratio({"a": 0.5, "b": 0.2, "c": 0.3}) == 0.5 / 0.3
+    assert separation_ratio({"a": 0.5, "b": 0.5}) == 1.0  # exact tie
+    assert separation_ratio({"a": 0.5}) == 1.0  # single entry
+    assert separation_ratio({}) == 1.0  # nothing to compare
+    assert separation_ratio({"a": 0.0}) == 0.0  # zero top
+    assert separation_ratio({"a": 0.0, "b": 0.0}) == 0.0
+    assert separation_ratio({"a": 1.0, "b": 0.0}) == 1.0  # no usable runner-up
+
+
+def test_typing_confidence_granularity_table():
+    """The three bands route IN CODE off the top-label probability and the
+    separation ratio: >= confident AND well separated -> type; >= ambiguous
+    -> category; below -> recorded row only, no proposal."""
+    cases = [
+        # (top prob, runner-up prob, expected outcome)
+        (0.95, 0.30, "proposed_type"),
+        (0.90, 0.30, "proposed_type"),  # exactly confident counts (>=)
+        (0.70, 0.25, "proposed_category"),
+        (0.60, 0.20, "proposed_category"),  # exactly ambiguous counts (>=)
+        (0.50, 0.30, "skipped"),
+    ]
+    for top, second, expected in cases:
+        ledger = DecideLedger()
+        decider = _typing_decider({"type_0": _type_ans("funding_round", top, second)})
+        proposals = classify_claims([_claim()], DOC, TAX, decider, {}, ledger, RUN, "enforce")
+        assert decider.n_calls == 1, (top, second)
+        assert list(proposals) == ([0] if expected != "skipped" else []), (top, second)
+        row = ledger.rows[0]
+        assert row["gate"] == "taxonomy_typing"
+        assert row["boundary"] == "taxonomy_typing"
+        assert row["outcome"] == expected, (top, second)
+        assert row["answers"]["type_0"] == _type_ans("funding_round", top, second)
+        assert row["noul"] == top
+        assert row["separation"] == top / second
+        if expected == "proposed_type":
+            assert proposals[0] == {
+                "proposed_type": "funding_round",
+                "confidence": top,
+                "separation": top / second,
+            }
+        elif expected == "proposed_category":
+            assert proposals[0] == {
+                "proposed_category": TAX.get("funding_round").category,
+                "confidence": top,
+                "separation": top / second,
+            }
+
+
+def test_typing_low_separation_forces_category_fallback():
+    """A near-tie (separation < 2.0) is ambiguity even when the top label is
+    above confident: the proposal falls back to the category level and the
+    row carries the separation so the ambiguity stays visible."""
+    ledger = DecideLedger()
+    decider = _typing_decider({"type_0": _type_ans("funding_round", 0.95, 0.60)})
+    proposals = classify_claims([_claim()], DOC, TAX, decider, {}, ledger, RUN, "enforce")
+    assert proposals[0] == {
+        "proposed_category": TAX.get("funding_round").category,
+        "confidence": 0.95,
+        "separation": 0.95 / 0.60,
+    }
+    assert ledger.rows[0]["outcome"] == "proposed_category"
+    assert ledger.rows[0]["separation"] == 0.95 / 0.60
+
+
+def test_typing_unknown_label_proposes_nothing():
+    """A typo'd / unknown type key: no proposal, the row says skipped with
+    reason unknown_label."""
+    ledger = DecideLedger()
+    decider = _typing_decider({"type_0": _type_ans("funding_roudn_typo", 0.95, 0.30)})
+    proposals = classify_claims([_claim()], DOC, TAX, decider, {}, ledger, RUN, "enforce")
+    assert proposals == {}
+    row = ledger.rows[0]
+    assert row["outcome"] == "skipped"
+    assert row["reason"] == "unknown_label"
+
+
+def test_typing_missing_answer_skips():
+    """A claim without a usable Choice answer: no proposal, recorded skip
+    (the G4 no_answer posture)."""
+    ledger = DecideLedger()
+    decider = _typing_decider({})
+    proposals = classify_claims([_claim()], DOC, TAX, decider, {}, ledger, RUN, "enforce")
+    assert proposals == {}
+    row = ledger.rows[0]
+    assert row["outcome"] == "skipped"
+    assert row["reason"] == "no_answer"
+
+
+def test_typing_thresholds_read_from_gate_cfg():
+    """confident/ambiguous/separation_min come from the gate config over the
+    module defaults; a bad value falls back to the default (the _threshold
+    posture)."""
+    ledger = DecideLedger()
+    decider = _typing_decider({"type_0": _type_ans("funding_round", 0.55, 0.20)})
+    proposals = classify_claims(
+        [_claim()], DOC, TAX, decider, {"confident": 0.50}, ledger, RUN, "enforce"
+    )
+    assert proposals[0]["proposed_type"] == "funding_round"  # 0.55 >= 0.50 now
+
+    ledger = DecideLedger()
+    decider = _typing_decider({"type_0": _type_ans("funding_round", 0.95, 0.30)})
+    proposals = classify_claims(
+        [_claim()], DOC, TAX, decider, {"separation_min": 4.0}, ledger, RUN, "enforce"
+    )
+    # separation 0.95/0.30 ~ 3.17 < 4.0: the fallback fires despite confidence
+    assert proposals[0]["proposed_category"] == TAX.get("funding_round").category
+
+    ledger = DecideLedger()
+    decider = _typing_decider({"type_0": _type_ans("funding_round", 0.95, 0.30)})
+    proposals = classify_claims(
+        [_claim()], DOC, TAX, decider, {"confident": "oops"}, ledger, RUN, "enforce"
+    )
+    assert proposals[0]["proposed_type"] == "funding_round"  # default 0.90 applied
+
+
+def test_typing_criteria_built_from_the_real_taxonomy():
+    """The per-claim question's criteria are the REAL taxonomy's types as
+    compact "key: label (category)" strings — 54 options, a known key
+    present, never a hardcoded list."""
+    decider = _typing_decider({"type_0": _type_ans("llm_need", 0.95, 0.30)})
+    ledger = DecideLedger()
+    classify_claims([_claim()], DOC, TAX, decider, {}, ledger, RUN, "enforce")
+    _state, questions = decider.calls[0]
+    question = questions["type_0"]
+    assert question["type"] == "choice"
+    assert question["instructions"] == (
+        "Which signal type best fits this claim? Answer with the type key."
+    )
+    expected = [f"{t.key}: {t.label} ({t.category})" for t in TAX.all()]
+    assert question["criteria"] == expected
+    assert len(question["criteria"]) == 54
+    assert any(c.startswith("annual_report_10k:") for c in question["criteria"])
+
+
+def test_typing_one_request_per_doc_and_ids_index_the_passed_list():
+    """ONE Jev request per doc; ids type_<i> index the PASSED claim list
+    (stable, mirroring the G4 id scheme); each claim's state field carries
+    its anchor window into the document."""
+    claims = [_claim(), Claim(text=NEED, doc_id="doc1")]
+    decider = _typing_decider(
+        {
+            "type_0": _type_ans("llm_need", 0.95, 0.30),
+            "type_1": _type_ans("award", 0.95, 0.20, second_key="llm_need"),
+        }
+    )
+    ledger = DecideLedger()
+    proposals = classify_claims(claims, DOC, TAX, decider, {}, ledger, RUN, "enforce")
+    assert decider.n_calls == 1
+    state, questions = decider.calls[0]
+    assert list(questions) == ["type_0", "type_1"]
+    assert set(state) == {"claim_0", "claim_1"}
+    assert "breach" in state["claim_0"]  # the anchor window reached past the head
+    assert len(ledger.rows) == 2  # ONE row per claim
+    assert proposals[0]["proposed_type"] == "llm_need"
+    assert proposals[1]["proposed_type"] == "award"  # ids index the passed list
+    # the call's cost rides on the FIRST row only (the G4 convention)
+    assert ledger.rows[0]["called"] is True
+    assert ledger.rows[0]["raw_tokens"] == 40
+    assert ledger.rows[1]["called"] is False
+    assert ledger.rows[1]["raw_tokens"] == 0
+
+
+def test_typing_skips_entirely_when_no_claims():
+    """No accepted claims: no Jev call, empty dict, one not-applicable row."""
+    ledger = DecideLedger()
+    decider = _typing_decider({})
+    proposals = classify_claims([], DOC, TAX, decider, {}, ledger, RUN, "enforce")
+    assert proposals == {}
+    assert decider.n_calls == 0
+    assert len(ledger.rows) == 1
+    assert ledger.rows[0]["called"] is False
+    assert "outcome" not in ledger.rows[0]  # not-applicable rows carry no outcome
+
+
+def test_typing_jev_error_skips_with_error_rows():
+    """on_error skip: a Jev error proposes nothing; one errored row per
+    claim, the call's cost on the first (the G4 error convention)."""
+    claims = [_claim(), Claim(text=NEED, doc_id="doc1")]
+    ledger = DecideLedger()
+    decider = _typing_decider({}, ok=False)
+    proposals = classify_claims(claims, DOC, TAX, decider, {}, ledger, RUN, "enforce")
+    assert proposals == {}
+    assert len(ledger.rows) == 2
+    assert all(row["outcome"] == "errored" and row["error"] == "jev_error" for row in ledger.rows)
+    assert ledger.rows[0]["called"] is True
+    assert ledger.rows[1]["called"] is False
+    agg = ledger.aggregate("taxonomy_typing")
+    assert agg["counts"]["errored"] == 2
+    assert agg["counts"]["called"] == 1
+
+
+def test_typing_null_decider_skips():
+    """NullDecider: not applicable — empty dict, one not-applicable row that
+    inflates no aggregate counts."""
+    ledger = DecideLedger()
+    proposals = classify_claims(
+        [_claim(), Claim(text=NEED, doc_id="doc1")],
+        DOC,
+        TAX,
+        NullDecider(),
+        {},
+        ledger,
+        RUN,
+        "enforce",
+    )
+    assert proposals == {}
+    assert len(ledger.rows) == 1
+    assert ledger.rows[0]["called"] is False
+    assert "outcome" not in ledger.rows[0]
+    agg = ledger.aggregate("taxonomy_typing")
+    assert agg["counts"]["called"] == 0
+    assert agg["input_tokens"] == 0
+
+
+def test_typing_shadow_records_rows_returns_empty():
+    """Shadow never binds: rows record the would-be proposal while the
+    return stays EMPTY (proposals are enforce-only enrichment — a clean A/B)."""
+    ledger = DecideLedger()
+    decider = _typing_decider({"type_0": _type_ans("funding_round", 0.95, 0.30)})
+    proposals = classify_claims([_claim()], DOC, TAX, decider, {}, ledger, RUN, "shadow")
+    assert proposals == {}
+    assert decider.n_calls == 1  # the battery still runs for the audit trail
+    row = ledger.rows[0]
+    assert row["outcome"] == "proposed_type"  # what enforce WOULD do
+    assert row["called"] is True
+    assert row["separation"] == 0.95 / 0.30

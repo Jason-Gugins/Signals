@@ -563,12 +563,25 @@ def claims_to_candidates(
     fetched_at: str,
     model: str,
     signal_type: str = DEFAULT_SIGNAL_TYPE,
+    proposals: dict[int, dict] | None = None,
 ) -> list[SignalCandidate]:
     """Build ``SignalCandidate`` objects for the signals table.
 
     ``pairs`` are the ``(claim, meta)`` pairs :func:`screen_and_gate_claims`
     returns (``meta`` None = the citation gate was disabled — everything
-    defaults).
+    defaults). ``proposals`` — optional — is the dict
+    :func:`src.decide.gates.classify_claims` returned for the SAME claim
+    list (keyed by claim index): a taxonomy-typing proposal
+    (``proposed_type`` or ``proposed_category`` plus ``confidence`` and
+    ``separation``) is threaded into the candidate's ``evidence_data`` as
+    ``proposed_type``/``proposed_category``/``type_confidence``/
+    ``type_separation``, ONLY for claims that carry a proposal. This shape
+    (a kwarg on the builder, not a post-hoc mutation helper) keeps the
+    enrichment in the one place ``evidence_data`` is assembled, so the
+    provenance dict can never be built twice or drift apart. Proposals are
+    ADDITIVE metadata — the candidate's ``signal_type`` NEVER changes (the
+    deterministic pipeline stays authoritative); in shadow mode the typing
+    gate returns an empty dict, so nothing lands here.
 
     - ``natural_key``: :func:`claim_natural_key` — text hash, not claim index
       (idempotent upsert on re-run).
@@ -587,12 +600,32 @@ def claims_to_candidates(
     ``domain`` is accepted for orchestrator call-site symmetry; candidates
     are domain-neutral — ``normalize_batch`` stamps ``account.domain``.
     """
+    typed = proposals or {}
     candidates: list[SignalCandidate] = []
-    for claim, meta in pairs:
+    for idx, (claim, meta) in enumerate(pairs):
         meta = meta or {}
         verdict = meta.get("verdict")
         prob = meta.get("prob")
         quote_found = bool(meta.get("quote_found", claim.quote_span is not None))
+        evidence: dict = {
+            "doc_id": claim.doc_id,
+            "model": model,
+            "llm_authored": True,
+            "gate": CITATION_GATE,
+            "noul": prob,
+            "verdict": verdict,
+            "quote_found": quote_found,
+        }
+        proposal = typed.get(idx)
+        if proposal:
+            if "proposed_type" in proposal:
+                evidence["proposed_type"] = proposal["proposed_type"]
+            if "proposed_category" in proposal:
+                evidence["proposed_category"] = proposal["proposed_category"]
+            if proposal.get("confidence") is not None:
+                evidence["type_confidence"] = float(proposal["confidence"])
+            if proposal.get("separation") is not None:
+                evidence["type_separation"] = float(proposal["separation"])
         candidates.append(
             SignalCandidate(
                 signal_type=signal_type,
@@ -605,15 +638,7 @@ def claims_to_candidates(
                     if verdict == "verified" and prob is not None
                     else NO_NOUL_CONFIDENCE
                 ),
-                evidence_data={
-                    "doc_id": claim.doc_id,
-                    "model": model,
-                    "llm_authored": True,
-                    "gate": CITATION_GATE,
-                    "noul": prob,
-                    "verdict": verdict,
-                    "quote_found": quote_found,
-                },
+                evidence_data=evidence,
             )
         )
     return candidates

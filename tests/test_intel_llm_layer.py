@@ -1859,3 +1859,245 @@ def test_completeness_preflight_term_degrades_run_to_shadow(tmp_path, monkeypatc
     assert result["decide"]["degraded"] is False
     assert not any("token budget" in gap for gap in result["gaps"])
     assert respx.calls.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 13. Taxonomy typing wiring: classify_claims rides _implement_pass after G4,
+#     proposals thread into claims_to_candidates -> evidence_data (enforce
+#     only; the deterministic signal_type NEVER changes)
+# ---------------------------------------------------------------------------
+
+
+PLATFORM_TEXT = "The platform team plans to consolidate three monitoring tools into one."
+
+#: Mirrors config/decide.yaml's wave-2 block (the typing battery's opt-in).
+TYPING_GATE_CFG = {
+    "enabled": True,
+    "confident": 0.90,
+    "ambiguous": 0.60,
+    "on_error": "skip",
+}
+
+
+def _typing_cfg(mode="enforce", **decider_overrides):
+    """A decide cfg WITH the taxonomy_typing block (the wave-2 opt-in: cfgs
+    without the block keep today's behavior exactly)."""
+    cfg = _decide_cfg(mode, **decider_overrides)
+    cfg["decider"]["gates"]["taxonomy_typing"] = dict(TYPING_GATE_CFG)
+    return cfg
+
+
+class _TypingDecider(MockDecider):
+    """_high_decider plus scripted answers for the typing battery (one
+    Decision under the ``type`` prefix serves every type_<i> question) and a
+    record of every request for wiring assertions."""
+
+    def __init__(self, type_answers: dict[str, dict]) -> None:
+        verdicts = dict(_high_decider().verdicts)
+        verdicts["type"] = Decision(
+            applies=True, ok=True, answers=dict(type_answers), raw_tokens=40
+        )
+        super().__init__(verdicts)
+        self.requests: list[tuple[object, dict]] = []
+
+    def decide(self, state, questions):
+        self.requests.append((state, dict(questions)))
+        return super().decide(state, questions)
+
+
+@respx.mock
+def test_taxonomy_typing_proposals_land_in_evidence_data(tmp_path, monkeypatch):
+    """Enforce: one typing request per claim-bearing doc; each proposal rides
+    into its candidate's evidence_data through the REAL normalize path while
+    signal_type stays the deterministic llm_need."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _TypingDecider(
+        {
+            "type_0": {"choice": "llm_need", "probabilities": {"llm_need": 0.95, "award": 0.30}},
+            "type_1": {
+                "choice": "funding_round",
+                "probabilities": {"funding_round": 0.72, "llm_need": 0.20},
+            },
+        }
+    )
+    _patch_layer(monkeypatch, decide_cfg=_typing_cfg(), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch,
+        claims=[
+            {"text": CLAIM_TEXT, "doc_id": "doc-1"},
+            {"text": PLATFORM_TEXT, "doc_id": "doc-1"},
+        ],
+        fields={},
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"
+    assert stage["claims_accepted"] == 2
+    assert stage["claims_typed"] == 2  # both accepted claims got a proposal
+
+    # exactly ONE typing request, over BOTH accepted claims of the one doc
+    typing_requests = [
+        (state, questions)
+        for state, questions in decider.requests
+        if questions and all(qid.startswith("type_") for qid in questions)
+    ]
+    assert len(typing_requests) == 1
+    _state, questions = typing_requests[0]
+    assert sorted(questions) == ["type_0", "type_1"]
+    assert len(questions["type_0"]["criteria"]) == 54  # the REAL taxonomy's options
+
+    assert len(orch.signal_store.upserted) == 2
+    sig0, sig1 = orch.signal_store.upserted
+    # claim 0: confident AND well separated -> the TYPE proposal lands
+    assert sig0.signal_type == "llm_need"  # the deterministic pipeline is authoritative
+    assert sig0.evidence_data["proposed_type"] == "llm_need"
+    assert sig0.evidence_data["type_confidence"] == 0.95
+    assert sig0.evidence_data["type_separation"] == 0.95 / 0.30
+    assert "proposed_category" not in sig0.evidence_data
+    # claim 1: 0.72 is ambiguous-band -> the CATEGORY proposal lands
+    assert sig1.signal_type == "llm_need"
+    assert sig1.evidence_data["proposed_category"] == "financial"
+    assert sig1.evidence_data["type_confidence"] == 0.72
+    assert sig1.evidence_data["type_separation"] == 0.72 / 0.20
+    assert "proposed_type" not in sig1.evidence_data
+
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    typing_rows = [r for r in rows if r["gate"] == "taxonomy_typing"]
+    assert [r["outcome"] for r in typing_rows] == ["proposed_type", "proposed_category"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_taxonomy_typing_disabled_gate_never_requests(tmp_path, monkeypatch):
+    """The typing block absent (every pre-wave-2 config): NO typing request
+    is made, no proposals land, the stage record gains no claims_typed."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _TypingDecider(
+        {"type_0": {"choice": "llm_need", "probabilities": {"llm_need": 0.95, "award": 0.30}}}
+    )
+    _patch_layer(monkeypatch, decide_cfg=_decide_cfg("enforce"), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch, claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}], fields={}
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    assert result["stages"]["implement"]["claims_accepted"] == 1
+    assert "claims_typed" not in result["stages"]["implement"]
+    assert not any(
+        qid.startswith("type_") for _state, questions in decider.requests for qid in questions
+    )
+    assert orch.signal_store.upserted
+    evidence = orch.signal_store.upserted[0].evidence_data
+    assert "proposed_type" not in evidence
+    assert "proposed_category" not in evidence
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_taxonomy_typing_shadow_records_rows_but_no_proposals(tmp_path, monkeypatch):
+    """Shadow: the typing battery runs (rows record what enforce WOULD do)
+    but returns NO proposals — enforce-only enrichment, a clean A/B."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _TypingDecider(
+        {"type_0": {"choice": "llm_need", "probabilities": {"llm_need": 0.95, "award": 0.30}}}
+    )
+    _patch_layer(monkeypatch, decide_cfg=_typing_cfg("shadow"), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch, claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}], fields={}
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    assert result["decide"]["mode"] == "shadow"
+    assert "claims_typed" not in result["stages"]["implement"]  # nothing bound
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    typing_rows = [r for r in rows if r["gate"] == "taxonomy_typing"]
+    assert [r["outcome"] for r in typing_rows] == ["proposed_type"]  # would-be
+    assert orch.signal_store.upserted == []  # shadow never promotes either
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_taxonomy_typing_preflight_term_degrades_run_to_shadow(tmp_path, monkeypatch):
+    """The pre-flight models typing BEFORE the first Jev call: a flat
+    ~800-token allowance per staged doc (acceptance is only known after G4,
+    so EVERY staged doc is counted — the documented honest upper bound).
+    Two ~700-token docs over a 23000-token ceiling degrade ONLY because of
+    the typing term; without the block the same run stays enforce."""
+    body = "Acme breach quarter evaluating vendors. " * 70  # 2800 chars ~ 700 tokens
+    decider = _TypingDecider(
+        {"type_0": {"choice": "llm_need", "probabilities": {"llm_need": 0.95, "award": 0.30}}}
+    )
+    orch = FakeOrchLlm(docs=[_doc("doc-1", body), _doc("doc-2", body)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=_typing_cfg("enforce", max_decide_tokens_per_run=23000),
+        decider=decider,
+    )
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch, claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}], fields={}
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    # G4 (2x700) + doc gate (2x700) + typing (2x800) + allowances (19400):
+    # the typing term alone pushes the projection over the ceiling.
+    assert any(
+        "decide token budget exceeded (23800 > 23000)" in gap for gap in result["gaps"]
+    ), result["gaps"]
+    assert result["decide"]["mode"] == "shadow"
+    assert result["decide"]["degraded"] is True
+    assert "claims_typed" not in result["stages"]["implement"]  # degraded: no proposals
+
+    # The SAME run without the typing block stays under the ceiling: the term
+    # is opt-in (cfgs without the block keep today's projection).
+    orch = FakeOrchLlm(docs=[_doc("doc-1", body), _doc("doc-2", body)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers2")
+    orch.snapshot = _snapshot()
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=_decide_cfg("enforce", max_decide_tokens_per_run=23000),
+        decider=decider,
+    )
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+    assert result["decide"]["mode"] == "enforce"
+    assert result["decide"]["degraded"] is False
+    assert not any("token budget" in gap for gap in result["gaps"])
+    assert respx.calls.call_count == 0

@@ -1562,3 +1562,264 @@ def gate_completeness(
     # Shadow: NOTHING binds — the empty list keeps the caller's behavior
     # identical while the row above carries the would-be verdict.
     return (fired if enforce else []), decision
+
+
+# --- taxonomy typing (wave-2): accepted-claim type proposals -------------------
+
+
+#: Granularity bands (wave-2): a top-label probability at or above
+#: ``confident`` proposes the TYPE (when the separation ratio agrees); at or
+#: above ``ambiguous`` it proposes only the type's CATEGORY; below that the
+#: row is recorded with no proposal. Read from the ``taxonomy_typing`` gate
+#: block's ``confident``/``ambiguous`` keys via ``_threshold`` over these
+#: defaults.
+CONFIDENT = 0.90
+AMBIGUOUS = 0.60
+
+#: The separation ratio (top probability / best runner-up) above which the
+#: top label counts as clearly separated from its nearest rival. A near-tie
+#: below this forces the category-level fallback EVEN when the top
+#: probability alone would clear ``confident`` — the hierarchical-
+#: classification cookbook's ambiguity metric.
+SEPARATION_MIN = 2.0
+
+
+def separation_ratio(probabilities: dict) -> float:
+    """``top / second`` — the top probability over the best NON-top entry.
+
+    The hierarchical-classification cookbook's ambiguity metric: a ratio
+    below :data:`SEPARATION_MIN` means the top two labels are near-tied, so
+    the "winner" is not clearly separated from its runner-up.
+
+    Documented degenerate edges (probabilities outside the ordinary 0..1
+    full-distribution shape must not crash the ratio):
+
+    - top probability <= 0 -> 0.0: nothing to separate;
+    - fewer than two numeric entries (an empty or single-entry map with a
+      positive top) -> 1.0: there is no runner-up to compare against, so the
+      metric reports neutral and the top-label probability alone decides
+      the band;
+    - a non-positive runner-up under a positive top (a degenerate one-hot
+      distribution) -> 1.0: like the single-entry case there is no usable
+      tie evidence, and an infinite ratio would poison the JSONL ledger.
+
+    Non-numeric and non-finite values are ignored. With the single-entry
+    maps Jev sometimes returns (only the top label's probability), the
+    ratio is always 1.0 — such deployments get category-level proposals
+    only, which is the metric's honest reading: no distribution, no
+    separation evidence.
+    """
+    values = [
+        float(v)
+        for v in (probabilities or {}).values()
+        if isinstance(v, (int, float))
+        and not isinstance(v, bool)
+        and math.isfinite(float(v))
+    ]
+    if not values:
+        return 1.0
+    top = max(values)
+    if top <= 0:
+        return 0.0
+    if len(values) < 2:
+        return 1.0
+    rest = list(values)
+    rest.remove(top)  # one occurrence: a tied max survives as the runner-up
+    second = max(rest)
+    if second <= 0:
+        return 1.0
+    return top / second
+
+
+def classify_claims(
+    claims: list[Claim],
+    doc_text: str | None,
+    taxonomy,
+    decider,
+    gate_cfg: dict | None,
+    ledger: DecideLedger,
+    run_id: str,
+    mode: str,
+) -> dict[int, dict]:
+    """Taxonomy typing — propose a signal type (or only its category) for
+    each ACCEPTED (verified) claim of one document.
+
+    The caller (``_implement_pass``) passes ONLY the claims that survived
+    G4 gating for that document, in the same order it will build candidates
+    from — the returned dict is keyed by the index into THAT list (ids
+    ``type_<i>`` are stable for the batch, mirroring the G4 ``claim_<i>``
+    scheme).
+
+    ONE batched Jev request per document; when ``claims`` is empty the
+    battery skips entirely (no call, an empty dict, one not-applicable
+    row). State ``{"claim_<i>": anchor_window(doc_text, claim.text)}`` (the
+    G4 habit — the excerpt centered on the claim), with one Choice question
+    per claim whose criteria are the taxonomy's types, COMPACT:
+    ``f"{key}: {label} ({category})"`` for every ``taxonomy.all()`` entry
+    (54 options for the shipped signals.yaml — well under the ~240 Choice
+    bound; always built from the REAL Taxonomy object passed in, never a
+    hardcoded list).
+
+    Granularity is IN CODE — no second call. Per claim, reading the answer
+    with ``_choice_of``/``_choice_prob`` and :func:`separation_ratio` over
+    the returned probabilities:
+
+    - top probability >= ``confident`` (0.90) AND separation >=
+      ``separation_min`` (2.0) -> ``{"proposed_type": <type key>,
+      "confidence": <prob>, "separation": <ratio>}``;
+    - else top probability >= ``ambiguous`` (0.60) ->
+      ``{"proposed_category": <the type's category>, ...}`` — the
+      ambiguity fallback. A near-tie (separation < ``separation_min``)
+      forces this fallback EVEN when the top probability alone would clear
+      ``confident``: a two-horse race is not a confident type call, and the
+      row's ``separation`` keeps the ambiguity visible;
+    - below ``ambiguous`` -> no proposal (the row is recorded only).
+
+    An answer whose choice is not a taxonomy type key proposes nothing (row
+    reason "unknown_label"); a missing/malformed answer or a missing
+    probability skips too (reason "no_answer").
+
+    Returns ``{claim_index: proposal}``. Rows: boundary "taxonomy_typing",
+    ONE row per claim (the per-claim answer under its ``type_<i>`` id,
+    ``noul`` = the top probability, a ``separation`` extra; outcome
+    "proposed_type"/"proposed_category"/"skipped"). ``deterministic_action``
+    is "no_proposal" — typing is enrichment the deterministic pipeline
+    lacks, so ``agree`` compares against that baseline (True = nothing
+    proposed, the completeness-gate convention). NullDecider => skip (one
+    not-applicable row, empty dict); a Jev error (``on_error: skip``) =>
+    one errored row per claim (the call attributed to the first, the G4
+    convention) and an empty dict. Shadow => rows record the WOULD-BE
+    proposal while the dict comes back EMPTY: proposals are enforce-only
+    enrichment, kept out of shadow dossiers for a clean A/B.
+
+    A proposal NEVER changes a candidate's ``signal_type`` — the
+    deterministic pipeline stays authoritative; proposals are additive
+    metadata (src/llm/implement.py threads them into ``evidence_data``).
+    """
+    cfg = _cfg(gate_cfg)
+    enforce = mode == "enforce"
+    confident = _threshold(cfg, "confident", CONFIDENT)
+    ambiguous = _threshold(cfg, "ambiguous", AMBIGUOUS)
+    separation_min = _threshold(cfg, "separation_min", SEPARATION_MIN)
+    types = taxonomy.all()
+    by_key = {t.key: t for t in types}
+    criteria = [f"{t.key}: {t.label} ({t.category})" for t in types]
+
+    if not claims:
+        # Nothing accepted for this doc: skip entirely — no Jev call, an
+        # empty dict, one not-applicable row (the defensive twin of the
+        # caller's own accepted-claims check).
+        ledger.record(
+            _row(
+                "taxonomy_typing", {}, decider, run_id,
+                answers=None, deterministic_action="no_proposal", agree=None,
+                agree_direction=None, error=None, latency_ms=0.0, raw_tokens=0,
+                called=False, reason="no_claims",
+            )
+        )
+        return {}
+
+    state: dict = {}
+    questions: dict[str, dict] = {}
+    for i, claim in enumerate(claims):
+        state[f"claim_{i}"] = anchor_window(doc_text, claim.text) if doc_text else claim.text
+        questions[f"type_{i}"] = {
+            "type": "choice",
+            "instructions": "Which signal type best fits this claim? Answer with the type key.",
+            "criteria": criteria,
+        }
+    decision, latency_ms = _call(decider, state, questions)
+    called = bool(decision.applies)
+    raw_tokens = int(decision.raw_tokens or 0)
+
+    if not decision.applies:
+        # Not applicable (NullDecider / unmatched mock): nothing proposed;
+        # one not-applicable row inflating no counts (the completeness
+        # posture — typing is enrichment, nothing is lost by skipping).
+        ledger.record(
+            _row(
+                "taxonomy_typing", state, decider, run_id,
+                answers=None, deterministic_action="no_proposal", agree=None,
+                agree_direction=None, error=None, latency_ms=latency_ms,
+                raw_tokens=raw_tokens, called=False,
+            )
+        )
+        return {}
+
+    if not decision.ok:
+        # on_error: skip — the deterministic output stands; the error is
+        # recorded per claim (G4's convention: cost on the first row).
+        first = True
+        for _i, _claim in enumerate(claims):
+            ledger.record(
+                _row(
+                    "taxonomy_typing", state, decider, run_id,
+                    answers=None, deterministic_action="no_proposal",
+                    agree=False if enforce else None, agree_direction=None,
+                    error="jev_error", latency_ms=latency_ms if first else 0.0,
+                    raw_tokens=raw_tokens if first else 0,
+                    called=True if first else False, outcome="errored",
+                )
+            )
+            first = False
+        logger.debug("taxonomy typing errored; no proposals (run={})", run_id)
+        return {}
+
+    proposals: dict[int, dict] = {}
+    first = True
+    for i, claim in enumerate(claims):
+        qid = f"type_{i}"
+        answer = (decision.answers or {}).get(qid)
+        label = _choice_of(decision.answers, qid)
+        prob = _choice_prob(decision.answers, qid, label) if label is not None else None
+        probs = (
+            answer.get("probabilities")
+            if isinstance(answer, dict) and isinstance(answer.get("probabilities"), dict)
+            else {}
+        )
+        separation = separation_ratio(probs) if probs else None
+        proposal: dict | None = None
+        reason: str | None = None
+        if label is None or prob is None:
+            reason = "no_answer"
+        elif label not in by_key:
+            reason = "unknown_label"
+        elif (
+            prob >= confident
+            and separation is not None
+            and separation >= separation_min
+        ):
+            proposal = {"proposed_type": label, "confidence": prob, "separation": separation}
+        elif prob >= ambiguous:
+            # The category-level fallback: either the probability sits in
+            # the ambiguous band, or a near-tie (separation below the
+            # minimum) forced it down from the type level even above
+            # confident.
+            proposal = {
+                "proposed_category": by_key[label].category,
+                "confidence": prob,
+                "separation": separation,
+            }
+        outcome = "skipped"
+        if proposal is not None:
+            outcome = "proposed_type" if "proposed_type" in proposal else "proposed_category"
+            if enforce:
+                proposals[i] = proposal
+        row = _row(
+            "taxonomy_typing", state, decider, run_id,
+            answers={qid: answer}, deterministic_action="no_proposal",
+            agree=proposal is None,
+            agree_direction="match" if proposal is None else None,
+            error=None, latency_ms=latency_ms if first else 0.0,
+            raw_tokens=raw_tokens if first else 0,
+            called=True if first else False, outcome=outcome,
+            noul=prob, reason=reason,
+        )
+        if separation is not None:
+            row["separation"] = separation
+        ledger.record(row)
+        first = False
+    # Shadow: the rows above carry the would-be proposal; NOTHING binds —
+    # the dict comes back empty so shadow dossiers carry no proposals (the
+    # clean A/B against enforce's enrichment).
+    return proposals if enforce else {}

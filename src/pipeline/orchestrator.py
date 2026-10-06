@@ -15,6 +15,10 @@ from src.core.ratelimit import RateLimiter
 from src.core.rawstore import RawStore
 from src.core.runlog import RunContext
 from src.core.timeutil import utc_today
+from src.decide import policy as decide_policy
+from src.decide.alignment import align_candidates, candidate_key
+from src.decide.gates import DecideLedger
+from src.decide.jev import NullDecider, get_decider
 from src.export.briefs import render_brief, write_brief
 from src.identity.icp import evaluate_icp
 from src.identity.registry import AccountRegistry
@@ -88,6 +92,27 @@ def merge_runner_stats(outer: RunnerStats, inner: RunnerStats) -> RunnerStats:
         for counter, value in row.items():
             target[counter] = int(target.get(counter, 0)) + int(value)
     return outer
+
+
+def _decide_cfg_of(config: Config) -> dict:
+    """``config/decide.yaml``, or ``{}`` when absent/unreadable (the
+    intel.py ``_load_decide_cfg`` posture: the decide layer can never crash
+    a run, and a missing file means the layer is fully off)."""
+    try:
+        return config.load_yaml("decide") or {}
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        logger.warning("decide layer: config/decide.yaml unreadable ({}); treating as off", exc)
+        return {}
+
+
+def _gate_block(decide_cfg: dict, name: str) -> dict:
+    """The ``decider.gates.<name>`` block (``{}`` when absent — the gate
+    then uses its documented defaults)."""
+    gates = ((decide_cfg or {}).get("decider") or {}).get("gates") or {}
+    block = gates.get(name)
+    return dict(block) if isinstance(block, dict) else {}
 
 
 class Orchestrator:
@@ -294,6 +319,55 @@ class Orchestrator:
                         logger.warning("g2 resolve failed for {}: {}", acct.domain, exc)
             return out
 
+    def _annotate_alignment(self, run_id: str, name: str, candidates: list[dict]) -> None:
+        """Jev entity-alignment annotation for the discover frames (Task 7).
+
+        Silent no-op unless ALL of: the decide layer is resolvable (mode
+        != off, config readable), the ``entity_alignment`` gate is enabled,
+        and a live decider attaches (the discover frame is scope-guard
+        authorized; missing keys/consent => NullDecider). Credential-less
+        degradation: the sweep NEVER fails or gaps for the decide layer —
+        any failure is a warning and the candidates pass through unannotated
+        (layer-off byte-identity).
+
+        Annotation ONLY: each binding alignment (enforce mode, routed
+        verdict) is merged into its candidate dict as ``jev_alignment``
+        BEFORE the IdentityCandidateStore upsert; the human decision is
+        untouched — "related" rows stay pending WITH per-field evidence.
+        Shadow runs the pairs rows-only (no ``jev_alignment`` lands), and
+        the ledger rows are logged, not persisted (a persistent sweep
+        decisions file is a verify-before-wire item).
+        """
+        try:
+            decide_cfg = _decide_cfg_of(self.config)
+            mode = decide_policy.resolve_mode(decide_cfg)
+            gate_cfg = _gate_block(decide_cfg, "entity_alignment")
+            if mode == "off" or not gate_cfg.get("enabled", True):
+                return
+            # The discover frame is an allowed attach site (policy v2); a
+            # NullDecider means no keys/consent — skip silently.
+            decider = decide_policy.attach_decider(get_decider({**decide_cfg, "mode": mode}))
+            if isinstance(decider, NullDecider):
+                logger.debug("entity alignment: no live decider; skipping (run={})", run_id)
+                return
+            ledger = DecideLedger()
+            aligned = align_candidates(
+                {"name": name}, candidates, decider, gate_cfg, ledger, run_id, mode
+            )
+            for cand in candidates:
+                key = candidate_key(cand)
+                if key is not None and key in aligned:
+                    cand["jev_alignment"] = aligned[key]
+            logger.debug(
+                "entity alignment: {} row(s), {} candidate(s) annotated for {!r} (run={})",
+                len(ledger.rows),
+                len(aligned),
+                name,
+                run_id,
+            )
+        except Exception as exc:  # never fail the sweep for the decide layer
+            logger.warning("entity alignment skipped for {!r}: {}", name, exc)
+
     def discover(self, name: str, ddg: bool = False) -> dict:
         """Opt-in name->domain discovery waterfall (plan T4).
 
@@ -315,6 +389,10 @@ class Orchestrator:
                 ddg_enabled=ddg,
             )
             candidates = result.get("candidates") or []
+            if candidates:
+                # Entity alignment annotates the ranked candidates BEFORE the
+                # queue upsert; the apex agreement outcome above is untouched.
+                self._annotate_alignment(ctx.run_id, name, candidates)
             queued = result.get("status") != "resolved" or bool(candidates)
             if queued:
                 from src.core.db import IdentityCandidateStore
@@ -349,6 +427,11 @@ class Orchestrator:
                 self.fetcher or self._http_fetcher(ctx), self.registry
             ).discover(name)
             competitors = result.get("competitors") or []
+            if competitors:
+                # Entity alignment annotates the ranked competitor rows
+                # BEFORE the queue upsert (kind=competitor; producer-agnostic
+                # join keys — see src/decide/alignment.py).
+                self._annotate_alignment(ctx.run_id, name, competitors)
             queued = bool(competitors)
             if queued:
                 from src.core.db import IdentityCandidateStore

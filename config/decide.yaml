@@ -33,3 +33,4 @@ decider:
     event_dates:         {enabled: true, review_below: 0.60, on_error: skip}
     value_extraction:    {enabled: true, on_error: skip}
     evidence_rerank:     {enabled: true, keep_n: 0, on_error: keep_order}   # keep_n 0 = no cap; rides the document-gate request
+    entity_alignment:    {enabled: true, max_pairs: 10, on_error: skip}   # NEW: discover-candidate annotation; enforce-only (shadow = rows only)

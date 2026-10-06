@@ -4,18 +4,22 @@ Public surface (Task 2): the shared Plan/Claim shapes and the Decider
 protocol with Null/Mock/Live implementations plus the memoized get_decider
 factory. Task 3 adds the policy building blocks: mode resolution
 (resolve_mode), the gate-action composition ladder (compose), and
-code-level scope enforcement (attach_decider — only run_intel attaches a
-live decider). Task 4 adds the five boundary gates (G1 plan qualification,
+code-level scope enforcement (attach_decider — run_intel and the sweep
+discover frames attach a live decider). Task 4 adds the five boundary gates
+(G1 plan qualification,
 G2 posture audit, G3 routing, G4 citation soundness, G5 need promotion) with
 the per-run DecideLedger and the shared state helpers. Task 6 adds the
 consistency sampler (sample_consistency) for repeat-and-measure calibration
-audits. Off by default —
+audits. Waves-2/3 Task 7 adds entity alignment (align_pair /
+align_candidates): the discover frames' per-candidate annotation with
+per-field evidence, enforce-only. Off by default —
 without keys/consent everything degrades to NullDecider and the
 deterministic pipeline.
 """
 
 from __future__ import annotations
 
+from src.decide.alignment import align_candidates, align_pair
 from src.decide.audit import sample_consistency
 from src.decide.gates import (
     AMBIGUOUS,
@@ -61,6 +65,8 @@ from src.decide.shapes import Claim, Decision, Plan, PlanStep
 
 __all__ = [
     "AMBIGUOUS",
+    "align_candidates",
+    "align_pair",
     "Claim",
     "CONFIDENT",
     "DecideLedger",

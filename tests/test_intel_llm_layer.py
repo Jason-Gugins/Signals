@@ -2370,3 +2370,258 @@ def test_event_date_preflight_term_degrades_run_to_shadow(tmp_path, monkeypatch)
     assert result["decide"]["degraded"] is False
     assert not any("token budget" in gap for gap in result["gaps"])
     assert respx.calls.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 15. Value-extraction wiring: extract_claim_amount rides _implement_pass for
+#     each ACCEPTED claim of a doc (after typing/dates in the enrichment
+#     sequence); the normalized amount threads into THAT claim's candidate
+#     evidence_data (enforce only; claims without money spans make NO
+#     request and NO row)
+# ---------------------------------------------------------------------------
+
+
+#: Mirrors config/decide.yaml's wave-2 block (the battery's opt-in).
+AMOUNTS_GATE_CFG = {"enabled": True, "on_error": "skip"}
+
+#: A money-bearing claim that still passes the G4 lexical prefilter against
+#: DOC_TEXT_1 (shares "Acme", "last", "quarter").
+MONEY_CLAIM = "Acme raised $12.5M in Series B funding last quarter."
+
+
+def _amounts_cfg(mode="enforce", **decider_overrides):
+    """A decide cfg WITH the value_extraction block (the wave-2 opt-in: cfgs
+    without the block keep today's behavior exactly)."""
+    cfg = _decide_cfg(mode, **decider_overrides)
+    cfg["decider"]["gates"]["value_extraction"] = dict(AMOUNTS_GATE_CFG)
+    return cfg
+
+
+class _AmountsDecider(MockDecider):
+    """_high_decider plus a scripted value-extraction Decision under the
+    'amount' prefix (answers BOTH amount_pick and amount_is_raise) and a
+    record of every request for wiring assertions."""
+
+    def __init__(self, pick: str = "$12.5M", raise_prob: float = 0.9) -> None:
+        verdicts = dict(_high_decider().verdicts)
+        verdicts["amount"] = Decision(
+            applies=True,
+            ok=True,
+            answers={
+                "amount_pick": {"choice": pick, "probabilities": {pick: 0.9}},
+                "amount_is_raise": {"noul": raise_prob},
+            },
+            raw_tokens=30,
+        )
+        super().__init__(verdicts)
+        self.requests: list[tuple[object, dict]] = []
+
+    def decide(self, state, questions):
+        self.requests.append((state, dict(questions)))
+        return super().decide(state, questions)
+
+
+def _amount_requests(decider):
+    """The value-extraction requests among all the decider saw."""
+    return [
+        (state, questions)
+        for state, questions in decider.requests
+        if questions and all(qid.startswith("amount_") for qid in questions)
+    ]
+
+
+@respx.mock
+def test_value_extraction_amounts_land_in_evidence_data(tmp_path, monkeypatch):
+    """Enforce: ONE request for the money-bearing accepted claim; the picked
+    span's normalized amount rides into that claim's candidate evidence_data
+    (amount_display/amount_usd/amount_currency/amount_kind) through the REAL
+    normalize path, and the stage record counts it."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _AmountsDecider(pick="$12.5M", raise_prob=0.9)
+    _patch_layer(monkeypatch, decide_cfg=_amounts_cfg(), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(monkeypatch, claims=[{"text": MONEY_CLAIM, "doc_id": "doc-1"}], fields={})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"
+    assert stage["claims_accepted"] == 1
+    assert stage["amounts_extracted"] == 1
+
+    requests = _amount_requests(decider)
+    assert len(requests) == 1
+    state, questions = requests[0]
+    assert state["claim"] == MONEY_CLAIM
+    assert state["candidates"] == ["$12.5M"]
+    assert sorted(questions) == ["amount_is_raise", "amount_pick"]
+
+    assert len(orch.signal_store.upserted) == 1
+    sig = orch.signal_store.upserted[0]
+    evidence = sig.evidence_data
+    assert evidence["amount_display"] == "$12.5M"
+    assert evidence["amount_usd"] == 12500000.0
+    assert evidence["amount_currency"] == "USD"
+    assert evidence["amount_kind"] == "raise"
+
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    amount_rows = [r for r in rows if r["gate"] == "value_extraction"]
+    assert [r["outcome"] for r in amount_rows] == ["extracted"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_value_extraction_claims_without_spans_make_no_request(tmp_path, monkeypatch):
+    """The gate ENABLED but the claim carries no money spans: zero requests,
+    zero rows, no amount fields, no stage count — the regex scan is free."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _AmountsDecider()  # would answer if asked
+    _patch_layer(monkeypatch, decide_cfg=_amounts_cfg(), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(monkeypatch, claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}], fields={})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["claims_accepted"] == 1
+    assert "amounts_extracted" not in stage
+    assert _amount_requests(decider) == []
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    assert not [r for r in rows if r["gate"] == "value_extraction"]
+    evidence = orch.signal_store.upserted[0].evidence_data
+    assert "amount_display" not in evidence
+    assert "amount_usd" not in evidence
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_value_extraction_disabled_gate_never_requests(tmp_path, monkeypatch):
+    """The value_extraction block absent (every pre-wave-2 config): even a
+    money-bearing claim costs NO request and lands NO amount fields —
+    byte-identical to the pre-wave-2 behavior."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _AmountsDecider()
+    _patch_layer(monkeypatch, decide_cfg=_decide_cfg("enforce"), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(monkeypatch, claims=[{"text": MONEY_CLAIM, "doc_id": "doc-1"}], fields={})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["claims_accepted"] == 1
+    assert "amounts_extracted" not in stage
+    assert _amount_requests(decider) == []
+    evidence = orch.signal_store.upserted[0].evidence_data
+    assert "amount_display" not in evidence
+    assert "amount_usd" not in evidence
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_value_extraction_shadow_records_rows_but_no_amounts(tmp_path, monkeypatch):
+    """Shadow: the battery runs (rows record what enforce WOULD do) but the
+    extraction returns nothing to thread — enforce-only enrichment, a clean
+    A/B; the stage record gains no count."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _AmountsDecider()
+    _patch_layer(monkeypatch, decide_cfg=_amounts_cfg("shadow"), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(monkeypatch, claims=[{"text": MONEY_CLAIM, "doc_id": "doc-1"}], fields={})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    assert result["decide"]["mode"] == "shadow"
+    assert "amounts_extracted" not in result["stages"]["implement"]  # nothing bound
+    assert len(_amount_requests(decider)) == 1  # the battery still runs
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    amount_rows = [r for r in rows if r["gate"] == "value_extraction"]
+    assert [r["outcome"] for r in amount_rows] == ["extracted"]  # would-be
+    assert orch.signal_store.upserted == []  # shadow never promotes either
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_value_extraction_preflight_term_degrades_run_to_shadow(tmp_path, monkeypatch):
+    """The pre-flight models value extraction BEFORE the first Jev call: a
+    flat ~200-token allowance per staged doc (money-bearing-ness is only
+    known after G4 + the regex scan, so every staged doc is counted — the
+    documented honest upper bound). Two ~700-token docs over a 22500-token
+    ceiling degrade ONLY because of the amounts term; without the block the
+    same run stays enforce."""
+    body = "Acme breach quarter evaluating vendors. " * 70  # 2800 chars ~ 700 tokens
+    decider = _AmountsDecider()
+    orch = FakeOrchLlm(docs=[_doc("doc-1", body), _doc("doc-2", body)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=_amounts_cfg("enforce", max_decide_tokens_per_run=22500),
+        decider=decider,
+    )
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(monkeypatch, claims=[{"text": MONEY_CLAIM, "doc_id": "doc-1"}], fields={})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    # G4 (2x700) + doc gate (2x700) + amounts (2x200) + allowances (19400):
+    # the amounts term alone pushes the projection over the ceiling.
+    assert any(
+        "decide token budget exceeded (22600 > 22500)" in gap for gap in result["gaps"]
+    ), result["gaps"]
+    assert result["decide"]["mode"] == "shadow"
+    assert result["decide"]["degraded"] is True
+    assert "amounts_extracted" not in result["stages"]["implement"]  # degraded: none bind
+
+    # The SAME run without the value_extraction block stays under the
+    # ceiling: the term is opt-in (cfgs without the block keep today's
+    # projection).
+    orch = FakeOrchLlm(docs=[_doc("doc-1", body), _doc("doc-2", body)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers2")
+    orch.snapshot = _snapshot()
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=_decide_cfg("enforce", max_decide_tokens_per_run=23000),
+        decider=decider,
+    )
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+    assert result["decide"]["mode"] == "enforce"
+    assert result["decide"]["degraded"] is False
+    assert not any("token budget" in gap for gap in result["gaps"])
+    assert respx.calls.call_count == 0

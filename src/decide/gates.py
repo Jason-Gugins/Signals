@@ -66,6 +66,7 @@ import math
 import re
 import time
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 from loguru import logger
@@ -2286,3 +2287,318 @@ def extract_event_date(
     if enforce:
         return {"event_at": event_at, "confidence": confidence, "needs_review": False, "note": ""}
     return _skip("shadow")
+
+
+# --- value extraction (wave-2): pre-parsed amounts in claims --------------------
+#
+# The pre-parsed-extraction pattern: REGEX PROPOSES (pure deterministic money
+# spans, no Jev), the MODEL SELECTS (one small request per money-bearing
+# claim: which span does the claim assert, and is it a transaction figure),
+# CODE NORMALIZES (the picked span is copied verbatim and scaled in code —
+# the model can never invent or transpose a digit).
+
+
+#: P(amount_is_raise) at or above which the picked span counts as money
+#: raised/spent/awarded (the cookbook's plain 0.5 credit-vs-charge threshold).
+#: A module constant, no config key: value_extraction ships {enabled,
+#: on_error} only.
+RAISE_PROB_MIN = 0.5
+
+#: The ``amount_pick`` escape option and its wording: nothing in the claim
+#: states the amount the claim asserts was raised, spent, awarded, or
+#: contracted (honest absence, not a skip).
+_NONE_PICK = "none"
+_NONE_PICK_DESC = (
+    "None of these states the amount the claim asserts was raised, spent, "
+    "awarded, or contracted"
+)
+
+# Money-span patterns (recall-tuned; the deterministic half). One shared
+# number class (comma-grouped tried before plain, optional decimals), one
+# shared word-multiplier class, one shared single-letter suffix class:
+#   1. symbol money — $12.5M / $12,500,000 / $125000 / €3 million / £1.5m
+#   2. ISO money    — USD 1.5B / USD 1,250,000 / EUR 3 million
+#   3. word money   — 1.5 million dollars / 3 billion dollars
+# Every pattern anchors on a currency token, never a bare number, so "12
+# employees" and "3 patents" match nothing.
+_MONEY_NUM = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
+_MONEY_WORDS = r"thousand|million|billion"
+_MONEY_TAIL = rf"(?:\s?(?P<word>{_MONEY_WORDS})\b|(?P<suf>[kmb])(?![a-z0-9]))?(?!\w)"
+
+_SYM_MONEY_RE = re.compile(
+    rf"(?P<cur>[$€£])\s?(?P<num>{_MONEY_NUM}){_MONEY_TAIL}", re.IGNORECASE
+)
+_ISO_MONEY_RE = re.compile(
+    rf"(?<![A-Za-z])(?P<cur>USD|EUR|GBP)\s+(?P<num>{_MONEY_NUM}){_MONEY_TAIL}",
+    re.IGNORECASE,
+)
+_WORD_MONEY_RE = re.compile(
+    rf"(?<![0-9A-Za-z.,])(?P<num>{_MONEY_NUM})\s?(?P<word>{_MONEY_WORDS})\sdollars\b",
+    re.IGNORECASE,
+)
+
+#: Scan order is also the re-match order in ``_normalize_span``: the
+#: patterns' prefixes are disjoint ($ vs an ISO code vs a bare number), so a
+#: span re-matches exactly the pattern that produced it.
+_MONEY_PATTERNS = (_SYM_MONEY_RE, _ISO_MONEY_RE, _WORD_MONEY_RE)
+
+#: Multiplier tables (string powers of ten — Decimal multiplies without
+#: binary-float drift at the scale step) and the symbol -> currency map.
+_MONEY_SUFFIX_MULT = {"k": "1000", "m": "1000000", "b": "1000000000"}
+_MONEY_WORD_MULT = {"thousand": "1000", "million": "1000000", "billion": "1000000000"}
+_MONEY_SYMBOL_CURRENCY = {"$": "USD", "€": "EUR", "£": "GBP"}
+
+
+def find_money_spans(text: str) -> list[str]:
+    """Every money amount ``text`` states, as VERBATIM substrings — the pure
+    deterministic half of value extraction (NO Jev, no config, no I/O).
+
+    Recall-tuned compiled patterns (see the module constants): symbol money
+    ($12.5M / $12,500,000 / $125000), symbol + word multiplier (€3 million /
+    £1.5m), ISO-prefixed money (USD 1.5B / EUR 3 million), and the bare
+    word-dollars form (1.5 million dollars). Non-money number phrases ("12
+    employees", "3 patents") match nothing: every pattern anchors on a
+    currency token.
+
+    Overlapping matches collapse to the earliest, longest span (a "$3
+    million dollars" sighting yields "$3 million" once, not two competing
+    options); repeats of the SAME span text collapse to their first
+    occurrence. The surviving spans keep DOCUMENT ORDER. Empty/None text
+    returns [].
+    """
+    if not text:
+        return []
+    matches: list[tuple[int, int, str]] = []
+    for pattern in _MONEY_PATTERNS:
+        for m in pattern.finditer(text):
+            matches.append((m.start(), m.end(), m.group(0)))
+    # Earliest first; at a tie the LONGER span wins (so the symbol-prefixed
+    # form beats the bare word-dollars form it overlaps).
+    matches.sort(key=lambda item: (item[0], -(item[1] - item[0])))
+    spans: list[str] = []
+    seen: set[str] = set()
+    last_end = -1
+    for start, end, span in matches:
+        if start < last_end:
+            continue  # overlaps an already-accepted span
+        last_end = end
+        if span not in seen:
+            seen.add(span)
+            spans.append(span)
+    return spans
+
+
+def _verbatim_span(label: str, spans: list[str]) -> str | None:
+    """The span ``label`` picks, copied VERBATIM from ``spans`` — the
+    model's answer text is only ever a POINTER into the regex spans, so a
+    mutated or invented pick resolves to nothing. Exact match first, then
+    case-insensitive (a case-mutated pick still lands on the span's own
+    casing)."""
+    for span in spans:
+        if span == label:
+            return span
+    folded = label.casefold()
+    for span in spans:
+        if span.casefold() == folded:
+            return span
+    return None
+
+
+def _normalize_span(span: str) -> dict:
+    """One verbatim money span -> the normalized amount dict (code-side; the
+    model never does arithmetic). The span re-matches the finder's own
+    patterns (disjoint prefixes, see :data:`_MONEY_PATTERNS`), so the parse
+    reads the SAME groups the finder saw: the multiplier suffix/word becomes
+    a power of ten, commas strip, and the currency classifies from the
+    span's OWN prefix ($/USD -> USD, €/EUR -> EUR, £/GBP -> GBP; the
+    word-dollars form reads USD off 'dollars'). The scale multiplies
+    through Decimal so a decimal face value ($2.4M) cannot pick up
+    binary-float drift at the multiply step; the stored value is a float.
+    Defensive: a span that re-matches nothing (impossible by construction)
+    yields None for both amount and currency — the row says so.
+    """
+    for pattern in _MONEY_PATTERNS:
+        m = pattern.search(span)
+        if m is not None:
+            break
+    else:
+        return {"amount_display": span, "amount_usd": None, "currency": None, "kind": "raise"}
+    g = m.groupdict()
+    cur = g.get("cur")
+    if cur is None:
+        currency = "USD"  # the word-dollars form: 'dollars' IS the token
+    else:
+        currency = _MONEY_SYMBOL_CURRENCY.get(cur) or cur.upper()
+    word = g.get("word")
+    suffix = g.get("suf")
+    if word is not None:
+        mult = Decimal(_MONEY_WORD_MULT[word.lower()])
+    elif suffix is not None:
+        mult = Decimal(_MONEY_SUFFIX_MULT[suffix.lower()])
+    else:
+        mult = Decimal(1)
+    value = Decimal(g["num"].replace(",", ""))
+    return {
+        "amount_display": span,
+        "amount_usd": float(value * mult),
+        "currency": currency,
+        "kind": "raise",
+    }
+
+
+def extract_claim_amount(
+    claim_text: str,
+    decider,
+    gate_cfg: dict | None,
+    ledger: DecideLedger,
+    run_id: str,
+    mode: str,
+) -> dict | None:
+    """Value extraction for ONE claim — regex proposes, Jev selects, code
+    normalizes.
+
+    :func:`find_money_spans` scans the claim FIRST: a claim with no money
+    spans is a deterministic no-op — NO Jev call, NO row, nothing logged
+    (the honest absence IS the baseline; most claims carry no amounts, so
+    the per-claim fan-out only spends on money-bearing ones). Otherwise ONE
+    small request: state ``{"claim": <claim text>, "candidates": <the
+    verbatim spans>}`` with two questions —
+
+    - ``amount_pick`` (Choice): the options ARE the verbatim spans plus the
+      ``none`` escape (:data:`_NONE_PICK_DESC`) — the model picks among
+      spans the regex already found, so it can never invent or transpose a
+      digit;
+    - ``amount_is_raise`` (Noul): TRUE = the picked span states money
+      raised, spent, or awarded BY or TO the company (a transaction
+      figure); FALSE = a valuation, an acquisition price, a market size, or
+      an unrelated figure.
+
+    Routing IN CODE, one row per claim on the "value_extraction" boundary:
+    a ``none`` pick is honest absence (outcome "no_amount", no enrichment);
+    raise probability < :data:`RAISE_PROB_MIN` skips (outcome "skipped",
+    reason "not_a_raise" — a valuation must never become a raise figure); a
+    pick that resolves to no span (mutated/invented) skips (reason
+    "unknown_pick"); a missing/malformed pick or raise answer skips (reason
+    "no_answer"). Otherwise the picked span is copied VERBATIM from the
+    spans list (never from the model's text) and normalized via
+    :func:`_normalize_span`: the result ``{"amount_display", "amount_usd",
+    "currency", "kind": "raise"}`` rides the row (the ``amount`` extra plus
+    ``reason``) and returns to the caller. NO FX in v1: ``amount_usd``
+    carries the face value at 1:1 for USD and, for EUR/GBP, the unconverted
+    face value with ``currency`` naming it.
+
+    ``deterministic_action`` is "no_amount" — enrichment the deterministic
+    pipeline lacks, so ``agree`` compares against that baseline (True =
+    nothing extracted, the taxonomy-typing convention). Postures:
+    NullDecider => one not-applicable row, None; a Jev error (``on_error:
+    skip``) => one errored row, None — the deterministic output is
+    untouched; shadow => the battery runs and the row records the would-be
+    outcome, but the return stays None (enforce-only enrichment, a clean
+    A/B).
+    """
+    enforce = mode == "enforce"
+    spans = find_money_spans(claim_text or "")
+    if not spans:
+        # No amounts in the claim: the per-claim fan-out stops here — no Jev
+        # call, no row, nothing logged (the claim simply has no amounts).
+        return None
+    state = {"claim": claim_text, "candidates": list(spans)}
+    questions = {
+        "amount_pick": {
+            "type": "choice",
+            "instructions": (
+                "Which of these amounts does the claim assert was raised, "
+                "spent, awarded, or contracted? Pick one option exactly as "
+                "written."
+            ),
+            "criteria": {**{span: span for span in spans}, _NONE_PICK: _NONE_PICK_DESC},
+        },
+        "amount_is_raise": {
+            "type": "noul",
+            "instructions": (
+                "Is the picked amount a transaction figure? Answer noul. TRUE "
+                "= money raised, spent, or awarded BY or TO the company. FALSE "
+                "= a valuation, an acquisition price, a market size, or an "
+                "unrelated figure."
+            ),
+        },
+    }
+    decision, latency_ms = _call(decider, state, questions)
+    called = bool(decision.applies)
+    raw_tokens = int(decision.raw_tokens or 0)
+
+    if not decision.applies:
+        # Not applicable (NullDecider / unmatched mock): the deterministic
+        # baseline (no amounts) stands; the row inflates no counts.
+        ledger.record(
+            _row(
+                "value_extraction", state, decider, run_id,
+                answers=None, deterministic_action="no_amount", agree=None,
+                agree_direction=None, error=None, latency_ms=latency_ms,
+                raw_tokens=raw_tokens, called=False,
+            )
+        )
+        return None
+
+    if not decision.ok:
+        # on_error: skip — the deterministic output stands; the error is
+        # recorded (the enforce fallback convention: agree False in enforce).
+        ledger.record(
+            _row(
+                "value_extraction", state, decider, run_id,
+                answers=None, deterministic_action="no_amount",
+                agree=False if enforce else None, agree_direction=None,
+                error="jev_error", latency_ms=latency_ms, raw_tokens=raw_tokens,
+                called=called, outcome="errored",
+            )
+        )
+        logger.debug("value extraction errored for a claim; no amount (run={})", run_id)
+        return None
+
+    answers = decision.answers or {}
+    pick_ans = answers.get("amount_pick")
+    pick_raw = pick_ans.get("choice") if isinstance(pick_ans, dict) else None
+    raise_prob = _noul_of(answers, "amount_is_raise")
+
+    amount: dict | None = None
+    outcome, reason = "skipped", "no_answer"
+    label = pick_raw.strip() if isinstance(pick_raw, str) else None
+    if label is None:
+        pass  # missing/malformed pick: the recorded skip stands
+    elif label.casefold() == _NONE_PICK:
+        # Honest absence: the claim carries amounts, but none of them is
+        # what the claim asserts was raised/spent/awarded/contracted.
+        outcome = "no_amount"
+    else:
+        picked = _verbatim_span(label, spans)
+        if picked is None:
+            reason = "unknown_pick"  # a mutated/invented pick: never enriched
+        elif raise_prob is None:
+            pass  # the pick answered, the raise head did not: no_answer
+        elif raise_prob < RAISE_PROB_MIN:
+            reason = "not_a_raise"  # a valuation or other non-transaction figure
+        else:
+            amount = _normalize_span(picked)
+            outcome, reason = "extracted", None
+
+    agree = outcome != "extracted"
+    row = _row(
+        "value_extraction", state, decider, run_id,
+        answers=dict(decision.answers or {}), deterministic_action="no_amount",
+        agree=agree, agree_direction="match" if agree else None, error=None,
+        latency_ms=latency_ms, raw_tokens=raw_tokens, called=called,
+        outcome=outcome, noul=raise_prob,
+        reason=reason if outcome == "skipped" else None,
+    )
+    if amount is not None:
+        row["amount"] = amount
+        row["reason"] = (
+            f"amount_display {amount['amount_display']}; unknown currency"
+            if amount.get("currency") is None
+            else f"amount_display {amount['amount_display']}"
+        )
+    ledger.record(row)
+    if enforce and amount is not None:
+        return amount
+    # Shadow: the row above carries the would-be enrichment; NOTHING binds.
+    return None

@@ -149,6 +149,13 @@ _TYPING_TOKEN_ALLOWANCE = 800
 #: stays an honest upper bound, not an exact count.
 _EVENT_DATES_TOKEN_ALLOWANCE = 700
 
+#: The value-extraction battery's per-request allowance (wave-2): ONE small
+#: request per money-bearing accepted claim (~200 tokens: the claim text, the
+#: regex spans as Choice options, two questions). Money-bearing-ness is known
+#: only AFTER G4, so — like the typing term — the flat per-staged-doc
+#: allowance stays an honest upper bound, not an exact count.
+_VALUE_EXTRACTION_TOKEN_ALLOWANCE = 200
+
 #: Default cap on completeness escalations per run (config/decide.yaml
 #: ``decider.gates.completeness_verify.max_escalations``).
 _DEFAULT_MAX_ESCALATIONS = 20
@@ -288,8 +295,8 @@ def _implement_pass(
     Returns ``{"docs", "docs_screened", "docs_excluded", "claims_accepted",
     "promoted", "llm_fields", "degraded", "projected_tokens",
     "token_ceiling", "gaps", "five_fields_escalations",
-    "five_fields_quarantined", "claims_typed",
-    "event_dates_extracted"}``. NEVER raises past the caller's try/except;
+    "five_fields_quarantined", "claims_typed", "event_dates_extracted",
+    "amounts_extracted"}``. NEVER raises past the caller's try/except;
     degradation is expressed by return value, never by aborting the run.
     """
     result: dict = {
@@ -299,6 +306,7 @@ def _implement_pass(
         "claims_accepted": 0,
         "claims_typed": 0,
         "event_dates_extracted": 0,
+        "amounts_extracted": 0,
         "promoted": 0,
         "llm_fields": {},
         "degraded": False,
@@ -412,6 +420,17 @@ def _implement_pass(
     dates_on = bool(dates_cfg) and dates_cfg.get("enabled", True)
     if dates_on and docs:
         projected += len(docs) * _EVENT_DATES_TOKEN_ALLOWANCE
+    # Value extraction (wave-2): OPT-IN like the cascade, typing and dates —
+    # the term (and the battery below) is counted only when the config block
+    # EXISTS and is enabled, so cfgs without the block keep today's exact
+    # projection. ONE small request per money-bearing ACCEPTED claim (~200
+    # tokens); money-bearing-ness is known only after G4 + the regex scan,
+    # so every staged doc is counted (the typing term's documented honest
+    # upper bound).
+    amounts_cfg = _gate_cfg(decide_cfg, "value_extraction")
+    amounts_on = bool(amounts_cfg) and amounts_cfg.get("enabled", True)
+    if amounts_on and docs:
+        projected += len(docs) * _VALUE_EXTRACTION_TOKEN_ALLOWANCE
     projected += _G1_TOKEN_ALLOWANCE + _G2_TOKEN_ALLOWANCE + _G5_TOKEN_ALLOWANCE
     decider_cfg = decide_cfg.get("decider") or {}
     try:
@@ -598,6 +617,23 @@ def _implement_pass(
             )
             if event.get("event_at"):
                 result["event_dates_extracted"] += 1
+        # Value extraction (wave-2): ONE small Jev request per money-bearing
+        # ACCEPTED claim (regex proposes spans, the model picks among them,
+        # code normalizes — the picked span is always a verbatim span). Claims
+        # without spans make NO request and NO row (the gate returns before
+        # calling). Enrichment only; in shadow the requests still run
+        # rows-only and return nothing to thread (enforce-only enrichment,
+        # a clean A/B).
+        amounts: dict[int, dict] = {}
+        if amounts_on and decider is not None and pairs:
+            for idx, (claim, _meta) in enumerate(pairs):
+                amount = decide_gates.extract_claim_amount(
+                    claim.text, decider, amounts_cfg, ledger, run_id, mode
+                )
+                if amount is not None:
+                    amounts[idx] = amount
+            if amounts:
+                result["amounts_extracted"] += len(amounts)
         candidates = llm_implement.claims_to_candidates(
             pairs,
             domain=domain,
@@ -622,6 +658,22 @@ def _implement_pass(
                             evidence["event_at"] = event_at
                         if needs_review:
                             evidence["event_at_needs_review"] = True
+        # Thread the per-claim amount enrichment into the candidate built from
+        # THAT claim: claims_to_candidates builds one candidate per (claim,
+        # meta) pair IN ORDER, so the amount keyed by pair index maps onto
+        # candidates[idx].evidence_data (the per-claim parallel of the
+        # doc-level event fold above; only claims with a result gain fields).
+        # No FX in v1: amount_usd carries the face value and amount_currency
+        # names it.
+        for idx, amount in amounts.items():
+            if idx >= len(candidates):
+                continue
+            evidence = getattr(candidates[idx], "evidence_data", None)
+            if isinstance(evidence, dict):
+                evidence["amount_display"] = amount["amount_display"]
+                evidence["amount_usd"] = amount["amount_usd"]
+                evidence["amount_currency"] = amount["currency"]
+                evidence["amount_kind"] = amount["kind"]
         for cand in candidates:
             if g5_calls >= MAX_G5_CALLS:
                 # G5's per-candidate call budget is spent for this run: the
@@ -1515,6 +1567,7 @@ def run_intel(
                 escalations = int(impl.get("five_fields_escalations", 0) or 0)
                 quarantined = int(impl.get("five_fields_quarantined", 0) or 0)
                 dates_extracted = int(impl.get("event_dates_extracted", 0) or 0)
+                amounts_extracted = int(impl.get("amounts_extracted", 0) or 0)
                 record(
                     "implement",
                     "ran",
@@ -1529,6 +1582,7 @@ def run_intel(
                     **({"five_fields_escalations": escalations} if escalations else {}),
                     **({"five_fields_quarantined": quarantined} if quarantined else {}),
                     **({"event_dates_extracted": dates_extracted} if dates_extracted else {}),
+                    **({"amounts_extracted": amounts_extracted} if amounts_extracted else {}),
                 )
         except Exception as exc:
             logger.exception("intel implement sub-stage failed for {}", domain)

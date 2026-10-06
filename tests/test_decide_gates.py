@@ -37,6 +37,7 @@ from src.decide import (
     LEXICAL_OVERLAP_FLOOR,
     OUTPUT_ACTION_THRESHOLD,
     OUTPUT_REVIEW_THRESHOLD,
+    RAISE_PROB_MIN,
     REVIEW_BELOW,
     SEPARATION_MIN,
     Claim,
@@ -47,7 +48,9 @@ from src.decide import (
     anchor_window,
     classify_claims,
     estimate_tokens,
+    extract_claim_amount,
     extract_event_date,
+    find_money_spans,
     gate_citation_batch,
     gate_completeness,
     gate_document,
@@ -2719,3 +2722,317 @@ def test_event_date_shadow_records_rows_returns_shadow():
     row = ledger.rows[0]
     assert row["outcome"] == "extracted"  # what enforce WOULD do
     assert row["event_at"] == "2026-08-15"
+
+
+# --- value extraction (wave-2): pre-parsed amounts in claims --------------------
+#
+# find_money_spans is PURE deterministic regex (NO Jev): recall-tuned money
+# patterns anchored on a currency token, spans returned verbatim, deduped in
+# document order. extract_claim_amount asks ONE small request per
+# money-bearing claim: a Choice amount_pick whose options ARE the verbatim
+# spans + a "none" escape, and a Noul amount_is_raise; code copies the picked
+# span VERBATIM from the spans list and normalizes (regex proposes -> model
+# selects -> code normalizes). "none" or raise probability < RAISE_PROB_MIN
+# (0.5) means no enrichment (honest absence). Shadow: rows only, return None.
+# on_error skip. NullDecider: one not-applicable row. Claims without spans:
+# no request, no row, nothing logged.
+
+
+MONEY_CLAIM = "Acme raised $12.5M in Series B funding last quarter."
+VALUATION_CLAIM = "Acme raised its round at a $800M valuation last week."
+
+
+def _amount_decider(
+    pick: str | None = "$12.5M",
+    raise_prob: float | None = 0.9,
+    *,
+    ok: bool = True,
+    tokens: int = 30,
+) -> CountingDecider:
+    """A decider for the value-extraction request: ONE Decision answering
+    BOTH questions (MockDecider's 'amount' prefix serves amount_pick and
+    amount_is_raise with one verdict, the shape of the real battery)."""
+    answers: dict[str, dict] = {}
+    if pick is not None:
+        answers["amount_pick"] = {"choice": pick, "probabilities": {pick: 0.9}}
+    if raise_prob is not None:
+        answers["amount_is_raise"] = {"noul": raise_prob}
+    decision = Decision(
+        applies=True, ok=ok, answers=answers if ok else {}, raw_tokens=tokens if ok else 0
+    )
+    return CountingDecider({"amount": decision})
+
+
+def test_raise_prob_min_constant():
+    assert RAISE_PROB_MIN == 0.5
+
+
+def test_find_money_spans_suffix_variants():
+    """$N[.N] with a case-insensitive single-letter multiplier suffix."""
+    assert find_money_spans("raised $12.5M in May") == ["$12.5M"]
+    assert find_money_spans("raised $12.5m in May") == ["$12.5m"]
+    assert find_money_spans("budget of $12.5B approved") == ["$12.5B"]
+    assert find_money_spans("budget of $12.5b approved") == ["$12.5b"]
+    assert find_money_spans("grant of $12.5K landed") == ["$12.5K"]
+    assert find_money_spans("grant of $12.5k landed") == ["$12.5k"]
+    assert find_money_spans("seed of $3M") == ["$3M"]
+
+
+def test_find_money_spans_comma_and_plain():
+    """Comma-grouped and plain dollar figures without a multiplier."""
+    assert find_money_spans("contract worth $12,500,000 signed") == ["$12,500,000"]
+    assert find_money_spans("raised $125000 in angels") == ["$125000"]
+    assert find_money_spans("fees of $125,000.50 agreed") == ["$125,000.50"]
+
+
+def test_find_money_spans_symbol_word_multiplier():
+    """Currency symbol + word multiplier (million/billion/thousand)."""
+    assert find_money_spans("raised €3 million in grants") == ["€3 million"]
+    assert find_money_spans("deal worth €3.2 billion closed") == ["€3.2 billion"]
+    assert find_money_spans("spent £1.5m on ads") == ["£1.5m"]
+    assert find_money_spans("a 2 thousand dollar stipend") == []
+
+
+def test_find_money_spans_iso_prefix():
+    """ISO currency code + number (+ word or suffix multiplier)."""
+    assert find_money_spans("raised USD 1.5B in debt") == ["USD 1.5B"]
+    assert find_money_spans("contract USD 1,250,000 awarded") == ["USD 1,250,000"]
+    assert find_money_spans("EUR 3 million tender won") == ["EUR 3 million"]
+    assert find_money_spans("GBP 2 million grant awarded") == ["GBP 2 million"]
+
+
+def test_find_money_spans_word_dollars():
+    """Bare number + word multiplier + 'dollars' (no symbol, no ISO code)."""
+    assert find_money_spans("raised 1.5 million dollars in angels") == [
+        "1.5 million dollars"
+    ]
+    assert find_money_spans("the project costs 3 billion dollars") == [
+        "3 billion dollars"
+    ]
+
+
+def test_find_money_spans_no_false_negative_iso_word():
+    """The cookbook's regression: a word multiplier after an ISO prefix."""
+    assert find_money_spans("raised USD 1.5 billion") == ["USD 1.5 billion"]
+
+
+def test_find_money_spans_no_false_positives():
+    """Every pattern anchors on a currency token — bare numbers, counts and
+    empty/None text match nothing."""
+    assert find_money_spans("12 employees and 3 patents filed") == []
+    assert find_money_spans("no money mentioned here at all") == []
+    assert find_money_spans("") == []
+    assert find_money_spans(None) == []
+
+
+def test_find_money_spans_dedupe_and_document_order():
+    """Repeats collapse to the first occurrence; distinct spans keep
+    document order."""
+    text = "raised $5M in 2024, $5M more in 2025, then €2 million in 2026"
+    assert find_money_spans(text) == ["$5M", "€2 million"]
+    assert find_money_spans("€2 million first, $5M second, $5M again") == [
+        "€2 million",
+        "$5M",
+    ]
+
+
+def test_find_money_spans_verbatim_and_overlap_collapse():
+    """Spans are substrings of the ORIGINAL text (case preserved); a symbol
+    span and a word-dollars span covering the same figure collapse to the
+    earlier one — one candidate, not two competing options."""
+    text = "a breach affecting 2.4 million records; Acme raised $12.5M."
+    spans = find_money_spans(text)
+    assert spans == ["$12.5M"]
+    for span in spans:
+        assert span in text
+    assert find_money_spans("raised $3 million dollars") == ["$3 million"]
+
+
+def test_claim_amount_extracted_row_and_result():
+    """Enforce, raise figure: ONE request carrying claim + candidate spans,
+    both questions; the verbatim span normalizes in code; the row records
+    the answers, the raise probability and the amount."""
+    ledger = DecideLedger()
+    decider = _amount_decider("$12.5M", 0.9)
+    result = extract_claim_amount(MONEY_CLAIM, decider, {}, ledger, RUN, "enforce")
+    assert decider.n_calls == 1
+    assert result == {
+        "amount_display": "$12.5M",
+        "amount_usd": 12500000.0,
+        "currency": "USD",
+        "kind": "raise",
+    }
+    state, questions = decider.calls[0]
+    assert state["claim"] == MONEY_CLAIM
+    assert state["candidates"] == ["$12.5M"]
+    assert list(questions) == ["amount_pick", "amount_is_raise"]
+    assert questions["amount_pick"]["type"] == "choice"
+    assert questions["amount_pick"]["criteria"] == {
+        "$12.5M": "$12.5M",
+        "none": (
+            "None of these states the amount the claim asserts was raised, "
+            "spent, awarded, or contracted"
+        ),
+    }
+    assert questions["amount_is_raise"]["type"] == "noul"
+    row = ledger.rows[0]
+    assert row["gate"] == "value_extraction"
+    assert row["boundary"] == "value_extraction"
+    assert row["outcome"] == "extracted"
+    assert row["answers"] == {
+        "amount_pick": {"choice": "$12.5M", "probabilities": {"$12.5M": 0.9}},
+        "amount_is_raise": {"noul": 0.9},
+    }
+    assert row["noul"] == 0.9
+    assert row["amount"] == result
+    assert row["reason"] == "amount_display $12.5M"
+    assert row["called"] is True
+    assert row["deterministic_action"] == "no_amount"
+    assert row["agree"] is False  # enrichment vs the no-amount baseline
+
+
+def test_claim_amount_none_pick_routes_no_amount():
+    """The 'none' escape: the claim carries amounts but none is what it
+    asserts was raised/spent/awarded — honest absence, no enrichment."""
+    ledger = DecideLedger()
+    decider = _amount_decider("none", 0.95)
+    assert extract_claim_amount(MONEY_CLAIM, decider, {}, ledger, RUN, "enforce") is None
+    assert decider.n_calls == 1  # the pick needed Jev; only the pick is none
+    row = ledger.rows[0]
+    assert row["outcome"] == "no_amount"
+    assert row["agree"] is True
+
+
+def test_claim_amount_not_a_raise_skips():
+    """A valuation span with a low raise probability: no enrichment, the row
+    says why (a valuation must never become a raise figure)."""
+    ledger = DecideLedger()
+    decider = _amount_decider("$800M", 0.2)
+    result = extract_claim_amount(VALUATION_CLAIM, decider, {}, ledger, RUN, "enforce")
+    assert result is None
+    row = ledger.rows[0]
+    assert row["outcome"] == "skipped"
+    assert row["reason"] == "not_a_raise"
+    assert row["noul"] == 0.2
+
+
+def test_claim_amount_verbatim_copy_is_mutate_safe():
+    """The value is copied from the SPANS list, never from the model's text:
+    a case-mutated pick lands on the span's own casing; a transposed pick
+    matches nothing and enriches nothing."""
+    ledger = DecideLedger()
+    decider = _amount_decider("$12.5m", 0.9)  # case-mutated pick
+    result = extract_claim_amount(MONEY_CLAIM, decider, {}, ledger, RUN, "enforce")
+    assert result is not None
+    assert result["amount_display"] == "$12.5M"  # the span, not the answer text
+    assert result["amount_usd"] == 12500000.0
+
+    ledger = DecideLedger()
+    decider = _amount_decider("$21.5M", 0.9)  # a transposed digit: no such span
+    assert extract_claim_amount(MONEY_CLAIM, decider, {}, ledger, RUN, "enforce") is None
+    row = ledger.rows[0]
+    assert row["outcome"] == "skipped"
+    assert row["reason"] == "unknown_pick"
+
+
+def test_claim_amount_normalization_table():
+    """Suffix/word multipliers, comma stripping and currency classification,
+    all from the span's own text. NO FX in v1: EUR/GBP amounts keep their
+    face value with the currency naming it."""
+    cases = [
+        ("Acme raised $12.5M in Series B.", "$12.5M", 12500000.0, "USD"),
+        ("Acme raised €3 million in grants.", "€3 million", 3000000.0, "EUR"),
+        ("Contract USD 1,250,000 awarded.", "USD 1,250,000", 1250000.0, "USD"),
+        ("Spend £1.5m on the rollout.", "£1.5m", 1500000.0, "GBP"),
+        ("Raised 1.5 million dollars in angels.", "1.5 million dollars", 1500000.0, "USD"),
+        ("Grant of $3k received.", "$3k", 3000.0, "USD"),
+        ("Facility $2.4M closed.", "$2.4M", 2400000.0, "USD"),
+    ]
+    for claim, display, usd, currency in cases:
+        ledger = DecideLedger()
+        decider = _amount_decider(display, 0.9)
+        result = extract_claim_amount(claim, decider, {}, ledger, RUN, "enforce")
+        assert result == {
+            "amount_display": display,
+            "amount_usd": usd,
+            "currency": currency,
+            "kind": "raise",
+        }, claim
+
+
+def test_claim_amount_no_spans_no_request_no_row():
+    """A claim without money spans: NO Jev call, NO row, nothing logged —
+    the deterministic no-op IS the answer."""
+    ledger = DecideLedger()
+    decider = _amount_decider()  # would answer if asked
+    assert extract_claim_amount(GOOD_CLAIM, decider, {}, ledger, RUN, "enforce") is None
+    assert decider.n_calls == 0
+    assert ledger.rows == []
+
+
+def test_claim_amount_raise_boundary_at_min():
+    """Exactly RAISE_PROB_MIN counts (>=); a hair below skips."""
+    for prob, expected in ((0.5, 12500000.0), (0.49, None)):
+        ledger = DecideLedger()
+        decider = _amount_decider("$12.5M", prob)
+        result = extract_claim_amount(MONEY_CLAIM, decider, {}, ledger, RUN, "enforce")
+        assert (result["amount_usd"] if result else None) == expected, prob
+
+
+def test_claim_amount_missing_pick_or_raise_skips():
+    """A missing pick answer or a missing raise noul: recorded skip, no
+    enrichment (the fail-closed no_answer posture)."""
+    ledger = DecideLedger()
+    decider = _amount_decider(pick=None, raise_prob=0.9)
+    assert extract_claim_amount(MONEY_CLAIM, decider, {}, ledger, RUN, "enforce") is None
+    assert ledger.rows[0]["outcome"] == "skipped"
+    assert ledger.rows[0]["reason"] == "no_answer"
+
+    ledger = DecideLedger()
+    decider = _amount_decider("$12.5M", raise_prob=None)
+    assert extract_claim_amount(MONEY_CLAIM, decider, {}, ledger, RUN, "enforce") is None
+    assert ledger.rows[0]["outcome"] == "skipped"
+    assert ledger.rows[0]["reason"] == "no_answer"
+
+
+def test_claim_amount_null_decider_not_applicable_row():
+    """NullDecider: no enrichment, one not-applicable row inflating no
+    counts."""
+    ledger = DecideLedger()
+    result = extract_claim_amount(MONEY_CLAIM, NullDecider(), {}, ledger, RUN, "enforce")
+    assert result is None
+    assert len(ledger.rows) == 1
+    assert ledger.rows[0]["called"] is False
+    assert "outcome" not in ledger.rows[0]
+    agg = ledger.aggregate("value_extraction")
+    assert agg["counts"]["called"] == 0
+    assert agg["input_tokens"] == 0
+
+
+def test_claim_amount_jev_error_skips():
+    """on_error skip: a Jev error enriches nothing; the error is recorded."""
+    ledger = DecideLedger()
+    decider = _amount_decider(ok=False)
+    assert extract_claim_amount(MONEY_CLAIM, decider, {}, ledger, RUN, "enforce") is None
+    row = ledger.rows[0]
+    assert row["outcome"] == "errored"
+    assert row["error"] == "jev_error"
+    assert ledger.aggregate("value_extraction")["counts"]["errored"] == 1
+
+
+def test_claim_amount_shadow_records_rows_returns_none():
+    """Shadow never binds: the battery still runs (the row records what
+    enforce WOULD do, amount included) while the return stays None."""
+    ledger = DecideLedger()
+    decider = _amount_decider("$12.5M", 0.9)
+    assert extract_claim_amount(MONEY_CLAIM, decider, {}, ledger, RUN, "shadow") is None
+    assert decider.n_calls == 1
+    row = ledger.rows[0]
+    assert row["outcome"] == "extracted"  # what enforce WOULD do
+    assert row["amount"] == {
+        "amount_display": "$12.5M",
+        "amount_usd": 12500000.0,
+        "currency": "USD",
+        "kind": "raise",
+    }
+

@@ -430,6 +430,36 @@ def test_discover_gate_disabled_is_byte_identical(tmp_path, monkeypatch):
         orch.db.close()
 
 
+def test_discover_absent_entity_alignment_block_is_byte_identical(tmp_path, monkeypatch):
+    """The wave-2/3 opt-in convention: the entity_alignment block must EXIST
+    to run — an ABSENT block defaults OFF even in enforce mode with a decider
+    mock in scope (zero calls, no jev_alignment keys, byte-identical queue)."""
+    result = {
+        "name": "Acme Corp", "status": "ambiguous", "domain": None,
+        "candidates": WATERFALL_CANDIDATES, "stages": {},
+    }
+    _patch_waterfall(monkeypatch, result)
+    decider = _patch_decide_layer(
+        monkeypatch,
+        decide_cfg={"mode": "enforce", "decider": {"gates": {}}},
+        decider=_alignment_decider(),
+    )
+    orch = _orch(tmp_path)
+    try:
+        out = orch.discover("Acme Corp")
+
+        assert decider.n_calls == 0
+        stored = _stored(orch)
+        for cand in stored:
+            assert "jev_alignment" not in cand
+        assert all("jev_alignment" not in c for c in out["candidates"])
+        assert json.dumps(stored, sort_keys=True) == json.dumps(
+            WATERFALL_CANDIDATES, sort_keys=True
+        )
+    finally:
+        orch.db.close()
+
+
 class _FakeCompetitorPass:
     """Stands in for CompetitorNewsPass: one paypal competitor row."""
 

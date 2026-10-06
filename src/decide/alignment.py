@@ -314,7 +314,11 @@ def align_candidates(
 
     The cap counts REQUESTS: every candidate with a join key (see
     :func:`candidate_key`) costs one attempt until the cap is reached;
-    join-key-less candidates are skipped without consuming budget.
+    join-key-less candidates are skipped without consuming budget. Duplicate
+    join keys cost nothing beyond the FIRST candidate: the producer's
+    first-ranked candidate OWNS the pair, so a key that already aligned is
+    final — the duplicate is skipped BEFORE the cap check (no request, no
+    row, no budget) and never steals the first candidate's verdict.
 
     Returns ``{join key: alignment}`` carrying ONLY alignments that bind
     (enforce mode AND a routed verdict). Everything else — layer inert,
@@ -329,11 +333,13 @@ def align_candidates(
         return aligned
     attempts = 0
     for cand in candidates or []:
+        key = candidate_key(cand)
+        # First-wins on duplicate join keys: the skip precedes the cap check
+        # so a duplicate costs nothing at all.
+        if key is None or key in aligned:
+            continue
         if attempts >= cap:
             break
-        key = candidate_key(cand)
-        if key is None:
-            continue
         attempts += 1
         result = align_pair(
             mention, _company_of(cand), decider, cfg, ledger, run_id, mode

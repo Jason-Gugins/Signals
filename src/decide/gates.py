@@ -2386,14 +2386,22 @@ _NONE_PICK_DESC = (
 )
 
 # Money-span patterns (recall-tuned; the deterministic half). One shared
-# number class (comma-grouped tried before plain, optional decimals), one
-# shared word-multiplier class, one shared single-letter suffix class:
-#   1. symbol money — $12.5M / $12,500,000 / $125000 / €3 million / £1.5m
-#   2. ISO money    — USD 1.5B / USD 1,250,000 / EUR 3 million
+# number class (comma-grouped thousands first, then decimal comma, then
+# plain — a plain number is never cut at a comma), one shared word-multiplier
+# class, one shared single-letter suffix class:
+#   1. symbol money — $12.5M / $12,500,000 / $125000 / €12,5M / €3 million / £1.5m
+#   2. ISO money    — USD 1.5B / USD 1,250,000 / EUR 3 million / EUR 12,5 million
 #   3. word money   — 1.5 million dollars / 3 billion dollars
 # Every pattern anchors on a currency token, never a bare number, so "12
-# employees" and "3 patents" match nothing.
-_MONEY_NUM = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
+# employees" and "3 patents" match nothing. The comma alternatives are
+# disambiguated by SHAPE: a 1-3 digit + 3-digit-group number uses commas as
+# THOUSANDS separators; a 1-2 digit comma group (a shape the thousands form
+# can never take) is a European DECIMAL comma.
+_MONEY_NUM = (
+    r"\d{1,3}(?:,\d{3})+(?:\.\d+)?"  # comma-grouped thousands: 12,500,000 / 1,250
+    r"|\d+,\d{1,2}(?![\d,])"  # decimal comma (grouped shape cannot match): 12,5
+    r"|\d+(?:\.\d+)?(?!,\d)"  # plain — never cut at a decimal comma: 12.5
+)
 _MONEY_WORDS = r"thousand|million|billion"
 _MONEY_TAIL = rf"(?:\s?(?P<word>{_MONEY_WORDS})\b|(?P<suf>[kmb])(?![a-z0-9]))?(?!\w)"
 
@@ -2420,17 +2428,26 @@ _MONEY_SUFFIX_MULT = {"k": "1000", "m": "1000000", "b": "1000000000"}
 _MONEY_WORD_MULT = {"thousand": "1000", "million": "1000000", "billion": "1000000000"}
 _MONEY_SYMBOL_CURRENCY = {"$": "USD", "€": "EUR", "£": "GBP"}
 
+#: The thousands-grouped shape of :data:`_MONEY_NUM`'s first alternative: a
+#: num string with this exact shape uses commas as GROUPING separators
+#: (strip them); a num string carrying a comma of any other shape is the
+#: decimal-comma variant (comma -> dot), which only matches when the grouped
+#: shape cannot.
+_MONEY_GROUPED_SHAPE = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+
 
 def find_money_spans(text: str) -> list[str]:
     """Every money amount ``text`` states, as VERBATIM substrings — the pure
     deterministic half of value extraction (NO Jev, no config, no I/O).
 
     Recall-tuned compiled patterns (see the module constants): symbol money
-    ($12.5M / $12,500,000 / $125000), symbol + word multiplier (€3 million /
-    £1.5m), ISO-prefixed money (USD 1.5B / EUR 3 million), and the bare
-    word-dollars form (1.5 million dollars). Non-money number phrases ("12
-    employees", "3 patents") match nothing: every pattern anchors on a
-    currency token.
+    ($12.5M / $12,500,000 / $125000 / €12,5M), symbol + word multiplier
+    (€3 million / £1.5m), ISO-prefixed money (USD 1.5B / EUR 3 million /
+    EUR 12,5 million), and the bare word-dollars form (1.5 million dollars).
+    European decimal commas survive intact (a plain number is never cut at
+    the comma; a 1-2 digit comma group is the decimal variant, thousands
+    grouping stays 1,250). Non-money number phrases ("12 employees", "3
+    patents") match nothing: every pattern anchors on a currency token.
 
     Overlapping matches collapse to the earliest, longest span (a "$3
     million dollars" sighting yields "$3 million" once, not two competing
@@ -2481,13 +2498,15 @@ def _normalize_span(span: str) -> dict:
     model never does arithmetic). The span re-matches the finder's own
     patterns (disjoint prefixes, see :data:`_MONEY_PATTERNS`), so the parse
     reads the SAME groups the finder saw: the multiplier suffix/word becomes
-    a power of ten, commas strip, and the currency classifies from the
-    span's OWN prefix ($/USD -> USD, €/EUR -> EUR, £/GBP -> GBP; the
-    word-dollars form reads USD off 'dollars'). The scale multiplies
-    through Decimal so a decimal face value ($2.4M) cannot pick up
-    binary-float drift at the multiply step; the stored value is a float.
-    Defensive: a span that re-matches nothing (impossible by construction)
-    yields None for both amount and currency — the row says so.
+    a power of ten, and the comma classifies by SHAPE — thousands-grouped
+    commas strip (1,250 -> 1250) while a decimal comma becomes a dot
+    (12,5 -> 12.5), and the currency classifies from the span's OWN prefix
+    ($/USD -> USD, €/EUR -> EUR, £/GBP -> GBP; the word-dollars form reads
+    USD off 'dollars'). The scale multiplies through Decimal so a decimal
+    face value ($2.4M) cannot pick up binary-float drift at the multiply
+    step; the stored value is a float. Defensive: a span that re-matches
+    nothing (impossible by construction) yields None for both amount and
+    currency — the row says so.
     """
     for pattern in _MONEY_PATTERNS:
         m = pattern.search(span)
@@ -2509,7 +2528,17 @@ def _normalize_span(span: str) -> dict:
         mult = Decimal(_MONEY_SUFFIX_MULT[suffix.lower()])
     else:
         mult = Decimal(1)
-    value = Decimal(g["num"].replace(",", ""))
+    num = g["num"]
+    if _MONEY_GROUPED_SHAPE.fullmatch(num):
+        # The grouped shape (1-3 digits then 3-digit groups) uses commas as
+        # THOUSANDS separators -> strip them.
+        value = Decimal(num.replace(",", ""))
+    else:
+        # The decimal-comma variant (only reachable when the grouped shape
+        # cannot match): the comma IS the decimal separator -> dot for
+        # Decimal ("12,5" -> 12.5). Plain numbers carry no comma at all, so
+        # the replace is a no-op for them.
+        value = Decimal(num.replace(",", "."))
     return {
         "amount_display": span,
         "amount_usd": float(value * mult),

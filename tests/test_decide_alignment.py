@@ -351,6 +351,48 @@ def test_align_candidates_skips_candidates_without_a_join_key():
     assert set(out) == {"has.com", "also.com"}
 
 
+class _OrderSensitiveDecider(MockDecider):
+    """Scores 1.4 on the FIRST call and 0.2 afterwards: makes first-wins vs
+    last-wins observable when two candidates share a join key."""
+
+    def __init__(self) -> None:
+        super().__init__({})
+        self.n_calls = 0
+
+    def decide(self, state, questions):
+        self.n_calls += 1
+        score = 1.4 if self.n_calls == 1 else 0.2
+        answers = {
+            "link_state": {"score": score, "legend": list(LEVELS), "confidence": 0.9},
+            "same_name": {"noul": 0.9},
+        }
+        return Decision(applies=True, ok=True, answers=answers, raw_tokens=10)
+
+
+def test_align_candidates_duplicate_join_keys_keep_the_first():
+    """Two candidates sharing a domain: the producer's FIRST-ranked
+    candidate owns the pair — ONE request for the key, the first verdict
+    stands, and the duplicate costs nothing (no request, no row) and never
+    gets stamped with a later verdict of its own."""
+    candidates = [
+        {"domain": "dup.com", "label": "First"},
+        {"domain": "dup.com", "label": "Second"},
+        {"domain": "solo.com", "label": "Solo"},
+    ]
+    decider = _OrderSensitiveDecider()
+    ledger = DecideLedger()
+    out = align_candidates({"name": "Acme"}, candidates, decider, {}, ledger,
+                           RUN, "enforce")
+    assert decider.n_calls == 2  # the duplicate spent NOTHING
+    assert len(ledger.rows) == 2
+    assert set(out) == {"dup.com", "solo.com"}
+    # dup.com carries the FIRST candidate's verdict (1.4 -> related), not
+    # the would-be second call's.
+    assert out["dup.com"]["score"] == 1.4
+    assert out["dup.com"]["outcome"] == "related"
+    assert out["solo.com"]["score"] == 0.2
+
+
 def test_align_candidates_unavailable_pairs_never_join_the_merge():
     """Only BINDING alignments come back: a shadow run or an errored pair
     is rows-only, so the caller merges nothing for it."""

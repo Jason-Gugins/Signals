@@ -2066,9 +2066,10 @@ def test_completeness_layer_off_config_present_does_nothing(tmp_path, monkeypatc
 
 @respx.mock
 def test_completeness_preflight_term_degrades_run_to_shadow(tmp_path, monkeypatch):
-    """The pre-flight models the cascade BEFORE the first Jev call: one
-    ~700-token verify request per five-fields doc + one per potential
-    escalation. Without the block the same run stays under the ceiling."""
+    """The pre-flight models the cascade BEFORE the first Jev call: its worst
+    case of (1 + max_escalations) ~700-token requests — one verify plus one
+    re-verification per potential escalation (the shipped default cap 20).
+    Without the block the same run stays under the ceiling."""
     body = "Acme breach quarter evaluating vendors. " * 70  # 2800 chars ~ 700 tokens
     cfg = _comp_cfg()
     cfg["decider"]["max_decide_tokens_per_run"] = 22000
@@ -2078,10 +2079,11 @@ def test_completeness_preflight_term_degrades_run_to_shadow(tmp_path, monkeypatc
         body=body,
     )
 
-    # G4 (700) + doc gate (700) + completeness (2x700) + allowances (19400):
-    # the degradation is caused by the completeness term alone (20800 fits).
+    # G4 (700) + doc gate (700) + completeness ((1+20)x700 = 14700) +
+    # allowances (19400): the degradation is caused by the completeness
+    # term alone (20800 fits).
     assert any(
-        "decide token budget exceeded (22200 > 22000)" in gap for gap in result["gaps"]
+        "decide token budget exceeded (35500 > 22000)" in gap for gap in result["gaps"]
     ), result["gaps"]
     assert result["decide"]["mode"] == "shadow"
     assert result["decide"]["degraded"] is True
@@ -2102,6 +2104,121 @@ def test_completeness_preflight_term_degrades_run_to_shadow(tmp_path, monkeypatc
     assert result["decide"]["mode"] == "enforce"
     assert result["decide"]["degraded"] is False
     assert not any("token budget" in gap for gap in result["gaps"])
+    assert respx.calls.call_count == 0
+
+
+class _ScriptedCompletenessDecider:
+    """Per-verification scripts (unlike _CompletenessDecider's static
+    values): scripts[i] answers the i-th completeness request, clamped to
+    the last; every other question goes to ``inner``."""
+
+    def __init__(self, scripts, inner) -> None:
+        self.scripts = list(scripts)
+        self.inner = inner
+        self.n_verifies = 0
+
+    def decide(self, state, questions):
+        if any("::absence_wrong" in q or "::grounded" in q for q in questions):
+            values = self.scripts[min(self.n_verifies, len(self.scripts) - 1)]
+            self.n_verifies += 1
+            answers = {q: {"noul": values.get(q, 0.1)} for q in questions}
+            return Decision(applies=True, ok=True, answers=answers, raw_tokens=30)
+        return self.inner.decide(state, questions)
+
+
+@respx.mock
+def test_completeness_failed_extract_skips_the_cascade(tmp_path, monkeypatch):
+    """A FAILED five-fields extract (None — the never-raise contract) is NOT
+    five honest unknowns: the cascade is skipped with its own gap line — no
+    escalation re-run, no Jev calls for that doc's cascade, no misattributed
+    closing gap."""
+    decider = _CompletenessDecider({"why_now::absence_wrong": 0.95}, _high_decider())
+    result, dossier, rec = _comp_run(
+        tmp_path, monkeypatch, cfg=_comp_cfg(), decider=decider,
+        fields_sequence=[None],
+    )
+
+    assert rec["fields"] == ["doc-1"]  # extract ran once, NEVER re-run
+    assert "llm_fields" not in dossier  # empty: the dossier adds no key
+    assert any(
+        "five-fields extraction failed; completeness cascade skipped" in gap
+        for gap in result["gaps"]
+    ), result["gaps"]
+    assert "five_fields_escalations" not in result["stages"]["implement"]
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    assert all(row["gate"] != "completeness_verify" for row in rows)
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_completeness_quarantine_judges_the_stored_fill_not_the_rerun(
+    tmp_path, monkeypatch
+):
+    """An escalation re-run that REWRITES a previously grounded field must
+    not pop the first pass's good fill: only a stored fill whose text equals
+    the judged RAW text is quarantined (the re-written version was never
+    judged), and the counter stays silent for it."""
+    hallucinated = "Acme needs a new SIEM yesterday."
+    decider = _ScriptedCompletenessDecider(
+        [
+            {"why_now::absence_wrong": 0.95},       # verify 1: why_now unknown
+            {"operational_need::grounded": 0.95},   # verify 2: the re-run's
+            # REWRITE of operational_need fires — never judged, so no pop.
+        ],
+        _high_decider(),
+    )
+    result, dossier, rec = _comp_run(
+        tmp_path, monkeypatch, cfg=_comp_cfg(), decider=decider,
+        fields_sequence=[
+            {"operational_need": {"text": CLAIM_TEXT, "doc_id": "doc-1"},
+             "why_now": {"text": "unknown", "doc_id": "doc-1"}},
+            {"operational_need": {"text": hallucinated, "doc_id": "doc-1"},
+             "why_now": {"text": WHY_NOW_TEXT, "doc_id": "doc-1"}},
+        ],
+    )
+
+    assert rec["fields"] == ["doc-1", "doc-1"]  # one escalation re-run
+    llm = dossier["llm_fields"]
+    # The FIRST pass's grounded fill survives the re-run's hallucinated fire.
+    assert llm["operational_need"]["text"] == CLAIM_TEXT
+    assert "escalated" not in llm["operational_need"]
+    assert llm["why_now"]["escalated"] is True
+    assert "five_fields_quarantined" not in result["stages"]["implement"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_completeness_quarantine_counts_each_field_once(tmp_path, monkeypatch):
+    """A present field that keeps firing across iterations counts ONCE: the
+    no-op pop after its fill is already gone must not re-increment the
+    quarantine counter."""
+    decider = _ScriptedCompletenessDecider(
+        [
+            # verify 1: the present fill is quarantined AND why_now escalates.
+            {"operational_need::grounded": 0.95, "why_now::absence_wrong": 0.95},
+            # verify 2: the same field fires AGAIN (raw text unchanged) —
+            # its fill is already gone, so the pop is a no-op.
+            {"operational_need::grounded": 0.95},
+        ],
+        _high_decider(),
+    )
+    result, dossier, rec = _comp_run(
+        tmp_path, monkeypatch, cfg=_comp_cfg(), decider=decider,
+        fields_sequence=[
+            {"operational_need": {"text": CLAIM_TEXT, "doc_id": "doc-1"},
+             "why_now": {"text": "unknown", "doc_id": "doc-1"}},
+            {"operational_need": {"text": CLAIM_TEXT, "doc_id": "doc-1"},
+             "why_now": {"text": WHY_NOW_TEXT, "doc_id": "doc-1"}},
+        ],
+    )
+
+    assert rec["fields"] == ["doc-1", "doc-1"]  # one escalation re-run
+    assert "operational_need" not in dossier["llm_fields"]  # quarantined once
+    assert dossier["llm_fields"]["why_now"]["escalated"] is True
+    assert result["stages"]["implement"]["five_fields_quarantined"] == 1
     assert respx.calls.call_count == 0
 
 
@@ -2819,12 +2936,11 @@ def test_value_extraction_shadow_records_rows_but_no_amounts(tmp_path, monkeypat
 
 @respx.mock
 def test_value_extraction_preflight_term_degrades_run_to_shadow(tmp_path, monkeypatch):
-    """The pre-flight models value extraction BEFORE the first Jev call: a
-    flat ~200-token allowance per staged doc (money-bearing-ness is only
-    known after G4 + the regex scan, so every staged doc is counted — the
-    documented honest upper bound). Two ~700-token docs over a 22500-token
-    ceiling degrade ONLY because of the amounts term; without the block the
-    same run stays enforce."""
+    """The pre-flight models value extraction BEFORE the first Jev call: the
+    loop's honest worst case — the bulk extract's per-doc claim cap
+    (MAX_CLAIMS_DEEP = 20) money-bearing claims per staged doc at ~200 tokens
+    each. Two ~700-token docs over a 22500-token ceiling degrade ONLY because
+    of the amounts term; without the block the same run stays enforce."""
     body = "Acme breach quarter evaluating vendors. " * 70  # 2800 chars ~ 700 tokens
     decider = _AmountsDecider()
     orch = FakeOrchLlm(docs=[_doc("doc-1", body), _doc("doc-2", body)])
@@ -2844,10 +2960,11 @@ def test_value_extraction_preflight_term_degrades_run_to_shadow(tmp_path, monkey
 
     result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
 
-    # G4 (2x700) + doc gate (2x700) + amounts (2x200) + allowances (19400):
-    # the amounts term alone pushes the projection over the ceiling.
+    # G4 (2x700) + doc gate (2x700) + amounts (2 docs x 20 claims x 200 =
+    # 8000) + allowances (19400): the amounts term alone pushes the
+    # projection over the ceiling.
     assert any(
-        "decide token budget exceeded (22600 > 22500)" in gap for gap in result["gaps"]
+        "decide token budget exceeded (30200 > 22500)" in gap for gap in result["gaps"]
     ), result["gaps"]
     assert result["decide"]["mode"] == "shadow"
     assert result["decide"]["degraded"] is True
@@ -2868,4 +2985,137 @@ def test_value_extraction_preflight_term_degrades_run_to_shadow(tmp_path, monkey
     assert result["decide"]["mode"] == "enforce"
     assert result["decide"]["degraded"] is False
     assert not any("token budget" in gap for gap in result["gaps"])
+    assert respx.calls.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 16. Combined enrichment (typing + event dates + value extraction TOGETHER):
+#     all three evidence_data families must land on the SAME candidate per
+#     shared claim index — no family may land on a neighbor
+# ---------------------------------------------------------------------------
+
+
+def _combined_cfg(mode="enforce", **decider_overrides):
+    """A decide cfg with ALL THREE wave-2 enrichment blocks enabled."""
+    cfg = _decide_cfg(mode, **decider_overrides)
+    cfg["decider"]["gates"]["taxonomy_typing"] = dict(TYPING_GATE_CFG)
+    cfg["decider"]["gates"]["event_dates"] = dict(DATES_GATE_CFG)
+    cfg["decider"]["gates"]["value_extraction"] = dict(AMOUNTS_GATE_CFG)
+    return cfg
+
+
+class _CombinedEnrichmentDecider(MockDecider):
+    """_high_decider plus scripted answers for ALL THREE batteries: the
+    typing Decision (type_ prefix), the seven date Decisions, and the
+    value-extraction Decision (amount_ prefix); records every request."""
+
+    def __init__(self, type_answers: dict) -> None:
+        verdicts = dict(_high_decider().verdicts)
+        verdicts["type"] = Decision(
+            applies=True, ok=True, answers=dict(type_answers), raw_tokens=40
+        )
+        date_decision = Decision(
+            applies=True, ok=True, answers=_dates_answers(month="8", day="20"),
+            raw_tokens=60,
+        )
+        for qid in DATE_QIDS:
+            verdicts[qid] = date_decision
+        verdicts["amount"] = Decision(
+            applies=True,
+            ok=True,
+            answers={
+                "amount_pick": {"choice": "$12.5M", "probabilities": {"$12.5M": 0.9}},
+                "amount_is_raise": {"noul": 0.9},
+            },
+            raw_tokens=30,
+        )
+        super().__init__(verdicts)
+        self.requests: list[tuple[object, dict]] = []
+
+    def decide(self, state, questions):
+        self.requests.append((state, dict(questions)))
+        return super().decide(state, questions)
+
+
+@respx.mock
+def test_combined_enrichment_families_land_on_the_same_candidate(
+    tmp_path, monkeypatch
+):
+    """Typing + event dates + value extraction enabled TOGETHER (enforce):
+    all three evidence_data families land on the SAME candidate per shared
+    claim index — the money claim carries its proposed_type AND the doc's
+    event_at AND the normalized amount at once, while the non-money claim
+    carries its own proposal + event_at and NO amount fields."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _CombinedEnrichmentDecider(
+        {
+            "type_0": {"choice": "llm_need", "probabilities": {"llm_need": 0.95, "award": 0.30}},
+            "type_1": {
+                "choice": "funding_round",
+                "probabilities": {"funding_round": 0.72, "llm_need": 0.20},
+            },
+        }
+    )
+    _patch_layer(monkeypatch, decide_cfg=_combined_cfg(), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch,
+        claims=[
+            {"text": MONEY_CLAIM, "doc_id": "doc-1"},
+            {"text": PLATFORM_TEXT, "doc_id": "doc-1"},
+        ],
+        fields={},
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"
+    assert stage["claims_accepted"] == 2
+    assert stage["claims_typed"] == 2
+    assert stage["event_dates_extracted"] == 1
+    assert stage["amounts_extracted"] == 1  # only the money-bearing claim
+
+    # Exactly one request per battery family (typing batched over both
+    # claims, dates per doc, amounts per money-bearing claim).
+    assert len(orch.signal_store.upserted) == 2
+    by_display = {
+        sig.evidence_data.get("amount_display"): sig for sig in orch.signal_store.upserted
+    }
+    assert set(by_display) == {"$12.5M", None}
+    money = by_display["$12.5M"]
+    other = by_display[None]
+
+    # ALL THREE families on the money candidate SIMULTANEOUSLY.
+    assert money.evidence_data["amount_display"] == "$12.5M"
+    assert money.evidence_data["amount_usd"] == 12500000.0
+    assert money.evidence_data["amount_currency"] == "USD"
+    assert money.evidence_data["proposed_type"] == "llm_need"
+    assert money.evidence_data["type_confidence"] == 0.95
+    assert money.evidence_data["event_at"] == "2026-08-20"
+
+    # The non-money candidate: its OWN index's proposal + the doc's date,
+    # never the money claim's amount or proposal.
+    assert other.evidence_data["proposed_category"] == "financial"
+    assert other.evidence_data["event_at"] == "2026-08-20"
+    assert "amount_display" not in other.evidence_data
+    assert "amount_usd" not in other.evidence_data
+    assert "proposed_type" not in other.evidence_data
+
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    assert [r["outcome"] for r in rows if r["gate"] == "taxonomy_typing"] == [
+        "proposed_type",
+        "proposed_category",
+    ]
+    assert [r["outcome"] for r in rows if r["gate"] == "event_dates"] == ["extracted"]
+    assert [r["outcome"] for r in rows if r["gate"] == "value_extraction"] == ["extracted"]
     assert respx.calls.call_count == 0

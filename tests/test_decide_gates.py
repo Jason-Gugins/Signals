@@ -63,6 +63,7 @@ from src.decide import (
     separation_ratio,
     state_hash,
 )
+from src.decide.gates import _normalize_span  # the span normalizer (private)
 from src.decide.shapes import Decision
 from src.llm.implement import FIVE_FIELDS as DOSSIER_FIELDS
 from src.signals.taxonomy import Taxonomy
@@ -3005,6 +3006,42 @@ def test_find_money_spans_comma_and_plain():
     assert find_money_spans("contract worth $12,500,000 signed") == ["$12,500,000"]
     assert find_money_spans("raised $125000 in angels") == ["$125000"]
     assert find_money_spans("fees of $125,000.50 agreed") == ["$125,000.50"]
+
+
+def test_find_money_spans_decimal_comma_survives():
+    """European decimal-comma amounts are never cut at the comma: a 1-2
+    digit comma group (a shape thousands grouping can never take) with
+    multiplier/symbol context is the decimal variant, kept VERBATIM."""
+    assert find_money_spans("€12,5M raised") == ["€12,5M"]
+    assert find_money_spans("raised EUR 12,5 million in grants") == [
+        "EUR 12,5 million"
+    ]
+
+
+def test_normalize_span_decimal_comma_amounts():
+    """The decimal-comma variant normalizes comma -> dot BEFORE the scale:
+    '€12,5M' is 12.5 x 1,000,000 = 12,500,000 EUR (not 12 EUR)."""
+    assert _normalize_span("€12,5M") == {
+        "amount_display": "€12,5M",
+        "amount_usd": 12500000.0,
+        "currency": "EUR",
+        "kind": "raise",
+    }
+    eur_word = _normalize_span("EUR 12,5 million")
+    assert eur_word["amount_usd"] == 12500000.0
+    assert eur_word["currency"] == "EUR"
+
+
+def test_normalize_span_thousands_comma_still_grouped():
+    """The guard: a thousands-comma amount WITHOUT decimal context still
+    parses via the comma-grouped alternative (1,250 -> 1250, not 1.25)."""
+    assert find_money_spans("raised $1,250 in angels") == ["$1,250"]
+    assert _normalize_span("$1,250") == {
+        "amount_display": "$1,250",
+        "amount_usd": 1250.0,
+        "currency": "USD",
+        "kind": "raise",
+    }
 
 
 def test_find_money_spans_symbol_word_multiplier():

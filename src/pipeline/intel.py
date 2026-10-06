@@ -127,8 +127,9 @@ _G2_TOKEN_ALLOWANCE = 700
 _G5_TOKEN_ALLOWANCE = MAX_G5_CALLS * 300
 
 #: The completeness-verify cascade's per-request allowance (wave-2): ONE
-#: verify request per five-fields doc (v1 verifies only the LONGEST doc) plus
-#: ONE re-verification per potential escalation, ~700 tokens each.
+#: verify request for the longest doc (v1 verifies only the LONGEST doc)
+#: plus ONE re-verification per potential escalation, up to max_escalations
+#: of them — the projection bills that worst case, ~700 tokens each.
 _COMPLETENESS_TOKEN_ALLOWANCE = 700
 
 #: The taxonomy-typing battery's flat per-doc allowance (wave-2): ONE typing
@@ -151,9 +152,10 @@ _EVENT_DATES_TOKEN_ALLOWANCE = 700
 
 #: The value-extraction battery's per-request allowance (wave-2): ONE small
 #: request per money-bearing accepted claim (~200 tokens: the claim text, the
-#: regex spans as Choice options, two questions). Money-bearing-ness is known
-#: only AFTER G4, so — like the typing term — the flat per-staged-doc
-#: allowance stays an honest upper bound, not an exact count.
+#: regex spans as Choice options, two questions). The loop bills PER CLAIM,
+#: so the pre-flight's honest worst case for a doc is the bulk extract's own
+#: per-doc claim cap (:data:`src.llm.implement.MAX_CLAIMS_DEEP`) times this
+#: allowance — see the projection below.
 _VALUE_EXTRACTION_TOKEN_ALLOWANCE = 200
 
 #: Default cap on completeness escalations per run (config/decide.yaml
@@ -392,8 +394,9 @@ def _implement_pass(
     # Completeness-verify cascade (wave-2): OPT-IN — the term (and the gate
     # below) is counted only when the config block EXISTS and is enabled, so
     # cfgs without the block (every pre-wave-2 config) keep today's exact
-    # projection. One verify request per five-fields doc + one per potential
-    # escalation, ~700 tokens each.
+    # projection. The worst case the cascade can actually bill: ONE verify
+    # request for the longest doc plus one RE-verification per escalation,
+    # up to max_escalations of them, ~700 tokens each.
     completeness_cfg = _gate_cfg(decide_cfg, "completeness_verify")
     completeness_on = bool(completeness_cfg) and completeness_cfg.get("enabled", True)
     try:
@@ -401,7 +404,7 @@ def _implement_pass(
     except (TypeError, ValueError):
         max_escalations = _DEFAULT_MAX_ESCALATIONS
     if completeness_on and docs and fields_model:
-        projected += 2 * _COMPLETENESS_TOKEN_ALLOWANCE
+        projected += (1 + max_escalations) * _COMPLETENESS_TOKEN_ALLOWANCE
     # Taxonomy typing (wave-2): OPT-IN like the cascade — the term (and the
     # battery below) is counted only when the config block EXISTS and is
     # enabled, so cfgs without the block keep today's exact projection. ONE
@@ -424,14 +427,16 @@ def _implement_pass(
     # Value extraction (wave-2): OPT-IN like the cascade, typing and dates —
     # the term (and the battery below) is counted only when the config block
     # EXISTS and is enabled, so cfgs without the block keep today's exact
-    # projection. ONE small request per money-bearing ACCEPTED claim (~200
-    # tokens); money-bearing-ness is known only after G4 + the regex scan,
-    # so every staged doc is counted (the typing term's documented honest
-    # upper bound).
+    # projection. The battery bills PER MONEY-BEARING ACCEPTED claim (one
+    # small ~200-token request each); money-bearing-ness is known only after
+    # G4 + the regex scan, so the honest worst case is the bulk extract's own
+    # per-doc claim cap multiplied out: len(docs) * MAX_CLAIMS_DEEP requests.
     amounts_cfg = _gate_cfg(decide_cfg, "value_extraction")
     amounts_on = bool(amounts_cfg) and amounts_cfg.get("enabled", True)
     if amounts_on and docs:
-        projected += len(docs) * _VALUE_EXTRACTION_TOKEN_ALLOWANCE
+        projected += (
+            len(docs) * llm_implement.MAX_CLAIMS_DEEP * _VALUE_EXTRACTION_TOKEN_ALLOWANCE
+        )
     projected += _G1_TOKEN_ALLOWANCE + _G2_TOKEN_ALLOWANCE + _G5_TOKEN_ALLOWANCE
     decider_cfg = decide_cfg.get("decider") or {}
     try:
@@ -881,7 +886,15 @@ def _implement_pass(
         # RE-VERIFIED, so a doc that stays unknown re-escalates until the
         # per-run cap. Shadow rows record the verdict while the gate returns
         # an empty fired list — this block then changes nothing.
-        if completeness_on:
+        # A FAILED extract (None — the never-raise contract) is NOT five
+        # honest unknowns: judging it would escalate futilely (the two
+        # providers can disagree in health) and misattribute the closing
+        # gap, so the cascade is skipped with its own gap line instead.
+        if fields is None:
+            result["gaps"].append(
+                "five-fields extraction failed; completeness cascade skipped"
+            )
+        elif completeness_on:
             escalations = 0
             quarantined = 0
             while True:
@@ -902,6 +915,16 @@ def _implement_pass(
                 ]
                 unknown_fired = [f for f in fired if f not in present_fired]
                 for field in present_fired:
+                    # Quarantine ONLY the fill this pass's judgment covers:
+                    # the stored entry's text must equal the judged RAW text.
+                    # An escalation re-run's re-write of a previously
+                    # grounded field was never judged (its good fill
+                    # survives), and an already-quarantined or never-stored
+                    # field is a no-op pop that must not re-increment.
+                    raw_text = (fields.get(field) or {}).get("text")
+                    entry = result["llm_fields"].get(field)
+                    if not isinstance(entry, dict) or entry.get("text") != raw_text:
+                        continue
                     result["llm_fields"].pop(field, None)
                     quarantined += 1
                     logger.debug(
@@ -920,6 +943,15 @@ def _implement_pass(
                     break
                 escalations += 1
                 fields, refilled = _extract_and_screen()
+                if fields is None:
+                    # The re-run FAILED the same way (never-raise contract):
+                    # judging its None would read as five fresh unknowns and
+                    # escalate futilely while the providers disagree in
+                    # health — stop here with the honest cause.
+                    result["gaps"].append(
+                        "five-fields extraction failed; completeness cascade skipped"
+                    )
+                    break
                 for field in unknown_fired:
                     if field in refilled:
                         entry = dict(refilled[field])

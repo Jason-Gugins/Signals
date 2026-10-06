@@ -323,8 +323,9 @@ class Orchestrator:
         """Jev entity-alignment annotation for the discover frames (Task 7).
 
         Silent no-op unless ALL of: the decide layer is resolvable (mode
-        != off, config readable), the ``entity_alignment`` gate is enabled,
-        and a live decider attaches (the discover frame is scope-guard
+        != off, config readable), the ``entity_alignment`` block EXISTS and
+        is enabled (the wave-2/3 opt-in convention: an absent block defaults
+        OFF), and a live decider attaches (the discover frame is scope-guard
         authorized; missing keys/consent => NullDecider). Credential-less
         degradation: the sweep NEVER fails or gaps for the decide layer —
         any failure is a warning and the candidates pass through unannotated
@@ -342,7 +343,11 @@ class Orchestrator:
             decide_cfg = _decide_cfg_of(self.config)
             mode = decide_policy.resolve_mode(decide_cfg)
             gate_cfg = _gate_block(decide_cfg, "entity_alignment")
-            if mode == "off" or not gate_cfg.get("enabled", True):
+            # OPT-IN (the wave-2/3 convention): the block must EXIST and be
+            # enabled — an ABSENT block defaults OFF, so every pre-wave-3
+            # config keeps the byte-identical unannotated queue even with
+            # the layer on and a decider in scope.
+            if mode == "off" or not gate_cfg or not gate_cfg.get("enabled", True):
                 return
             # The discover frame is an allowed attach site (policy v2); a
             # NullDecider means no keys/consent — skip silently.
@@ -365,8 +370,10 @@ class Orchestrator:
                 name,
                 run_id,
             )
-        except Exception as exc:  # never fail the sweep for the decide layer
-            logger.warning("entity alignment skipped for {!r}: {}", name, exc)
+        except Exception:  # never fail the sweep for the decide layer
+            # logger.exception keeps the sweep-never-fails posture but makes
+            # a systematic bug diagnosable (the traceback rides the log).
+            logger.exception("entity alignment skipped for {!r}", name)
 
     def discover(self, name: str, ddg: bool = False) -> dict:
         """Opt-in name->domain discovery waterfall (plan T4).

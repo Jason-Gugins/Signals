@@ -65,6 +65,7 @@ import json
 import math
 import re
 import time
+from datetime import date, timedelta
 from pathlib import Path
 
 from loguru import logger
@@ -1823,3 +1824,465 @@ def classify_claims(
     # the dict comes back empty so shadow dossiers carry no proposals (the
     # clean A/B against enforce's enrichment).
     return proposals if enforce else {}
+
+
+# --- event dates (wave-2): code-side calendar assembly --------------------------
+
+
+#: Confidence at or above which an extracted date stands without review —
+#: below it the result routes to review with ``event_at`` None (a date is
+#: never enriched on a hunch). Read from the ``event_dates`` gate block's
+#: ``review_below`` key via ``_threshold`` over this default.
+REVIEW_BELOW = 0.60
+
+#: The year options the battery offers (the date cookbook's range) and the
+#: missing-year bump horizon: an absolute date without a stated year more
+#: than this many days before the pinned reference is pulled to the NEXT year
+#: (a no-year date that far past is next year's occurrence).
+DATE_YEAR_MIN = 1900
+DATE_YEAR_MAX = 2050
+DATE_YEAR_BUMP_DAYS = 31
+
+#: Weekday option values in Python ``date.weekday()`` order (Monday=0).
+_WEEKDAY_OPTIONS = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+_WEEKDAY_INDEX = {name: index for index, name in enumerate(_WEEKDAY_OPTIONS)}
+
+#: Relative anchors that need no weekday: the pinned day plus a fixed offset.
+_DAY_ANCHOR_OFFSETS = {"today": 0, "tomorrow": 1, "day_after": 2}
+
+_MONTH_NAMES = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+
+#: The date battery's fixed question ids (the seven Choice questions).
+_EVENT_QIDS = ("mode", "month", "day", "year", "day_anchor", "weekday", "week_offset")
+
+
+def _event_date_questions() -> dict[str, dict]:
+    """The date battery's SEVEN Choice questions — fixed ids, every option
+    value mapped to a short description. The year list ships IN FULL (151
+    in-range years plus the two escapes, one compact dict): the model PICKS,
+    code assembles — no year pre-extraction in v1."""
+    return {
+        "mode": {
+            "type": "choice",
+            "instructions": (
+                "What kind of date does this document state for the event it "
+                "describes? Pick one option. Do NOT compute calendar dates."
+            ),
+            "criteria": {
+                "absolute": "a stated calendar date (a month and day, maybe a year)",
+                "relative": (
+                    "a date relative to the document's frame (today, tomorrow, "
+                    "a weekday, a week)"
+                ),
+                "none": "no event date is stated",
+            },
+        },
+        "month": {
+            "type": "choice",
+            "instructions": (
+                "Which month does the stated event date fall in? Pick one option."
+            ),
+            "criteria": {
+                **{str(m): _MONTH_NAMES[m - 1] for m in range(1, 13)},
+                "none": "no month is stated or determinable",
+            },
+        },
+        "day": {
+            "type": "choice",
+            "instructions": (
+                "Which day of the month does the stated event date fall on? Pick one option."
+            ),
+            "criteria": {
+                **{str(d): f"day {d} of the month" for d in range(1, 32)},
+                "none": "no day of month is stated or determinable",
+            },
+        },
+        "year": {
+            "type": "choice",
+            "instructions": "Which year does the stated event date fall in? Pick one option.",
+            "criteria": {
+                **{str(y): f"the year {y}" for y in range(DATE_YEAR_MIN, DATE_YEAR_MAX + 1)},
+                "none": "no year is stated",
+                "out_of_range": "a year is stated but outside the listed range",
+            },
+        },
+        "day_anchor": {
+            "type": "choice",
+            "instructions": (
+                "If the date is relative, what does the document anchor it to? Pick one option."
+            ),
+            "criteria": {
+                "today": "the day the document speaks from ('today')",
+                "tomorrow": "the day after the document's 'today'",
+                "day_after": "two days after the document's 'today'",
+                "weekday": "a named weekday",
+                "none": "not a relative date, or no anchor is stated",
+            },
+        },
+        "weekday": {
+            "type": "choice",
+            "instructions": "Which weekday does the stated event date fall on? Pick one option.",
+            "criteria": {
+                **{name: name.capitalize() for name in _WEEKDAY_OPTIONS},
+                "none": "no weekday is stated or determinable",
+            },
+        },
+        "week_offset": {
+            "type": "choice",
+            "instructions": (
+                "When a weekday is named, which week does it fall in? Pick one option."
+            ),
+            "criteria": {
+                "next": "the following calendar week",
+                "current": "the current calendar week",
+                "none": "no week offset is stated",
+            },
+        },
+    }
+
+
+def _int_option(label: str | None, low: int, high: int) -> int | None:
+    """A Choice label as an int within [low, high]; None when there is no
+    answer, the label is not an integer, or it falls outside the range."""
+    if label is None:
+        return None
+    try:
+        value = int(label)
+    except ValueError:
+        return None
+    return value if low <= value <= high else None
+
+
+def _assemble_date(year: int, month: int, day: int) -> date | None:
+    """``date(year, month, day)``, or None when the calendar has no such day
+    (Feb 30, a Feb 29 against a non-leap year, month 13, day 32, ...)."""
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _answer_confidence(answers, qid: str, label: str | None) -> float | None:
+    """The confidence one date answer carries: the answer's own
+    ``confidence`` field when it holds a usable number (the date cookbook's
+    per-question confidence), else the top-choice probability from the
+    ``probabilities`` map (the house ``_choice_prob`` convention)."""
+    ans = (answers or {}).get(qid)
+    if isinstance(ans, dict):
+        value = ans.get("confidence")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return _choice_prob(answers, qid, label) if label is not None else None
+
+
+def extract_event_date(
+    doc_id: str,
+    doc_text: str | None,
+    doc_fetched_at: str | None,
+    decider,
+    gate_cfg: dict | None,
+    ledger: DecideLedger,
+    run_id: str,
+    mode: str,
+) -> dict:
+    """Event-date extraction — the date cookbook's select-don't-compute
+    battery for ONE document.
+
+    ONE batched Jev request with SEVEN fixed Choice questions (ids
+    ``mode``/``month``/``day``/``year``/``day_anchor``/``weekday``/
+    ``week_offset``, see :func:`_event_date_questions`). THE MODEL NEVER
+    DOES CALENDAR MATH: it only classifies what the document states; pure
+    code assembles the date against a PINNED reference —
+    ``TODAY = date.fromisoformat(doc_fetched_at[:10])`` (backfill-safe:
+    re-running an old document never bends its relative dates toward the
+    run's wall clock, and the pinned date is never handed to the model).
+
+    Assembly conventions (IN CODE, one Jev call, no second pass):
+
+    - absolute: ``date(year, month, day)``. A month/day that is missing,
+      the ``none`` escape, or not a usable option value routes to review
+      ("absolute date incomplete: ..."). A year answered ``none`` is the
+      missing-year convention: the PINNED year, bumped +1 when the assembled
+      date sits more than :data:`DATE_YEAR_BUMP_DAYS` before the pinned
+      reference (and, when the pinned year has no such calendar day — a Feb
+      29 against a non-leap pinned year — the bump year is the one fallback
+      before the date is declared impossible). A year SILENTLY unanswered is
+      incomplete: silence is not the stated "no year". A stated year outside
+      :data:`DATE_YEAR_MIN`-:data:`DATE_YEAR_MAX` (the ``out_of_range``
+      escape or any raw out-of-range value) routes to review ("year stated
+      but out of range"). Calendar-impossible combos route to review
+      ("impossible date YYYY-MM-DD").
+    - relative: resolved against the pinned day. ``today``/``tomorrow``/
+      ``day_after`` are fixed offsets off the pinned day (any ``week_offset``
+      answer is then not a used part). A weekday resolves to the NEXT
+      occurrence ON OR AFTER the pinned day (the pinned day itself counts);
+      a ``week_offset`` of ``current``/``next`` switches to calendar weeks —
+      this week's / the following week's matching weekday (a current-week
+      weekday may sit before the pinned day; that is what "this week's"
+      means). A relative answer with no usable weekday routes to review.
+    - ``mode`` ``none`` — or no mode answer — routes to review ("no date
+      stated"): the document's fetched_at stays the observed date, a date is
+      NEVER fabricated.
+
+    Confidence = MIN over the parts the resolved mode ACTUALLY used, each
+    contributing its per-answer confidence (via ``_answer_confidence``);
+    parts not read for the mode are excluded from the min — the whole
+    month/day/year triple for a relative date, the anchor triple for an
+    absolute one, a ``none`` year resolved by code, an ignored
+    ``week_offset``. A used part without a usable confidence contributes
+    nothing; when NO used part carries one, confidence is None. Every
+    review path returns ``{event_at: None, needs_review: True, note:
+    <reason>}`` with ``needs_review`` set by confidence below
+    ``review_below`` (:data:`REVIEW_BELOW` via ``_threshold``), by an
+    unresolvable assembly, or by mode none — and by a confidence of None
+    ("no confidence reported": no confidence signal, no enrichment).
+
+    Returns ``{event_at, confidence, needs_review, note}`` (``event_at`` an
+    ISO ``YYYY-MM-DD`` string or None). Rows: boundary "event_dates", ONE
+    row per doc carrying all seven answers, the confidence as ``noul``, and
+    the assembled date as an ``event_at`` extra plus in ``reason`` (outcome
+    "extracted"; every review path "reviewed" with the note as the reason).
+
+    Skip postures (all ``{event_at: None, needs_review: False}``): a
+    NullDecider ("unavailable", not-applicable row), a Jev error —
+    ``on_error: skip``, the deterministic output is untouched ("unavailable",
+    errored row), an unparseable/missing ``doc_fetched_at`` ("unparseable
+    fetched_at" — NO Jev call at all: every assembly rule anchors on the
+    pinned reference, so an unusable one means no extraction), and shadow
+    ("shadow" — the battery still runs and the rows record what enforce
+    WOULD do, but enrichment is enforce-only, a clean A/B).
+    """
+    cfg = _cfg(gate_cfg)
+    enforce = mode == "enforce"
+    review_below = _threshold(cfg, "review_below", REVIEW_BELOW)
+
+    def _skip(note: str) -> dict:
+        return {"event_at": None, "confidence": None, "needs_review": False, "note": note}
+
+    try:
+        pinned = date.fromisoformat(str(doc_fetched_at or "")[:10])
+    except ValueError:
+        ledger.record(
+            _row(
+                "event_dates", {"doc_id": doc_id, "text": ""}, decider, run_id,
+                answers=None, deterministic_action="no_event_date", agree=None,
+                agree_direction=None, error=None, latency_ms=0.0, raw_tokens=0,
+                called=False, reason="unparseable fetched_at",
+            )
+        )
+        return _skip("unparseable fetched_at")
+
+    state: dict = {
+        "doc_id": doc_id,
+        "text": truncate(doc_text, _DOC_STATE_TOKENS * _WINDOW_CHARS_PER_TOKEN) or "",
+    }
+    decision, latency_ms = _call(decider, state, _event_date_questions())
+    called = bool(decision.applies)
+    raw_tokens = int(decision.raw_tokens or 0)
+
+    if not decision.applies:
+        # Not applicable (NullDecider / unmatched mock): the deterministic
+        # baseline (no event dates) stands; the row inflates no counts.
+        ledger.record(
+            _row(
+                "event_dates", state, decider, run_id,
+                answers=None, deterministic_action="no_event_date", agree=None,
+                agree_direction=None, error=None, latency_ms=latency_ms,
+                raw_tokens=raw_tokens, called=False,
+            )
+        )
+        return _skip("unavailable")
+
+    if not decision.ok:
+        # on_error: skip — the deterministic output stands; the error is
+        # recorded (the enforce fallback convention: agree False).
+        ledger.record(
+            _row(
+                "event_dates", state, decider, run_id,
+                answers=None, deterministic_action="no_event_date",
+                agree=False if enforce else None, agree_direction=None,
+                error="jev_error", latency_ms=latency_ms, raw_tokens=raw_tokens,
+                called=called, outcome="errored",
+            )
+        )
+        logger.debug(
+            "event-date battery errored for {}; no date extracted (run={})", doc_id, run_id
+        )
+        return _skip("unavailable")
+
+    answers = decision.answers or {}
+    parts: list[float] = []
+
+    def _used(qid: str, label: str | None) -> None:
+        """Fold one USED part's confidence into the min; a used part without
+        a usable confidence contributes nothing (documented)."""
+        value = _answer_confidence(answers, qid, label)
+        if value is not None:
+            parts.append(value)
+
+    # Route IN CODE off the mode answer; assemble the date against the pinned
+    # reference. ``note`` non-None marks a review path; ``event_at`` is set
+    # ONLY by a successful assembly — nothing below ever fabricates one.
+    mode_label = _choice_of(answers, "mode")
+    event_at: str | None = None
+    note: str | None = None
+    if mode_label is None or mode_label == "none":
+        _used("mode", mode_label)
+        note = "no date stated"
+    elif mode_label == "absolute":
+        month_label = _choice_of(answers, "month")
+        day_label = _choice_of(answers, "day")
+        year_label = _choice_of(answers, "year")
+        month = _int_option(month_label, 1, 12)
+        day = _int_option(day_label, 1, 31)
+        _used("mode", mode_label)
+        if month is not None:
+            _used("month", month_label)
+        if day is not None:
+            _used("day", day_label)
+        missing: list[str] = []
+        if month is None:
+            missing.append("month")
+        if day is None:
+            missing.append("day")
+        year: int | None = None
+        year_out_of_range = False
+        if year_label is None:
+            missing.append("year")  # silence is not the stated "no year"
+        elif year_label == "none":
+            pass  # the missing-year convention supplies the pinned year below
+        elif year_label == "out_of_range":
+            year_out_of_range = True
+        else:
+            try:
+                stated = int(year_label)
+            except ValueError:
+                missing.append("year")
+            else:
+                if DATE_YEAR_MIN <= stated <= DATE_YEAR_MAX:
+                    year = stated
+                    _used("year", year_label)
+                else:
+                    year_out_of_range = True
+        if missing:
+            note = "absolute date incomplete: " + ", ".join(missing)
+        elif year_out_of_range:
+            note = "year stated but out of range"
+        elif year is not None:
+            candidate = _assemble_date(year, month, day)
+            if candidate is None:
+                note = f"impossible date {year:04d}-{month:02d}-{day:02d}"
+            else:
+                event_at = candidate.isoformat()
+        else:
+            # Missing-year convention: the PINNED year, bumped +1 when the
+            # assembled date sits more than DATE_YEAR_BUMP_DAYS before the
+            # pinned reference; a pinned year without the calendar day tries
+            # the bump year before the date is declared impossible.
+            candidate = _assemble_date(pinned.year, month, day)
+            if candidate is None:
+                candidate = _assemble_date(pinned.year + 1, month, day)
+                if candidate is None:
+                    note = f"impossible date {pinned.year:04d}-{month:02d}-{day:02d}"
+            elif (pinned - candidate).days > DATE_YEAR_BUMP_DAYS:
+                candidate = _assemble_date(pinned.year + 1, month, day)
+                if candidate is None:
+                    note = (
+                        f"impossible date {pinned.year + 1:04d}-"
+                        f"{month:02d}-{day:02d}"
+                    )
+            if note is None:
+                event_at = candidate.isoformat()
+    elif mode_label == "relative":
+        _used("mode", mode_label)
+        anchor = _choice_of(answers, "day_anchor")
+        weekday_label = _choice_of(answers, "weekday")
+        offset_label = _choice_of(answers, "week_offset")
+        if anchor in _DAY_ANCHOR_OFFSETS:
+            _used("day_anchor", anchor)
+            resolved = pinned + timedelta(days=_DAY_ANCHOR_OFFSETS[anchor])
+            event_at = resolved.isoformat()
+        elif weekday_label in _WEEKDAY_INDEX:
+            _used("weekday", weekday_label)
+            target = _WEEKDAY_INDEX[weekday_label]
+            if offset_label in ("next", "current"):
+                # Calendar weeks: this week's / the following week's matching
+                # weekday (a current-week weekday may sit before the pinned
+                # day — that is what "this week's" means).
+                _used("week_offset", offset_label)
+                week_start = pinned - timedelta(days=pinned.weekday())
+                resolved = week_start + timedelta(days=target)
+                if offset_label == "next":
+                    resolved += timedelta(days=7)
+            else:
+                # Bare weekday: the next occurrence ON OR AFTER the pinned
+                # day (the pinned day itself counts).
+                resolved = pinned + timedelta(days=(target - pinned.weekday()) % 7)
+            event_at = resolved.isoformat()
+        else:
+            note = "relative date without a weekday"
+    else:
+        # An out-of-criteria mode answer: no usable verdict, review.
+        _used("mode", mode_label)
+        note = "unknown mode answer"
+
+    confidence = min(parts) if parts else None
+    if note is None:
+        if confidence is None:
+            # A resolved date no used part attached a confidence to: the
+            # honest reading is review, not silent enrichment.
+            note = "no confidence reported"
+        elif confidence < review_below:
+            note = f"confidence {confidence:.2f} below review_below {review_below:.2f}"
+    if note is not None:
+        # Review / no-date: event_at stays None and fetched_at remains the
+        # document's observed date — a date is never fabricated, and nothing
+        # here contradicts the deterministic baseline (nothing was added).
+        ledger.record(
+            _row(
+                "event_dates", state, decider, run_id,
+                answers=dict(decision.answers), deterministic_action="no_event_date",
+                agree=True, agree_direction="match", error=None,
+                latency_ms=latency_ms, raw_tokens=raw_tokens, called=called,
+                outcome="reviewed", noul=confidence, reason=note,
+            )
+        )
+        if enforce:
+            return {"event_at": None, "confidence": confidence, "needs_review": True, "note": note}
+        return _skip("shadow")
+
+    # A resolved, confident date: the row records it (shadow included — the
+    # would-be outcome); ENFORCE returns it as enrichment, shadow stays inert.
+    row = _row(
+        "event_dates", state, decider, run_id,
+        answers=dict(decision.answers), deterministic_action="no_event_date",
+        agree=False, agree_direction=None, error=None,
+        latency_ms=latency_ms, raw_tokens=raw_tokens, called=called,
+        outcome="extracted", noul=confidence, reason=f"event_at {event_at}",
+    )
+    row["event_at"] = event_at
+    ledger.record(row)
+    if enforce:
+        return {"event_at": event_at, "confidence": confidence, "needs_review": False, "note": ""}
+    return _skip("shadow")

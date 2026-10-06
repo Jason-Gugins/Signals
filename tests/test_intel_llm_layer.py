@@ -2101,3 +2101,272 @@ def test_taxonomy_typing_preflight_term_degrades_run_to_shadow(tmp_path, monkeyp
     assert result["decide"]["degraded"] is False
     assert not any("token budget" in gap for gap in result["gaps"])
     assert respx.calls.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 14. Event-date wiring: extract_event_date rides _implement_pass for docs
+#     with >= 1 accepted claim; event_at threads into evidence_data while
+#     observed_at STAYS the document's fetched_at (the map's carrier
+#     decision — no schema change, no decay change)
+# ---------------------------------------------------------------------------
+
+
+#: Mirrors config/decide.yaml's wave-2 block (the date battery's opt-in).
+DATES_GATE_CFG = {"enabled": True, "review_below": 0.60, "on_error": "skip"}
+
+DATE_QIDS = ["mode", "month", "day", "year", "day_anchor", "weekday", "week_offset"]
+
+
+def _dates_cfg(mode="enforce", **decider_overrides):
+    """A decide cfg WITH the event_dates block (the wave-2 opt-in: cfgs
+    without the block keep today's behavior exactly)."""
+    cfg = _decide_cfg(mode, **decider_overrides)
+    cfg["decider"]["gates"]["event_dates"] = dict(DATES_GATE_CFG)
+    return cfg
+
+
+def _dates_answers(
+    mode="absolute",
+    month="8",
+    day="15",
+    year="2026",
+    anchor="none",
+    weekday="none",
+    week_offset="none",
+    conf=0.95,
+):
+    """The seven answers the date battery reads; every answer carries its
+    per-question confidence."""
+    return {
+        "mode": {"choice": mode, "confidence": conf},
+        "month": {"choice": month, "confidence": conf},
+        "day": {"choice": day, "confidence": conf},
+        "year": {"choice": year, "confidence": conf},
+        "day_anchor": {"choice": anchor, "confidence": conf},
+        "weekday": {"choice": weekday, "confidence": conf},
+        "week_offset": {"choice": week_offset, "confidence": conf},
+    }
+
+
+class _DatesDecider(MockDecider):
+    """_high_decider plus scripted answers for the date battery (one
+    Decision under each of the seven question ids) and a record of every
+    request for wiring assertions."""
+
+    def __init__(self, answers: dict) -> None:
+        decision = Decision(applies=True, ok=True, answers=dict(answers), raw_tokens=60)
+        verdicts = dict(_high_decider().verdicts)
+        for qid in DATE_QIDS:
+            verdicts[qid] = decision
+        super().__init__(verdicts)
+        self.requests: list[tuple[object, dict]] = []
+
+    def decide(self, state, questions):
+        self.requests.append((state, dict(questions)))
+        return super().decide(state, questions)
+
+
+def _date_requests(decider):
+    """The date battery's requests among all the decider saw."""
+    return [(state, q) for state, q in decider.requests if "mode" in q]
+
+
+@respx.mock
+def test_event_date_lands_in_evidence_data_observed_at_unchanged(tmp_path, monkeypatch):
+    """Enforce: ONE date request for the claim-bearing doc; the assembled
+    event_at threads into every candidate's evidence_data through the REAL
+    normalize path while observed_at STAYS the document's fetched_at — the
+    extracted date rides evidence_data only."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _DatesDecider(_dates_answers(month="8", day="20"))
+    _patch_layer(monkeypatch, decide_cfg=_dates_cfg(), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(monkeypatch, claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}], fields={})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"
+    assert stage["claims_accepted"] == 1
+    assert stage["event_dates_extracted"] == 1
+
+    # exactly ONE date request, with the seven fixed question ids
+    requests = _date_requests(decider)
+    assert len(requests) == 1
+    state, questions = requests[0]
+    assert sorted(questions) == sorted(DATE_QIDS)
+    assert state["doc_id"] == "doc-1"
+
+    assert len(orch.signal_store.upserted) == 1
+    sig = orch.signal_store.upserted[0]
+    assert sig.signal_type == "llm_need"  # the deterministic type is untouched
+    assert sig.evidence_data["event_at"] == "2026-08-20"
+    assert "event_at_needs_review" not in sig.evidence_data
+    # observed_at STAYS the document's fetched_at (normalized through the
+    # REAL path): the event date never becomes the observed date
+    assert sig.observed_at == "2026-08-15"
+
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    date_rows = [r for r in rows if r["gate"] == "event_dates"]
+    assert [r["outcome"] for r in date_rows] == ["extracted"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_event_date_only_for_claim_bearing_docs(tmp_path, monkeypatch):
+    """ONLY docs with >= 1 accepted claim are dated: a doc whose bulk pass
+    yields nothing costs NO date request (the yield-bounded fan-out)."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1), _doc("doc-2", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+
+    def fake_call_implementer(messages, *, model, base_url, api_key, reasoning_effort=None,
+                              timeout_s=60.0):
+        if "Document doc_id: doc-1" in messages[1]["content"]:
+            return {"claims": [{"text": CLAIM_TEXT, "doc_id": "doc-1"}]}
+        return {"claims": []}
+
+    monkeypatch.setattr(intel.llm_implement, "call_implementer", fake_call_implementer)
+    decider = _DatesDecider(_dates_answers())
+    _patch_layer(monkeypatch, decide_cfg=_dates_cfg(), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    assert result["stages"]["implement"]["claims_accepted"] == 1
+    requests = _date_requests(decider)
+    assert len(requests) == 1  # doc-2 (zero accepted claims) made NO date request
+    assert requests[0][0]["doc_id"] == "doc-1"
+    assert result["stages"]["implement"]["event_dates_extracted"] == 1
+    assert all(
+        sig.evidence_data.get("doc_id") == "doc-1" for sig in orch.signal_store.upserted
+    )
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_event_date_needs_review_marks_evidence_without_event_at(tmp_path, monkeypatch):
+    """A review-routed date (mode=none here) threads event_at_needs_review
+    into the evidence_data — and NEVER a fabricated event_at; the stage's
+    extracted count stays 0."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _DatesDecider(_dates_answers(mode="none"))
+    _patch_layer(monkeypatch, decide_cfg=_dates_cfg(), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(monkeypatch, claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}], fields={})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    # zero extractions: the stage record carries no count (the claims_typed
+    # convention — the key appears only when N > 0)
+    assert "event_dates_extracted" not in result["stages"]["implement"]
+    assert len(orch.signal_store.upserted) == 1
+    evidence = orch.signal_store.upserted[0].evidence_data
+    assert evidence.get("event_at_needs_review") is True
+    assert "event_at" not in evidence
+    rows = [
+        json.loads(line)
+        for line in Path(result["paths"]["decisions"]).read_text(encoding="utf-8").splitlines()
+    ]
+    date_rows = [r for r in rows if r["gate"] == "event_dates"]
+    assert [r["outcome"] for r in date_rows] == ["reviewed"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_event_date_disabled_gate_never_requests(tmp_path, monkeypatch):
+    """The event_dates block absent (every pre-wave-2 config): NO date
+    request, no evidence_data delta, no stage count — byte-identical."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    decider = _DatesDecider(_dates_answers())
+    _patch_layer(monkeypatch, decide_cfg=_decide_cfg("enforce"), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(monkeypatch, claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}], fields={})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    assert result["stages"]["implement"]["claims_accepted"] == 1
+    assert "event_dates_extracted" not in result["stages"]["implement"]
+    assert _date_requests(decider) == []
+    assert orch.signal_store.upserted
+    evidence = orch.signal_store.upserted[0].evidence_data
+    assert "event_at" not in evidence
+    assert "event_at_needs_review" not in evidence
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_event_date_preflight_term_degrades_run_to_shadow(tmp_path, monkeypatch):
+    """The pre-flight models the date battery BEFORE the first Jev call: a
+    flat ~700-token allowance per staged doc (claim-bearing-ness is only
+    known after G4, so every staged doc is counted — the documented honest
+    upper bound). Two ~700-token docs over a 23000-token ceiling degrade
+    ONLY because of the dates term; without the block the same run stays
+    enforce."""
+    body = "Acme breach quarter evaluating vendors. " * 70  # 2800 chars ~ 700 tokens
+    decider = _DatesDecider(_dates_answers())
+    orch = FakeOrchLlm(docs=[_doc("doc-1", body), _doc("doc-2", body)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers")
+    orch.snapshot = _snapshot()
+    _patch_coverage(monkeypatch)
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=_dates_cfg("enforce", max_decide_tokens_per_run=23000),
+        decider=decider,
+    )
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(monkeypatch, claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}], fields={})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    # G4 (2x700) + doc gate (2x700) + dates (2x700) + allowances (19400):
+    # the dates term alone pushes the projection over the ceiling.
+    assert any(
+        "decide token budget exceeded (23600 > 23000)" in gap for gap in result["gaps"]
+    ), result["gaps"]
+    assert result["decide"]["mode"] == "shadow"
+    assert result["decide"]["degraded"] is True
+
+    # The SAME run without the dates block stays under the ceiling: the term
+    # is opt-in (cfgs without the block keep today's projection).
+    orch = FakeOrchLlm(docs=[_doc("doc-1", body), _doc("doc-2", body)])
+    orch.config.storage.dossiers_dir = str(tmp_path / "dossiers2")
+    orch.snapshot = _snapshot()
+    _patch_layer(
+        monkeypatch,
+        decide_cfg=_decide_cfg("enforce", max_decide_tokens_per_run=23000),
+        decider=decider,
+    )
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+    assert result["decide"]["mode"] == "enforce"
+    assert result["decide"]["degraded"] is False
+    assert not any("token budget" in gap for gap in result["gaps"])
+    assert respx.calls.call_count == 0

@@ -37,6 +37,7 @@ from src.decide import (
     LEXICAL_OVERLAP_FLOOR,
     OUTPUT_ACTION_THRESHOLD,
     OUTPUT_REVIEW_THRESHOLD,
+    REVIEW_BELOW,
     SEPARATION_MIN,
     Claim,
     DecideLedger,
@@ -46,6 +47,7 @@ from src.decide import (
     anchor_window,
     classify_claims,
     estimate_tokens,
+    extract_event_date,
     gate_citation_batch,
     gate_completeness,
     gate_document,
@@ -2262,3 +2264,458 @@ def test_typing_shadow_records_rows_returns_empty():
     assert row["outcome"] == "proposed_type"  # what enforce WOULD do
     assert row["called"] is True
     assert row["separation"] == 0.95 / 0.30
+
+
+# --- event dates (wave-2): code-side calendar assembly --------------------------
+#
+# extract_event_date asks ONE batched Choice request with SEVEN fixed
+# questions (mode/month/day/year/day_anchor/weekday/week_offset) and NEVER
+# lets the model do calendar math: pure code assembles the date against a
+# PINNED reference — the document's fetched_at date. Confidence is the MIN
+# over the parts the resolved mode actually used; below review_below (or
+# mode=none / unresolvable) routes to review with event_at None — a date is
+# never fabricated and fetched_at stays the observed date. Shadow records
+# the would-be rows and returns the inert posture; NullDecider, a Jev error
+# and an unparseable fetched_at all skip.
+
+#: The pinned reference for every assembly test: 2026-08-15, a SATURDAY
+#: (weekday() == 5). Relative-date expectations below are pinned to it.
+EVENT_FETCHED = "2026-08-15T00:00:00+00:00"
+
+_DATE_QIDS = ["mode", "month", "day", "year", "day_anchor", "weekday", "week_offset"]
+
+
+def _date_ans(label: str, conf: float | None = 0.95) -> dict:
+    answer: dict = {"choice": label}
+    if conf is not None:
+        answer["confidence"] = conf
+    return answer
+
+
+def _date_answers(
+    mode: str = "absolute",
+    month: str = "8",
+    day: str = "15",
+    year: str = "2026",
+    anchor: str = "none",
+    weekday: str = "none",
+    week_offset: str = "none",
+    conf: float | None = 0.95,
+) -> dict:
+    """A full seven-answer battery script; every answer carries its
+    per-question confidence."""
+    return {
+        "mode": _date_ans(mode, conf),
+        "month": _date_ans(month, conf),
+        "day": _date_ans(day, conf),
+        "year": _date_ans(year, conf),
+        "day_anchor": _date_ans(anchor, conf),
+        "weekday": _date_ans(weekday, conf),
+        "week_offset": _date_ans(week_offset, conf),
+    }
+
+
+def _date_decider(answers: dict, *, ok: bool = True) -> CountingDecider:
+    """A decider for the date battery: ONE Decision answers every question
+    (keyed under each of the seven ids — the MockDecider matches exactly)."""
+    decision = Decision(applies=True, ok=ok, answers=answers if ok else {}, raw_tokens=77)
+    return CountingDecider({qid: decision for qid in _DATE_QIDS})
+
+
+def test_event_date_review_below_constant():
+    assert REVIEW_BELOW == 0.60
+
+
+def test_event_date_absolute_full_date():
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers())
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert decider.n_calls == 1
+    assert result == {
+        "event_at": "2026-08-15",
+        "confidence": 0.95,
+        "needs_review": False,
+        "note": "",
+    }
+    row = ledger.rows[0]
+    assert row["gate"] == "event_dates"
+    assert row["boundary"] == "event_dates"
+    assert row["outcome"] == "extracted"
+    assert row["event_at"] == "2026-08-15"  # the assembled date rides the row
+    assert row["reason"] == "event_at 2026-08-15"
+    assert row["noul"] == 0.95  # the confidence is the row's noul sample
+    assert set(row["answers"]) == set(_DATE_QIDS)
+    assert row["called"] is True and row["raw_tokens"] == 77
+
+
+def test_event_date_absolute_missing_year_pinned_and_bumped():
+    """A stated-none year is the missing-year convention: the PINNED year,
+    bumped +1 only when the assembled date sits MORE than 31 days before the
+    pinned reference (exactly 31 stays). The pinned year comes from the
+    fetched_at, and the code-supplied year is not a model-used part (its
+    low confidence cannot drag the min)."""
+    # "August 1st" (no year): 14 days before the pinned date -> pinned year
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(month="8", day="1", year="none"))
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["event_at"] == "2026-08-01"
+    assert result["needs_review"] is False
+    # exactly 31 days before is not MORE than 31 -> no bump (July 15th)
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(month="7", day="15", year="none"))
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["event_at"] == "2026-07-15"
+    # "March 10th" (no year): 158 days before -> the NEXT year
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(month="3", day="10", year="none"))
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["event_at"] == "2027-03-10"
+    # the year was resolved in CODE: its 0.10 confidence is not a used part
+    answers = _date_answers(month="3", day="10", year="none")
+    answers["year"] = _date_ans("none", 0.10)
+    ledger = DecideLedger()
+    decider = _date_decider(answers)
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["confidence"] == 0.95
+
+
+def test_event_date_relative_resolves_against_the_pinned_date():
+    """The pinned day (2026-08-15, a Saturday) anchors every relative rule:
+    a bare weekday is the next occurrence ON OR AFTER it (the pinned day
+    itself counts), and today/tomorrow/day_after are fixed offsets."""
+    cases = [
+        # (day_anchor, weekday, expected)
+        ("weekday", "monday", "2026-08-17"),  # next Monday on or after Saturday
+        ("weekday", "saturday", "2026-08-15"),  # the pinned day IS that weekday
+        ("today", "none", "2026-08-15"),
+        ("tomorrow", "none", "2026-08-16"),
+        ("day_after", "none", "2026-08-17"),
+        # a bare weekday with no day_anchor answer follows the same rule
+        ("none", "friday", "2026-08-21"),
+    ]
+    for anchor, weekday, expected in cases:
+        ledger = DecideLedger()
+        decider = _date_decider(_date_answers(mode="relative", anchor=anchor, weekday=weekday))
+        result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+        assert result["event_at"] == expected, (anchor, weekday)
+        assert result["needs_review"] is False, (anchor, weekday)
+
+
+def test_event_date_relative_week_offset_uses_calendar_weeks():
+    """week_offset overrides the on-or-after rule with calendar weeks: the
+    pinned Saturday's week starts Monday 2026-08-10, so "current" Friday is
+    08-14 (before the pinned day — that is what this week's means) and
+    "next" Friday is 08-21."""
+    cases = [("current", "2026-08-14"), ("next", "2026-08-21")]
+    for offset, expected in cases:
+        ledger = DecideLedger()
+        decider = _date_decider(
+            _date_answers(mode="relative", anchor="weekday", weekday="friday", week_offset=offset)
+        )
+        result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+        assert result["event_at"] == expected, offset
+        assert result["needs_review"] is False, offset
+
+
+def test_event_date_relative_without_weekday_needs_review():
+    """A relative answer that names no usable weekday cannot resolve: review,
+    event_at None, never a fabricated date."""
+    for anchor in ("weekday", "none"):
+        ledger = DecideLedger()
+        decider = _date_decider(_date_answers(mode="relative", anchor=anchor, weekday="none"))
+        result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+        assert result["event_at"] is None
+        assert result["needs_review"] is True
+        assert result["note"] == "relative date without a weekday"
+        assert ledger.rows[0]["outcome"] == "reviewed"
+        assert ledger.rows[0]["reason"] == "relative date without a weekday"
+
+
+def test_event_date_absolute_incomplete_needs_review():
+    """A missing / none / unusable month or day (and a SILENTLY unanswered
+    year — silence is not the stated "no year") routes to review with the
+    missing parts named."""
+    silent_year = _date_answers()
+    del silent_year["year"]
+    garbage_month = _date_answers(month="August")  # not an option value
+    cases = [
+        (_date_answers(month="none"), "absolute date incomplete: month"),
+        (_date_answers(day="none"), "absolute date incomplete: day"),
+        (silent_year, "absolute date incomplete: year"),
+        (garbage_month, "absolute date incomplete: month"),
+    ]
+    for answers, expected_note in cases:
+        ledger = DecideLedger()
+        decider = _date_decider(answers)
+        result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+        assert result["event_at"] is None, expected_note
+        assert result["needs_review"] is True, expected_note
+        assert result["note"] == expected_note
+        assert ledger.rows[0]["outcome"] == "reviewed"
+
+
+def test_event_date_year_out_of_range_needs_review():
+    """A stated year outside 1900-2050 (the out_of_range escape or a raw
+    out-of-range value) routes to review; the month/day confidence still
+    counts as used."""
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(year="out_of_range"))
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result == {
+        "event_at": None,
+        "confidence": 0.95,
+        "needs_review": True,
+        "note": "year stated but out of range",
+    }
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(year="1871"))
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["note"] == "year stated but out of range"
+
+
+def test_event_date_impossible_dates_need_review():
+    """Calendar-impossible combos route to review with the offending combo
+    named: Feb 30, a stated Feb 29 in a non-leap pinned year, a missing-year
+    Feb 29 neither the pinned nor the bump year has, and a missing-year date
+    whose BUMP lands on a nonexistent calendar day."""
+    cases = [
+        # (year answer, month, day, fetched_at, expected note)
+        ("2026", "2", "30", EVENT_FETCHED, "impossible date 2026-02-30"),
+        ("2026", "2", "29", EVENT_FETCHED, "impossible date 2026-02-29"),
+        ("none", "2", "29", EVENT_FETCHED, "impossible date 2026-02-29"),
+        # pinned 2024-12-15: 2024-02-29 exists but sits >31 days past, and
+        # the bump year 2025 has no Feb 29 — the bump is what failed
+        (
+            "none",
+            "2",
+            "29",
+            "2024-12-15T00:00:00+00:00",
+            "impossible date 2025-02-29",
+        ),
+    ]
+    for year, month, day, fetched, expected_note in cases:
+        ledger = DecideLedger()
+        decider = _date_decider(_date_answers(month=month, day=day, year=year))
+        result = extract_event_date("doc1", DOC, fetched, decider, {}, ledger, RUN, "enforce")
+        assert result["event_at"] is None, expected_note
+        assert result["needs_review"] is True, expected_note
+        assert result["note"] == expected_note, expected_note
+        assert ledger.rows[0]["outcome"] == "reviewed"
+
+
+def test_event_date_mode_none_and_missing_mode_need_review():
+    """mode=none (and no mode answer at all): "no date stated" — the pinned
+    fetched_at stays the observed date, a date is never fabricated."""
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(mode="none"))
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result == {
+        "event_at": None,
+        "confidence": 0.95,
+        "needs_review": True,
+        "note": "no date stated",
+    }
+    assert ledger.rows[0]["outcome"] == "reviewed"
+    # no mode ANSWER at all: same routing, no confidence to report
+    answers = _date_answers()
+    del answers["mode"]
+    ledger = DecideLedger()
+    decider = _date_decider(answers)
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["event_at"] is None
+    assert result["needs_review"] is True
+    assert result["note"] == "no date stated"
+    assert result["confidence"] is None
+
+
+def test_event_date_min_confidence_over_used_parts():
+    """Confidence is the MIN over the parts the resolved mode actually used:
+    a low-confidence month drags an absolute date into review; the month and
+    year answers are NOT read for a relative date and cannot drag it; no
+    confidence anywhere routes to review honestly; the house probabilities
+    map works as a confidence fallback."""
+    # a low-confidence month drags the min below review_below
+    answers = _date_answers()
+    answers["month"] = _date_ans("8", 0.40)
+    ledger = DecideLedger()
+    decider = _date_decider(answers)
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["confidence"] == 0.40
+    assert result["needs_review"] is True and result["event_at"] is None
+    assert result["note"] == "confidence 0.40 below review_below 0.60"
+    assert ledger.rows[0]["outcome"] == "reviewed"
+    assert ledger.rows[0]["noul"] == 0.40
+    # parts NOT read for the resolved mode are excluded from the min
+    answers = _date_answers(mode="relative", anchor="weekday", weekday="monday")
+    answers["month"] = _date_ans("8", 0.10)
+    answers["year"] = _date_ans("2026", 0.10)
+    ledger = DecideLedger()
+    decider = _date_decider(answers)
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["confidence"] == 0.95
+    assert result["event_at"] == "2026-08-17"
+    # no used part carries a confidence: review, honestly
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(conf=None))
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["confidence"] is None and result["needs_review"] is True
+    assert result["note"] == "no confidence reported"
+    # the probabilities-map convention (the house _choice_prob fallback)
+    answers = _date_answers(conf=None)
+    answers["month"] = {"choice": "8", "probabilities": {"8": 0.80}}
+    ledger = DecideLedger()
+    decider = _date_decider(answers)
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["confidence"] == 0.80
+
+
+def test_event_date_review_below_routing_and_config():
+    """review_below routes in code: exactly the threshold is NOT below it;
+    the gate config overrides the module default; a bad config value falls
+    back to the default (the _threshold posture)."""
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(conf=0.60))
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result["needs_review"] is False and result["event_at"] == "2026-08-15"
+    # config raises the bar: 0.95 now reviews
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(conf=0.95))
+    result = extract_event_date(
+        "doc1", DOC, EVENT_FETCHED, decider, {"review_below": 0.99}, ledger, RUN, "enforce"
+    )
+    assert result["needs_review"] is True and result["confidence"] == 0.95
+    # a bad config value falls back to the default 0.60
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(conf=0.59))
+    result = extract_event_date(
+        "doc1", DOC, EVENT_FETCHED, decider, {"review_below": "oops"}, ledger, RUN, "enforce"
+    )
+    assert result["needs_review"] is True and result["confidence"] == 0.59
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers(conf=0.60))
+    result = extract_event_date(
+        "doc1", DOC, EVENT_FETCHED, decider, {"review_below": "oops"}, ledger, RUN, "enforce"
+    )
+    assert result["needs_review"] is False
+
+
+def test_event_date_one_request_seven_questions():
+    """ONE Jev request carrying exactly the seven fixed Choice questions;
+    the state carries only the document (NO fetched-date hint — the model
+    never does calendar math); every criteria dict ships the specified
+    option range COMPACT."""
+    decider = _date_decider(_date_answers())
+    ledger = DecideLedger()
+    extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert decider.n_calls == 1
+    assert len(ledger.rows) == 1  # ONE row per doc
+    state, questions = decider.calls[0]
+    assert list(questions) == _DATE_QIDS
+    assert set(state) == {"doc_id", "text"}
+    assert state["doc_id"] == "doc1"
+    for qid in _DATE_QIDS:
+        assert questions[qid]["type"] == "choice"
+        assert isinstance(questions[qid]["criteria"], dict)
+        assert questions[qid]["criteria"]
+    assert list(questions["mode"]["criteria"]) == ["absolute", "relative", "none"]
+    assert set(questions["month"]["criteria"]) == {str(m) for m in range(1, 13)} | {"none"}
+    assert set(questions["day"]["criteria"]) == {str(d) for d in range(1, 32)} | {"none"}
+    year_keys = set(questions["year"]["criteria"])
+    assert {"1900", "2050", "none", "out_of_range"} <= year_keys
+    assert len(year_keys) == 153  # 151 in-range years + the two escapes
+    assert set(questions["day_anchor"]["criteria"]) == {
+        "today",
+        "tomorrow",
+        "day_after",
+        "weekday",
+        "none",
+    }
+    assert set(questions["weekday"]["criteria"]) == {
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "none",
+    }
+    assert set(questions["week_offset"]["criteria"]) == {"next", "current", "none"}
+
+
+def test_event_date_unparseable_fetched_at_skips_without_jev():
+    """An unparseable/missing fetched_at fails honest WITHOUT any Jev call:
+    every assembly rule anchors on the pinned reference, so an unusable one
+    means no extraction — never a fabricated date."""
+    for bad in (None, "", "not-a-date"):
+        ledger = DecideLedger()
+        decider = _date_decider(_date_answers())
+        result = extract_event_date("doc1", DOC, bad, decider, {}, ledger, RUN, "enforce")
+        assert decider.n_calls == 0, bad
+        assert result == {
+            "event_at": None,
+            "confidence": None,
+            "needs_review": False,
+            "note": "unparseable fetched_at",
+        }
+        assert len(ledger.rows) == 1
+        assert ledger.rows[0]["called"] is False
+
+
+def test_event_date_null_decider_skips():
+    """NullDecider: not applicable — the deterministic behavior (no event
+    dates) stands, one not-applicable row that inflates no counts."""
+    ledger = DecideLedger()
+    result = extract_event_date(
+        "doc1", DOC, EVENT_FETCHED, NullDecider(), {}, ledger, RUN, "enforce"
+    )
+    assert result == {
+        "event_at": None,
+        "confidence": None,
+        "needs_review": False,
+        "note": "unavailable",
+    }
+    assert len(ledger.rows) == 1
+    assert ledger.rows[0]["called"] is False
+    assert "outcome" not in ledger.rows[0]
+    agg = ledger.aggregate("event_dates")
+    assert agg["counts"]["called"] == 0
+    assert agg["input_tokens"] == 0
+
+
+def test_event_date_jev_error_skips():
+    """on_error: skip — a Jev error leaves the deterministic behavior
+    untouched ("unavailable") with the error recorded on the row."""
+    ledger = DecideLedger()
+    decider = _date_decider({}, ok=False)
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "enforce")
+    assert result == {
+        "event_at": None,
+        "confidence": None,
+        "needs_review": False,
+        "note": "unavailable",
+    }
+    assert decider.n_calls == 1
+    row = ledger.rows[0]
+    assert row["outcome"] == "errored"
+    assert row["error"] == "jev_error"
+    assert ledger.aggregate("event_dates")["counts"]["errored"] == 1
+
+
+def test_event_date_shadow_records_rows_returns_shadow():
+    """Shadow never binds: the battery still runs (rows record what enforce
+    WOULD do, assembled date included) while the return stays the inert
+    posture — enforce-only enrichment, a clean A/B."""
+    ledger = DecideLedger()
+    decider = _date_decider(_date_answers())
+    result = extract_event_date("doc1", DOC, EVENT_FETCHED, decider, {}, ledger, RUN, "shadow")
+    assert result == {
+        "event_at": None,
+        "confidence": None,
+        "needs_review": False,
+        "note": "shadow",
+    }
+    assert decider.n_calls == 1
+    row = ledger.rows[0]
+    assert row["outcome"] == "extracted"  # what enforce WOULD do
+    assert row["event_at"] == "2026-08-15"

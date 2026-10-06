@@ -142,6 +142,13 @@ _COMPLETENESS_TOKEN_ALLOWANCE = 700
 #: envelope, an approximation by design like every allowance here.
 _TYPING_TOKEN_ALLOWANCE = 800
 
+#: The event-date battery's per-request allowance (wave-2): ONE date request
+#: per doc WITH accepted claims at ~700 tokens (the seven-question Choice
+#: battery with the full year criteria). Claim-bearing-ness is known only
+#: AFTER G4, so — like the typing term — the flat per-staged-doc allowance
+#: stays an honest upper bound, not an exact count.
+_EVENT_DATES_TOKEN_ALLOWANCE = 700
+
 #: Default cap on completeness escalations per run (config/decide.yaml
 #: ``decider.gates.completeness_verify.max_escalations``).
 _DEFAULT_MAX_ESCALATIONS = 20
@@ -281,7 +288,8 @@ def _implement_pass(
     Returns ``{"docs", "docs_screened", "docs_excluded", "claims_accepted",
     "promoted", "llm_fields", "degraded", "projected_tokens",
     "token_ceiling", "gaps", "five_fields_escalations",
-    "five_fields_quarantined"}``. NEVER raises past the caller's try/except;
+    "five_fields_quarantined", "claims_typed",
+    "event_dates_extracted"}``. NEVER raises past the caller's try/except;
     degradation is expressed by return value, never by aborting the run.
     """
     result: dict = {
@@ -290,6 +298,7 @@ def _implement_pass(
         "docs_excluded": 0,
         "claims_accepted": 0,
         "claims_typed": 0,
+        "event_dates_extracted": 0,
         "promoted": 0,
         "llm_fields": {},
         "degraded": False,
@@ -393,6 +402,16 @@ def _implement_pass(
     typing_on = bool(typing_cfg) and typing_cfg.get("enabled", True)
     if typing_on and docs:
         projected += len(docs) * _TYPING_TOKEN_ALLOWANCE
+    # Event dates (wave-2): OPT-IN like the cascade and typing — the term
+    # (and the battery below) is counted only when the config block EXISTS
+    # and is enabled, so cfgs without the block keep today's exact
+    # projection. ONE date request per doc WITH accepted claims; acceptance
+    # is known only after G4, so every staged doc is counted (the typing
+    # term's documented honest upper bound).
+    dates_cfg = _gate_cfg(decide_cfg, "event_dates")
+    dates_on = bool(dates_cfg) and dates_cfg.get("enabled", True)
+    if dates_on and docs:
+        projected += len(docs) * _EVENT_DATES_TOKEN_ALLOWANCE
     projected += _G1_TOKEN_ALLOWANCE + _G2_TOKEN_ALLOWANCE + _G5_TOKEN_ALLOWANCE
     decider_cfg = decide_cfg.get("decider") or {}
     try:
@@ -559,6 +578,26 @@ def _implement_pass(
             )
             if proposals:
                 result["claims_typed"] += len(proposals)
+        # Event dates (wave-2): ONE Jev request for THIS doc when it produced
+        # at least one accepted claim (bounds requests to yielding docs).
+        # The model only classifies the stated date; code assembles it
+        # against the document's fetched_at (the gate's pinned reference).
+        # Enrichment only; in shadow the battery runs rows-only and returns
+        # nothing to thread (enforce-only enrichment, a clean A/B).
+        event: dict = {}
+        if dates_on and decider is not None and pairs:
+            event = decide_gates.extract_event_date(
+                spec["doc_id"],
+                spec["text"],
+                spec["fetched_at"],
+                decider,
+                dates_cfg,
+                ledger,
+                run_id,
+                mode,
+            )
+            if event.get("event_at"):
+                result["event_dates_extracted"] += 1
         candidates = llm_implement.claims_to_candidates(
             pairs,
             domain=domain,
@@ -566,6 +605,23 @@ def _implement_pass(
             model=bulk_model,
             proposals=proposals or None,
         )
+        # Thread the doc-level date enrichment into every candidate built
+        # from THIS doc's claims: event_at (ISO, only when truthy) and
+        # event_at_needs_review (only when True). observed_at STAYS the
+        # document's fetched_at (the map's carrier decision — no schema
+        # change, no decay change); the builder owns the evidence_data
+        # assembly, so this post-hoc fold stays additive and local.
+        if event:
+            event_at = event.get("event_at")
+            needs_review = bool(event.get("needs_review"))
+            if event_at or needs_review:
+                for cand in candidates:
+                    evidence = getattr(cand, "evidence_data", None)
+                    if isinstance(evidence, dict):
+                        if event_at:
+                            evidence["event_at"] = event_at
+                        if needs_review:
+                            evidence["event_at_needs_review"] = True
         for cand in candidates:
             if g5_calls >= MAX_G5_CALLS:
                 # G5's per-candidate call budget is spent for this run: the
@@ -1458,6 +1514,7 @@ def run_intel(
                 reasons = impl.get("docs_excluded_reasons") or {}
                 escalations = int(impl.get("five_fields_escalations", 0) or 0)
                 quarantined = int(impl.get("five_fields_quarantined", 0) or 0)
+                dates_extracted = int(impl.get("event_dates_extracted", 0) or 0)
                 record(
                     "implement",
                     "ran",
@@ -1471,6 +1528,7 @@ def run_intel(
                     **({"claims_typed": typed_count} if typed_count else {}),
                     **({"five_fields_escalations": escalations} if escalations else {}),
                     **({"five_fields_quarantined": quarantined} if quarantined else {}),
+                    **({"event_dates_extracted": dates_extracted} if dates_extracted else {}),
                 )
         except Exception as exc:
             logger.exception("intel implement sub-stage failed for {}", domain)

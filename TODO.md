@@ -1170,6 +1170,68 @@ review wave). Supersedes the 2026-10-03 wave's known limitation.
   to `config/lists/entity_aliases.yaml` as they're learned (file wins over DB);
   (3) stamped accounts (4) never re-ladder.
 
+## Pilot-run defect fixes (2026-10-09 — DELIVERED, needs-unlock verified with honest zeros)
+
+Plan: `.zcode/plans/2026-10-09_184424-pilot-defect-fixes.md` (serial subagent
+execution, two-stage review wave). Fixes the defects the Oct 8-9 22-account Gorgias
+pilot surfaced.
+
+- **Workable job descriptions** (`3867857`): the Oct 8 root cause was WRONG — the
+  widget endpoint (`?details=true`) already returns full HTML descriptions
+  (live-verified: untuckit 88/88 jobs, ~3.2KB each); `parse_workable` just never
+  read the field. Now reads it with greenhouse's exact `strip_html(unescape(...))`
+  treatment. **Live backfill proof: after one `intel untuckit.com --force`, the
+  jobs table went 0 → 88 described rows via the upsert COALESCE** (spec review
+  traced the fill path definitively; run confirmed). Per-job fetch endpoint
+  verified available but deliberately not built (YAGNI).
+- **xray unmatched-profile persistence** (`4a13838`): people-kind ledger events
+  now carry `unmatched_profiles` (slug/url/title/company, cap 25 +
+  `unmatched_truncated`) — the 6 profile hits that previously vanished survive
+  the run. Never-auto-persist contract, counts, and all other event shapes
+  unchanged.
+- **`ats-set` CLI** (`573def8` + `8c60efb`): manual `ats-set DOMAIN VENDOR TOKEN`
+  stamping — vendor validated against COLLECTED_VENDORS, existing-accounts-only
+  (never-guess), token verbatim (workday `/` tokens), correction path is
+  re-stamping (discovery skip-guards stamped accounts); empty tokens rejected
+  (review advisory: vendor-set/token-empty half state).
+- **Single-token-brand news flag** (`24695e6`): `ridge` joined
+  `_COMMON_WORD_NAMES` (its absence was exactly why Ridge's dossier carried other
+  companies' funding/M&A rows), and tier-3-attributed single-word brands take
+  confidence ×0.8 + `evidence_data.single_token_brand` (tier-1 domain proof
+  exempt; damping verified visible through scoring — drop gate is <0.2 — and
+  dossier/CSV packaging).
+- **Needs-unlock verification (the honest headline)**: with descriptions flowing
+  and `gorgias_icp` active, needs still promote **0 — and that is now
+  evidence-driven, not config-starved**. Diagnosis chain, all unit-proven:
+  untuckit's 88 described jobs yield 104 vocabulary phrase hits ("customer
+  service"/"customer experience" in retail roles), but (a) the market.py
+  department gate correctly vetoes `Retail` (not in the profile's
+  buyer_departments — a sales-associate posting mentioning customer service is
+  in-store evidence, not helpdesk-buying evidence), (b) `need_statement`
+  candidates come from news/feed documents, not jobs, and (c) job descriptions
+  feed `required_stack_demand`, which extracts vendors ONLY inside required-stack
+  phrasing ("experience with X") — deliberately literal by design. **comfrt.com
+  is the live near-miss that proves the machinery**: its CX/Social roles literally
+  say "respond to inquiries through TikTok Shop Seller Center and/or Gorgias" —
+  but that's USAGE language (they already run Gorgias), not a demand, so the
+  extractor correctly mints nothing. **Decision left to Jason**: if usage-based
+  evidence should mint a different signal type (tech-usage/renewal-expansion),
+  that's a new extractor pattern + signal-type decision, not a bug fix.
+- **Rerank deps** (ops): `uv sync --extra rerank` installed the repo's own
+  declared extra (onnxruntime 1.30.0 / tokenizers 0.23.2 / huggingface_hub);
+  37 rerank-lane tests green. The "No module named huggingface_hub" noise is gone
+  without any dependency-file change (the extra was already declared).
+- **Commits**: 3867857 · 4a13838 · 573def8 · 24695e6 · 8c60efb. Lanes: review lane
+  93 + extras 50 green; full offline lane 2575 passed (sole failure = the
+  documented environmental tls.peet.ws TLS flake); doctor output matches the
+  documented baseline (gkg credentials, 3 stale runs, 1 pending identity
+  candidate — no new errors).
+- **Open for Jason**: (1) usage-based stack evidence (comfrt runs Gorgias — is
+  that a renewal/expansion signal worth minting?); (2) gorgias_icp profile
+  remains active; backup at tmp/markets.yaml.backup-gorgias-icp for restore on
+  acceptance; (3) LinkedIn companion-scraper login (manual, unlocks slug→contact
+  matching) and SERP proxy work remain the documented unlocks outside code scope.
+
 ## Manual checklists (human setup, not code)
 
 - **2Captcha provider setup** — create account, key in `.env`, verify `TurnstileTaskProxyless` vs `AntiCloudflareTaskProxyless` against a real managed challenge, test headed fallback (`CLOUDFLARE_HEADED_FALLBACK=true`).

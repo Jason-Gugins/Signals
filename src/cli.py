@@ -218,7 +218,9 @@ def ats_set(ctx, domain, vendor, token):
 
     Validates VENDOR against the collected-vendor set and refuses unknown
     accounts — this command never creates one (run sweep first). TOKEN is
-    stored as-given: workday compound tokens contain '/'.
+    stored as-given: workday compound tokens contain '/'. Correction path is
+    re-stamping (discovery permanently skips accounts with both fields set);
+    there is no unset.
     """
     vendor = vendor.casefold()
     if vendor not in COLLECTED_VENDORS:
@@ -226,6 +228,10 @@ def ats_set(ctx, domain, vendor, token):
             f"unknown vendor {vendor!r} — valid vendors: "
             f"{', '.join(sorted(COLLECTED_VENDORS))}"
         )
+    if not token.strip():
+        # '' would COALESCE as present: vendor set + token empty leaves the
+        # account half-configured (adapter ineligible AND fallback blocked).
+        raise click.ClickException("TOKEN must not be empty")
     registry = AccountRegistry(Database(ctx.obj["config"].storage.db_path))
     account = registry.get(domain)
     if account is None:

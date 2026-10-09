@@ -79,7 +79,7 @@ def test_security_breach_persists_through_normalize_batch():
     assert sig.category == "negative"
     assert sig.catalyst == "secondary"
     assert sig.polarity == "negative"
-    assert sig.confidence == 0.65
+    assert sig.confidence == 0.52  # 0.65 rule × 0.8 single-token damp ("Acme", tier-3, no domain proof)
     rendered = render_evidence(sig, account=ACCOUNT, today=TODAY)
     assert rendered == (
         "Security breach reported: Acme discloses a data breach exposing "
@@ -113,6 +113,6 @@ def test_security_breach_row_is_idempotent_on_reupsert(tmp_path):
         assert rows[0]["signal_type"] == "security_breach"
         assert rows[0]["category"] == "negative"
         assert rows[0]["polarity"] == "negative"
-        assert rows[0]["confidence"] == 0.65
+        assert rows[0]["confidence"] == 0.52  # 0.65 rule × 0.8 single-token damp ("Acme", tier-3)
     finally:
         db.close()

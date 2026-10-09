@@ -579,3 +579,72 @@ def test_other_brand_fused_label_still_rejects():
 def test_other_brand_acct_domain_none_still_works():
     from src.sources.news.classify import _is_other_brand_domain
     assert _is_other_brand_domain("dolceglow.com", "glow", None) is True
+
+
+# ---- single-token brand names: tier-3 damp + evidence flag (2026-10-09) ------
+# Ridge's pilot dossier carried funding/M&A rows about OTHER companies named
+# "Ridge": one-word brand names matched without publisher-domain proof are
+# systematically noisier, so tier-3 attribution on them is damped and flagged.
+
+def test_single_token_brand_flagged_and_damped_on_tier3():
+    """Single-word account "Ridge", neutral publisher (techcrunch.com → tier-3):
+    candidate keeps its type but confidence is ×0.8 and evidence is flagged."""
+    ridge = Account(domain="ridge.com", name="Ridge")
+    item = NewsItem(
+        title="Ridge raises $30M Series C to expand CRM platform - TechCrunch",
+        link="https://news.google.com/st1", published="2026-09-01",
+        summary="", source_name="TechCrunch", publisher_domain="techcrunch.com",
+    )
+    c = classify_news(item, ridge, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "funding_round"
+    assert c.evidence_data.get("single_token_brand") is True
+    # funding_round rule confidence is 0.8; the single-token damp makes it
+    # 0.8 × 0.8 (a multi-word name under the identical setup keeps the full 0.8)
+    assert round(c.confidence, 2) == 0.64
+
+
+def test_single_token_brand_multi_word_name_unflagged():
+    """Multi-word account name under the identical tier-3 setup: no flag and
+    the full rule confidence — only one-word brand shapes are damped."""
+    abnormal = Account(domain="abnormalsecurity.com", name="Abnormal AI")
+    item = NewsItem(
+        title="Abnormal AI raises $30M Series C to expand platform - TechCrunch",
+        link="https://news.google.com/st2", published="2026-09-01",
+        summary="", source_name="TechCrunch", publisher_domain="techcrunch.com",
+    )
+    c = classify_news(item, abnormal, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "funding_round"
+    assert "single_token_brand" not in c.evidence_data
+    assert c.confidence == 0.8
+
+
+def test_common_word_ridge_lowercase_headline_dropped():
+    """With "ridge" in _COMMON_WORD_NAMES, a lowercase common-noun "ridge"
+    headline does not match the Ridge account without domain proof — the same
+    guard behavior Levitate/Glow already have."""
+    assert _is_common_word("Ridge")
+    ridge = Account(domain="ridge.com", name="Ridge")
+    item = NewsItem(
+        title="Hikers stranded by outage along remote ridge lines - Field Notes",
+        link="https://news.google.com/st3", published="2026-09-01",
+        summary="", source_name="Field Notes",
+    )
+    assert classify_news(item, ridge, today=TODAY) is None
+
+
+def test_single_token_brand_domain_proof_unflagged():
+    """Tier-1: publisher domain IS the account's domain — proof beats brand
+    shape: no flag and the full rule confidence."""
+    ridge = Account(domain="ridge.com", name="Ridge")
+    item = NewsItem(
+        title="Ridge raises $30M Series C to expand CRM platform",
+        link="https://news.google.com/st4", published="2026-09-01",
+        summary="", source_name="", publisher_domain="ridge.com",
+    )
+    c = classify_news(item, ridge, today=TODAY)
+    assert c is not None
+    assert c.signal_type == "funding_round"
+    assert "single_token_brand" not in c.evidence_data
+    assert c.confidence == 0.8

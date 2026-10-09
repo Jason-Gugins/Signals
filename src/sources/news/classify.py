@@ -166,6 +166,7 @@ _COMMON_WORD_NAMES = frozenset({
     "notion",
     "roku",
     "glow",   # Glow Security vs "Dolce Glow", "Dior Glow-Up" — beauty-brand collisions
+    "ridge",  # Ridge (CRM) vs Blue Ridge / ridge lines — funding/M&A rows about OTHER Ridges (2026-10-09 pilot)
 })
 
 
@@ -406,6 +407,14 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
         observed_at = ""
     else:
         observed_at = published or today.isoformat()
+    # Single-token brand names ("Ridge", "Glow") are inherently ambiguous —
+    # the word can belong to any of several companies. When attribution was
+    # NOT proven by the publisher domain (tier-3 fell through the lexical
+    # guards), damp confidence and flag the evidence so downstream scoring
+    # can treat these as weaker signals. Tier-1 domain proof needs no damping.
+    if not domain_proof and len((account.name or "").split()) == 1:
+        conf *= 0.8
+        vars_["single_token_brand"] = True
     return SignalCandidate(
         signal_type=rule.signal_type,
         observed_at=observed_at,

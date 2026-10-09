@@ -3,14 +3,16 @@
 Working endpoint (recon 2026-08-16, live 200 on apply.workable.com/api/v1/widget/accounts/coldquanta?details=true):
 https://apply.workable.com/api/v1/widget/accounts/{token}?details=true
 SPI v3 /spi/v3/jobs returned 401 without auth — widget is the public path.
+Widget list payload carries full HTML descriptions when details=true (live-verified 2026-10-09, untuckit 88/88 non-empty); per-job fallback /api/v1/accounts/{t}/jobs/{shortcode} exists but is not needed.
 """
 
 from __future__ import annotations
 
 import json
+from html import unescape
 
 from src.core.textutil import to_iso_date
-from src.sources.ats.common import JobPost, parse_location
+from src.sources.ats.common import JobPost, parse_location, strip_html
 
 
 def parse_workable(body: bytes) -> list[JobPost]:
@@ -21,6 +23,9 @@ def parse_workable(body: bytes) -> list[JobPost]:
         loc = j.get("location")
         loc_s = loc.get("city") if isinstance(loc, dict) else loc
         city, region, country, remote = parse_location(loc_s if isinstance(loc_s, str) else None)
+        description = j.get("description")
+        if description:
+            description = strip_html(unescape(description))
         out.append(
             JobPost(
                 external_id=str(j.get("shortcode") or j.get("id")),
@@ -32,6 +37,7 @@ def parse_workable(body: bytes) -> list[JobPost]:
                 city=city,
                 country=country,
                 remote=remote or (j.get("remote") is True),
+                description=description,
             )
         )
     out.sort(key=lambda x: x.external_id)

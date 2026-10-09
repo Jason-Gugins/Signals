@@ -116,7 +116,9 @@ discovery for one domain - sitemap-first, prints the URL and which rung found
 it), `collect`,
 `reparse`, `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
-`capterra-selfcheck`, `prune` (retention: finalize `runs` rows stuck in `running` older than
+`capterra-selfcheck`, `ats-set DOMAIN VENDOR TOKEN` (manually stamp
+`ats_vendor`/`ats_token` on an existing account — never creates one; the
+workday compound tokens contain '/'), `prune` (retention: finalize `runs` rows stuck in `running` older than
 `--stale-run-hours` (default 6), delete old fetch_log/documents/runs rows + raw
 files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum` reclaims
 space), `plays --outcome hit|miss --domain X --play Y` (record a

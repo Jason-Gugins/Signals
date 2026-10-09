@@ -18,6 +18,7 @@ from src.core.rawstore import RawStore
 from src.identity.lists import load_champions, upsert_champions
 from src.identity.registry import AccountRegistry
 from src.pipeline.orchestrator import Orchestrator
+from src.sources.registry import COLLECTED_VENDORS
 from src.sources.xray.library import load_library
 from src.sources.xray.ledger import load_events, string_stats
 from src.sources.xray.runner import run_xray
@@ -205,6 +206,34 @@ def champions(ctx, load_path):
     db = Database(ctx.obj["config"].storage.db_path)
     n = upsert_champions(db, load_champions(load_path))
     click.echo(f"champions={n}")
+
+
+@main.command(name="ats-set")
+@click.argument("domain")
+@click.argument("vendor")
+@click.argument("token")
+@click.pass_context
+def ats_set(ctx, domain, vendor, token):
+    """Manually stamp ats_vendor/ats_token on an EXISTING account (human-gated).
+
+    Validates VENDOR against the collected-vendor set and refuses unknown
+    accounts — this command never creates one (run sweep first). TOKEN is
+    stored as-given: workday compound tokens contain '/'.
+    """
+    vendor = vendor.casefold()
+    if vendor not in COLLECTED_VENDORS:
+        raise click.ClickException(
+            f"unknown vendor {vendor!r} — valid vendors: "
+            f"{', '.join(sorted(COLLECTED_VENDORS))}"
+        )
+    registry = AccountRegistry(Database(ctx.obj["config"].storage.db_path))
+    account = registry.get(domain)
+    if account is None:
+        raise click.ClickException("unknown account; run sweep first")
+    account.ats_vendor = vendor
+    account.ats_token = token
+    registry.upsert(account, source="manual")
+    click.echo(f"stamped: {domain} ats_vendor={vendor} ats_token={token}")
 
 
 @main.command()

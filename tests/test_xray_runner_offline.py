@@ -254,6 +254,104 @@ def test_profile_hit_matching_cohort_account_writes_contact(tmp_path):
     assert report["profiles_unmatched"] == 1
 
 
+# --- 3b. ALL-unmatched people query: hit fields survive in the ledger ------
+
+ORG_PEOPLE_ALL_UNMATCHED = _lite_body(
+    (
+        "https://www.linkedin.com/in/bobsmith",
+        "Bob Smith - VP Sales at Nomatch Inc | LinkedIn",
+        "Bob sells software.",
+    ),
+    (
+        "https://www.linkedin.com/in/carolj",
+        "Carol Jones - COO at Nowhere LLC | LinkedIn",
+        "Carol operates things.",
+    ),
+)
+
+
+def test_all_unmatched_people_query_persists_hit_data_in_ledger(tmp_path):
+    # Unmatched profile hits stay never-auto-persisted (no contacts, no
+    # candidates), but their slug/url/title/company now survive the run in
+    # the people-kind ledger event (still LEDGER-ONLY evidence).
+    report, db, events, _urls, _sleeps = _run(
+        tmp_path, [SPEC_PEOPLE], [(200, ORG_PEOPLE_ALL_UNMATCHED)], accounts=[ACME]
+    )
+
+    assert db.query("SELECT * FROM contacts") == []
+    assert db.query("SELECT * FROM identity_candidates") == []
+
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["status"] == "ok"
+    assert ev["profile_hits"] == 2
+    assert ev["profiles_unmatched"] == 2  # the count stays exactly as it was
+    assert ev["unmatched_profiles"] == [
+        {
+            "slug": "bobsmith",
+            "url": "https://www.linkedin.com/in/bobsmith",
+            "title": "Bob Smith - VP Sales",
+            "company": "Nomatch Inc",
+        },
+        {
+            "slug": "carolj",
+            "url": "https://www.linkedin.com/in/carolj",
+            "title": "Carol Jones - COO",
+            "company": "Nowhere LLC",
+        },
+    ]
+    assert ev["unmatched_truncated"] is False
+    assert report["profiles_unmatched"] == 2
+
+
+def test_unmatched_profiles_truncated_at_25(tmp_path):
+    # 26 cohort-missing profile hits: the event carries the FIRST 25 and
+    # flags the overflow; the profiles_unmatched count stays exact (26).
+    body = _lite_body(*[
+        (
+            f"https://www.linkedin.com/in/person{i:02d}",
+            f"Person {i:02d} - IC at Nomatch{i:02d} Inc | LinkedIn",
+            "Sells software.",
+        )
+        for i in range(1, 27)
+    ])
+    report, db, events, _urls, _sleeps = _run(
+        tmp_path, [SPEC_PEOPLE], [(200, body)], accounts=[ACME]
+    )
+
+    ev = events[0]
+    assert ev["status"] == "ok"
+    assert ev["profile_hits"] == 26
+    assert ev["profiles_unmatched"] == 26  # exact count, uncapped
+    assert len(ev["unmatched_profiles"]) == 25
+    assert [p["slug"] for p in ev["unmatched_profiles"]] == [
+        f"person{i:02d}" for i in range(1, 26)
+    ]
+    assert ev["unmatched_truncated"] is True
+    assert report["profiles_unmatched"] == 26
+
+
+def test_fully_matched_people_query_writes_empty_unmatched_list(tmp_path):
+    body = _lite_body(
+        (
+            "https://www.linkedin.com/in/janedoe",
+            "Jane Doe - Head of Growth at Acme Corp | LinkedIn",
+            "Jane runs growth at Acme.",
+        ),
+    )
+    report, db, events, _urls, _sleeps = _run(
+        tmp_path, [SPEC_PEOPLE], [(200, body)], accounts=[ACME]
+    )
+
+    assert len(db.query("SELECT * FROM contacts")) == 1
+    ev = events[0]
+    assert ev["status"] == "ok"
+    assert ev["contacts_written"] == 1
+    assert ev["profiles_unmatched"] == 0
+    assert ev["unmatched_profiles"] == []
+    assert ev["unmatched_truncated"] is False
+
+
 # --- 4. challenge exhausts attempts: recorded, nothing persisted ----------
 
 def test_challenge_exhausts_attempts_records_and_persists_nothing(tmp_path):

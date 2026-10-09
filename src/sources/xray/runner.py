@@ -67,7 +67,9 @@ Never-guess persistence rules:
   hit, ``person_key = stable_id(slug, domain)`` (the people.py call shape,
   slug-derived so it never collides with raw-slug keys). UNMATCHED profile hits
   are LEDGER-ONLY — never auto-accounts, never identity_candidates (pinned v1
-  default).
+  default); their slug/url/title/company ride the people-kind ledger event
+  (``unmatched_profiles``, capped at 25 with ``unmatched_truncated`` flagging
+  overflow).
 
 Every query gets exactly one ledger row AFTER its outcome (persistence
 failures ride the event as ``persist_error`` — the row is never lost);
@@ -230,6 +232,7 @@ def run_xray(
         n_unmatched = 0
         n_profile_hits = 0
         n_company_hits = 0
+        unmatched: list[dict] = []
         persist_error: str | None = None
         if status == "ok":
             try:
@@ -240,7 +243,17 @@ def run_xray(
                     for hit in profiles:
                         account = _match_account(hit.company, name_index, root_index)
                         if account is None:
-                            n_unmatched += 1  # ledger-only; never auto-persisted
+                            # Ledger-only; never auto-persisted — but the hit
+                            # data now survives in the event (bounded, below).
+                            n_unmatched += 1
+                            unmatched.append(
+                                {
+                                    "slug": hit.slug,
+                                    "url": hit.url,
+                                    "title": hit.title,
+                                    "company": hit.company,
+                                }
+                            )
                             continue
                         domain = account["domain"]
                         contact = Contact(
@@ -313,6 +326,12 @@ def run_xray(
             event["error"] = error
         if persist_error:
             event["persist_error"] = persist_error
+        if status == "ok" and spec.get("kind") == "people":
+            # Bounded evidence dump of the unmatched profile hits (cap 25,
+            # overflow flagged) — still LEDGER-ONLY: never auto-accounts,
+            # never identity_candidates. Company-kind events stay unchanged.
+            event["unmatched_profiles"] = unmatched[:25]
+            event["unmatched_truncated"] = len(unmatched) > 25
         append_event(ledger_path, event, clock=clock)
 
         report[status] += 1

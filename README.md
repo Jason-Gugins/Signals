@@ -645,7 +645,7 @@ limits are documented. Full notes: [`src/antibot/README.md`](src/antibot/README.
   play outcomes with `plays --outcome`, then `plays-calibrate` feeds decided
   outcomes into the table (P2 backtesting, migration v5).
 - **DB migrations** — schema changes run as ordered, transactional migrations
-  tracked by `PRAGMA user_version` (currently v8), with a startup
+  tracked by `PRAGMA user_version` (currently v9), with a startup
   `integrity_check`.
 - **Account health gate** — a pure polarity score (`src/signals/health.py`,
   weights in `config/health.yaml`) suppresses growth-family plays for

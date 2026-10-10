@@ -132,6 +132,29 @@ class RerankConfig:
 
 
 @dataclass
+class RetrievalConfig:
+    """Hybrid retrieval for the intel implement stage (FTS5 BM25 + MiniLM
+    vectors, RRF fusion, cross-encoder rerank, MMR dedup).
+
+    Disabled by default — zero behavior change until enabled in
+    config/default.yaml. Unlike the decide-gate blocks, a MISSING block
+    parses to these disabled defaults: an old config file (written before
+    this block shipped) behaves exactly as off.
+    """
+
+    enabled: bool = False
+    chunk_tokens: int = 500
+    chunk_overlap_tokens: int = 60
+    candidate_limit: int = 60
+    rrf_k: int = 60
+    rerank_top_n: int = 24
+    rerank_floor: float = 0.0
+    mmr_lambda: float = 0.7
+    stage_docs: int = 35
+    min_index_coverage: float = 0.8
+
+
+@dataclass
 class StorageConfig:
     db_path: str = "data/signals.db"
     raw_dir: str = "data/raw"
@@ -211,6 +234,7 @@ class Config:
     cookies: "CookiesConfig" = field(default_factory=lambda: CookiesConfig())
     smtp: SmtpConfig = field(default_factory=SmtpConfig)
     rerank: "RerankConfig" = field(default_factory=lambda: RerankConfig())
+    retrieval: "RetrievalConfig" = field(default_factory=lambda: RetrievalConfig())
     config_dir: str = "config"
 
     _yaml_cache: dict[str, dict] = field(default_factory=dict, init=False, repr=False)

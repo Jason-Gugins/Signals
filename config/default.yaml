@@ -89,6 +89,24 @@ rerank:
   enabled: true                # optional cross-encoder rerank (ms-marco-MiniLM); requires signals[rerank] extra
   floor: 0.35                  # drop news items scoring below this relevance (0..1)
 
+retrieval:
+  # Hybrid retrieval for the intel implement stage (FTS5 BM25 + MiniLM vectors,
+  # RRF fusion, ms-marco cross-encoder rerank, MMR dedup). Requires the
+  # signals[rerank] extra AND a built index: python -m src.cli index --domain <domain>
+  # While off (or index coverage below min_index_coverage) intel stages the
+  # 200 newest stored documents exactly as before.
+  enabled: false
+  chunk_tokens: 500           # ~2000 chars at the 4-chars-per-token convention
+  chunk_overlap_tokens: 60
+  candidate_limit: 60         # per-leg fetch depth before fusion; MUST exceed stage_docs (the MMR pool needs k < pool)
+  rrf_k: 60                   # RRF smoothing constant (literature default)
+  rerank_top_n: 24            # cross-encoder shortlist depth (CE scores only these)
+  rerank_floor: 0.0           # chunk-level CE floor (0 = reorder only)
+  mmr_lambda: 0.7             # 1.0 = pure relevance, 0 = pure diversity (scores min-max normalised before MMR)
+  stage_docs: 35              # docs handed to the implement stage; 35 is the token-ceiling break-even
+                              # with every wave-2 battery on (~10.3k tokens/doc vs the 400k run ceiling)
+  min_index_coverage: 0.8     # below this, recency fallback + gap line
+
 # Google Knowledge Graph backend for the gkg_ids identity-discovery stage
 # (waterfall stage 3). "ekg" = Enterprise Knowledge Graph (default; needs
 # GOOGLE_APPLICATION_CREDENTIALS + GKG_PROJECT_ID — OAuth2 service account,

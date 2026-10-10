@@ -19,7 +19,9 @@ MODEL_FILE = "onnx/model_quantized.onnx"
 TOKENIZER_FILE = "tokenizer.json"
 # Pin the revision after the first successful download, exactly as
 # src/signals/rerank.py does (supply-chain posture: same hf_hub pattern).
-MODEL_REVISION: Optional[str] = None
+# Verified 2026-10-10: both files exist at this revision; live embed()
+# returned 384-dim vectors.
+MODEL_REVISION: Optional[str] = "751bff37182d3f1213fa05d7196b954e230abad9"
 DIM = 384
 MAX_SEQ_LEN = 256  # tokenizer truncation; matches the reranker's budget
 

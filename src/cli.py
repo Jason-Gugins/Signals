@@ -545,6 +545,128 @@ def prune(ctx, keep_days, vacuum, stale_run_hours):
     click.echo(f"{counts} stale_runs_finalized={finalized}")
 
 
+@main.command("index")
+@click.option("--domain", default=None, help="Index one account's documents (default: all domains)")
+@click.option("--limit", default=None, type=int, help="Max documents this run (budget)")
+@click.option("--stats", is_flag=True, help="Report per-domain index coverage and exit (no indexing)")
+@click.option("--rebuild-fts", is_flag=True, help="Regenerate chunks_fts from document_chunks")
+@click.pass_context
+def index_cmd(ctx, domain, limit, stats, rebuild_fts):
+    """Build the retrieval index (chunks + FTS5 + embeddings) for intel retrieval."""
+    from src.retrieval.embedder import NullEmbedder, get_embedder
+    from src.retrieval.indexer import index_domain
+
+    cfg = ctx.obj["config"]  # ctx.obj is a DICT the group populates — @click.pass_obj
+    # would hand the whole dict, not the Config (prune's shape)
+    db = Database(cfg.storage.db_path)
+    raw_store = RawStore(db, cfg.storage.raw_dir)
+    embedder = get_embedder()
+    if isinstance(embedder, NullEmbedder):
+        # Same degradation posture as rerank: unavailable is not an error, it
+        # is a named gap with its remediation.
+        click.echo(
+            "index: embeddings unavailable (deps/model absent) — install the "
+            'retrieval extra: pip install -e ".[rerank]"'
+        )
+        return
+    model = getattr(embedder, "model", None)
+    domains = (
+        [domain]
+        if domain
+        else [
+            r["domain"]
+            for r in db.query("SELECT DISTINCT domain FROM documents")
+            if r["domain"]
+        ]
+    )
+
+    def _coverage(dom):
+        """(domain doc count, index_state-covered count) for the active model.
+
+        'indexed' AND 'no_text' both count as covered (v9 ledger semantics:
+        a permanently-unindexable doc is covered, not a permanent gap).
+        """
+        docs = int(
+            db.one("SELECT COUNT(*) AS n FROM documents WHERE domain = ?", (dom,))["n"]
+        )
+        covered = int(
+            db.one(
+                "SELECT COUNT(*) AS n FROM index_state"
+                " WHERE domain = ? AND model_id = ?"
+                " AND state IN ('indexed', 'no_text')",
+                (dom, model),
+            )["n"]
+        )
+        return docs, covered
+
+    if stats:
+        for dom in domains:
+            docs, covered = _coverage(dom)
+            chunks = int(
+                db.one(
+                    "SELECT COUNT(*) AS n FROM document_chunks WHERE domain = ?", (dom,)
+                )["n"]
+            )
+            frac = f"{covered / docs:.2f}" if docs else "n/a"
+            click.echo(
+                f"domain={dom} docs={docs} covered={covered} coverage={frac}"
+                f" chunks={chunks} model={model}"
+            )
+        return
+
+    if rebuild_fts:
+        # document_chunks.text is the source of truth; chunks_fts is derived.
+        db.execute("DELETE FROM chunks_fts")
+        rows = db.query("SELECT text, chunk_id FROM document_chunks")
+        for row in rows:
+            db.execute(
+                "INSERT INTO chunks_fts(text, chunk_id) VALUES (?, ?)",
+                (row["text"], row["chunk_id"]),
+            )
+        click.echo(f"rebuilt chunks_fts rows={len(rows)}")
+        return
+
+    dry_run = bool(ctx.obj.get("dry_run"))
+    rcfg = getattr(cfg, "retrieval", None)
+    chunk_tokens = getattr(rcfg, "chunk_tokens", 500)
+    overlap_tokens = getattr(rcfg, "chunk_overlap_tokens", 60)
+    had_errors = False
+    for dom in domains:
+        if dry_run:
+            docs, covered = _coverage(dom)
+            would = max(0, docs - covered)
+            if limit:
+                would = min(would, int(limit))
+            click.echo(f"[dry-run] domain={dom} would_index={would}")
+            continue
+        try:
+            st = index_domain(
+                db,
+                raw_store,
+                dom,
+                embedder=embedder,
+                chunk_tokens=chunk_tokens,
+                overlap_tokens=overlap_tokens,
+                limit=limit,
+            )
+        except Exception:
+            # Per-domain failures are logged and never crash the multi-domain
+            # run; the exit code stays honest instead.
+            logger.exception("index: domain {} failed", dom)
+            had_errors = True
+            continue
+        click.echo(
+            f"domain={dom} docs_seen={st['docs_seen']} indexed={st['docs_indexed']}"
+            f" chunks={st['chunks']} skipped_indexed={st['skipped_indexed']}"
+            f" skipped_no_text={st['skipped_no_text']} errors={st['errors']}"
+            f" model={st['model']}"
+        )
+        if st["errors"]:
+            had_errors = True
+    if had_errors:
+        ctx.exit(1)
+
+
 @main.command(name="g2-selfcheck")
 @click.option("--slug", default="sierra", show_default=True, help="Known-good G2 product slug")
 @click.option("--headless/--headed", "headless", default=None, help="Override browser.headless (G2 needs headed)")

@@ -183,6 +183,36 @@ def _load_decide_cfg(cfg) -> dict:
         return {}
 
 
+def _retrieval_cfg(cfg):
+    """The typed ``cfg.retrieval`` block, or ``None`` when retrieval must not run.
+
+    ``None`` when the block is absent (an old config file behaves as off),
+    ``enabled`` is false, or ``stage_docs`` exceeds
+    :data:`MAX_IMPLEMENT_DOCS` — retrieval reselects WITHIN the recency
+    path's ceiling and can never add spend (the never-add-spend invariant).
+    Tolerant like ``_load_decide_cfg``: never raises, and an unparseable
+    ``stage_docs`` reads as off (the recency ceiling always holds). The
+    caller converts the returned typed block with ``dataclasses.asdict()``
+    because ``select_stage_docs`` takes a plain dict.
+    """
+    block = getattr(cfg, "retrieval", None)
+    if block is None or not bool(getattr(block, "enabled", False)):
+        return None
+    try:
+        stage_docs = int(getattr(block, "stage_docs", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    if stage_docs > MAX_IMPLEMENT_DOCS:
+        logger.warning(
+            "retrieval.stage_docs {} exceeds MAX_IMPLEMENT_DOCS ({}); "
+            "retrieval off for this run, recency staging retained",
+            stage_docs,
+            MAX_IMPLEMENT_DOCS,
+        )
+        return None
+    return block
+
+
 def _gate_cfg(decide_cfg: dict, name: str) -> dict:
     """The ``decider.gates.<name>`` block of config/decide.yaml (``{}`` when
     absent — every gate then uses its documented defaults)."""
@@ -290,16 +320,24 @@ def _implement_pass(
     ledger,
     run_id: str,
     mode: str,
+    cfg=None,
+    market_profile=None,
 ) -> dict:
     """The implement sub-stage body: G3 routing, bulk claim extraction, G4
     citation gating, five G4-gated dossier fields, G5-gated promotion.
+
+    ``cfg`` (the run's Config) and ``market_profile`` feed ONLY the retrieval
+    staging seam: with ``cfg.retrieval`` disabled/absent neither is read
+    again and the pass is byte-identical to the pre-retrieval flow.
 
     Returns ``{"docs", "docs_screened", "docs_excluded", "claims_accepted",
     "promoted", "llm_fields", "degraded", "projected_tokens",
     "token_ceiling", "gaps", "five_fields_escalations",
     "five_fields_quarantined", "claims_typed", "event_dates_extracted",
-    "amounts_extracted"}``. NEVER raises past the caller's try/except;
-    degradation is expressed by return value, never by aborting the run.
+    "amounts_extracted"}`` plus ``"retrieval"`` (staged_by / docs /
+    coverage / provenance) ONLY when the retrieval block ran. NEVER raises
+    past the caller's try/except; degradation is expressed by return value,
+    never by aborting the run.
     """
     result: dict = {
         "docs": 0,
@@ -341,15 +379,78 @@ def _implement_pass(
         bulk_timeout = 60.0
 
     # Load the stored docs BEFORE any Jev/LLM call in this sub-stage: the
-    # token pre-flight needs them. Most recent MAX_IMPLEMENT_DOCS by
-    # fetched_at (RawStore orders ascending, so keep the tail). RawStore's
-    # iter_docs is METADATA-ONLY (body stays None — only get() gunzips the
-    # stored bytes), so each body is loaded through raw_store.get() and
-    # decoded once; empty bodies are skipped — a document with no text
-    # cannot support a claim.
+    # token pre-flight needs them. RawStore's iter_docs is METADATA-ONLY
+    # (body stays None — only get() gunzips the stored bytes), so each body
+    # is loaded through raw_store.get() and decoded once below; empty bodies
+    # are skipped — a document with no text cannot support a claim.
+    #
+    # Candidate docs for this run. Default: the 200 most recent stored docs
+    # (recency tail) — byte-identical to the pre-retrieval flow. When the
+    # retrieval block is enabled AND the index covers this domain, the docs
+    # are instead the most RELEVANT (hybrid FTS5+vector, RRF, CE rerank,
+    # MMR) — selection changes, the (doc, text) contract below does not.
+    # Any retrieval problem degrades to the recency tail with a gap line.
     staged: list[object] = list(raw_store.iter_docs(domain=domain))
-    staged.sort(key=lambda doc: str(getattr(doc, "fetched_at", "") or ""))
-    staged = staged[-MAX_IMPLEMENT_DOCS:]
+    retrieval_cfg = _retrieval_cfg(cfg)  # None when disabled/absent; typed config when on
+    retrieval_info: dict | None = None
+    if retrieval_cfg is not None:
+        try:
+            from dataclasses import asdict
+
+            from src.retrieval.embedder import get_embedder
+            from src.retrieval.search import build_query, select_stage_docs
+            from src.signals.rerank import get_scorer
+
+            query, ce_query = build_query(account, market_profile)
+            selection = select_stage_docs(
+                orc.db,
+                domain,
+                query=query,
+                ce_query=ce_query,
+                embedder=get_embedder(),
+                scorer=get_scorer(),
+                cfg=asdict(retrieval_cfg),  # typed config -> the plain dict select_stage_docs takes
+            )
+            if selection.staged_by == "retrieval" and selection.doc_ids:
+                by_id = {str(getattr(d, "doc_id", "") or ""): d for d in staged}
+                staged = [by_id[did] for did in selection.doc_ids if did in by_id]
+                retrieval_info = {
+                    "staged_by": "retrieval",
+                    "docs": len(staged),
+                    "coverage": round(selection.coverage, 3),
+                    **{k: v for k, v in selection.provenance.items() if v is not None},
+                }
+            else:
+                # uncovered / unavailable / empty doc_ids: EVERY non-retrieval
+                # outcome falls back to the recency tail below — the
+                # MAX_IMPLEMENT_DOCS cap must hold on every path (the
+                # never-add-spend invariant; review caught the original tail
+                # logic skipping the cap when doc_ids came back empty).
+                retrieval_info = {
+                    "staged_by": selection.staged_by,
+                    "coverage": round(selection.coverage, 3),
+                }
+                result["gaps"].append(
+                    f"retrieval: index coverage {selection.coverage:.2f} for {domain} "
+                    f"(staged_by: {selection.staged_by}); build it with "
+                    f"python -m src.cli index --domain {domain}; "
+                    "staging fell back to recency"
+                )
+        except Exception as exc:
+            logger.exception("retrieval staging failed for {}; recency fallback", domain)
+            retrieval_info = {"staged_by": "error", "error": str(exc)}
+            result["gaps"].append(f"retrieval staging failed ({exc}); staged by recency")
+    if retrieval_info is None or retrieval_info.get("staged_by") != "retrieval":
+        # The recency tail on EVERY non-retrieval path (RawStore orders
+        # ascending by fetched_at, so keep the tail).
+        staged.sort(key=lambda doc: str(getattr(doc, "fetched_at", "") or ""))
+        staged = staged[-MAX_IMPLEMENT_DOCS:]
+    if retrieval_info is not None:
+        # ONLY when the retrieval block ran — the off path's result dict is
+        # byte-identical to the pre-retrieval pass (the decide-layer
+        # convention). Carries staged_by/docs/coverage/provenance so the
+        # stage record always says WHICH selection a run used.
+        result["retrieval"] = retrieval_info
     docs: list[tuple[object, str]] = []
     for meta_doc in staged:
         doc_id = str(getattr(meta_doc, "doc_id", "") or "")
@@ -1639,6 +1740,8 @@ def run_intel(
                     ledger=ledger,
                     run_id=invocation_id,
                     mode=decide_mode,
+                    cfg=cfg,
+                    market_profile=market_profile,
                 )
                 for gap_line in impl.get("gaps", ()):
                     gaps.append(gap_line)
@@ -1659,6 +1762,7 @@ def run_intel(
                 dates_extracted = int(impl.get("event_dates_extracted", 0) or 0)
                 amounts_extracted = int(impl.get("amounts_extracted", 0) or 0)
                 reranked_count = int(impl.get("docs_reranked", 0) or 0)
+                retrieval_stage = impl.get("retrieval") or None
                 record(
                     "implement",
                     "ran",
@@ -1668,6 +1772,11 @@ def run_intel(
                     llm_fields=bool(llm_fields),
                     docs_screened=int(impl.get("docs_screened", 0)),
                     docs_excluded=int(impl.get("docs_excluded", 0)),
+                    # Which staging selection the run used (retrieval /
+                    # uncovered / unavailable / error) — ONLY when the
+                    # retrieval block ran; the off-path stage record keeps
+                    # its exact pre-retrieval shape (byte-identity).
+                    **({"retrieval": retrieval_stage} if retrieval_stage else {}),
                     **({"docs_excluded_reasons": reasons} if reasons else {}),
                     **({"claims_typed": typed_count} if typed_count else {}),
                     **({"five_fields_escalations": escalations} if escalations else {}),

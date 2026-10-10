@@ -479,6 +479,71 @@ def _create_news_link_resolutions(conn: sqlite3.Connection) -> None:
     )
 
 
+def _v9_retrieval_index(conn: sqlite3.Connection) -> None:
+    """v9: retrieval index — chunks, FTS5 shadow, embeddings, coverage ledger.
+
+    PER-STATEMENT conn.execute only — NEVER executescript: the migration
+    runner wraps each migration in BEGIN/COMMIT (see _migrate) and
+    executescript implicitly commits the open transaction, after which the
+    runner's COMMIT raises OperationalError "cannot commit - no transaction
+    is active" (verified empirically). Every existing migration uses
+    per-statement execute; mirror them exactly.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS document_chunks (
+            chunk_id    TEXT PRIMARY KEY,   -- stable_id(doc_id, str(ordinal), model_id)
+            doc_id      TEXT NOT NULL,      -- → documents.doc_id (content-addressed)
+            domain      TEXT,
+            ordinal     INTEGER NOT NULL,
+            char_start  INTEGER NOT NULL,   -- span into the EXTRACTED text, not raw bytes
+            char_end    INTEGER NOT NULL,
+            text        TEXT NOT NULL,      -- source of truth; chunks_fts is derived
+            token_est   INTEGER NOT NULL,   -- estimate_tokens convention (~4 chars/token)
+            model_id    TEXT NOT NULL,      -- embedding model identity ("repo@revision")
+            created_at  TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chunks_doc ON document_chunks(doc_id, ordinal)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chunks_domain ON document_chunks(domain)"
+    )
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5("
+        "text, chunk_id UNINDEXED)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chunk_vectors (
+            chunk_id TEXT PRIMARY KEY,
+            model_id TEXT NOT NULL,
+            dim      INTEGER NOT NULL,
+            vec      BLOB NOT NULL       -- float32 LE, L2-normalised (dot == cosine)
+        )
+        """
+    )
+    # Coverage ledger: every doc the indexer EXAMINED for a model, including
+    # docs it could NOT index (empty/binary bodies → 'no_text'). Coverage =
+    # ledger rows / domain docs, so permanently-unindexable docs count as
+    # COVERED instead of permanently holding coverage below the floor and
+    # silently forcing the recency fallback forever (review finding).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS index_state (
+            doc_id     TEXT NOT NULL,
+            domain     TEXT,
+            model_id   TEXT NOT NULL,
+            state      TEXT NOT NULL,     -- 'indexed' | 'no_text'
+            checked_at TEXT NOT NULL,
+            PRIMARY KEY (doc_id, model_id)
+        )
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (1, "additive NEW_COLUMNS pass (g2_slug, nps_score, helpful_votes, source, app_store_id, play_id, subreddit)", _add_missing_columns),
     (2, "create calibration table (per-source/per-signal-type hit rates)", _create_calibration),
@@ -488,6 +553,7 @@ MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (6, "maintenance indexes + hot-path review", _add_maintenance_indexes),
     (7, "create identity_candidates table (human review queue for identity discovery)", _create_identity_candidates),
     (8, "create news_link_resolutions (google news token -> publisher domain cache)", _create_news_link_resolutions),
+    (9, "retrieval index: document_chunks + chunks_fts + chunk_vectors", _v9_retrieval_index),
 ]
 
 LATEST_VERSION: int = max(v for v, _, _ in MIGRATIONS)

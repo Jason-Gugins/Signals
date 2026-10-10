@@ -61,6 +61,47 @@ def test_migration_v8_creates_news_link_resolutions(tmp_path: Path) -> None:
         db.close()
 
 
+def test_migration_v9_creates_retrieval_tables(tmp_path: Path) -> None:
+    """v9 adds the hybrid-retrieval chunk index: chunks, FTS5 shadow, vectors, ledger."""
+    db = Database(tmp_path / "v9.db")
+    try:
+        assert _user_version(db) >= 9
+        row = db.one(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='document_chunks'"
+        )
+        assert row is not None
+        row = db.one(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='chunk_vectors'"
+        )
+        assert row is not None
+        row = db.one(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='index_state'"
+        )
+        assert row is not None
+        fts = db.one(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='chunks_fts'"
+        )
+        assert fts is not None
+        # FTS5 shadow round-trips
+        db.execute("INSERT INTO chunks_fts(text, chunk_id) VALUES ('hiring head of sales', 'abc')")
+        hits = db.query("SELECT chunk_id FROM chunks_fts WHERE chunks_fts MATCH '\"head of sales\"'")
+        assert [h["chunk_id"] for h in hits] == ["abc"]
+    finally:
+        db.close()
+
+
+def test_migration_v9_is_idempotent(tmp_path: Path) -> None:
+    path = tmp_path / "v9-idem.db"
+    db = Database(path)
+    db.close()
+
+    db2 = Database(path)  # reopen: must not raise, version stays
+    try:
+        assert _user_version(db2) == 9
+    finally:
+        db2.close()
+
+
 def test_v0_db_missing_column_is_migrated_on_reopen(tmp_path: Path) -> None:
     path = tmp_path / "old.db"
     db = Database(path)

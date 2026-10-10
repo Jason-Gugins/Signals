@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import date, datetime, timedelta, timezone
+from html import unescape
 from typing import Optional
 
 
@@ -42,6 +43,10 @@ _MONEY = re.compile(
     re.I,
 )
 _COUNT = re.compile(r"(\d{1,3}(?:,\d{3})+|\d+)")
+
+_TAG = re.compile(r"<[^>]+>")
+_DROP = re.compile(r"<(script|style)\b.*?</\1>", re.I | re.S)
+_BREAK = re.compile(r"</?(p|div|li|br|tr|h[1-6])\b[^>]*>", re.I)
 
 # Ported from ../Linkedin/src/triggers.py
 _LEAD = re.compile(
@@ -228,6 +233,23 @@ def parse_count(s: str | None) -> int | None:
     if not m:
         return None
     return int(m.group(1).replace(",", ""))
+
+
+def html_to_text(html: str) -> str:
+    """Crude, pure HTML -> text: drops script/style, keeps readable words.
+
+    Deliberately not a full parser: the consumer is sentence extraction, which
+    only needs prose. Stdlib only, never raises, and idempotent on plain text
+    (a string with no '<' comes back unchanged apart from whitespace collapse).
+    """
+    if not html:
+        return ""
+    text = _DROP.sub(" ", str(html))
+    text = _BREAK.sub("\n", text)
+    text = _TAG.sub("", text)
+    text = unescape(text)
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    return "\n".join(line for line in lines if line).strip()
 
 
 def normalize_ws_lines(s: str) -> list[str]:

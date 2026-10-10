@@ -1332,3 +1332,20 @@ when off — no `retrieval` key in the stage record, no index required.
   lane stays green except the documented environmental `test_antibot_engine`
   TLS flake; `doctor --no-network` unchanged-or-better (one new OK row on the
   shipped disabled default).
+- **Review wave (two-stage: spec compliance, then code quality)** — spec
+  review PASS 10/10 tasks (one latent minor: an empty-`doc_ids`
+  "retrieval" selection would have skipped the recency cap); quality review
+  PASS with 2 majors + 3 minors, ALL fixed in `d258434`: `--dry-run index
+  --rebuild-fts` no longer mutates the DB (the rebuild branch ran before the
+  dry-run guard); `RawStore.prune` now cleans `document_chunks`/`chunks_fts`/
+  `chunk_vectors`/`index_state` for pruned docs (orphaned ledger rows
+  previously inflated coverage and could silently mask unindexed new docs);
+  the intel seam normalizes an empty retrieval selection to "unavailable" so
+  the sort + `MAX_IMPLEMENT_DOCS` cap hold on every path; the indexer's
+  per-doc except handler deletes the doc's partial chunk rows so a failed
+  doc is retried (not locked in as `skipped_indexed`), and its docstring now
+  states the real ledger contract (failed docs get no row — retry next run);
+  the CE rerank leg gained a reversed-scorer test (`ce_scored` pins); per-doc
+  inserts batched via `executemany` (~3 commits/doc, was ~3/chunk). Model
+  revision pinned `751bff3` after a verified live 384-dim embed (`0e25757`).
+  Final offline lane: exit 0, zero failures; ~2,643 collected.

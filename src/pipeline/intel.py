@@ -426,13 +426,21 @@ def _implement_pass(
                 # MAX_IMPLEMENT_DOCS cap must hold on every path (the
                 # never-add-spend invariant; review caught the original tail
                 # logic skipping the cap when doc_ids came back empty).
+                staged_by = selection.staged_by
+                if staged_by == "retrieval" and not selection.doc_ids:
+                    # A retrieval result with NO docs is not a retrieval
+                    # selection — normalize it so the final guard below
+                    # applies the recency sort AND the cap instead of
+                    # skipping them (review finding: staged_by="retrieval"
+                    # with empty doc_ids used to bypass both).
+                    staged_by = "unavailable"
                 retrieval_info = {
-                    "staged_by": selection.staged_by,
+                    "staged_by": staged_by,
                     "coverage": round(selection.coverage, 3),
                 }
                 result["gaps"].append(
                     f"retrieval: index coverage {selection.coverage:.2f} for {domain} "
-                    f"(staged_by: {selection.staged_by}); build it with "
+                    f"(staged_by: {staged_by}); build it with "
                     f"python -m src.cli index --domain {domain}; "
                     "staging fell back to recency"
                 )

@@ -89,3 +89,59 @@ def test_html_extracted_before_chunking(store):
     texts = [r["text"] for r in db.query("SELECT text FROM document_chunks")]
     assert all("<" not in t.split()[0] for t in texts if t.split())
     assert any("head of sales" in t for t in texts)
+
+
+def test_mid_insert_failure_is_retried_not_locked_in(tmp_path, monkeypatch):
+    """A mid-insert exception (after some chunk rows are committed, before the
+    doc is done) must NOT lock the doc in as permanently partial: the next
+    run's existing-chunks check would short-circuit it as skipped_indexed.
+    The per-doc except handler cleans the partial rows so the retry
+    re-indexes the doc cleanly (review finding)."""
+    db = Database(tmp_path / "signals.db")
+    rs = RawStore(db, tmp_path / "raw")
+    rs.put(
+        source="t", url="https://acme.com/long",
+        body=b"<html><body><p>"
+        + b"acme hiring signal words repeated enough to span several chunks. " * 200
+        + b"</p></body></html>",
+        content_type="text/html", status=200, domain="acme.com",
+    )
+
+    real_execute, real_executemany = db.execute, db.executemany
+    fired = {"dc": 0, "fts": 0}
+
+    def flaky_execute(sql, params=()):
+        if "INSERT INTO chunks_fts" in sql:
+            fired["fts"] += 1
+            raise RuntimeError("boom: mid-insert failure")
+        if "INSERT INTO document_chunks" in sql:
+            fired["dc"] += 1
+        return real_execute(sql, params)
+
+    def flaky_executemany(sql, rows):
+        if "INSERT INTO chunks_fts" in sql:
+            fired["fts"] += 1
+            raise RuntimeError("boom: mid-insert failure")
+        if "INSERT INTO document_chunks" in sql:
+            fired["dc"] += 1
+        return real_executemany(sql, rows)
+
+    monkeypatch.setattr(db, "execute", flaky_execute)
+    monkeypatch.setattr(db, "executemany", flaky_executemany)
+    s1 = indexer.index_domain(db, rs, "acme.com", embedder=FakeEmbedder())
+    assert s1["errors"] == 1 and s1["docs_indexed"] == 0
+    assert fired["dc"] >= 1 and fired["fts"] >= 1  # failure was genuinely mid-insert
+
+    # Retry with the flake healed: the doc must be RE-INDEXED, not skipped.
+    monkeypatch.setattr(db, "execute", real_execute)
+    monkeypatch.setattr(db, "executemany", real_executemany)
+    s2 = indexer.index_domain(db, rs, "acme.com", embedder=FakeEmbedder())
+    assert s2["docs_indexed"] == 1
+    assert s2["skipped_indexed"] == 0
+    assert s2["errors"] == 0
+    assert s2["chunks"] >= 1
+    # ...and the retried doc is complete: every chunk has its vector AND FTS row.
+    dc = {r["chunk_id"] for r in db.query("SELECT chunk_id FROM document_chunks")}
+    cv = {r["chunk_id"] for r in db.query("SELECT chunk_id FROM chunk_vectors")}
+    fts = {r["chunk_id"] for r in db.query("SELECT chunk_id FROM chunks_fts")}
+    assert dc and dc == cv == fts

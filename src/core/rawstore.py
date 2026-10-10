@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator, Optional
 
+from loguru import logger
+
 from src.core.db import Database
 from src.core.models import Document
 from src.core.textutil import sha256_hex
@@ -122,6 +124,15 @@ class RawStore:
         )
 
     def prune(self, keep_days: int) -> int:
+        """Delete retention-expired documents AND their retrieval rows.
+
+        A deleted document must not orphan document_chunks / chunks_fts /
+        chunk_vectors / index_state: orphaned index_state rows keep counting
+        toward retrieval coverage and can mask unindexed newest docs (coverage
+        reads at/above the floor with no gap while retrieval silently stages
+        only stale docs — review finding). Per-row best-effort: a row whose
+        cleanup fails is logged and skipped, never raised past.
+        """
         cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat()
         if keep_days <= 0:
             rows = self.db.query("SELECT doc_id, path FROM documents")
@@ -132,10 +143,44 @@ class RawStore:
             )
         n = 0
         for row in rows:
-            path = Path(row["path"]) if row["path"] else self._path_for(row["doc_id"])
-            if path.exists():
-                path.unlink()
-            self.db.execute("DELETE FROM documents WHERE doc_id = ?", (row["doc_id"],))
+            doc_id = row["doc_id"]
+            path = Path(row["path"]) if row["path"] else self._path_for(doc_id)
+            try:
+                # Retrieval rows follow the doc, in dependency order:
+                # chunk_vectors has no doc_id column — resolve the doc's
+                # chunk_ids FIRST, delete the vectors and FTS rows they key,
+                # then the chunks, the coverage ledger, and the doc itself.
+                chunk_ids = [
+                    r["chunk_id"]
+                    for r in self.db.query(
+                        "SELECT chunk_id FROM document_chunks WHERE doc_id = ?",
+                        (doc_id,),
+                    )
+                ]
+                if chunk_ids:
+                    ph = ",".join("?" * len(chunk_ids))
+                    self.db.execute(
+                        f"DELETE FROM chunk_vectors WHERE chunk_id IN ({ph})",
+                        chunk_ids,
+                    )
+                    self.db.execute(
+                        f"DELETE FROM chunks_fts WHERE chunk_id IN ({ph})",
+                        chunk_ids,
+                    )
+                self.db.execute(
+                    "DELETE FROM document_chunks WHERE doc_id = ?", (doc_id,)
+                )
+                self.db.execute(
+                    "DELETE FROM index_state WHERE doc_id = ?", (doc_id,)
+                )
+                self.db.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
+                if path.exists():
+                    path.unlink()
+            except Exception:
+                logger.warning(
+                    "prune: retrieval-row cleanup failed for document {}", doc_id
+                )
+                continue
             n += 1
         return n
 

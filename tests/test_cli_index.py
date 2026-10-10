@@ -143,6 +143,36 @@ def test_index_dry_run_plans_only_writes_nothing(tmp_path, monkeypatch):
     assert _count(db_path, "index_state") == 0
 
 
+def test_dry_run_rebuild_fts_plans_only_writes_nothing(tmp_path, monkeypatch):
+    """--dry-run index --rebuild-fts must WRITE NOTHING: the rebuild branch
+    runs before the per-domain loop, so it needs its own dry-run guard — a
+    global dry-run that still deletes + re-inserts chunks_fts violates the
+    "plans only, writes nothing" contract (review finding)."""
+    db, rs = _store(tmp_path)
+    indexer.index_domain(db, rs, "acme.com", embedder=FakeEmbedder())
+    db_path = tmp_path / "data" / "signals.db"
+    rows_full = _count(db_path, "chunks_fts")
+    assert rows_full >= 2
+    # Break the shadow so a REAL rebuild would observably change the table.
+    db.execute(
+        "DELETE FROM chunks_fts WHERE chunk_id IN "
+        "(SELECT chunk_id FROM document_chunks LIMIT 1)"
+    )
+    broken = _count(db_path, "chunks_fts")
+    assert broken < rows_full
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("src.retrieval.embedder.get_embedder", lambda: FakeEmbedder())
+    runner = CliRunner()
+    r = runner.invoke(main, ["--dry-run", "index", "--rebuild-fts"])
+
+    assert r.exit_code == 0, r.output
+    assert "would rebuild chunks_fts" in r.output
+    assert f"rows={rows_full}" in r.output  # would-rebuild count == full chunk count
+    # Nothing written: the broken shadow is STILL broken.
+    assert _count(db_path, "chunks_fts") == broken
+
+
 def test_index_null_embedder_prints_remediation(tmp_path, monkeypatch):
     from src.retrieval.embedder import NullEmbedder
 

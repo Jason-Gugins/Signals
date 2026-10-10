@@ -97,3 +97,63 @@ def test_select_stage_docs_falls_back_when_uncovered(indexed):
         cfg={"min_index_coverage": 0.8, "stage_docs": 5},
     )
     assert sel.staged_by == "uncovered" and sel.doc_ids == []
+
+
+class _ReversedScorer:
+    """Cross-encoder double returning deliberately WRONG-order scores: the
+    chunk at RRF position i gets score i (ascending), so a live CE rescore
+    must flip the shortlist end-to-end."""
+
+    def score_pairs(self, query, docs):
+        return [float(i) for i in range(len(docs))]
+
+
+class _NoneScorer:
+    """Model-unavailable double: score_pairs -> None (skip the CE leg)."""
+
+    def score_pairs(self, query, docs):
+        return None
+
+
+def _doc_of(db, needle):
+    return db.one(
+        "SELECT doc_id FROM document_chunks WHERE text LIKE ?", (f"%{needle}%",)
+    )["doc_id"]
+
+
+def test_ce_rescore_reorders_docs_and_marks_provenance(indexed):
+    """The CE rerank leg of select_stage_docs: a scorer returning
+    wrong-order scores must own the returned doc order (provenance
+    ce_scored == 1), not the RRF order."""
+    db, _rs = indexed
+    careers = _doc_of(db, "careers page")
+    filing = _doc_of(db, "sec filing")
+    assert careers and filing and careers != filing
+
+    sel = search.select_stage_docs(
+        db, "acme.com", query="hiring head of sales", ce_query="hiring head of sales",
+        embedder=FakeEmbedder(), scorer=_ReversedScorer(),
+        cfg={"candidate_limit": 10, "rerank_top_n": 10, "rerank_floor": 0.0,
+             "stage_docs": 2, "min_index_coverage": 0.5},
+    )
+    assert sel.staged_by == "retrieval"
+    assert sel.provenance["ce_scored"] == 1
+    assert len(sel.doc_ids) == 2
+    assert sel.doc_ids[0] == filing   # the CE rescore flipped RRF's winner
+
+
+def test_ce_scorer_returning_none_keeps_rrf_order(indexed):
+    """A scorer returning None = model unavailable = skip the CE leg: the RRF
+    order survives and provenance says ce_scored == 0."""
+    db, _rs = indexed
+    careers = _doc_of(db, "careers page")
+
+    sel = search.select_stage_docs(
+        db, "acme.com", query="hiring head of sales", ce_query="hiring head of sales",
+        embedder=FakeEmbedder(), scorer=_NoneScorer(),
+        cfg={"candidate_limit": 10, "rerank_top_n": 10,
+             "stage_docs": 2, "min_index_coverage": 0.5},
+    )
+    assert sel.staged_by == "retrieval"
+    assert sel.provenance["ce_scored"] == 0
+    assert sel.doc_ids and sel.doc_ids[0] == careers   # RRF order kept

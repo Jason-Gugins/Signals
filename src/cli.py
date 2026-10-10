@@ -614,7 +614,17 @@ def index_cmd(ctx, domain, limit, stats, rebuild_fts):
             )
         return
 
+    dry_run = bool(ctx.obj.get("dry_run"))
     if rebuild_fts:
+        if dry_run:
+            # Plans only, writes nothing — the rebuild branch sits before the
+            # per-domain dry-run check, so it needs its own guard (review
+            # finding: --dry-run index --rebuild-fts used to DELETE + re-INSERT).
+            would = int(
+                db.one("SELECT COUNT(*) AS n FROM document_chunks")["n"]
+            )
+            click.echo(f"[dry-run] would rebuild chunks_fts rows={would}")
+            return
         # document_chunks.text is the source of truth; chunks_fts is derived.
         db.execute("DELETE FROM chunks_fts")
         rows = db.query("SELECT text, chunk_id FROM document_chunks")
@@ -626,7 +636,6 @@ def index_cmd(ctx, domain, limit, stats, rebuild_fts):
         click.echo(f"rebuilt chunks_fts rows={len(rows)}")
         return
 
-    dry_run = bool(ctx.obj.get("dry_run"))
     rcfg = getattr(cfg, "retrieval", None)
     chunk_tokens = getattr(rcfg, "chunk_tokens", 500)
     overlap_tokens = getattr(rcfg, "chunk_overlap_tokens", 60)

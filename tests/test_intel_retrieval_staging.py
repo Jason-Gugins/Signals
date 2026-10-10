@@ -284,6 +284,30 @@ def test_enabled_uncovered_falls_back_to_recency_with_gap(monkeypatch):
     assert "recency" in gap
 
 
+def test_empty_retrieval_selection_still_sorted_and_capped(monkeypatch):
+    """staged_by='retrieval' with EMPTY doc_ids is not a retrieval selection
+    (a retrieval result that selected nothing carries no order to honor): the
+    seam must normalize it so the recency sort AND the MAX_IMPLEMENT_DOCS cap
+    still apply — the cap holds on every path (review finding)."""
+    monkeypatch.setattr(intel_mod, "MAX_IMPLEMENT_DOCS", 2)
+    orch = _orc(DOCS_NEWEST_FIRST)
+    selection = StageSelection(doc_ids=[], coverage=1.0, staged_by="retrieval")
+    _patch_selection(monkeypatch, selection=selection)
+    rec = _patch_bulk(monkeypatch)
+
+    # stage_docs lowered to match the patched cap (a stage_docs above
+    # MAX_IMPLEMENT_DOCS would disable the retrieval block entirely).
+    result = _run_pass(orch, cfg=_enabled_cfg(stage_docs=2))
+
+    # Recency order, capped at the (patched) MAX_IMPLEMENT_DOCS.
+    assert orch.raw.get_order == ["doc-b", "doc-c"]
+    assert rec["bulk"] == ["doc-b", "doc-c"]
+    assert result["docs"] == 2
+    assert result["retrieval"]["staged_by"] == "unavailable"  # normalized
+    assert result["retrieval"]["coverage"] == 1.0
+    assert any("recency" in gap for gap in result["gaps"]), result["gaps"]
+
+
 # ---------------------------------------------------------------------------
 # 4. select_stage_docs raising: recency fallback, the pass completes
 # ---------------------------------------------------------------------------

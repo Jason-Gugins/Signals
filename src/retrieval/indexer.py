@@ -4,11 +4,15 @@ Explicit, budgeted, resumable. Never raises past a per-doc skip (a bad body
 is counted in `skipped_no_text` / `errors`, never fatal) — an index build that
 half-succeeds is still a useful index, and the next run finishes it.
 
-Every document the indexer EXAMINES gets an `index_state` ledger row for the
-active model ('indexed' or 'no_text'), because coverage is computed from the
-ledger: a permanently-unindexable doc (empty/binary body) must count as
-COVERED, not as a permanent gap that silently forces the recency fallback
-forever (migration v9 review finding).
+Ledger contract: an `index_state` row is written for every doc the indexer
+DECIDES — 'indexed' on success, 'no_text' for empty/binary bodies (coverage
+counts both as covered, not as a permanent gap — migration v9 review
+finding). A doc that FAILS (embed error, mid-insert exception) gets NO row:
+the ledger records decisions, not attempts, so the next run retries failed
+docs. The per-doc except handler deletes the failed doc's partial chunk rows
+to match that contract — without the cleanup, committed partial rows would
+make the next run's existing-chunks check short-circuit as skipped_indexed
+and lock the doc in as permanently partial.
 """
 from __future__ import annotations
 
@@ -59,6 +63,29 @@ def _fts_delete(db: Database, chunk_ids: list[str]) -> None:
         db.execute("DELETE FROM chunks_fts WHERE chunk_id = ?", (cid,))
 
 
+def _delete_doc_chunks(db: Database, doc_id: str, model: str) -> None:
+    """Delete one doc's chunk rows for ONE model (vectors + FTS + chunks).
+
+    chunk_vectors has no doc_id column — resolve the chunk_ids first, then
+    delete the rows they key, then the chunks themselves (never emit `IN ()`).
+    """
+    chunk_ids = [
+        r["chunk_id"]
+        for r in db.query(
+            "SELECT chunk_id FROM document_chunks WHERE doc_id = ? AND model_id = ?",
+            (doc_id, model),
+        )
+    ]
+    if chunk_ids:
+        ph = ",".join("?" * len(chunk_ids))
+        db.execute(f"DELETE FROM chunk_vectors WHERE chunk_id IN ({ph})", chunk_ids)
+        db.execute(f"DELETE FROM chunks_fts WHERE chunk_id IN ({ph})", chunk_ids)
+    db.execute(
+        "DELETE FROM document_chunks WHERE doc_id = ? AND model_id = ?",
+        (doc_id, model),
+    )
+
+
 def index_domain(
     db: Database,
     raw_store: RawStore,
@@ -75,7 +102,8 @@ def index_domain(
     NEW model, its old chunks/vectors/FTS rows are deleted first. Per-doc
     failures are counted in `errors` and never raised past.
     """
-    # Database.execute commits per statement — no explicit commit anywhere here.
+    # Database.execute / executemany commit per statement / batch — no
+    # explicit commit anywhere here.
     model = getattr(embedder, "model", None)  # ONE identity accessor: indexer,
     # coverage ledger and the search-leg model filters all read `.model`.
     stats: dict = {
@@ -141,12 +169,15 @@ def index_domain(
                     old,
                 )
             _fts_delete(db, old)
+            # One batched write per table (Database.executemany commits once):
+            # a doc costs ~3 commits instead of ~3 per chunk over the
+            # per-chunk autocommitting loop (backfill perf — review finding).
+            chunk_rows: list[tuple] = []
+            vec_rows: list[tuple] = []
+            fts_rows: list[tuple] = []
             for chunk, vec in zip(chunks, vecs):
                 cid = stable_id(doc_id, str(chunk.ordinal), model, length=32)
-                db.execute(
-                    "INSERT INTO document_chunks(chunk_id, doc_id, domain, ordinal,"
-                    " char_start, char_end, text, token_est, model_id, created_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))",
+                chunk_rows.append(
                     (
                         cid,
                         doc_id,
@@ -157,21 +188,43 @@ def index_domain(
                         chunk.text,
                         chunk.token_est,
                         model,
-                    ),
+                    )
                 )
-                db.execute(
-                    "INSERT INTO chunk_vectors(chunk_id, model_id, dim, vec)"
-                    " VALUES (?,?,?,?)",
-                    (cid, model, len(vec), struct.pack(f"<{len(vec)}f", *vec)),
+                vec_rows.append(
+                    (cid, model, len(vec), struct.pack(f"<{len(vec)}f", *vec))
                 )
-                db.execute(
-                    "INSERT INTO chunks_fts(text, chunk_id) VALUES (?, ?)",
-                    (chunk.text, cid),
-                )
+                fts_rows.append((chunk.text, cid))
+            db.executemany(
+                "INSERT INTO document_chunks(chunk_id, doc_id, domain, ordinal,"
+                " char_start, char_end, text, token_est, model_id, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))",
+                chunk_rows,
+            )
+            db.executemany(
+                "INSERT INTO chunk_vectors(chunk_id, model_id, dim, vec)"
+                " VALUES (?,?,?,?)",
+                vec_rows,
+            )
+            db.executemany(
+                "INSERT INTO chunks_fts(text, chunk_id) VALUES (?, ?)",
+                fts_rows,
+            )
             _mark_state(db, doc_id, domain, model, "indexed")
             stats["docs_indexed"] += 1
             stats["chunks"] += len(chunks)
         except Exception:
             logger.exception("index: doc {} failed", doc_id)
+            # The run may have committed PARTIAL chunk rows before the
+            # failure (inserts commit per statement) — without cleanup the
+            # next run's existing-chunks check short-circuits as
+            # skipped_indexed and the doc stays permanently partial. Delete
+            # this doc's rows for the CURRENT model so the next run retries
+            # it cleanly. Best-effort: cleanup never raises past the doc.
+            try:
+                _delete_doc_chunks(db, doc_id, model)
+            except Exception:
+                logger.warning(
+                    "index: post-failure cleanup incomplete for doc {}", doc_id
+                )
             stats["errors"] += 1
     return stats

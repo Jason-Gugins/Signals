@@ -114,7 +114,10 @@ opt-in `--appstore` via iTunes Search, `--bbb` via BBB search API, and
 human-triggered posture, no automated login), `find-careers DOMAIN` (careers-page
 discovery for one domain - sitemap-first, prints the URL and which rung found
 it), `collect`,
-`reparse`, `score`, `status`, `doctor`,
+`reparse`, `index [--domain X] [--limit N] [--stats] [--rebuild-fts]` (build
+the opt-in hybrid-retrieval index over stored documents — chunks + FTS5 +
+local embeddings; explicit, budgeted and resumable, never lazy inside `intel`,
+see *Hybrid retrieval staging* below), `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
 `capterra-selfcheck`, `ats-set DOMAIN VENDOR TOKEN` (manually stamp
 `ats_vendor`/`ats_token` on an existing account — never creates one; the
@@ -189,6 +192,52 @@ seller-market profile selected by `--market-profile`, read from
 `config/markets.yaml` — which ships empty. Until it is filled in, those sources
 promote nothing and `intel` reports a "no relevance vocabulary configured" gap;
 nothing is promoted until then.
+
+### Hybrid retrieval staging (opt-in)
+
+The implement stage (the document gate + implementers, next section) normally
+screens the 200 **newest** stored documents for the account — a pure recency
+cut, so a six-month-old but highly relevant page (a funding announcement, a
+needs statement) can fall off the tail while newer, irrelevant pages each cost
+a document-gate request. The `retrieval:` block lets the implement stage stage
+the most **relevant** documents instead: SQLite FTS5 BM25 (exact-token wins —
+vendor names, filing codes like `8-K`, proper nouns) + local MiniLM cosine
+embeddings (paraphrase wins — "hiring head of sales" ↔ "VP Sales role"), fused
+with Reciprocal Rank Fusion, reranked by the ms-marco cross-encoder over the
+shortlist, near-duplicates suppressed with MMR (content-addressed storage mints
+a new document per byte-diff, so identical boilerplate can exist N times), and
+collapsed to the top `stage_docs: 35` documents. Those 35 flow through the SAME
+document gate, G3–G5 and citation chain as before — retrieval reselects the
+candidates, it never adds a spend path. 35 is not a round number: it is the
+`decider.max_decide_tokens_per_run` break-even with every wave-2 battery
+enabled (~10.3k tokens/doc against the 400k run ceiling); raise it only when
+batteries are disabled in `config/decide.yaml`.
+
+**Opt-in path**, in order: `pip install -e ".[rerank]"` (the extra carries
+onnxruntime/tokenizers — without it the vector leg is disabled and `doctor`
+warns via `retrieval_readiness`), then build the index with
+`python -m src.cli index --domain acme.com` (`--limit N` budgets a partial
+backfill, `--stats` reports per-domain coverage without indexing,
+`--rebuild-fts` regenerates the FTS shadow; the first run downloads the ~25MB
+embedding model once, HF-cached like the reranker), then set
+`retrieval.enabled: true` in `config/default.yaml`. The retrieval query is
+built from the account identity plus the seller-market profile vocabulary —
+the profile you already wrote for `needs` steers retrieval for free.
+
+**Honest fallback.** Retrieval problems can never fail an intel run. Index
+coverage below `min_index_coverage` (0.8), an unavailable leg, any retrieval
+failure, or the block off/absent: the implement stage stages the 200 newest
+documents exactly as before, the run records a gap line naming the coverage
+and the remediation (`python -m src.cli index --domain <domain>`), and the
+stage record's `retrieval.staged_by` always says which selection a run used
+(`retrieval` / `uncovered` / `unavailable` / `error`). When the block is off
+(the shipped default) the stage record carries no `retrieval` key at all and
+`intel` is byte-identical to the pre-retrieval flow.
+
+**Cost.** When enabled, 35 relevant documents replace the 200-doc recency
+tail: document-gate and implementer spend goes DOWN, not up, and the token
+pre-flight bills the smaller staged list automatically. When off, cost and
+behavior are unchanged — indexing is the only extra step, and it is explicit.
 
 ## LLM decision layer (opt-in)
 

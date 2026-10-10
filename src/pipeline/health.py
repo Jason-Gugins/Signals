@@ -384,6 +384,61 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
             )
     except Exception as exc:
         add("gkg_credentials", "WARN", f"check skipped: {exc}")
+    # Intel hybrid-retrieval readiness (retrieval wave, plan T10): WARN when
+    # the retrieval block is ENABLED but a prerequisite is missing — the
+    # [rerank] extra (onnxruntime, the vector/embedder leg) or a built index —
+    # or when the SQLite build lacks FTS5 (the BM25 leg; expected never on
+    # CPython >= 3.9 — the probe is how we would know). Pure import probes
+    # plus a temp :memory: FTS5 probe: no model downloads, safe with
+    # check_network=False. When retrieval is disabled (the shipped default)
+    # the check is OK/quiet — an off feature is not a problem to report, and
+    # intel stages the recency tail exactly as before.
+    try:
+        retrieval = getattr(config, "retrieval", None)
+        enabled = bool(getattr(retrieval, "enabled", False))
+        problems: list[str] = []
+        try:
+            import sqlite3
+
+            probe = sqlite3.connect(":memory:")
+            try:
+                probe.execute("CREATE VIRTUAL TABLE fts5_probe USING fts5(a)")
+            finally:
+                probe.close()
+        except Exception:
+            problems.append("SQLite build lacks FTS5; BM25 leg unavailable")
+        chunks = 0
+        if enabled:
+            try:
+                import onnxruntime  # noqa: F401
+
+                have_ort = True
+            except Exception:
+                have_ort = False
+            if not have_ort:
+                problems.append(
+                    "retrieval enabled but the [rerank] extra is not installed; "
+                    "vector leg disabled"
+                )
+            chunks = int(
+                (db.one("SELECT COUNT(*) AS n FROM document_chunks") or {"n": 0})["n"] or 0
+            )
+            if chunks == 0:
+                problems.append(
+                    "retrieval enabled but the index is empty; run: python -m src.cli index"
+                )
+        if problems:
+            add("retrieval_readiness", "WARN", "; ".join(problems))
+        else:
+            add(
+                "retrieval_readiness",
+                "OK",
+                f"retrieval enabled; index ready ({chunks} chunks)"
+                if enabled
+                else "retrieval disabled — intel stages the recency tail (default)",
+            )
+    except Exception as exc:
+        add("retrieval_readiness", "WARN", f"check skipped: {exc}")
     if check_network:
         try:
             import httpx

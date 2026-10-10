@@ -554,8 +554,11 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   **empty on purpose**, so nothing is promoted until the seller's offerings,
   buyer departments, served-problem phrases and served vendors are written in.
   This is the user's product decision, not missing code.
-- [ ] **Embeddings / neural search over the stored evidence** — now that need
-  text is persisted this becomes worth doing; not attempted here.
+- [x] **Embeddings / neural search over the stored evidence** — DELIVERED
+  2026-10-10 as the intel hybrid-retrieval wave (FTS5 BM25 + local MiniLM
+  vectors, RRF fusion, ms-marco cross-encoder rerank, MMR dedup; opt-in behind
+  `retrieval.enabled`). See **Intel hybrid retrieval (2026-10-10 — DELIVERED)**
+  at the end of this file.
 - [ ] **Generalise need extraction beyond first-party `company_feed`
   documents** — news bodies and careers-page HTML are not yet covered.
 - [ ] **Automatic alias / name-variant discovery from EDGAR/news strings** —
@@ -1254,3 +1257,78 @@ pilot surfaced.
 - SignalsShadow (`src/antibot`): native BoringSSL engine, own HTTP/2 (Akamai byte-exact), temporal stealth (resumption/pooling/304), solve-and-bounce ghost, RouteState lifetime learning, Happy Eyeballs, persistent cookie jar, DataDome/CF waterfall integration
 - Stealth-browser lifecycle fix (closed in runner finally), G2 warm-up gating, empty-vs-challenge classification
 - 2Captcha DataDome solver tier (cookie-based; token injection stub remains P1 above)
+
+## Intel hybrid retrieval (2026-10-10 — DELIVERED)
+
+Replaces the intel implement stage's recency-only staging (200 newest docs by
+`fetched_at`) with hybrid retrieval over the stored corpus, behind an opt-in
+`retrieval:` config block. Off by default (the shipped posture); byte-identical
+when off — no `retrieval` key in the stage record, no index required.
+
+- **Delivered** — from `.zcode/plans/2026-10-10_171607-intel-hybrid-retrieval.md`
+  (two-agent verified — spec compliance + code quality review, all findings
+  folded in), 10 commits: `825d2c0` migration v9 (`document_chunks` +
+  `chunks_fts` FTS5 shadow + `chunk_vectors` BLOB-stored float32 vectors +
+  `index_state` coverage ledger; the `test_db_maintenance` version pin bumped
+  8→9); `3a7c511` the chunker (exact `(char_start, char_end)` spans into the
+  extracted text, paragraph→sentence→whitespace boundaries never mid-word;
+  `html_to_text` moved to `src/core/textutil.py` with a re-export shim in
+  feeds.py); `0a4d6cc` the MiniLM ONNX embedder (Xenova/all-MiniLM-L6-v2,
+  384-dim, mean-pool + L2-normalise so dot == cosine, NullEmbedder
+  degradation — the rerank.py contract); `0f12ae5` RRF + MMR as pure
+  functions; `a1911b5` the `retrieval:` config block (`enabled: false`);
+  `e82a0f6` the per-domain indexer (idempotent per `(doc, model)`, resumable,
+  budgeted; `no_text` docs ledgered, never fatal); `88f7eb0` the `index` CLI
+  (`--domain/--limit/--stats/--rebuild-fts`, `--dry-run` aware); `3cad621`
+  the search legs + `select_stage_docs` facade (the FTS5 match-query escaper
+  keeps `8-K`/`Form D` single+hyphen tokens; RRF consumes ranks only, so
+  bm25's lower-is-better never meets cosine's higher-is-better);
+  `dade178` the intel implement seam (every non-retrieval outcome —
+  uncovered, unavailable, empty, exception — falls back to the recency tail
+  with a gap line naming `python -m src.cli index`; the stage record carries
+  `retrieval.staged_by` ONLY when the block ran); `77848eb` the README
+  migration-version pin v8→v9. Task 10 (this commit) adds the doctor
+  `retrieval_readiness` check + README/TODO documentation.
+- **Key design points** — the advisor's pgvector+tsvector+RRF stack translated
+  SQLite-natively (BLOB float32 + numpy matmul cosine is exact and
+  milliseconds at 10²–10⁴ chunks/domain; FTS5 `bm25()` stands in for
+  tsvector); MMR runs on min-max-NORMALISED scores (RRF's ~0.008–0.033 band
+  vs cosine's 0..1 would otherwise let the diversity term silently dominate)
+  and with k < pool (`candidate_limit` 60 > `stage_docs` 35 — a k above the
+  pool made MMR a silent no-op); the `index_state` ledger counts `no_text`
+  docs as COVERED so permanently-unindexable bodies cannot pin coverage below
+  `min_index_coverage` and silently force recency forever; `stage_docs: 35`
+  is the decide-token-ceiling break-even (~10.3k tokens/doc with every wave-2
+  battery on vs the 400k run ceiling) — 35 relevant docs replace the 200-doc
+  recency tail, so document-gate/implementer spend goes DOWN; the
+  cross-encoder scores doc-side-only pairs (the query already occupies the
+  query slot — duplicating it on the doc side burned ~60 of the 256-token
+  budget).
+- **Intentional plan deviations (builder-shipped)** — `MIN_TEXT_CHARS`
+  200→16: the plan's own contract tests index one-sentence fixture pages,
+  which a 200-char floor would have silently ledgered as `no_text`;
+  `mmr_select` drops vectorised diversity losers (only unvectorised items
+  trail the selected set) instead of the plan's keep-everything trailing —
+  the plan's text already argued "an unvectorised item must not lose to a
+  duplicate", and a near-dup that DID lose to diversity is suppressed on
+  purpose.
+- **What stayed OUT** — Postgres/pgvector (rejected: the zero-cost local
+  single-file-SQLite constraint; every idea had a native equivalent);
+  sqlite-vec (documented as the ~10⁵+ chunks/domain scale-out — brute-force
+  numpy cosine is exact and dependency-free at this scale); needs/jobsignals
+  adoption of `search_corpus()` (deferred to its own wave once real retrieval
+  traffic exists); PDF page spans (corpus is HTML/JSON/RSS — chunk char spans
+  are the citation provenance; revisit only if PDF parsing lands).
+- **Activation recipe** — `pip install -e ".[rerank]"` (onnxruntime/
+  tokenizers/huggingface_hub) → `python -m src.cli index --domain <domain>`
+  (first run downloads the ~25MB embedding model once, HF-cached like the
+  reranker; `--stats` reports per-domain coverage) → `retrieval.enabled:
+  true` in `config/default.yaml`. `doctor` now carries
+  `retrieval_readiness`: WARN when enabled but the extra is missing / the
+  index is empty / the SQLite build lacks FTS5; OK-quiet when disabled.
+- **Baseline** — `pytest --collect-only` → 2,636 tests after Task 10 (2,631
+  before it; 2,575 at the waves 2–3 close) — the retrieval tasks added ~56,
+  Task 10 adds the 5 `test_doctor_retrieval.py` doctor branches; the offline
+  lane stays green except the documented environmental `test_antibot_engine`
+  TLS flake; `doctor --no-network` unchanged-or-better (one new OK row on the
+  shipped disabled default).

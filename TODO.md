@@ -550,6 +550,15 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ### Deferred
 
+- [ ] **Autoresearch decide-lab** — offline A/B + autoresearch loop tuning the
+  decide layer's three spend stages (document gate / bulk implementer / G4
+  citation gate) against the decision ledger, per the TypeSafe
+  `autoresearch_feature_discovery` cookbook: propose questions → 4-Noul
+  prescreen → correlation prune → weighted replay scoring → regress
+  (elastic-net/RF/embedding baselines) → errors feed the next round.
+  Trigger: arm A measured ~97% of implementer claims routed to review
+  (floors shipped uncalibrated). Plan:
+  `docs/plans/2026-10-11-autoresearch-decide-lab.md` (committed).
 - [ ] **Fill in `config/markets.yaml`** — the shipped default profile is
   **empty on purpose**, so nothing is promoted until the seller's offerings,
   buyer departments, served-problem phrases and served vendors are written in.

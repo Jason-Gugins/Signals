@@ -1440,3 +1440,31 @@ query-params — true, quoted, worthless); `c612430` validation.
   Study spend: ≈$1.00. Wave executed via subagent-driven-development with
   one parent-side finish (Task 5 — the subagent hit a usage limit with
   complete-but-uncommitted work; finished + tested + committed as e553ea4).
+
+## Autoresearch decide-lab (2026-10-12 — DELIVERED)
+
+Plan: `docs/plans/2026-10-11-autoresearch-decide-lab.md` (two-agent verified
+pre-execution). Ten commits: `458a9d2` corpus extractor + AST
+import-isolation guard (the lab can never enter the pipeline's import
+graph), `218f0de` claim-survival/doc-useful target builders (outcome
+vocabulary pinned to the real gates strings by a drift-guard test),
+`103f0fc` multi-family proposer mixer (three OpenRouter families from
+config, merge+dedupe, $0.01/call budget), `af3950a` budgeted claim
+backfill (decide-lab Task 2 Step 2 — Step 1 shipped earlier as 9fb0e85),
+`2dc5469` deterministic + embedding baselines behind the new
+`signals[lab]` extra (numpy + scikit-learn 1.9.1), `f569e5a` 4-Noul
+prescreener + correlation pruning, `33be602` variant registry + weighted
+replay scorer (byte-identical construction pins against the REAL gates —
+the replay provably sends what the pipeline sends), `f91ed3f` model zoo +
+chronological/grouped splits + plateau/stability, `02e16d2` round runner +
+calibration report (PROPOSAL-only decide.yaml diffs), plus this README
+section. 162 lab tests green; full offline lane exit 0.
+
+- **First real-corpus dry-run** (no calls): 17,282 ledger rows across 40
+  domains; 617 claim_survival labels (8.8% positive) from the fix-wave
+  harvest packages. Opening targets named in the README: G5 `band_low`,
+  the output screen, the taxonomy 422s.
+- **Not yet run:** a live budgeted round (needs the operator's
+  TypeSafe/OpenRouter credentials + consent — `python -m src.lab run
+  --rounds 3 --budget-calls 150`); the >200-doc re-test protocol
+  (`scripts/ab/README.md`).

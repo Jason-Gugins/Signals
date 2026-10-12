@@ -690,6 +690,35 @@ CAPTCHA solving and no login bypass (the external-solver Cloudflare/DataDome
 tiers live in the source fetchers — see *Cloudflare bypass* above) — honest
 limits are documented. Full notes: [`src/antibot/README.md`](src/antibot/README.md).
 
+## Decide lab (dev tooling, opt-in)
+
+`src/lab` is a dev-only package for tuning the decide layer's gates against
+the decision ledgers intel already collects — the TypeSafe
+`autoresearch_feature_discovery` shape: propose candidate gate questions →
+4-Noul prescreen → correlation prune → replay against recorded corpus states
+under a weighted score (acceptance precision / claim recall / promotion
+proxy / cost / latency) → supervised comparison (elastic-net/RF/SVR/HGB +
+the deterministic + MiniLM-embedding baselines) → errors feed the next
+round, with chronological + domain-grouped folds, a final holdout, plateau
+stopping, and stability checks. It never runs inside `intel` (an
+import-graph guard enforces the isolation) and its report PROPOSES
+`config/decide.yaml` diffs — applying them is a human step.
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[lab]"
+.\.venv\Scripts\python.exe -m src.lab corpus                     # stats only, no writes
+.\.venv\Scripts\python.exe -m src.lab run --rounds 3 --budget-calls 150 --dry-run
+.\.venv\Scripts\python.exe -m src.lab run --rounds 3 --budget-calls 150 --target claim_survival
+```
+
+Live rounds need the same TypeSafe/OpenRouter credentials + data-exit
+consent as the decide layer (skipped honestly without them). The measured
+opening targets: G5's `band_low` (all 49 G4-accepted claims in the fix-wave
+validation died at promotion nouls 0.08–0.13 vs the 0.30 band), the batch
+output screen (`output_review` is the dominant reviewer post-fix), and the
+`taxonomy_typing` 422s — see
+[`data/probe/G4_WALL_2026_10.md`](data/probe/G4_WALL_2026_10.md).
+
 ## Scheduling, retention, and calibration (ops)
 
 - **Durable scheduling** — `watch` runs on a `Scheduler` (`src/pipeline/scheduler.py`):

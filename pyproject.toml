@@ -34,6 +34,10 @@ rerank = [
 # Google Knowledge Graph identity discovery (gkg_ids): EKG service-account
 # auth; deferred import keeps the offline lane green without it.
 gkg = ["google-auth>=2"]
+# Decide lab (dev-only autoresearch tooling): numeric feature families +
+# baseline models. Heavy on purpose — never a core dependency, and src/lab
+# is never imported by the intel pipeline (tests/test_lab_isolation.py).
+lab = ["numpy>=1.26", "scikit-learn>=1.5"]
 
 [project.scripts]
 signals = "src.cli:main"

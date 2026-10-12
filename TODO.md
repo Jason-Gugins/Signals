@@ -1401,3 +1401,42 @@ same market profile + planner. Full report: `data/probe/RETRIEVAL_AB_2026_10.md`
   Jev input-only pennies as documented. Configs restored post-experiment
   (retrieval off, decide.yaml shipped ceilings/planner, markets.yaml user
   state) — verified via git status.
+
+## A/B follow-up fix wave (2026-10-12 — DELIVERED)
+
+Plan (two-agent verified, then executed): `docs/plans/2026-10-12-ab-followup-fix-wave.md`.
+Study: `data/probe/G4_WALL_2026_10.md` (with validation harvest). Commits:
+`d5fd0ff` plan+TODO, `ca25882` planner step-pruning (fanout AND invented
+ids — the planner had never successfully narrowed a plan), `08ded59`
+embedder 32-batch cap (174GB arena OOM), `45b8f9a` retrieval default-on +
+candidate_limit 180 (A/B-validated posture), `c77281e` A/B tooling
+promoted to `scripts/ab/` (+ >200-doc re-test protocol), `9fb0e85` opt-in
+claim persistence (satisfies decide-lab plan Task 2 Step 1 only), `e553ea4`
+Jev honesty wave: real error causes in ledger rows (Decision.cause +
+exception_cause), breaker excludes chronic minor-gate failures
+(routing/posture_audit — the PROVEN cause of the A/B's 105 lost rows; the
+timeout theory was disproven, max observed latency 1.23s), timeout now
+actually scales with question count, implementer failures carry causes;
+`17a71dc` the G4 wall study; `99c107b` the fixes it dictated — G4 excerpts
+anchor on the VERIFIED QUOTE (was: paraphrased claim text → 88–97%
+boilerplate-head fallback; quotes 98%+ anchorable but never shown to Jev)
++ implementer prompt forbids envelope/meta claims (resultCount,
+query-params — true, quoted, worthless); `c612430` validation.
+
+- **Validated live (frozen corpus, enforce, retrieval staging):** G4
+  accepted 0→19 (databricks) and 5→30 (rillet); says_nothing 66→0 and
+  35→4; the G4 wall is DOWN. **G5 is the confirmed second wall** (all 49
+  accepted claims died at promotion nouls 0.08–0.13 vs band_low 0.30) —
+  deliberately deferred to the decide-lab with the batch output screen
+  (output_review now the dominant reviewer) as its other lever.
+- **New precisely-diagnosed defect for the decide-lab:** 19
+  `taxonomy_typing` + 1 `posture_audit` rows at `HTTPStatusError: 422`
+  (visible only via the new cause field; breaker correctly did NOT
+  fail-close G4). Plus the study's envelope-document finding (API JSON/RSS
+  scaffolding dilutes the corpus).
+- **Post-experiment state:** `lab.persist_claims` restored to false; the
+  temporary `ab_ai_infra_gtm` profile removed (user's markets.yaml state
+  preserved); retrieval stays default-ON (the shipped posture, Task 4).
+  Study spend: ≈$1.00. Wave executed via subagent-driven-development with
+  one parent-side finish (Task 5 — the subagent hit a usage limit with
+  complete-but-uncommitted work; finished + tested + committed as e553ea4).

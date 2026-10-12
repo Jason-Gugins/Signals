@@ -24,6 +24,12 @@ TOKENIZER_FILE = "tokenizer.json"
 MODEL_REVISION: Optional[str] = "751bff37182d3f1213fa05d7196b954e230abad9"
 DIM = 384
 MAX_SEQ_LEN = 256  # tokenizer truncation; matches the reranker's budget
+# Rows per session.run() in embed(). ONNX preallocates the arena for the
+# WHOLE request's activations: encoding an entire input list in one run had
+# a single ~2.6k-chunk document request a 174 GB allocation (observed during
+# the 2026-10 retrieval A/B re-index; the indexer caught it as an error).
+# 32 rows bounds every request; batches are concatenated IN INPUT ORDER.
+EMBED_BATCH = 32
 
 
 class Embedder(Protocol):
@@ -96,22 +102,30 @@ class OnnxEmbedder:
             # directly, short-circuiting _ensure_loaded entirely.
             import numpy as np
 
-            enc = self._tokenizer.encode_batch(texts)
-            feeds = {
-                "input_ids": np.array([e.ids for e in enc], dtype=np.int64),
-                "attention_mask": np.array(
-                    [e.attention_mask for e in enc], dtype=np.int64
-                ),
-                "token_type_ids": np.array([e.type_ids for e in enc], dtype=np.int64),
-            }
             names = [i.name for i in self._session.get_inputs()]
-            run_keys = {k: v for k, v in feeds.items() if k in names}
             output_names = [o.name for o in self._session.get_outputs()]
-            hidden = self._session.run(output_names, run_keys)[0]
-            # Mean pool over REAL tokens (attention mask — padded positions
-            # contribute nothing), then L2-normalise so dot == cosine.
-            mask = feeds["attention_mask"].astype("float32")[..., None]
-            pooled = (hidden * mask).sum(axis=1) / mask.sum(axis=1).clip(min=1e-9)
+            pooled_parts = []
+            for start in range(0, len(texts), EMBED_BATCH):
+                batch = texts[start : start + EMBED_BATCH]
+                enc = self._tokenizer.encode_batch(batch)
+                feeds = {
+                    "input_ids": np.array([e.ids for e in enc], dtype=np.int64),
+                    "attention_mask": np.array(
+                        [e.attention_mask for e in enc], dtype=np.int64
+                    ),
+                    "token_type_ids": np.array([e.type_ids for e in enc], dtype=np.int64),
+                }
+                run_keys = {k: v for k, v in feeds.items() if k in names}
+                hidden = self._session.run(output_names, run_keys)[0]
+                # Mean pool over REAL tokens (attention mask — padded positions
+                # contribute nothing), per batch; parts concatenated IN ORDER.
+                mask = feeds["attention_mask"].astype("float32")[..., None]
+                pooled_parts.append(
+                    (hidden * mask).sum(axis=1) / mask.sum(axis=1).clip(min=1e-9)
+                )
+            # texts is non-empty here, so pooled_parts has at least one part.
+            pooled = np.concatenate(pooled_parts, axis=0)
+            # L2-normalise so dot == cosine.
             norms = np.linalg.norm(pooled, axis=1, keepdims=True).clip(min=1e-12)
             pooled = (pooled / norms).astype("float32")
             return [row.tolist() for row in pooled]

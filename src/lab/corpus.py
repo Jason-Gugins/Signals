@@ -28,10 +28,17 @@ import json
 import re
 from pathlib import Path
 
+from loguru import logger
+
 from src.core.db import Database
 from src.core.rawstore import RawStore
 from src.core.textutil import truncate
 from src.decide.gates import state_hash
+
+#: Ledger lines dropped for malformed JSON during the last extract() —
+#: surfaced so callers can disclose data loss honestly (a corrupt row must
+#: never abort the extraction, and never vanish silently either).
+MALFORMED_LINES_DROPPED: int = 0
 
 # _DOC_STATE_TOKENS * _WINDOW_CHARS_PER_TOKEN (src/decide/gates.py): the
 # head length the document gate hashed into its state.
@@ -59,11 +66,25 @@ def _read_json(path: Path) -> dict:
 
 
 def _iter_jsonl(path: Path) -> list[dict]:
+    global MALFORMED_LINES_DROPPED
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return []
-    return [json.loads(l) for l in lines if l.strip()]
+    # One malformed line skips THAT line (logged), never the whole package —
+    # a single corrupt ledger row must not abort the extraction (review
+    # finding). Count is returned via the module-level dropped-lines counter
+    # surfaced in extraction stats by the caller when it cares.
+    out: list[dict] = []
+    for lineno, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            logger.warning("corpus: malformed jsonl line skipped ({}:{})", path.name, lineno)
+            MALFORMED_LINES_DROPPED += 1
+    return out
 
 
 def _package_meta(pkg: Path) -> dict:
@@ -130,6 +151,12 @@ class _DocIndex:
                 index[digest] = {
                     "doc_id": did,
                     "text": head,
+                    # the FULL body: the G4 replay's citation excerpts must
+                    # see what gate_citation_batch saw — quotes can sit past
+                    # the 9,600-char head, and anchoring on the head alone
+                    # would silently degrade long-doc excerpts to head-only
+                    # (review finding: replay-state drift vs the pipeline).
+                    "full_text": text,
                     "url": getattr(full, "url", None),
                     "source": getattr(full, "source", None),
                     "byte_size": getattr(full, "byte_size", None),

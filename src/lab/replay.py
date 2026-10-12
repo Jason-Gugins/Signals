@@ -657,15 +657,20 @@ def _normalize_claims(payload: list, fallback_doc_id: str) -> list[Claim]:
 
 
 def _doc_text_map(rows: list[dict]) -> dict[str, str]:
-    """doc_id -> text over every row that carries both (the corpus's joined
-    document_gate rows). Citation rows join only through their claims'
-    doc_ids, so this map is the G4 replay's document source; a missing doc
+    """doc_id -> FULL document text over every row that carries one (the
+    corpus's joined document_gate rows carry ``full_text``; the 9,600-char
+    ``text`` head stays the doc-gate replay's identity input). Citation rows
+    join only through their claims' doc_ids, so this map is the G4 replay's
+    document source — it MUST use the full body: quotes can sit past the
+    head, and anchoring on the head alone would silently degrade long-doc
+    excerpts to head-only, drifting the replayed state from what
+    gate_citation_batch actually sent (review finding). A missing doc
     degrades the excerpt to the claim text (claim_excerpt's own no-document
     shape) — never a crash."""
     texts: dict[str, str] = {}
     for row in rows:
         doc_id = row.get("doc_id")
-        text = row.get("text")
+        text = row.get("full_text") or row.get("text")
         if doc_id and isinstance(text, str) and text:
             texts.setdefault(str(doc_id), text)
     return texts

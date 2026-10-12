@@ -15,7 +15,7 @@ Subcommands:
           folds) -> this round's errors feed the next round's brief. The
           plateau rule (src/lab/models.py) stops the loop; every
           network-touching step (proposers, prescreen, replay decider) is
-          bounded by --budget-calls TOTAL — exhaustion ends the round
+          bounded by --budget-calls TOTAL (decider/implementer INVOCATIONS — wire requests can reach 2x under the shipped max_retries) — exhaustion ends the round
           honestly with partial statuses. Artifacts: report-<ts>.md,
           rounds-<ts>.jsonl, proposal-<ts>.yaml under --out-dir, plus
           per-round replay JSONL under rounds/<ts>/round-N/.
@@ -159,16 +159,19 @@ def _ts() -> str:
 class _ReadOnlyDB:
     """Minimal read-only Database stand-in (one/query — everything corpus +
     RawStore reads need). The lab never migrates or writes the signals DB:
-    Database() would, so the runner opens the file read-only and falls back
-    to a plain connection only when the read-only open is impossible."""
+    Database() would, so the runner opens the file read-only — and if the
+    read-only open is impossible (missing file, locked, odd URI chars) it
+    FAILS honestly: the old plain-connect fallback could silently CREATE an
+    empty writable DB file (review finding), the opposite of read-only."""
 
     def __init__(self, path: Path) -> None:
-        try:
-            self._conn: sqlite3.Connection = sqlite3.connect(
-                f"file:{path.as_posix()}?mode=ro", uri=True
-            )
-        except sqlite3.Error:
-            self._conn = sqlite3.connect(str(path))
+        if not path.exists():
+            raise FileNotFoundError(f"signals DB not found (read-only open refused): {path}")
+        # percent-encode the path for the URI (Windows drive colons etc.)
+        from urllib.parse import quote
+
+        uri = f"file:{quote(path.as_posix())}?mode=ro"
+        self._conn: sqlite3.Connection = sqlite3.connect(uri, uri=True)
         self._conn.row_factory = sqlite3.Row
 
     def one(self, sql: str, params=()):
@@ -744,7 +747,7 @@ def _print_dry_run(args, rows: list[dict], decide_cfg: dict) -> None:
     print("src.lab run — DRY-RUN: nothing will be written, no calls will go out")
     print(
         f"target: {args.target} | rounds: {args.rounds} | "
-        f"budget: {args.budget_calls} calls TOTAL (proposers + prescreen + replay)"
+        f"budget: {args.budget_calls} invocations TOTAL (proposers + prescreen + replay; wire requests <= 2x under max_retries)"
     )
     suffix = f" (filtered: {', '.join(args.domains)})" if args.domains else ""
     print(f"corpus: {len(rows)} rows, {len(domains)} domains{suffix}")

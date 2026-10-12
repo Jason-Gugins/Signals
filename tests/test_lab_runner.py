@@ -247,6 +247,9 @@ def offline_seams(monkeypatch):
     monkeypatch.setattr(lab_main, "_lab_decider", lambda cfg: decider)
     monkeypatch.setattr("src.llm.implement.call_implementer", proposer)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")  # the proposers' env gate
+    from src.decide.jev import DATA_EXIT_CONSENT
+
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)  # egress consent (review fix)
     monkeypatch.setattr(
         "src.lab.features.embedding_features", lambda rows, **k: (None, "embedding")
     )
@@ -683,8 +686,17 @@ def test_lab_decider_factory_constructs_a_live_decider_directly(monkeypatch):
         assert decider.timeout_s == 2.5
         assert decider.breaker_min_calls == 3
         assert decider.error_rate_breaker == 0.5
-        # the global memoized decider was never consulted or installed
-        assert jev_mod._decider_instance is None
+        # the global memoized decider was never consulted or installed —
+        # snapshot-and-compare, NOT absolute None: earlier test files in the
+        # lane legitimately memoize a decider via get_decider(), so asserting
+        # None is order-dependent and fails the full suite (review finding).
+        memo_before = jev_mod._decider_instance
+        jev_mod._decider_instance = sentinel = object()
+        try:
+            lab_main._lab_decider({"decider": {"model": "jev-x", "base_url": "u"}})
+            assert jev_mod._decider_instance is sentinel
+        finally:
+            jev_mod._decider_instance = memo_before
     finally:
         decider.close()
 

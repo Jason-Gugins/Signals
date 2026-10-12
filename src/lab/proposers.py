@@ -332,6 +332,18 @@ def _propose_batch(
             failure["reason"] = "missing_credentials"
         return []
 
+    # Data-exit consent — the same string that gates every other lab egress
+    # seam (backfill, the runner's decider) and the shipped planner. The
+    # brief carries target/question text (not document bodies), but the
+    # posture is uniform: no consent, no outbound call (review finding).
+    from src.decide.jev import DATA_EXIT_CONSENT
+
+    if os.environ.get("SIGNALS_DECIDE_DATA_EXIT") != DATA_EXIT_CONSENT:
+        logger.debug("propose_batch: data-exit consent absent -> no proposals")
+        if failure is not None:
+            failure["reason"] = "missing_consent"
+        return []
+
     # Integer-cent budget arithmetic (see module docstring): a family is
     # called only when its call fits the truncated ceiling.
     budget_cents: int | None = None

@@ -1464,6 +1464,26 @@ section. 162 lab tests green; full offline lane exit 0.
   domains; 617 claim_survival labels (8.8% positive) from the fix-wave
   harvest packages. Opening targets named in the README: G5 `band_low`,
   the output screen, the taxonomy 422s.
+- **Review wave (two-stage: spec, then quality)** — spec FAIL on one
+  blocking item: an order-dependent runner test asserted the global decider
+  memo's absolute state (None) and failed the documented offline lane after
+  any get_decider-memoizing test file ran (the delivery record's "full
+  offline lane exit 0" was written from a partial run — corrected). Quality
+  PASS-with-minors, one major: the G4 replay built citation excerpts from
+  the 9,600-char corpus head instead of the full body, drifting replayed
+  states from the pipeline on long docs. ALL review findings fixed in the
+  review-fix commit: snapshot-and-compare memo test; corpus rows now carry
+  `full_text` and the G4 replay uses it (head stays the doc-gate identity
+  input); proposer egress gates on `SIGNALS_DECIDE_DATA_EXIT` like every
+  other lab seam; `_ReadOnlyDB` refuses instead of silently creating a
+  writable DB; one malformed ledger line skips (logged, counted) instead of
+  aborting extraction; budget unit documented (invocations, wire requests
+  <= 2x under max_retries). Known letter-deviations, disclosed, not fixed:
+  implementer-stage variants metadata-only in v1 (bounded deepseek replay
+  surface exists via `backfill` only); weights are module constants
+  (values exact per plan) with no config/lab.yaml; per-question importances
+  honest n/a until the corpus carries per-row question columns. Full
+  offline lane at HEAD after fixes: exit 0, zero failures.
 - **Not yet run:** a live budgeted round (needs the operator's
   TypeSafe/OpenRouter credentials + consent — `python -m src.lab run
   --rounds 3 --budget-calls 150`); the >200-doc re-test protocol

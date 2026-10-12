@@ -30,6 +30,17 @@ from src.lab.proposers import (
     proposer_families,
 )
 
+
+@pytest.fixture(autouse=True)
+def _lab_consent(monkeypatch):
+    """Every proposer test runs WITH the data-exit consent set (the egress
+    gate added in the review fix); the missing-consent path has its own
+    explicit test below."""
+    from src.decide.jev import DATA_EXIT_CONSENT
+
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+
 REPO = Path(__file__).resolve().parents[1]
 
 OR_BASE = "https://openrouter.ai/api/v1"
@@ -424,3 +435,18 @@ def test_merged_batches_round_trip_through_propose_batch(monkeypatch):
     texts = [c["text"] for c in merged]
     assert texts == ["Shared question?", "Planner only", "Bulk only", "Reasoning only"]
     assert all(json.dumps(c, sort_keys=True) for c in merged)  # JSON-clean dicts
+
+
+def test_propose_batch_missing_consent_never_calls(monkeypatch):
+    """No data-exit consent -> zero outbound proposer calls, honest reason
+    (review fix: proposer egress now gates on the same string as every
+    other lab seam)."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k-test")
+    monkeypatch.delenv("SIGNALS_DECIDE_DATA_EXIT", raising=False)
+    fake = FakeImplementer()
+    monkeypatch.setattr("src.llm.implement.call_implementer", fake)
+    failure: dict = {}
+    out = propose_batch(make_cfg(), BRIEF, api_key="k-test", failure=failure)
+    assert out == []
+    assert fake.calls == []
+    assert failure["reason"] == "missing_consent"

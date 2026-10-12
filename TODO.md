@@ -1358,3 +1358,38 @@ when off — no `retrieval` key in the stage record, no index required.
   inserts batched via `executemany` (~3 commits/doc, was ~3/chunk). Model
   revision pinned `751bff3` after a verified live 384-dim embed (`0e25757`).
   Final offline lane: exit 0, zero failures; ~2,643 collected.
+
+## Retrieval A/B split test (2026-10-12 — DELIVERED)
+
+Live experiment on the 10 AI-native test accounts (deepinfra, amigo, cyera,
+databricks, decagon, elevenlabs, ramp, helcim, veeda, rillet), enforce mode,
+`--with-llm`, identical frozen corpus (`--skip collect` on the treatment),
+same market profile + planner. Full report: `data/probe/RETRIEVAL_AB_2026_10.md`
+(staged sets proven by document-gate `state_hash` matching, not inference).
+
+- **Arm A (recency staging, retrieval off)**: 47–112 docs staged/domain;
+  5,086 G4 verdicts; **0 kept** (4,930 reviewed, 152 dropped); 3.92M Jev
+  input tokens; $3.92.
+- **Arm B (hybrid retrieval staging, top-35)**: 5–19 docs staged/domain
+  (strict subsets of A's pool); 1,247 G4 verdicts (**−75%**); 0 kept;
+  836k Jev tokens (**−79%**); ~$1.96. Staging worked as built; every B set
+  verified `staged_by: retrieval` (no fallbacks).
+- **Headline finding**: document selection is NOT the binding constraint —
+  the G4 citation gate itself (says_nothing routing + the 0.70/0.30 bands)
+  rejected ~100% of flash-tier implementer claims in BOTH arms, G5 fired
+  twice total, zero LLM signals promoted. The retrieval implementation is
+  validated on cost; gate recalibration is the prerequisite for promotion —
+  which is exactly the decide-lab's mandate
+  (`docs/plans/2026-10-11-autoresearch-decide-lab.md`; this experiment is
+  its baseline corpus: ~6,300 labeled claim verdicts across 20 runs).
+- **Secondary findings**: (1) all ten corpora are <200 docs, so the recency
+  arm's pool was already the whole corpus — old-doc recall is untestable at
+  this corpus size (needs a >200-doc account); (2) `candidate_limit: 60`
+  chunks is the real staging selector (60 chunks ≈ 5–19 docs at 5–15
+  chunks/doc) — `stage_docs: 35` rarely binds; (3) every run on both arms
+  was `decide_degraded: true` from a handful of Jev errors — worth an error
+  rate look.
+- **Cost**: $5.88 total ($3.92 + $1.96) on the $15 OpenRouter key; TypeSafe
+  Jev input-only pennies as documented. Configs restored post-experiment
+  (retrieval off, decide.yaml shipped ceilings/planner, markets.yaml user
+  state) — verified via git status.

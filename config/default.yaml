@@ -91,14 +91,20 @@ rerank:
 
 retrieval:
   # Hybrid retrieval for the intel implement stage (FTS5 BM25 + MiniLM vectors,
-  # RRF fusion, ms-marco cross-encoder rerank, MMR dedup). Requires the
-  # signals[rerank] extra AND a built index: python -m src.cli index --domain <domain>
-  # While off (or index coverage below min_index_coverage) intel stages the
-  # 200 newest stored documents exactly as before.
-  enabled: false
+  # RRF fusion, ms-marco cross-encoder rerank, MMR dedup). ON by default since
+  # the 2026-10 A/B split test (data/probe/RETRIEVAL_AB_2026_10.md): retrieval
+  # staging held G4/G5 outcomes identical while cutting Jev gate load 75-79%.
+  # Still requires the signals[rerank] extra AND a built index
+  # (python -m src.cli index --domain <domain>). Until the index covers the
+  # domain (min_index_coverage) or when disabled below, intel stages the
+  # 200 newest stored documents exactly as before — the gap line + doctor WARN
+  # are the intended onboarding signal for fresh installs, not an error.
+  enabled: true
   chunk_tokens: 500           # ~2000 chars at the 4-chars-per-token convention
   chunk_overlap_tokens: 60
-  candidate_limit: 60         # per-leg fetch depth before fusion; MUST exceed stage_docs (the MMR pool needs k < pool)
+  candidate_limit: 180        # chunks per leg before fusion; the real staging
+                              # selector — 60 under-selected at 5-19 docs in the
+                              # A/B (RETRIEVAL_AB_2026_10.md); MUST exceed stage_docs
   rrf_k: 60                   # RRF smoothing constant (literature default)
   rerank_top_n: 24            # cross-encoder shortlist depth (CE scores only these)
   rerank_floor: 0.0           # chunk-level CE floor (0 = reorder only)

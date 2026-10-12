@@ -390,9 +390,13 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
     # or when the SQLite build lacks FTS5 (the BM25 leg; expected never on
     # CPython >= 3.9 — the probe is how we would know). Pure import probes
     # plus a temp :memory: FTS5 probe: no model downloads, safe with
-    # check_network=False. When retrieval is disabled (the shipped default)
-    # the check is OK/quiet — an off feature is not a problem to report, and
-    # intel stages the recency tail exactly as before.
+    # check_network=False. Retrieval is the shipped default posture since the
+    # 2026-10 A/B (data/probe/RETRIEVAL_AB_2026_10.md), so the
+    # enabled-with-empty-index WARN is the EXPECTED fresh-install state — the
+    # onboarding signal pointing at `python -m src.cli index`, not an error.
+    # When retrieval is disabled in config the check is OK/quiet — an off
+    # feature is not a problem to report, and intel stages the recency tail
+    # exactly as before.
     try:
         retrieval = getattr(config, "retrieval", None)
         enabled = bool(getattr(retrieval, "enabled", False))
@@ -435,7 +439,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
                 "OK",
                 f"retrieval enabled; index ready ({chunks} chunks)"
                 if enabled
-                else "retrieval disabled — intel stages the recency tail (default)",
+                else "retrieval disabled — intel stages the recency tail",
             )
     except Exception as exc:
         add("retrieval_readiness", "WARN", f"check skipped: {exc}")

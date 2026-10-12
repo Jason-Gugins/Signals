@@ -115,8 +115,9 @@ human-triggered posture, no automated login), `find-careers DOMAIN` (careers-pag
 discovery for one domain - sitemap-first, prints the URL and which rung found
 it), `collect`,
 `reparse`, `index [--domain X] [--limit N] [--stats] [--rebuild-fts]` (build
-the opt-in hybrid-retrieval index over stored documents — chunks + FTS5 +
-local embeddings; explicit, budgeted and resumable, never lazy inside `intel`,
+the hybrid-retrieval index over stored documents — chunks + FTS5 +
+local embeddings; the prerequisite of the default-on retrieval staging,
+explicit, budgeted and resumable, never lazy inside `intel`,
 see *Hybrid retrieval staging* below), `score`, `status`, `doctor`,
 `accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
 `capterra-selfcheck`, `ats-set DOMAIN VENDOR TOKEN` (manually stamp
@@ -193,14 +194,16 @@ seller-market profile selected by `--market-profile`, read from
 promote nothing and `intel` reports a "no relevance vocabulary configured" gap;
 nothing is promoted until then.
 
-### Hybrid retrieval staging (opt-in)
+### Hybrid retrieval staging (on by default)
 
-The implement stage (the document gate + implementers, next section) normally
-screens the 200 **newest** stored documents for the account — a pure recency
-cut, so a six-month-old but highly relevant page (a funding announcement, a
-needs statement) can fall off the tail while newer, irrelevant pages each cost
-a document-gate request. The `retrieval:` block lets the implement stage stage
-the most **relevant** documents instead: SQLite FTS5 BM25 (exact-token wins —
+The implement stage (the document gate + implementers, next section) would
+normally screen the 200 **newest** stored documents for the account — a pure
+recency cut, so a six-month-old but highly relevant page (a funding
+announcement, a needs statement) can fall off the tail while newer, irrelevant
+pages each cost a document-gate request. The `retrieval:` block — **on by
+default** since the 2026-10 A/B split test (`data/probe/RETRIEVAL_AB_2026_10.md`:
+identical G4/G5 outcomes at 75–79% lower Jev gate load) — stages the most
+**relevant** documents instead: SQLite FTS5 BM25 (exact-token wins —
 vendor names, filing codes like `8-K`, proper nouns) + local MiniLM cosine
 embeddings (paraphrase wins — "hiring head of sales" ↔ "VP Sales role"), fused
 with Reciprocal Rank Fusion, reranked by the ms-marco cross-encoder over the
@@ -213,31 +216,41 @@ candidates, it never adds a spend path. 35 is not a round number: it is the
 enabled (~10.3k tokens/doc against the 400k run ceiling); raise it only when
 batteries are disabled in `config/decide.yaml`.
 
-**Opt-in path**, in order: `pip install -e ".[rerank]"` (the extra carries
-onnxruntime/tokenizers — without it the vector leg is disabled and `doctor`
-warns via `retrieval_readiness`), then build the index with
-`python -m src.cli index --domain acme.com` (`--limit N` budgets a partial
-backfill, `--stats` reports per-domain coverage without indexing,
-`--rebuild-fts` regenerates the FTS shadow; the first run downloads the ~25MB
-embedding model once, HF-cached like the reranker), then set
-`retrieval.enabled: true` in `config/default.yaml`. The retrieval query is
-built from the account identity plus the seller-market profile vocabulary —
-the profile you already wrote for `needs` steers retrieval for free.
+**Prerequisites.** Retrieval needs the `[rerank]` extra and a built index:
+`pip install -e ".[rerank]"` (the extra carries onnxruntime/tokenizers —
+without it the vector leg is disabled and `doctor` warns via
+`retrieval_readiness`), then `python -m src.cli index --domain acme.com`
+(`--limit N` budgets a partial backfill, `--stats` reports per-domain coverage
+without indexing, `--rebuild-fts` regenerates the FTS shadow; the first run
+downloads the ~25MB embedding model once, HF-cached like the reranker). The
+retrieval query is built from the account identity plus the seller-market
+profile vocabulary — the profile you already wrote for `needs` steers
+retrieval for free. `candidate_limit: 180` (chunks per leg before fusion) is
+the real staging selector — 60 under-selected at 5–19 docs in the A/B.
+
+**Fresh installs.** With retrieval on and no index built yet, `--with-llm`
+runs stage the recency tail and record an honest gap line naming the coverage
+and the remediation (`python -m src.cli index --domain <domain>`); `doctor`
+shows the matching `retrieval_readiness` WARN. That WARN is the intended
+onboarding signal, not an error — build the index and it goes green
+(`retrieval enabled; index ready (N chunks)`).
 
 **Honest fallback.** Retrieval problems can never fail an intel run. Index
-coverage below `min_index_coverage` (0.8), an unavailable leg, any retrieval
-failure, or the block off/absent: the implement stage stages the 200 newest
-documents exactly as before, the run records a gap line naming the coverage
-and the remediation (`python -m src.cli index --domain <domain>`), and the
-stage record's `retrieval.staged_by` always says which selection a run used
-(`retrieval` / `uncovered` / `unavailable` / `error`). When the block is off
-(the shipped default) the stage record carries no `retrieval` key at all and
-`intel` is byte-identical to the pre-retrieval flow.
+coverage below `min_index_coverage` (0.8), an unavailable leg, or any
+retrieval failure: the implement stage stages the 200 newest documents
+exactly as before, and the stage record's `retrieval.staged_by` always says
+which selection a run used (`retrieval` / `uncovered` / `unavailable` /
+`error`).
 
-**Cost.** When enabled, 35 relevant documents replace the 200-doc recency
-tail: document-gate and implementer spend goes DOWN, not up, and the token
-pre-flight bills the smaller staged list automatically. When off, cost and
-behavior are unchanged — indexing is the only extra step, and it is explicit.
+**Turning it off.** Set `retrieval.enabled: false` in `config/default.yaml`
+(a yaml file with no retrieval block also behaves as off): the stage record
+then carries no `retrieval` key at all and `intel` is byte-identical to the
+legacy 200-newest staging.
+
+**Cost.** 35 relevant documents replace the 200-doc recency tail:
+document-gate and implementer spend goes DOWN, not up, and the token
+pre-flight bills the smaller staged list automatically. Indexing is the only
+extra step, and it is explicit.
 
 ## LLM decision layer (opt-in)
 

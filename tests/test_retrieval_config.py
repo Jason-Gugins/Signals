@@ -1,4 +1,10 @@
-"""RetrievalConfig parsing: ships disabled; a missing block behaves as off.
+"""RetrievalConfig parsing: ships enabled (A/B-validated); a missing block behaves as off.
+
+The shipped config/default.yaml flips retrieval ON (2026-10 A/B split test,
+data/probe/RETRIEVAL_AB_2026_10.md — identical G4/G5 outcomes at 75-79% lower
+Jev gate load), so these pins load the real default.yaml. The DATACLASS
+defaults stay disabled: an old config file whose yaml lacks the retrieval
+block still behaves as off (pinned below).
 
 Mirrors the config-loader bootstrap in tests/test_config.py (isolated env_path
 so the real .env never pollutes these assertions).
@@ -16,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_YAML = ROOT / "config" / "default.yaml"
 
 
-def test_retrieval_config_defaults_off(tmp_path, monkeypatch):
+def test_retrieval_config_defaults_on(tmp_path, monkeypatch):
     monkeypatch.delenv("SIGNALS_CONTACT_EMAIL", raising=False)
     monkeypatch.delenv("SIGNALS_DB_PATH", raising=False)
     env_path = tmp_path / "empty.env"
@@ -24,7 +30,8 @@ def test_retrieval_config_defaults_off(tmp_path, monkeypatch):
 
     cfg = Config.load(yaml_path=DEFAULT_YAML, env_path=env_path)
 
-    assert cfg.retrieval.enabled is False
+    assert cfg.retrieval.enabled is True
+    assert cfg.retrieval.candidate_limit == 180
     assert cfg.retrieval.stage_docs == 35
     assert cfg.retrieval.min_index_coverage == 0.8
 

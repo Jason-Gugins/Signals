@@ -1,12 +1,15 @@
 """Doctor retrieval_readiness check (intel hybrid-retrieval wave, plan T10).
 
-The check probes the prerequisites of the opt-in `retrieval:` block:
+The check probes the prerequisites of the `retrieval:` block (ON by default
+since the 2026-10 A/B, data/probe/RETRIEVAL_AB_2026_10.md):
 onnxruntime (the [rerank] extra — the embedder/vector leg), a populated
 `document_chunks` index, and FTS5 in the SQLite build (the BM25 leg). Each
 missing prerequisite is a WARN naming the disabled leg and, for the empty
-index, the remediation command. When retrieval is disabled (the shipped
-default) the check reports OK and never warns — an off feature is not a
-problem to report, and intel stages the recency tail exactly as before.
+index, the remediation command — on a fresh install (retrieval enabled by
+default, no index built yet) that WARN is the intended onboarding signal.
+When retrieval is disabled in config the check reports OK and never warns —
+an off feature is not a problem to report, and intel stages the recency tail
+exactly as before.
 Pure import/:memory: probes: deterministic under --no-network (no model
 downloads), so the tests stub importability instead of the network.
 """
@@ -72,7 +75,8 @@ def _stub_onnxruntime(monkeypatch):
 
 def test_disabled_reports_ok_even_without_extra(tmp_path, monkeypatch):
     # Off path is quiet: enabled=false must be OK even with the extra missing
-    # and the index empty — do not warn on the off path (shipped default).
+    # and the index empty — do not warn on the off path (the explicit
+    # opt-out; retrieval ships enabled).
     _block_onnxruntime(monkeypatch)
     db = Database(tmp_path / "s.db")
     rows = doctor(_make_config(tmp_path, enabled=False), db, check_network=False)

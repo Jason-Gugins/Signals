@@ -550,6 +550,14 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ### Deferred
 
+- [ ] **A/B follow-up fix wave** — convert `data/probe/RETRIEVAL_AB_2026_10.md`'s
+  findings into fixes: G4 wall diagnosis (stratified study with the
+  excerpt-miss mechanism as leading Branch E candidate), retrieval
+  default-on + candidate_limit 180, Jev error-cause honesty + breaker
+  recalibration (timeout theory disproven — max observed latency 1.23s),
+  planner step-pruning for fanout AND invented sources, embedder batch cap,
+  A/B tooling promoted to scripts/ab. Plan (two-agent verified, all
+  findings folded in): `docs/plans/2026-10-12-ab-followup-fix-wave.md`.
 - [ ] **Autoresearch decide-lab** — offline A/B + autoresearch loop tuning the
   decide layer's three spend stages (document gate / bulk implementer / G4
   citation gate) against the decision ledger, per the TypeSafe

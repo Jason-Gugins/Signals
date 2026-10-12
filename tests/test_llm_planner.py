@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import httpx
 import respx
+from loguru import logger
 
 import src.decide.jev as jev
 from src.llm.planner import (
@@ -106,6 +109,17 @@ def _revoke_creds(monkeypatch) -> None:
     monkeypatch.delenv("SIGNALS_DECIDE_DATA_EXIT", raising=False)
 
 
+@contextmanager
+def _captured_warnings() -> Iterator[list[str]]:
+    """Capture loguru WARNING records (message text only) for the block."""
+    messages: list[str] = []
+    sink = logger.add(messages.append, level="WARNING", format="{message}")
+    try:
+        yield messages
+    finally:
+        logger.remove(sink)
+
+
 # ---------------------------------------------------------------- validate_plan
 
 
@@ -134,11 +148,17 @@ def test_validate_plan_preserves_step_order():
     ]
 
 
-def test_validate_plan_rejects_unknown_source():
+def test_validate_plan_prunes_invented_only_step_drops_it():
+    """Invented ids no longer kill the whole plan: a step whose ONLY source
+    is invented is dropped (warning names the step and ids) and the clean
+    steps survive — narrow-only."""
     raw = _valid_raw()
     raw["steps"][0]["source_ids"] = ["made_up_source"]
-    plan, why = _validate(raw)
-    assert (plan, why) == (None, "unknown_source:made_up_source")
+    with _captured_warnings() as messages:
+        plan, why = _validate(raw)
+    assert why == "pruned"
+    assert [step.source_ids for step in plan.steps] == [["company_feed"]]
+    assert any("made_up_source" in m and "dropped" in m for m in messages), messages
 
 
 def test_validate_plan_rejects_budget_raise():
@@ -173,18 +193,102 @@ def test_validate_plan_rejects_knob_for_source_outside_step():
     assert why.startswith("unknown_knob:company_feed")
 
 
-def test_validate_plan_fanout_widening_rejected_then_allowed():
+def test_validate_plan_fanout_step_dropped_unless_included():
+    """The planner may DROP fanout sources, never add them: without
+    --include-fanout the fanout-only step is pruned away — but the PLAN
+    survives (here with zero steps) instead of being invalidated."""
     raw = {
         "steps": [
             {"source_ids": ["federal_register"], "budget_knobs": {}, "acceptance_criteria": []},
         ]
     }
-    # the run did NOT pass --include-fanout: the planner may not add it back
-    assert _validate(raw) == (None, "fanout_not_allowed:federal_register")
-    # the same plan is accepted when the run opted into fanout
+    with _captured_warnings() as messages:
+        plan, why = _validate(raw)
+    assert why == "pruned"
+    assert plan is not None
+    assert plan.steps == []
+    assert any("federal_register" in m and "dropped" in m for m in messages), messages
+    # the same plan passes through untouched when the run opted into fanout
     plan, why = _validate(raw, include_fanout=True)
     assert why == "ok"
     assert plan.steps[0].source_ids == ["federal_register"]
+
+
+def test_validate_plan_prunes_fanout_step_keeps_clean_steps():
+    """The A/B failure mode: one fanout-carrying step used to invalidate the
+    WHOLE plan; now only that step is dropped and the clean steps survive."""
+    raw = {
+        "steps": [
+            {"source_ids": ["federal_register"], "budget_knobs": {}, "acceptance_criteria": []},
+            {"source_ids": ["ats_workday", "news_rss"], "budget_knobs": {}, "acceptance_criteria": []},
+            {"source_ids": ["company_feed"], "budget_knobs": {}, "acceptance_criteria": []},
+        ]
+    }
+    with _captured_warnings() as messages:
+        plan, why = _validate(raw)
+    assert why == "pruned"
+    assert [step.source_ids for step in plan.steps] == [
+        ["ats_workday", "news_rss"],
+        ["company_feed"],
+    ]
+    assert any("federal_register" in m for m in messages), messages
+
+
+def test_validate_plan_strips_invented_ids_step_survives():
+    """Invented ids mixed with valid ones: only the invented ids go, the
+    step survives with its valid ids in their original order."""
+    raw = _valid_raw()
+    raw["steps"][0]["source_ids"] = ["ats_workday", "made_up_source", "news_rss"]
+    with _captured_warnings() as messages:
+        plan, why = _validate(raw)
+    assert why == "pruned"
+    assert [step.source_ids for step in plan.steps] == [
+        ["ats_workday", "news_rss"],
+        ["company_feed"],
+    ]
+    assert any("made_up_source" in m for m in messages), messages
+
+
+def test_validate_plan_strips_fanout_ids_step_survives():
+    """Fanout ids mixed with allowed ones (include_fanout off): the fanout
+    id is stripped, the step keeps its in-scope sources."""
+    raw = _valid_raw()
+    raw["steps"][0]["source_ids"] = ["ats_workday", "federal_register", "news_rss"]
+    plan, why = _validate(raw)
+    assert why == "pruned"
+    assert plan.steps[0].source_ids == ["ats_workday", "news_rss"]
+
+
+def test_validate_plan_prunes_knobs_of_pruned_sources():
+    """A knob attached to a pruned source must go with it — a leftover entry
+    would reject the step (unknown_knob) and kill the plan through the back
+    door."""
+    raw = _valid_raw()
+    raw["steps"][0]["source_ids"] = ["ats_workday", "made_up_source"]
+    raw["steps"][0]["budget_knobs"] = {
+        "ats_workday": {"detail_follow_max": 20},
+        "made_up_source": {"detail_follow_max": 1},
+    }
+    plan, why = _validate(raw)
+    assert why == "pruned"
+    assert plan.steps[0].source_ids == ["ats_workday"]
+    assert plan.steps[0].budget_knobs == {"ats_workday": {"detail_follow_max": 20}}
+
+
+def test_validate_plan_all_steps_pruned_returns_zero_step_plan():
+    """Every step pruned: the honest outcome is a plan with ZERO steps, not
+    a whole-plan kill — the intel caller degrades to the deterministic
+    scope instead of crashing."""
+    raw = {
+        "steps": [
+            {"source_ids": ["made_up_source"], "budget_knobs": {}, "acceptance_criteria": []},
+            {"source_ids": ["sec_formd"], "budget_knobs": {}, "acceptance_criteria": []},
+        ]
+    }
+    with _captured_warnings() as messages:
+        plan, why = _validate(raw)
+    assert (why, plan.steps) == ("pruned", [])
+    assert len(messages) == 2  # one warning per pruned step
 
 
 def test_validate_plan_rejects_too_many_steps():
@@ -404,16 +508,75 @@ def test_generate_plan_llm_error(monkeypatch, tmp_path):
 
 
 @respx.mock
-def test_generate_plan_invalid_llm_plan_rejected_and_not_cached(monkeypatch, tmp_path):
+def test_generate_plan_all_invented_ids_pruned_to_zero_step_plan(monkeypatch, tmp_path):
+    """All steps pruned: generate_plan returns a ZERO-step plan (no crash, no
+    whole-plan kill) — the intel caller degrades to the deterministic scope —
+    and caches it so later runs for the same snapshot are free."""
     raw = _valid_raw()
     raw["steps"][0]["source_ids"] = ["made_up_source"]
+    raw["steps"][1]["source_ids"] = ["another_invention"]
+    route = respx.post(CHAT_URL).mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(raw)}}]})
+    )
+    _grant_creds(monkeypatch)
+    cache = tmp_path / "plan_cache"
+    with _captured_warnings() as messages:
+        plan, why = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
+    assert why == "generated_pruned"
+    assert plan is not None
+    assert plan.steps == []
+    assert any("made_up_source" in m for m in messages), messages
+    # the pruned plan is cached — the next identical run hits the cache
+    plan2, why2 = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
+    assert (why2, plan2.steps) == ("cache", [])
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_generate_plan_prunes_disallowed_step_caches_survivors(monkeypatch, tmp_path):
+    """One fanout step + one clean step: the plan comes back with the clean
+    step ("generated_pruned") and the PRUNED form is what gets cached."""
+    raw = {
+        "steps": [
+            {"source_ids": ["federal_register"], "budget_knobs": {}, "acceptance_criteria": []},
+            {
+                "source_ids": ["ats_workday"],
+                "budget_knobs": {"ats_workday": {"detail_follow_max": 9}},
+                "acceptance_criteria": ["cites doc_ids"],
+            },
+        ]
+    }
+    route = respx.post(CHAT_URL).mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(raw)}}]})
+    )
+    _grant_creds(monkeypatch)
+    cache = tmp_path / "plan_cache"
+    with _captured_warnings() as messages:
+        plan, why = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
+    assert why == "generated_pruned"
+    assert [step.source_ids for step in plan.steps] == [["ats_workday"]]
+    assert plan.steps[0].budget_knobs == {"ats_workday": {"detail_follow_max": 9}}
+    assert any("federal_register" in m for m in messages), messages
+    # the cached form is the pruned plan — it validates cleanly thereafter
+    plan2, why2 = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
+    assert why2 == "cache"
+    assert plan2 == plan
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_generate_plan_structural_reject_still_not_cached(monkeypatch, tmp_path):
+    """Structural rejects (budget_raise) still kill the plan AND stay out of
+    the cache — only source-scope violations became prunes."""
+    raw = _valid_raw()
+    raw["steps"][0]["budget_knobs"] = {"ats_workday": {"detail_follow_max": 41}}
     respx.post(CHAT_URL).mock(
         return_value=httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(raw)}}]})
     )
     _grant_creds(monkeypatch)
     cache = tmp_path / "plan_cache"
     plan, why = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
-    assert (plan, why) == (None, "unknown_source:made_up_source")
+    assert (plan, why) == (None, "budget_raise:ats_workday.detail_follow_max")
     # a rejected plan is never cached — the deterministic plan stays the fallback
     assert load_cached_plan(cache, "acme.test", "default", "snap-1") is None
 

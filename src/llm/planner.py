@@ -7,7 +7,10 @@ criteria. Every hard rule is enforced IN CODE (``validate_plan``), never
 in the prompt: the planner may not invent sources, may not add fanout
 sources the run did not include, and may not raise a budget knob above
 its shipped value (config/sources.yaml, e.g. ``company_feed:
-article_follow_max: 5``) — lowering only.
+article_follow_max: 5``) — lowering only. Disallowed source ids are
+PRUNED from the offending step (a step emptied by pruning is dropped, a
+warning names the step and ids) so one bad step never invalidates the
+whole plan — the validated plan only ever narrows.
 
 Failure seam (same discipline as src/decide/jev.py): nothing here ever
 raises past ``generate_plan`` — HTTP errors, timeouts, malformed JSON,
@@ -167,10 +170,21 @@ def validate_plan(
 ) -> tuple[Plan | None, str]:
     """Hard validators IN CODE (not in the prompt).
 
-    Returns (Plan, "ok") or (None, reject_reason); first failure wins, in
-    order: shape -> step count -> source scope -> fanout widening ->
+    Returns (Plan, "ok") when the proposal validates untouched, (Plan,
+    "pruned") when disallowed source ids had to be pruned from it, or
+    (None, reject_reason) for structural failures — first failure wins,
+    in order: shape -> step count -> source scope -> fanout widening ->
     budget knobs (lower-only) -> acceptance criteria. Step order is
     preserved: the plan narrows and orders.
+
+    Source-scope violations PRUNE, never invalidate: invented ids (not in
+    ``allowed_sources``) and fanout ids the run did not include are
+    stripped from the offending step (a warning names the step and the
+    pruned ids); a step emptied by pruning is dropped — its knobs and
+    criteria go with it — and the plan survives with its remaining steps.
+    Narrow-only: one bad step must not cost the whole plan. If EVERY step
+    is pruned the honest outcome is a plan with zero steps; the caller
+    (intel plan sub-stage) degrades to the deterministic scope.
     """
     # 1. shape: a dict with a "steps" list
     if not isinstance(raw, dict):
@@ -178,27 +192,54 @@ def validate_plan(
     steps = raw.get("steps")
     if not isinstance(steps, list):
         return None, "malformed"
-    # 2. step count
+    # 2. step count (the cap binds the PROPOSED plan's size)
     if len(steps) > max_steps:
         return None, "too_many_steps"
-    # 3. source scope: never invent sources (an empty step is malformed)
-    for step in steps:
+    # 3.+4. source scope and fanout widening, as PRUNING: invented ids and
+    # fanout ids the run did not include are stripped from the step (never
+    # a whole-plan rejection — both planner models trip one of these paths
+    # on most runs, so rejecting here meant the planner never narrowed a
+    # plan in production). A step emptied by pruning is dropped.
+    pruned_any = False
+    kept_steps: list[dict] = []
+    for index, step in enumerate(steps, start=1):
         if not isinstance(step, dict):
             return None, "malformed"
         ids = step.get("source_ids")
         if not isinstance(ids, list) or not ids or any(not isinstance(s, str) for s in ids):
             return None, "malformed"
-        for sid in ids:
-            if sid not in allowed_sources:
-                return None, f"unknown_source:{sid}"
-    # 4. fanout widening: the planner may DROP fanout sources, never add them
-    if not include_fanout:
-        for step in steps:
-            for sid in step["source_ids"]:
-                if sid in fanout_keys:
-                    return None, f"fanout_not_allowed:{sid}"
+        invented = [sid for sid in ids if sid not in allowed_sources]
+        if include_fanout:
+            fanout_added = []
+        else:
+            fanout_added = [sid for sid in ids if sid in fanout_keys and sid not in invented]
+        strip = set(invented) | set(fanout_added)
+        if not strip:
+            kept_steps.append(step)
+            continue
+        pruned_any = True
+        kept = [sid for sid in ids if sid not in strip]
+        logger.warning(
+            "planner: pruned disallowed source ids {} from proposed step {} "
+            "(invented: {}, fanout-excluded: {}); {}",
+            sorted(strip),
+            index,
+            invented,
+            fanout_added,
+            f"step kept as {kept}" if kept else "step dropped (no sources left)",
+        )
+        if not kept:
+            continue
+        step = dict(step, source_ids=kept)
+        knobs = step.get("budget_knobs", {})
+        if isinstance(knobs, dict):
+            # a knob attached to a pruned source must go with the source —
+            # a leftover entry would reject the step (unknown_knob) and
+            # kill the plan through the back door
+            step = dict(step, budget_knobs={s: k for s, k in knobs.items() if s not in strip})
+        kept_steps.append(step)
     # 5. budget knobs: a plan may only LOWER a knob, never raise it
-    for step in steps:
+    for step in kept_steps:
         knobs = step.get("budget_knobs", {})
         if not isinstance(knobs, dict):
             return None, "malformed"
@@ -217,7 +258,7 @@ def validate_plan(
                 if value > knob_caps[source][knob]:
                     return None, f"budget_raise:{source}.{knob}"
     # 6. acceptance criteria: a list of strings (empty list allowed)
-    for step in steps:
+    for step in kept_steps:
         criteria = step.get("acceptance_criteria", [])
         if not isinstance(criteria, list) or any(not isinstance(c, str) for c in criteria):
             return None, "malformed"
@@ -228,10 +269,10 @@ def validate_plan(
                 budget_knobs={s: dict(k) for s, k in step.get("budget_knobs", {}).items()},
                 acceptance_criteria=list(step.get("acceptance_criteria", [])),
             )
-            for step in steps
+            for step in kept_steps
         ]
     )
-    return plan, "ok"
+    return plan, ("pruned" if pruned_any else "ok")
 
 
 # ----------------------------------------------------------------- plan cache
@@ -313,9 +354,10 @@ def generate_plan(
     """Orchestrator-facing planner entry: (Plan | None, reason).
 
     Reason is one of: "cache", "dry_run", "missing_credentials",
-    "llm_error", "generated", or a validate_plan reject reason. Missing
-    keys/consent and LLM failures never raise — the deterministic plan
-    remains the run's fallback.
+    "llm_error", "generated", "generated_pruned" (the LLM plan needed
+    disallowed ids pruned — possibly down to zero steps), or a
+    validate_plan reject reason. Missing keys/consent and LLM failures
+    never raise — the deterministic plan remains the run's fallback.
     """
     cache = Path(cache_dir) if cache_dir is not None else DEFAULT_CACHE_DIR
     planner_cfg = decide_cfg.get("planner") or {}
@@ -326,12 +368,15 @@ def generate_plan(
     # free — but a cache hit is re-validated against the CURRENT inputs
     # (allowed sources, knob caps, fanout inclusion) before it is served: a
     # config change must never let a stale plan reintroduce out-of-scope
-    # sources. A cache that fails validation is treated as a miss (the stale
-    # file is dropped) and the plan is regenerated below.
+    # sources. A cache that no longer validates CLEANLY — wrong shape,
+    # raised caps, or ids that would now be PRUNED (the scope changed since
+    # caching, so the planner should reconsider it, not serve a narrowed
+    # relic) — is a miss: the stale file is dropped and the plan is
+    # regenerated below.
     if use_cache:
         cached = load_cached_plan(cache, domain, profile, snapshot_hash)
         if cached is not None:
-            plan, _why = validate_plan(
+            plan, why = validate_plan(
                 _plan_to_dict(cached),
                 allowed_sources=allowed_sources,
                 knob_caps=knob_caps,
@@ -339,7 +384,7 @@ def generate_plan(
                 include_fanout=include_fanout,
                 fanout_keys=fanout_keys,
             )
-            if plan is not None:
+            if plan is not None and why == "ok":
                 return plan, "cache"
             try:
                 _cache_path(cache, domain, profile, snapshot_hash).unlink()
@@ -365,7 +410,8 @@ def generate_plan(
     raw = call_planner(prompt, model=model, base_url=base_url, api_key=api_key, timeout_s=timeout_s)
     if raw is None:
         return None, "llm_error"
-    # 6. validate IN CODE; a rejected plan is never cached
+    # 6. validate IN CODE (source-scope violations are pruned, not rejected);
+    # a structurally rejected plan is never cached
     plan, why = validate_plan(
         raw,
         allowed_sources=allowed_sources,
@@ -376,7 +422,8 @@ def generate_plan(
     )
     if plan is None:
         return None, why
-    # 7. cache the validated plan (idempotency + spend guard)
+    # 7. cache the validated (possibly pruned) plan — the pruned form
+    # validates cleanly forever after, so later runs hit the cache
     if use_cache:
         cache_plan(cache, domain, profile, snapshot_hash, plan)
-    return plan, "generated"
+    return plan, ("generated_pruned" if why == "pruned" else "generated")

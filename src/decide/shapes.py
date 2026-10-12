@@ -24,12 +24,29 @@ class Decision:
       rule (``drop_llm`` | ``use_deterministic``).
     - ``applies=True, ok=True`` -> verdicts are in ``answers`` keyed by
       question id; ``raw_tokens`` mirrors Jev's billed input tokens.
+
+    ``cause`` rides only failures (``ok=False``): a SHORT summary of WHY the
+    decision failed — ``exception_cause(exc)`` for a caught exception, a
+    pseudo-typed label (``"HTTPStatusError: 401"``, ``"BreakerOpen: ..."``)
+    where no exception object exists. The ``"jev_error"`` write sites emit
+    ``decision.cause or "jev_error"`` so the ledger's ``error`` column names
+    the real cause; None (the default, and every pre-cause Decision) keeps
+    the legacy string byte-identically.
     """
 
     applies: bool
     ok: bool = True
     answers: dict = field(default_factory=dict)
     raw_tokens: int = 0
+    cause: str | None = None
+
+
+def exception_cause(exc: BaseException) -> str:
+    """The shared failure-summary format: ``"ErrorType: message"`` with the
+    message capped at 120 chars — it lands verbatim in decisions.jsonl error
+    columns, so it stays short by contract. Used by the decider seam
+    (``Decision.cause``) and the implementer failure reporting alike."""
+    return f"{type(exc).__name__}: {str(exc)[:120]}"
 
 
 @dataclass

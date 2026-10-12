@@ -48,6 +48,7 @@ from loguru import logger
 from src.core.textutil import truncate
 from src.decide.gates import DecideLedger
 from src.decide.gates import _call, _noul_of, _row  # single-source row conventions
+from src.decide.shapes import exception_cause
 
 __all__ = ["MAX_ALIGN_PAIRS", "align_candidates", "align_pair", "candidate_key"]
 
@@ -229,14 +230,14 @@ def align_pair(
     state = {"mention": _mention_state(mention), "company": _company_state(company)}
     enforce = mode == "enforce"
     try:
-        decision, latency_ms = _call(decider, state, _questions())
+        decision, latency_ms = _call(decider, state, _questions(), gate="entity_alignment")
     except Exception as exc:  # the protocol says never; audit.py catches too
         logger.warning("entity alignment: decider raised (run={}): {}", run_id, exc)
         ledger.record(
             _row(
                 "entity_alignment", state, decider, run_id,
                 answers=None, deterministic_action="skip", agree=None,
-                agree_direction=None, error="jev_error", latency_ms=0.0,
+                agree_direction=None, error=exception_cause(exc), latency_ms=0.0,
                 raw_tokens=0, called=False, outcome="errored",
             )
         )
@@ -264,8 +265,9 @@ def align_pair(
             _row(
                 "entity_alignment", state, decider, run_id,
                 answers=None, deterministic_action="skip", agree=None,
-                agree_direction=None, error="jev_error", latency_ms=latency_ms,
-                raw_tokens=raw_tokens, called=called, outcome="errored",
+                agree_direction=None, error=decision.cause or "jev_error",
+                latency_ms=latency_ms, raw_tokens=raw_tokens, called=called,
+                outcome="errored",
             )
         )
         return dict(_UNAVAILABLE)

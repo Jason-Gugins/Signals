@@ -339,3 +339,160 @@ def test_live_jev_ping():
     assert isinstance(noul, (int, float)) and 0.0 <= float(noul) <= 1.0
     assert decision.raw_tokens >= 0
     assert elapsed < 30
+
+
+# --- Task 5 (fix wave 2026-10-12): causes, breaker exclusion, timeout scaling ---
+
+def test_exception_cause_format():
+    from src.decide.shapes import exception_cause
+
+    assert exception_cause(ValueError("boom")) == "ValueError: boom"
+    assert len(exception_cause(ValueError("x" * 500))) <= len("ValueError: ") + 120
+
+
+def test_decision_cause_defaults_none():
+    d = Decision(applies=True, ok=True, answers={}, raw_tokens=1)
+    assert d.cause is None
+
+
+def test_effective_timeout_formula():
+    # base + 0.5 x max(0, n - 3)
+    assert jev.effective_timeout(5.0, 0.5, 3) == 5.0
+    assert jev.effective_timeout(5.0, 0.5, 1) == 5.0
+    assert jev.effective_timeout(5.0, 0.5, 10) == pytest.approx(8.5)
+    assert jev.effective_timeout(5.0, 0.5, 25) == pytest.approx(16.0)
+    assert jev.effective_timeout(5.0, 0.0, 100) == 5.0
+
+
+@respx.mock
+def test_failure_decision_carries_cause(monkeypatch):
+    monkeypatch.setattr(jev, "_backoff_sleep", lambda _s: None)
+    behavior = {"mode": "http_500"}
+
+    def handler(request):
+        if behavior["mode"] == "http_500":
+            return httpx.Response(500)
+        raise httpx.ConnectError("connection refused")
+
+    respx.post(BASE).mock(side_effect=handler)
+    decider = LiveDecider(base_url=BASE, model="jev-1.13.0", api_key="k", max_retries=0)
+
+    d = decider.decide("state", {"q1": _noul_q()})
+    assert d.ok is False and d.cause and "HTTPStatusError" in d.cause
+
+    behavior["mode"] = "connect_error"
+    d = decider.decide("state", {"q1": _noul_q()})
+    assert d.ok is False and d.cause and "ConnectError" in d.cause
+
+
+@respx.mock
+def test_breaker_excludes_configured_gates_from_trip_math(monkeypatch):
+    """The A/B's helcim mechanism: chronic minor-gate failures must not
+    fail-close G4. Excluded-gate calls sit OUT of numerator AND denominator."""
+    monkeypatch.setattr(jev, "_backoff_sleep", lambda _s: None)
+    respx.post(BASE).mock(return_value=httpx.Response(500))
+    decider = LiveDecider(
+        base_url=BASE, model="jev-1.13.0", api_key="k", max_retries=0,
+        error_rate_breaker=0.5, breaker_min_calls=5,
+        breaker_exclude_gates=["routing", "posture_audit"],
+    )
+    for _ in range(6):
+        d = decider.decide("s", {"q1": _noul_q()}, gate="routing")
+        assert d.ok is False
+    # every call excluded: no counted sample at all, breaker never had data
+    assert decider.total_calls == 0
+    assert decider.excluded_calls == 6
+    assert decider.breaker_open is False
+    # a counted gate still participates: 1 counted call < min 5 => not open
+    decider.decide("s", {"q1": _noul_q()}, gate="citation_soundness")
+    assert decider.total_calls == 1
+    assert decider.breaker_open is False
+
+
+@respx.mock
+def test_breaker_trips_on_counted_failures_and_fast_fails_everything(monkeypatch):
+    monkeypatch.setattr(jev, "_backoff_sleep", lambda _s: None)
+    respx.post(BASE).mock(return_value=httpx.Response(500))
+    decider = LiveDecider(
+        base_url=BASE, model="jev-1.13.0", api_key="k", max_retries=0,
+        error_rate_breaker=0.5, breaker_min_calls=2,
+    )
+    assert decider.decide("s", {"q1": _noul_q()}, gate="citation_soundness").ok is False
+    assert decider.decide("s", {"q1": _noul_q()}, gate="citation_soundness").ok is False
+    assert decider.breaker_open is True  # 2/2 counted errors > 0.5
+    # while open, even an EXCLUDED gate fast-fails with an honest cause
+    d = decider.decide("s", {"q1": _noul_q()}, gate="routing")
+    assert d.ok is False
+    assert d.cause and d.cause.startswith("BreakerOpen")
+
+
+def test_call_threads_gate_only_to_deciders_that_accept_it():
+    """Two-argument deciders (every test fake, third-party impls) keep
+    working; three-argument deciders receive the gate for breaker math."""
+    from src.decide.gates import DecideLedger, _call
+
+    class TwoArg:
+        def decide(self, state, questions):
+            return Decision(applies=True, ok=True, answers={"q": {}}, raw_tokens=1)
+
+    class ThreeArg:
+        def __init__(self):
+            self.seen_gate = "unset"
+
+        def decide(self, state, questions, gate=None):
+            self.seen_gate = gate
+            return Decision(applies=True, ok=True, answers={"q": {}}, raw_tokens=1)
+
+    two, three = TwoArg(), ThreeArg()
+    d1, _ = _call(two, "s", {"q": _noul_q()}, gate="routing")
+    assert d1.ok is True  # no TypeError: gate silently not passed
+    d2, _ = _call(three, "s", {"q": _noul_q()}, gate="routing")
+    assert d2.ok is True and three.seen_gate == "routing"
+
+
+def test_gate_error_row_emits_decision_cause():
+    """A gate row's error column names the real cause (decision.cause), not
+    the legacy bare 'jev_error'."""
+    from src.decide.gates import DecideLedger, gate_citation_batch
+
+    class FailingDecider:
+        def decide(self, state, questions, gate=None):
+            return Decision(
+                applies=True, ok=False, answers={}, raw_tokens=0,
+                cause="ConnectError: connection refused",
+            )
+
+    ledger = DecideLedger()
+    doc_text = "acme raised a 40m series b round to expand its inference platform"
+    claim = Claim("acme raised a 40m series b round", "doc1")
+    gate_citation_batch([claim], "doc1", doc_text, FailingDecider(), {}, ledger, "run-1", "enforce")
+    row = ledger.rows[-1]
+    # the contract under test: the error COLUMN names the real cause (the
+    # outcome label follows the gate's on_error semantics, not this test)
+    assert row["error"] == "ConnectError: connection refused"
+
+
+def test_get_decider_reads_structured_breaker_block(monkeypatch):
+    monkeypatch.setenv("TYPESAFE_API_KEY", "ts-dummy")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", jev.DATA_EXIT_CONSENT)
+    try:
+        live = get_decider({
+            "mode": "shadow",
+            "decider": {
+                "model": "jev-blocked",
+                "timeout_s": 4.0,
+                "per_question_s": 0.75,
+                "breaker": {"min_calls": 7, "threshold": 0.25, "exclude_gates": ["routing"]},
+            },
+        })
+        assert isinstance(live, LiveDecider)
+        assert live.breaker_min_calls == 7
+        assert live.error_rate_breaker == 0.25
+        assert live.breaker_exclude_gates == frozenset({"routing"})
+        assert live.per_question_s == 0.75
+        # legacy flat key still honored when the block is absent (distinct
+        # model so the (mode, model, base_url) memo cannot alias the calls)
+        legacy = get_decider({"mode": "shadow", "decider": {"model": "jev-legacy", "error_rate_breaker": 0.4}})
+        assert isinstance(legacy, LiveDecider) and legacy.error_rate_breaker == 0.4
+    finally:
+        get_decider({"mode": "off"})  # close the live instances

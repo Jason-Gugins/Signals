@@ -339,7 +339,7 @@ def _patch_implementer(monkeypatch, *, claims=None, fields=None):
     extract_five_fields go through llm_implement.call_implementer."""
     rec = {"calls": []}
 
-    def fake_call_implementer(messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0):
+    def fake_call_implementer(messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0, **kw):
         rec["calls"].append({"model": model, "reasoning_effort": reasoning_effort})
         system = messages[0]["content"]
         if "REASONING IMPLEMENTER" in system:
@@ -1094,7 +1094,7 @@ def test_g5_call_budget_cap_stops_promotion(monkeypatch):
     _patch_planner(monkeypatch)
     rec: list = []
 
-    def fake_call_implementer(messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0):
+    def fake_call_implementer(messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0, **kw):
         rec.append(model)
         system = messages[0]["content"]
         if "REASONING IMPLEMENTER" in system:
@@ -1334,7 +1334,7 @@ def _patch_doc_recorder(monkeypatch, *, fields=None):
     rec = {"bulk": [], "fields": []}
 
     def fake_call_implementer(
-        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0
+        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0, **kw
     ):
         doc_id = messages[1]["content"].split("Document doc_id: ", 1)[1].splitlines()[0].strip()
         if "REASONING IMPLEMENTER" in messages[0]["content"]:
@@ -1915,7 +1915,7 @@ def _patch_field_sequence(monkeypatch, *, fields_sequence):
     rec = {"bulk": [], "fields": []}
 
     def fake_call_implementer(
-        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0
+        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0, **kw
     ):
         doc_id = messages[1]["content"].split("Document doc_id: ", 1)[1].splitlines()[0].strip()
         if "REASONING IMPLEMENTER" in messages[0]["content"]:
@@ -2592,7 +2592,7 @@ def test_event_date_only_for_claim_bearing_docs(tmp_path, monkeypatch):
     _patch_coverage(monkeypatch)
 
     def fake_call_implementer(messages, *, model, base_url, api_key, reasoning_effort=None,
-                              timeout_s=60.0):
+                              timeout_s=60.0, **kw):
         if "Document doc_id: doc-1" in messages[1]["content"]:
             return {"claims": [{"text": CLAIM_TEXT, "doc_id": "doc-1"}]}
         return {"claims": []}

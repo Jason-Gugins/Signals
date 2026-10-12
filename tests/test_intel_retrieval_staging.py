@@ -141,7 +141,7 @@ def _patch_bulk(monkeypatch):
     rec: dict = {"bulk": []}
 
     def fake_call_implementer(
-        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0
+        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0, **kw
     ):
         if "REASONING IMPLEMENTER" in messages[0]["content"]:
             return {}

@@ -30,8 +30,12 @@ Failure seam (same discipline as ``src/decide/jev.py`` and
 ``src/llm/planner.py``): :func:`call_implementer` and
 :func:`extract_five_fields` NEVER raise — HTTP errors, timeouts and
 malformed JSON all come back as ``None`` so a provider outage degrades to
-the deterministic pipeline. Keys are never logged: no log line carries the
-Authorization header or the api_key.
+the deterministic pipeline. The optional ``failure`` dict param is the
+honesty channel beside the None: it carries ``failure["cause"]`` — the same
+short ``"ErrorType: message"`` summary the decider seam puts in
+``Decision.cause`` — so a caller's degradation gap can name the real cause.
+Keys are never logged: no log line carries the Authorization header or the
+api_key.
 
 Gating: :func:`screen_and_gate_claims` is the G4 path — a deterministic
 doc_id screen runs BEFORE any Jev spend (a claim citing a different
@@ -61,7 +65,7 @@ from loguru import logger
 
 from src.core.textutil import truncate
 from src.decide.gates import CLAIM_FLOOR, anchor_window, gate_citation_batch, state_hash
-from src.decide.shapes import Claim
+from src.decide.shapes import Claim, exception_cause
 from src.signals.normalize import SignalCandidate
 
 # The implementer key lives in the untracked .env (never committed, never logged).
@@ -231,6 +235,7 @@ def call_implementer(
     api_key: str,
     reasoning_effort: str | None = None,
     timeout_s: float = DEFAULT_TIMEOUT_S,
+    failure: dict | None = None,
 ) -> dict | None:
     """One POST ``{base_url}/chat/completions``; parsed JSON dict or None.
 
@@ -244,6 +249,15 @@ def call_implementer(
     and malformed content all return None (logged at warning without the
     key). The api_key goes into the Authorization header only and is never
     logged.
+
+    ``failure`` — an optional caller-supplied dict — is the honesty channel:
+    on ANY failure it receives ``failure["cause"]``, the same short summary
+    format the decider seam uses (``"ErrorType: message"``,
+    :func:`src.decide.shapes.exception_cause`), so a caller's degradation
+    gap can name the real cause ("ReadTimeout: ...") instead of the generic
+    extraction-failed line. The return contract is unchanged: failures are
+    still None, existing callers (which pass no ``failure``) see no
+    difference.
     """
     url = f"{base_url.rstrip('/')}/chat/completions"
     body: dict = {"model": model, "messages": messages, "temperature": 0}
@@ -260,10 +274,15 @@ def call_implementer(
         content = payload["choices"][0]["message"]["content"]
         parsed = _parse_content(content)
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
-        logger.warning("implementer call failed: {}: {}", type(exc).__name__, exc)
+        summary = exception_cause(exc)
+        logger.warning("implementer call failed: {}", summary)
+        if failure is not None:
+            failure["cause"] = summary
         return None
     if parsed is None:
         logger.warning("implementer returned malformed content")
+        if failure is not None:
+            failure["cause"] = "MalformedContent: response was not the required JSON object"
     return parsed
 
 
@@ -503,6 +522,7 @@ def extract_five_fields(
     api_key: str,
     reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     timeout_s: float = DEFAULT_REASONING_TIMEOUT_S,
+    failure: dict | None = None,
 ) -> dict | None:
     """The GLM reasoning implementer for the five dossier fields.
 
@@ -511,7 +531,10 @@ def extract_five_fields(
     ``expansion_signal`` / ``why_now`` to ``{"text": ..., "doc_id": ...}``,
     with ``"unknown"`` (bare string or ``{"text": "unknown"}``) for a field
     the document does not support. Returns the parsed dict or None — never
-    raises, never logs the key.
+    raises, never logs the key. ``failure`` threads straight through to
+    :func:`call_implementer`: on a failed extract it carries
+    ``failure["cause"]`` so the caller's degradation gap can name the real
+    cause instead of the generic five-fields-failed line.
     """
     messages = _build_five_fields_messages(doc_id, doc_text)
     return call_implementer(
@@ -521,6 +544,7 @@ def extract_five_fields(
         api_key=api_key,
         reasoning_effort=reasoning_effort,
         timeout_s=timeout_s,
+        failure=failure,
     )
 
 

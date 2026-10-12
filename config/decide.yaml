@@ -16,9 +16,14 @@ implementers:
 decider:
   model: jev-1.13.0           # full version pin (jev-1.13 alone is NOT a confirmed request id)
   base_url: https://api.typesafe.ai/v1/systemone
-  timeout_s: 5.0              # per-request timeout; scales with questions-per-request (G4 batches ~3–10 claims per document)
+  timeout_s: 5.0              # BASE per-request timeout; effective = timeout_s + per_question_s x max(0, n_questions - 3)
+  per_question_s: 0.5         # seconds added per question beyond the first 3 (G4 batches ~3-10 claims per document)
   max_retries: 1              # one jittered retry on 5xx/timeout, then gate on_error applies
-  error_rate_breaker: 0.20    # >20% errors in a run -> stop calling Jev, mark run degraded
+  error_rate_breaker: 0.20    # legacy flat key, honored only when the breaker: block is absent
+  breaker:                    # structured breaker knobs (win over error_rate_breaker when present)
+    min_calls: 5              # the error rate is only evaluated after this many counted calls
+    threshold: 0.20           # >20% errors among counted calls -> stop calling Jev, mark run degraded
+    exclude_gates: [routing, posture_audit]   # chronic minor-gate failures never trip the breaker (excluded from numerator AND denominator — A/B ledger replay: ~4 fast 4xx in these gates fail-closed 105 G4 claim rows). While open, ALL gates fast-fail.
   max_decide_tokens_per_run: 400000   # pre-flight checked BEFORE the first call (see invariants)
   gates:
     plan_qualification: {enabled: true, floor: 0.70, on_error: drop_llm}          # unchanged (hard floor; plan steps have no review semantics)

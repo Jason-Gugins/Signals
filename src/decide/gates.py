@@ -61,6 +61,7 @@ No network anywhere in this module except through the injected decider.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import math
 import re
@@ -399,13 +400,45 @@ def _row(
     return row
 
 
-def _call(decider, state, questions) -> tuple[Decision, float]:
+def _call(
+    decider, state, questions, gate: str | None = None
+) -> tuple[Decision, float]:
     """Time one decider invocation; never raises past the seam (jev.py's
-    contract collapses failures into ok=False Decisions)."""
+    contract collapses failures into ok=False Decisions).
+
+    ``gate`` — the calling gate's ledger name — threads the gate's identity
+    to deciders that accept the optional third ``decide()`` parameter
+    (LiveDecider's breaker excludes configured gates from its trip math).
+    Deciders with the older two-argument signature (test fakes, third-party
+    implementations) are called WITHOUT it, so every existing Decider keeps
+    working unchanged.
+    """
     t0 = time.perf_counter()
-    decision = decider.decide(state, questions)
+    if gate is not None and _decides_with_gate(decider):
+        decision = decider.decide(state, questions, gate=gate)
+    else:
+        decision = decider.decide(state, questions)
     latency_ms = round((time.perf_counter() - t0) * 1000.0, 3)
     return decision, latency_ms
+
+
+# Per-type memo of "does this decider's decide() accept ``gate=``?" — the
+# introspection is cheap but per-request, and the answer never changes for a
+# class. Benign if two threads race the fill (same value written).
+_GATE_PARAM_CACHE: dict[type, bool] = {}
+
+
+def _decides_with_gate(decider) -> bool:
+    try:
+        params = inspect.signature(decider.decide).parameters
+    except (TypeError, ValueError):  # exotic callables: assume the old shape
+        return False
+    accepts = any(
+        name == "gate" or param.kind is inspect.Parameter.VAR_KEYWORD
+        for name, param in params.items()
+    )
+    _GATE_PARAM_CACHE[type(decider)] = accepts
+    return accepts
 
 
 def _cfg(gate_cfg: dict | None) -> dict:
@@ -550,7 +583,7 @@ def gate_plan_step(
     # verdict lets the LLM override bind (narrow-only: never the reverse).
     det_action = "drop_llm"
 
-    decision, latency_ms = _call(decider, state, questions)
+    decision, latency_ms = _call(decider, state, questions, gate="plan_qualification")
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
 
@@ -574,8 +607,8 @@ def gate_plan_step(
                 "plan_qualification", state, decider, run_id,
                 answers=None, deterministic_action=det_action,
                 agree=False if enforce else None, agree_direction=None,
-                error="jev_error", latency_ms=latency_ms, raw_tokens=raw_tokens,
-                called=called, outcome="errored",
+                error=decision.cause or "jev_error", latency_ms=latency_ms,
+                raw_tokens=raw_tokens, called=called, outcome="errored",
             )
         )
         logger.debug("G1 plan step errored; falling back to deterministic default (run={})", run_id)
@@ -631,7 +664,7 @@ def gate_posture_audit(
             "criteria": ["within_posture", "outside_posture"],
         }
     }
-    decision, latency_ms = _call(decider, state, questions)
+    decision, latency_ms = _call(decider, state, questions, gate="posture_audit")
     called = bool(decision.applies)
     answers = dict(decision.answers) if (called and decision.ok) else None
     agree = direction = error = None
@@ -644,7 +677,7 @@ def gate_posture_audit(
             agree = choice == "within_posture"
             direction = "match" if agree else None
     elif called:
-        error = "jev_error"
+        error = decision.cause or "jev_error"
     ledger.record(
         _row(
             "posture_audit", state, decider, run_id,
@@ -715,7 +748,7 @@ def gate_routing(
             "criteria": ["deep", "quick"],
         }
     }
-    decision, latency_ms = _call(decider, state, questions)
+    decision, latency_ms = _call(decider, state, questions, gate="routing")
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
 
@@ -736,8 +769,8 @@ def gate_routing(
                 "routing", state, decider, run_id,
                 answers=None, deterministic_action=heuristic,
                 agree=False if enforce else None, agree_direction=None,
-                error="jev_error", latency_ms=latency_ms, raw_tokens=raw_tokens,
-                called=called,
+                error=decision.cause or "jev_error", latency_ms=latency_ms,
+                raw_tokens=raw_tokens, called=called,
             )
         )
         return heuristic  # on_error: use_deterministic (fail-safe for any other value)
@@ -947,7 +980,7 @@ def gate_citation_batch(
                 "document is about?"
             ),
         }
-    decision, latency_ms = _call(decider, state, questions)
+    decision, latency_ms = _call(decider, state, questions, gate="citation_soundness")
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
 
@@ -970,7 +1003,8 @@ def gate_citation_batch(
                     "citation_soundness", state, decider, run_id,
                     answers=None, deterministic_action="accept",
                     agree=False if enforce else None, agree_direction=None,
-                    error="jev_error", latency_ms=latency_ms if first else 0.0,
+                    error=decision.cause or "jev_error",
+                    latency_ms=latency_ms if first else 0.0,
                     raw_tokens=raw_tokens if first else 0,
                     called=True if first else False, outcome="errored",
                     claims=claims_payload,
@@ -1128,7 +1162,7 @@ def gate_need_promotion(
             ),
         }
     }
-    decision, latency_ms = _call(decider, state, questions)
+    decision, latency_ms = _call(decider, state, questions, gate="need_promotion")
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
     on_error = str(cfg.get("on_error", "drop_llm"))
@@ -1151,8 +1185,8 @@ def gate_need_promotion(
                 "need_promotion", state, decider, run_id,
                 answers=None, deterministic_action=det_action,
                 agree=False if enforce else None, agree_direction=None,
-                error="jev_error", latency_ms=latency_ms, raw_tokens=raw_tokens,
-                called=called, outcome="errored",
+                error=decision.cause or "jev_error", latency_ms=latency_ms,
+                raw_tokens=raw_tokens, called=called, outcome="errored",
             )
         )
         return promote, None, decision
@@ -1330,7 +1364,7 @@ def gate_document(
                 "the account, rather than generic or promotional content? Answer noul."
             ),
         }
-    decision, latency_ms = _call(decider, state, questions)
+    decision, latency_ms = _call(decider, state, questions, gate="document_gate")
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
     # The re-rank head's noul, read straight off the answers map. None unless
@@ -1356,13 +1390,14 @@ def gate_document(
         # on_error: use_deterministic — deterministic pass-through INCLUDES the
         # document; the row records the error (enforce fallback convention:
         # agree False, matching G1/G3/G5).
+        jev_err = decision.cause or "jev_error"
         ledger.record(
             _row(
                 "document_gate", state, decider, run_id,
                 answers=None, deterministic_action="include",
                 agree=False if enforce else None, agree_direction=None,
-                error="jev_error", latency_ms=latency_ms, raw_tokens=raw_tokens,
-                called=called, outcome="included", reason="jev_error",
+                error=jev_err, latency_ms=latency_ms, raw_tokens=raw_tokens,
+                called=called, outcome="included", reason=jev_err,
             )
         )
         logger.debug(
@@ -1586,7 +1621,7 @@ def gate_completeness(
             }
         field_head.append((field, head))
 
-    decision, latency_ms = _call(decider, state, questions)
+    decision, latency_ms = _call(decider, state, questions, gate="completeness_verify")
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
 
@@ -1613,8 +1648,8 @@ def gate_completeness(
                 "completeness_verify", state, decider, run_id,
                 answers=None, deterministic_action="pass",
                 agree=False if enforce else None, agree_direction=None,
-                error="jev_error", latency_ms=latency_ms, raw_tokens=raw_tokens,
-                called=called, outcome="errored",
+                error=decision.cause or "jev_error", latency_ms=latency_ms,
+                raw_tokens=raw_tokens, called=called, outcome="errored",
             )
         )
         logger.debug(
@@ -1829,7 +1864,7 @@ def classify_claims(
             "instructions": "Which signal type best fits this claim? Answer with the type key.",
             "criteria": criteria,
         }
-    decision, latency_ms = _call(decider, state, questions)
+    decision, latency_ms = _call(decider, state, questions, gate="taxonomy_typing")
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
 
@@ -1857,7 +1892,8 @@ def classify_claims(
                     "taxonomy_typing", state, decider, run_id,
                     answers=None, deterministic_action="no_proposal",
                     agree=False if enforce else None, agree_direction=None,
-                    error="jev_error", latency_ms=latency_ms if first else 0.0,
+                    error=decision.cause or "jev_error",
+                    latency_ms=latency_ms if first else 0.0,
                     raw_tokens=raw_tokens if first else 0,
                     called=True if first else False, outcome="errored",
                 )
@@ -2197,7 +2233,7 @@ def extract_event_date(
         "doc_id": doc_id,
         "text": truncate(doc_text, _DOC_STATE_TOKENS * _WINDOW_CHARS_PER_TOKEN) or "",
     }
-    decision, latency_ms = _call(decider, state, _event_date_questions())
+    decision, latency_ms = _call(decider, state, _event_date_questions(), gate="event_dates")
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
 
@@ -2222,8 +2258,8 @@ def extract_event_date(
                 "event_dates", state, decider, run_id,
                 answers=None, deterministic_action="no_event_date",
                 agree=False if enforce else None, agree_direction=None,
-                error="jev_error", latency_ms=latency_ms, raw_tokens=raw_tokens,
-                called=called, outcome="errored",
+                error=decision.cause or "jev_error", latency_ms=latency_ms,
+                raw_tokens=raw_tokens, called=called, outcome="errored",
             )
         )
         logger.debug(
@@ -2651,7 +2687,7 @@ def extract_claim_amount(
             ),
         },
     }
-    decision, latency_ms = _call(decider, state, questions)
+    decision, latency_ms = _call(decider, state, questions, gate="value_extraction")
     called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
 
@@ -2676,8 +2712,8 @@ def extract_claim_amount(
                 "value_extraction", state, decider, run_id,
                 answers=None, deterministic_action="no_amount",
                 agree=False if enforce else None, agree_direction=None,
-                error="jev_error", latency_ms=latency_ms, raw_tokens=raw_tokens,
-                called=called, outcome="errored",
+                error=decision.cause or "jev_error", latency_ms=latency_ms,
+                raw_tokens=raw_tokens, called=called, outcome="errored",
             )
         )
         logger.debug("value extraction errored for a claim; no amount (run={})", run_id)

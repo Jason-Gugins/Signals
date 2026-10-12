@@ -522,7 +522,7 @@ def _patch_planner(monkeypatch, *, plan=None, reason="generated"):
 
 def _patch_implementer(monkeypatch, *, claims=None, fields=None):
     def fake_call_implementer(
-        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0
+        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0, **kw
     ):
         system = messages[0]["content"]
         if "REASONING IMPLEMENTER" in system:

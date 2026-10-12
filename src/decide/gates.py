@@ -367,9 +367,12 @@ def _row(
     outcome=None,
     noul=None,
     reason=None,
+    claims=None,
 ) -> dict:
     """One invariant-5 ledger row (gates may add the called/outcome/noul/
-    reason extras the aggregates read)."""
+    reason extras the aggregates read; ``claims`` is the opt-in lab payload —
+    ``lab.persist_claims`` — attached only where a row is BUILT, never
+    post-hoc; None keeps the row byte-identical to the pre-switch flow)."""
     row = {
         "gate": gate,
         "boundary": gate,  # one boundary tag per gate in v1
@@ -391,6 +394,8 @@ def _row(
         row["noul"] = noul
     if reason is not None:
         row["reason"] = reason
+    if claims is not None:
+        row["claims"] = claims
     return row
 
 
@@ -774,6 +779,7 @@ def gate_citation_batch(
     run_id: str,
     mode: str,
     screen_cfg: dict | None = None,
+    persist_claims: bool = False,
 ) -> tuple[list[Claim], Decision]:
     """G4 — citation soundness for one document's claim batch.
 
@@ -834,6 +840,17 @@ def gate_citation_batch(
     Choice answers; malformed/missing verdicts route to review (reason
     "no_answer") — fail-closed for content, recorded for audit.
 
+    Claim persistence (``persist_claims`` — the ``lab.persist_claims``
+    switch in config/decide.yaml, default OFF): when on, EVERY row this
+    gate writes — deterministic drops (no_document / prefilter /
+    fabricated_quote / no_decider), Jev-error rows, verdict rows — carries
+    the judged batch's claim payloads (``claims: [{"text", "quote_span",
+    "doc_id"}, ...]``) so offline diagnosis can read the claim texts the
+    row's ``state_hash`` alone cannot recover. The payload is computed once
+    for the batch and attached where the rows are BUILT; the ledger stays
+    append-verbatim (never enriched post-hoc). Off/absent: every row is
+    byte-identical to the pre-switch flow.
+
     Returns (accepted_claims, decision); the per-claim Choice answers ride
     in ``decision.answers`` under the existing ``claim_<i>`` ids (plus the
     two screen ids when the rider is enabled).
@@ -843,6 +860,13 @@ def gate_citation_batch(
     enforce = mode == "enforce"
     screen_on = _screen_active(screen_cfg)
     not_applicable = Decision(applies=False, ok=True, answers={}, raw_tokens=0)
+    # The opt-in lab payload (computed once, attached to every row this gate
+    # writes — enrichment happens at row-build time, never post-hoc).
+    claims_payload = (
+        [{"text": c.text, "quote_span": c.quote_span, "doc_id": c.doc_id} for c in claims]
+        if persist_claims
+        else None
+    )
 
     def _drop_row(i: int, claim: Claim, reason: str) -> None:
         # The state that WOULD have been sent — audit value for the detail.
@@ -856,6 +880,7 @@ def gate_citation_batch(
                 answers=None, deterministic_action="accept", agree=None,
                 agree_direction=None, error=None, latency_ms=0.0, raw_tokens=0,
                 called=False, outcome="dropped", reason=reason,
+                claims=claims_payload,
             )
         )
 
@@ -948,6 +973,7 @@ def gate_citation_batch(
                     error="jev_error", latency_ms=latency_ms if first else 0.0,
                     raw_tokens=raw_tokens if first else 0,
                     called=True if first else False, outcome="errored",
+                    claims=claims_payload,
                 )
             )
             first = False
@@ -1046,6 +1072,7 @@ def gate_citation_batch(
                 raw_tokens=raw_tokens if first else 0,
                 called=True if first else False, outcome=outcome,
                 noul=row_noul, reason=reason,
+                claims=claims_payload,
             )
         )
         first = False

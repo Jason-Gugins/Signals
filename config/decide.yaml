@@ -34,3 +34,10 @@ decider:
     value_extraction:    {enabled: true, on_error: skip}
     evidence_rerank:     {enabled: true, keep_n: 0, on_error: keep_order}   # keep_n 0 = no cap; rides the document-gate request
     entity_alignment:    {enabled: true, max_pairs: 10, on_error: skip}   # NEW: discover-candidate annotation; enforce-only (shadow = rows only)
+# Lab switches: opt-in diagnostics, off in the shipped posture. With persist_claims ON, every
+# citation_soundness ledger row carries the judged batch's claim payloads
+# ({"text","quote_span","doc_id"}) for offline diagnosis / the decide-lab — the row's
+# state_hash alone is not reversible. OFF (or the block absent) keeps every ledger row
+# byte-identical to the no-lab flow.
+lab:
+  persist_claims: false

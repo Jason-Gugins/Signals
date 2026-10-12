@@ -685,6 +685,11 @@ def _implement_pass(
     # The output screen RIDES the citation gate's per-document request: its
     # config block threads through screen_and_gate_claims -> gate_citation_batch.
     screen_cfg = _gate_cfg(decide_cfg, "output_screen")
+    # Lab switches (decide.yaml's top-level ``lab:`` block) — opt-in
+    # diagnostics, never gating behavior: persist_claims attaches the judged
+    # claim payloads to the G4 ledger rows for offline diagnosis / the
+    # decide-lab. Off or absent (the shipped default): byte-identical rows.
+    persist_claims = bool((decide_cfg.get("lab") or {}).get("persist_claims"))
 
     def _heuristic_route(text: str) -> str:
         """G3's deterministic heuristic alone (gate disabled: no Jev consult)."""
@@ -729,6 +734,7 @@ def _implement_pass(
             run_id=run_id,
             mode=mode,
             screen_cfg=screen_cfg,
+            persist_claims=persist_claims,
         )
 
     # SERIAL in v1 (the shared llm_implement contract): the loop stays on the
@@ -960,6 +966,7 @@ def _implement_pass(
                     run_id=run_id,
                     mode=mode,
                     screen_cfg=screen_cfg,
+                    persist_claims=persist_claims,
                 )
             else:
                 # Citation gate disabled: the deterministic baseline (accept)

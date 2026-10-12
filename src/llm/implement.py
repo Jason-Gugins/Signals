@@ -408,6 +408,7 @@ def screen_and_gate_claims(
     run_id: str,
     mode: str,
     screen_cfg: dict | None = None,
+    persist_claims: bool = False,
 ) -> list[tuple[Claim, dict]]:
     """The G4 path for one document's atomized claims.
 
@@ -438,7 +439,11 @@ def screen_and_gate_claims(
     gate-inert; enforce applies the floor). ``screen_cfg`` — the
     ``decider.gates.output_screen`` block, ``None`` (the default) = the
     output screen rider is disabled — threads straight through to
-    :func:`gate_citation_batch` too. Never raises: gate failures come
+    :func:`gate_citation_batch` too. ``persist_claims`` — the
+    ``lab.persist_claims`` switch in config/decide.yaml, default ``False``
+    — also threads straight through: when on, the gate's rows carry the
+    judged batch's claim payloads for offline diagnosis (off-path
+    byte-identity otherwise). Never raises: gate failures come
     back as dropped claims per the additive invariant.
     """
     survivors: list[Claim] = []
@@ -449,7 +454,16 @@ def screen_and_gate_claims(
         survivors.append(claim)
 
     accepted, decision = gate_citation_batch(
-        survivors, batch_doc_id, doc_text, decider, gates_cfg, ledger, run_id, mode, screen_cfg
+        survivors,
+        batch_doc_id,
+        doc_text,
+        decider,
+        gates_cfg,
+        ledger,
+        run_id,
+        mode,
+        screen_cfg,
+        persist_claims,
     )
 
     accepted_ids = {id(c) for c in accepted}

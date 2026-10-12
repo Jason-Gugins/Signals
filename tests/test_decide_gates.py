@@ -1013,6 +1013,78 @@ def test_g4_missing_quote_skips_span_check():
     assert ledger.rows[0]["outcome"] == "accepted"
 
 
+# --- fix wave (2026-10): G4 quote-anchored excerpts (G4_WALL_2026_10.md) --------
+# The wall study measured that 88-97% of claims are paraphrases whose text
+# never verbatim-matches the document, so the claim-text-anchored state fed
+# Jev the ~400-char boilerplate head while the VERIFIED quote (98%+ present,
+# deterministically confirmed by the fabricated_quote check BEFORE the Jev
+# call) never entered the state. The excerpt must anchor on the quote; the
+# claim text rides the question instructions so Jev sees BOTH.
+PARAPHRASE_CLAIM = "The vendor suffered a breach exposing 2.4 million records"
+
+
+def test_g4_state_anchors_on_the_verified_quote_not_the_paraphrase():
+    """A claim whose text does NOT appear verbatim in the document but whose
+    quote does: the state's excerpt CONTAINS the quote span (window centered
+    on it, head prefix riding along) instead of the head-only fallback the
+    paraphrase-anchored flow produced."""
+    decider = CountingDecider({"claim": _ok({"claim_0": _choice_ans("supports", 0.9)})})
+    claim = Claim(PARAPHRASE_CLAIM, "doc1", quote_span=MID)
+    gate_citation_batch([claim], "doc1", DOC, decider, {}, DecideLedger(), RUN, "enforce")
+    state, questions = decider.calls[0]
+    excerpt = state["claim_0"]
+    assert MID in excerpt  # the verified quote span is IN the excerpt
+    assert "Nav header" in excerpt  # the doc head rides as context prefix
+    assert excerpt != truncate(DOC, 400)  # NOT merely the head (old fallback)
+    # The claim text is visible to Jev in the question instructions (the
+    # shipped shape: state key claim_<i> holds the excerpt; the instructions
+    # carry the claim being judged).
+    assert PARAPHRASE_CLAIM in questions["claim_0"]["instructions"]
+    assert questions["claim_0"]["type"] == "choice"
+    assert set(questions["claim_0"]["criteria"]) == {"supports", "contradicted", "says_nothing"}
+
+
+def test_g4_state_without_quote_keeps_claim_text_anchor_fallback():
+    """No quote_span: today's claim-text anchoring is pinned as the fallback —
+    a verbatim-matching claim text still centers the window; a paraphrase
+    that misses still degrades to the head."""
+    # (a) claim text is a verbatim (case/whitespace-insensitive) substring.
+    decider = CountingDecider({"claim": _ok({"claim_0": _choice_ans("supports", 0.9)})})
+    gate_citation_batch(
+        [Claim(GOOD_CLAIM, "doc1")], "doc1", DOC, decider, {}, DecideLedger(), RUN, "enforce"
+    )
+    state, questions = decider.calls[0]
+    assert MID in state["claim_0"]  # claim-text anchor centered the window
+    assert "Nav header" in state["claim_0"]
+    assert GOOD_CLAIM in questions["claim_0"]["instructions"]  # claim visible
+
+    # (b) paraphrase with NO quote: the anchor misses -> head-only fallback.
+    decider = CountingDecider({"claim": _ok({"claim_0": _choice_ans("supports", 0.9)})})
+    gate_citation_batch(
+        [Claim(PARAPHRASE_CLAIM, "doc1")], "doc1", DOC, decider, {}, DecideLedger(), RUN, "enforce"
+    )
+    state, _ = decider.calls[0]
+    assert state["claim_0"] == truncate(DOC, 400)  # anchor_window's head fallback
+
+
+def test_g4_quote_anchor_survives_normalization_mismatch():
+    """The quote anchor uses anchor_window's own normalization: a quote copied
+    with curly quotes / collapsed whitespace against the document still
+    centers the window on the (normalized) match."""
+    decider = CountingDecider({"claim": _ok({"claim_0": _choice_ans("supports", 0.9)})})
+    claim = Claim(
+        PARAPHRASE_CLAIM,
+        "doc1",
+        quote_span="disclosed a breach\u201d  affecting 2.4\nmillion records",
+    )
+    gate_citation_batch(
+        [claim], "doc1", CURLY_DOC, decider, {}, DecideLedger(), RUN, "enforce"
+    )
+    state, _ = decider.calls[0]
+    assert "Nav header" in state["claim_0"]
+    assert "records in March." in state["claim_0"]  # text adjacent to the quote
+
+
 def test_g4_three_way_choice_routing():
     """All four branches: supports (prob >= floor) accepts; contradicted
     drops; says_nothing reviews; label probability < floor reviews."""

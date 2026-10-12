@@ -64,7 +64,7 @@ import httpx
 from loguru import logger
 
 from src.core.textutil import truncate
-from src.decide.gates import CLAIM_FLOOR, anchor_window, gate_citation_batch, state_hash
+from src.decide.gates import CLAIM_FLOOR, claim_excerpt, gate_citation_batch, state_hash
 from src.decide.shapes import Claim, exception_cause
 from src.signals.normalize import SignalCandidate
 
@@ -118,7 +118,14 @@ def build_extraction_messages(
     claim carries the document's doc_id, and every claim carries a
     ``"quote"`` — a verbatim span (<=300 characters, copied UNCHANGED from
     the document, may span a line break) that directly supports it — so the
-    gate's deterministic quote-span check can verify grounding.
+    gate's deterministic quote-span check can verify grounding. It also
+    FORBIDS envelope claims: a claim must be a business-relevant statement
+    about the company/account or its market found in the document's
+    CONTENT, never a statement about the response envelope, API metadata,
+    counts of results, query parameters, pagination, or document structure
+    — the G4 wall study (data/probe/G4_WALL_2026_10.md) caught the
+    implementer mining "The document reports a resultCount of 4"-style
+    truths that are quoted, verifiable, and worthless as signals.
     ``route="quick"`` shortens the instructions and caps extraction at
     :data:`MAX_CLAIMS_QUICK`; ``route="deep"`` (the default; any unknown
     route is treated as deep) allows :data:`MAX_CLAIMS_DEEP`. Pure and
@@ -129,6 +136,15 @@ def build_extraction_messages(
         "copied UNCHANGED from the document (it may span a line break) that directly\n"
         "supports the claim."
     )
+    envelope_line = (
+        "Claims must be business-relevant statements about the company, the account,\n"
+        "or its market, found in the document's CONTENT. NEVER emit claims about the\n"
+        "response envelope, API metadata, counts of results, query parameters,\n"
+        "pagination, or document structure (for example \"the document reports a\n"
+        "resultCount of 4\" or \"produced by a query ... numericFilters created_at_i>0\"):\n"
+        "such claims are true but worthless. Fewer, content-grounded claims beat many\n"
+        "metadata claims."
+    )
     if route == "quick":
         cap_line = (
             f"Extract AT MOST {MAX_CLAIMS_QUICK} claims: only the strongest "
@@ -137,6 +153,7 @@ def build_extraction_messages(
         contract = (
             "Use ONLY the supplied document. Every claim must carry the document's doc_id.\n"
             f"{quote_line}\n"
+            f"{envelope_line}\n"
             "If the document does not support a claim, do not emit it."
         )
     else:
@@ -147,6 +164,7 @@ def build_extraction_messages(
         contract = (
             "Use ONLY the supplied document. Every claim must carry the document's doc_id.\n"
             f"{quote_line}\n"
+            f"{envelope_line}\n"
             "If the document does not support a claim, do not emit it. Do not use any\n"
             "outside knowledge and do not invent facts that are not present in the document."
         )
@@ -338,10 +356,11 @@ def _drop_row_mismatch(
     decider, run_id: str, doc_id: str, index: int, claim: Claim, doc_text: str | None
 ) -> dict:
     """One invariant-5 ledger row for a doc_id-mismatch drop (recorded BEFORE
-    any Jev spend, same shape as gate_citation_batch's deterministic drops)."""
+    any Jev spend, same shape as gate_citation_batch's deterministic drops —
+    including the quote-anchored would-have-been excerpt)."""
     state = {
         "doc_id": doc_id,
-        f"claim_{index}": anchor_window(doc_text, claim.text) if doc_text else claim.text,
+        f"claim_{index}": claim_excerpt(doc_text, claim),
     }
     return {
         "gate": CITATION_GATE,

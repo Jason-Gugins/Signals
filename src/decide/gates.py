@@ -222,6 +222,27 @@ def anchor_window(doc_text: str, anchor: str, window_tokens: int = 300) -> str:
     return f"{head}\u2026{window}"
 
 
+def claim_excerpt(doc_text: str | None, claim: Claim) -> str:
+    """G4's per-claim state excerpt: quote-anchored, claim-text fallback.
+
+    The G4 wall study (data/probe/G4_WALL_2026_10.md) measured that 88-97%
+    of claims are paraphrases whose text never verbatim-matches the
+    document, so the pre-fix ``anchor_window(doc_text, claim.text)`` state
+    fed Jev the ~400-char boilerplate head while the VERIFIED quote —
+    deterministically confirmed present by the fabricated_quote check
+    BEFORE the Jev call — never entered the state. Anchoring on
+    ``claim.quote_span`` (truthy quotes are present by construction at Jev
+    time) therefore always hits and Jev sees ~600 tokens of real supporting
+    context around the exact span it should judge. A claim with no quote
+    keeps the claim-text anchor (the pre-fix behavior); no document means
+    no excerpt — the claim text itself (the deterministic drop rows'
+    audit value).
+    """
+    if not doc_text:
+        return claim.text
+    return anchor_window(doc_text, claim.quote_span or claim.text)
+
+
 class DecideLedger:
     """In-memory per-run decision ledger (Task 7 writes decisions.jsonl and
     feeds the aggregates to the dossier).
@@ -823,9 +844,19 @@ def gate_citation_batch(
     truthy ``quote_span`` whose normalized text is NOT a substring of the
     normalized document drops, reason "fabricated_quote" — BEFORE any Jev
     spend), (c) ONE batched Jev request for the remaining survivors — state
-    ``{"doc_id": ..., "claim_<i>": anchor_window(...)}`` with one 3-way
-    Choice question per claim (supports / contradicted / says_nothing; ids
-    index the FULL original list so they are stable) — then (d) routing by
+    ``{"doc_id": ..., "claim_<i>": claim_excerpt(doc_text, claim)}`` (the
+    head-prefixed window anchored on the claim's VERIFIED quote — present
+    by construction thanks to the (b2) span check, so the anchor always
+    hits; the claim text anchors only when no quote exists, the pre-fix
+    fallback; see data/probe/G4_WALL_2026_10.md) with one 3-way Choice
+    question per claim (supports / contradicted / says_nothing; ids index
+    the FULL original list so they are stable). The claim text rides the
+    question's ``instructions`` (``"Claim: {text}\\nJudge the claim
+    against its cited document excerpt."``) so Jev sees BOTH the claim
+    being judged AND the state's supporting excerpt — the chosen shape:
+    the typed-question ``instructions`` field is the per-question free-text
+    channel, which keeps each ``claim_<i>`` question self-contained and the
+    state values pure, size-bounded excerpts — then (d) routing by
     the top label and its probability: probability >= floor routes the label
     (supports ⇒ accept / contradicted ⇒ drop, reason "contradicted" /
     says_nothing ⇒ review); probability < floor ⇒ review (reason
@@ -905,7 +936,7 @@ def gate_citation_batch(
         # The state that WOULD have been sent — audit value for the detail.
         state = {
             "doc_id": doc_id,
-            f"claim_{i}": anchor_window(doc_text, claim.text) if doc_text else claim.text,
+            f"claim_{i}": claim_excerpt(doc_text, claim),
         }
         ledger.record(
             _row(
@@ -948,13 +979,24 @@ def gate_citation_batch(
         return [], not_applicable
 
     # (c) ONE batched request per document; ids index the FULL claim list.
+    # The excerpt anchors on the VERIFIED quote (present by construction —
+    # (b2) dropped every claim whose quote missed), so Jev judges ~600
+    # tokens of real supporting context around the exact cited span instead
+    # of the boilerplate head a paraphrase-anchored window falls back to
+    # (the G4 wall, data/probe/G4_WALL_2026_10.md). The claim text rides
+    # the instructions: each typed question is self-contained (the thing to
+    # judge + the excerpt's state key), and the state values stay pure,
+    # size-bounded excerpts.
     state: dict = {"doc_id": doc_id}
     questions: dict[str, dict] = {}
     for i, claim in survivors:
-        state[f"claim_{i}"] = anchor_window(doc_text, claim.text)
+        state[f"claim_{i}"] = claim_excerpt(doc_text, claim)
         questions[f"claim_{i}"] = {
             "type": "choice",
-            "instructions": "Judge the claim against its cited document excerpt.",
+            "instructions": (
+                f"Claim: {claim.text}\n"
+                "Judge the claim against its cited document excerpt."
+            ),
             "criteria": {
                 "supports": "the excerpt states the claim or directly implies it",
                 "contradicted": "the excerpt states the opposite or implies it is false",

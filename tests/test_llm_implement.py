@@ -168,6 +168,25 @@ def test_extraction_prompt_requires_quote():
             assert token in system
 
 
+def test_extraction_prompt_forbids_envelope_claims():
+    # The G4 wall fix (data/probe/G4_WALL_2026_10.md), branch I: a material
+    # fraction of extracted claims were TRUE, correctly-quoted statements
+    # about the response envelope ("the document reports a resultCount of 4",
+    # "produced by a query ... numericFilters created_at_i>0") — worthless as
+    # business signals. BOTH routes must forbid them and demand
+    # content-grounded business claims.
+    for route in ("deep", "quick"):
+        system = build_extraction_messages(DOC_ID, DOC_TEXT, route=route)[0]["content"]
+        assert "business-relevant" in system
+        assert "response envelope" in system
+        assert "API metadata" in system
+        assert "query parameters" in system
+        assert "pagination" in system
+        assert "document structure" in system
+        assert "resultCount" in system
+        assert "content-grounded" in system
+
+
 # ------------------------------------------------------------ call_implementer
 
 

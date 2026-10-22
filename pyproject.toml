@@ -26,7 +26,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# numpy is explicit here (not just an onnxruntime transitive): the retrieval
+# vector leg (search.vector_search, fusion.mmr_select) imports it directly.
 rerank = [
+    "numpy>=1.26",
     "onnxruntime>=1.19",
     "tokenizers>=0.20",
     "huggingface_hub>=0.24",

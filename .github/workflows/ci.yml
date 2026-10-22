@@ -21,14 +21,18 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
+      # Offline lane covers the optional-dep code paths with fakes (embedder
+      # math, vector/MMR legs, decide-lab features), so their extras must be
+      # importable: [rerank] = onnxruntime/tokenizers + numpy (retrieval),
+      # [lab] = numpy/scikit-learn (src.lab.features).
       - name: Install dependencies
-        run: pip install -e .
+        run: pip install -e ".[rerank,lab]"
 
       - name: Install ruff
         run: pip install ruff
@@ -47,9 +51,9 @@ jobs:
     name: Install smoke (fresh venv)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -72,9 +76,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 

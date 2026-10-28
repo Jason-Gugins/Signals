@@ -44,13 +44,14 @@ Everything a first session needs, in order. The pipeline has six stages:
 `seed` → `resolve` → `collect` → `score` → `brief` → `export`
 
 - `seed`: load the accounts you care about.
-- `resolve`: fill each account's identity fields — CIK, ATS vendor/token, feeds, ICP.
+- `resolve`: fill each account's identity fields — CIK (SEC filer ID), ATS
+  vendor/token, feeds, ICP (ideal customer profile).
 - `collect`: run every enabled source the account qualifies for.
-- `score`: classify, score, and tier each account.
-- `brief`: map the signals to sales plays and write a cited brief.
+- `score`: classify each signal and tier the account.
+- `brief`: turn the top signals into sales plays — one cited brief per account.
 - `export`: write the results out to `data/exports/`.
 
-Work through the three steps below top to bottom.
+Work through them in order.
 
 ### 1. Clone and install
 
@@ -93,21 +94,23 @@ lane) plus a nightly live-parity lane — see
 .\.venv\Scripts\python.exe -m src.cli init
 ```
 
-Three of the files below (the `.txt` lists) ship tracked in the repo as
-comment-only stubs, plus the x-ray string library
-`config/lists/xray_strings.yaml` — see *X-ray SERP prospecting* below. Edit
-those in place rather than create them. `champions.csv` and anything else you
-drop in stay untracked — a human curates. See
-[config/lists/README.md](config/lists/README.md) for the authoritative list:
+Three of the files below ship as tracked, comment-only stubs: the `.txt`
+lists. The x-ray string library `config/lists/xray_strings.yaml` is tracked
+too — see *X-ray SERP prospecting* below. Edit the stubs in place rather than
+create them. `champions.csv` and anything else you drop in stay untracked — a
+human curates. See [config/lists/README.md](config/lists/README.md) for the
+authoritative list:
 
-- `config/lists/competitors.txt` — domains we should never score as prospects
+- `config/lists/competitors.txt` — domains that should never be scored as prospects
 - `config/lists/customers.txt` — existing customers (route to CS)
 - `config/lists/dnc.txt` — do-not-contact
 - `config/lists/champions.csv` — prior buyers; unlocks `champion_migration`
 - `data/inbox/owned/*.csv|*.jsonl` — first-party intent (web/ESP export)
 
-Load champions with
+Once you've dropped your own `champions.csv`, load it with
 `.\.venv\Scripts\python.exe -m src.cli champions --load config/lists/champions.csv`.
+
+Next: load accounts — see the `seed` example under *Everyday commands*.
 
 ## Everyday commands
 

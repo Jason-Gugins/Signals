@@ -37,11 +37,22 @@ until configured.
 Marketplace scraping is opt-in — see the *Sources* section below for the full
 gate and per-site options.
 
-## Pipeline
+## Quick start
+
+Everything a first session needs, in order. The pipeline has six stages:
 
 `seed` → `resolve` → `collect` → `score` → `brief` → `export`
 
-## Clone and install
+- `seed`: load the accounts you care about.
+- `resolve`: fill each account's identity fields — CIK, ATS vendor/token, feeds, ICP.
+- `collect`: run every enabled source the account qualifies for.
+- `score`: classify, score, and tier each account.
+- `brief`: map the signals to sales plays and write a cited brief.
+- `export`: write the results out to `data/exports/`.
+
+Work through the three steps below top to bottom.
+
+### 1. Clone and install
 
 Windows 10. Python 3.12.
 
@@ -58,12 +69,16 @@ copy .env.example .env
 # set GITHUB_TOKEN to raise community_github from 60 to 5,000 req/hr (optional)
 ```
 
-## Verify
+### 2. Verify
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli doctor --no-network
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+Healthy looks like: no FAIL lines from the doctor, and no failures from the
+test suite. A few WARN lines on a fresh install are expected — they flag
+optional extras you haven't configured.
 
 `pip install -e .` also installs a `signals` console script — a shorthand for
 the `python -m src.cli` invocations shown throughout this README.
@@ -72,7 +87,7 @@ CI runs the same suite on every push/PR (Ubuntu + Windows matrix, offline
 lane) plus a nightly live-parity lane — see
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-## Init and file drops
+### 3. Init and file drops
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli init
@@ -81,16 +96,18 @@ lane) plus a nightly live-parity lane — see
 Three of the files below (the `.txt` lists) ship tracked in the repo as
 comment-only stubs, plus the x-ray string library
 `config/lists/xray_strings.yaml` — see *X-ray SERP prospecting* below. Edit
-those in place rather than create them; `champions.csv` and anything else you
-drop in stay untracked (a human curates — see
-[config/lists/README.md](config/lists/README.md) for the authoritative list):
+those in place rather than create them. `champions.csv` and anything else you
+drop in stay untracked — a human curates. See
+[config/lists/README.md](config/lists/README.md) for the authoritative list:
 
 - `config/lists/competitors.txt` — domains we should never score as prospects
 - `config/lists/customers.txt` — existing customers (route to CS)
 - `config/lists/dnc.txt` — do-not-contact
-- `config/lists/champions.csv` — prior buyers (unlocks `champion_migration`;
-  load with `.\.venv\Scripts\python.exe -m src.cli champions --load config/lists/champions.csv`)
+- `config/lists/champions.csv` — prior buyers; unlocks `champion_migration`
 - `data/inbox/owned/*.csv|*.jsonl` — first-party intent (web/ESP export)
+
+Load champions with
+`.\.venv\Scripts\python.exe -m src.cli champions --load config/lists/champions.csv`.
 
 ## Everyday commands
 

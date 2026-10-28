@@ -323,7 +323,7 @@ decider:
 
 **Keys and consent.** Keys live in an untracked `.env`, never committed. You need `OPENROUTER_API_KEY` (planner + implementers) and `TYPESAFE_API_KEY` (Jev). For ANY live outbound LLM call, shadow mode included, `SIGNALS_DECIDE_DATA_EXIT` must equal the exact string `I-understand-document-text-leaves-this-machine`. All three are pre-listed in `.env.example`.
 
-Missing keys or consent degrade that role to its deterministic fallback and record a gap (planner and implementers). A missing Jev key or consent silently degrades to a not-applicable decider — visible in the decide records and `doctor`. A run never fails for any of them. `doctor` warns when the layer is configured on without them, without echoing values.
+Missing keys or consent degrade that role to its deterministic fallback and record a gap (planner and implementers). A missing Jev key or consent silently degrades the decider to not-applicable — visible in the decide records and `doctor`. A run never fails for any of them. `doctor` warns when the layer is configured on without them, without echoing values.
 
 Then run:
 
@@ -347,20 +347,26 @@ There are seven gates: five numbered, plus two unnumbered screens placed where t
 
 **G4, in detail.** In enforce, two deterministic checks run first: doc-existence and lexical overlap. A verbatim quote-span check follows, matched after case, whitespace, and quote-mark normalization. A claim whose quote is not in the document dies at zero Jev cost, in every mode.
 
-The per-claim excerpt Jev judges anchors on the claim's VERIFIED QUOTE — a window around the span, with the claim text riding the question. The paraphrase-anchored excerpt had judged 88–97% of claims against boilerplate heads before this fix (`data/probe/G4_WALL_2026_10.md`). With `lab.persist_claims: true` in `decide.yaml`, G4 rows carry the judged claims for offline diagnosis.
+Each claim is judged against an excerpt built around its VERIFIED QUOTE — a
+window around the span, with the claim text included in the question. Before
+this fix, the excerpt was anchored on the claim's paraphrase instead. That
+anchor landed 88–97% of claims against the document's boilerplate head rather
+than the relevant passage (`data/probe/G4_WALL_2026_10.md`). With
+`lab.persist_claims: true` in `decide.yaml`, G4 rows carry the judged claims
+for offline diagnosis.
 
-**Review outcomes.** Verdicts inside the review band (or a says-nothing Choice) are NEVER applied in any mode. In enforce, the content does not land in this run. In shadow, nothing binds: the pre-review shadow behavior stands, and only the detail row records the would-be review.
+**Review outcomes.** Verdicts inside the review band (or a says-nothing Choice) are NEVER applied in any mode. In enforce, that claim or field does not land in this run. In shadow, nothing binds: the pre-review shadow behavior stands, and only the detail row records the would-be review.
 
 The decision is always recorded — `reviewed` counts in the decide aggregates, detail rows in the dossier and `decisions.jsonl`. Floors can then be calibrated from real traffic instead of guesses (`src/decide/audit.py` ships the repeat-and-measure sampler). Review is bookkeeping, not a third mode.
 
-**Enrichment passes.** Beyond the gates, the enforce path adds calibrated enrichment to candidates and the dossier. Every pass fails open to skip, with rows in `decisions.jsonl`. Shadow records only — none of it lands in shadow dossiers.
+**Enrichment passes.** Beyond the gates, the enforce path adds calibrated enrichment to candidates and the dossier. Every pass fails open to skip, with rows in `decisions.jsonl`. In shadow, the passes record only — nothing lands in the shadow dossier.
 
-- **Completeness cascade** (`completeness_verify`) — after the five dossier fields are extracted, a per-field verify battery runs. Its bad=TRUE heads: "the doc states it, so unknown is wrong" / "this fill is not supported by the doc". Routing is max-style: unsupported fills are quarantined. Unknown-but-supported fields escalate the document to the reasoning model for a re-extract, capped per run.
+- **Completeness cascade** (`completeness_verify`) — after the five dossier fields are extracted, a per-field verify battery runs. Two checks can mark a field bad=TRUE: "the doc states it, so unknown is wrong" and "this fill is not supported by the doc". Routing is max-style: unsupported fills are quarantined. Unknown-but-supported fields escalate the document to the reasoning model for a re-extract, capped per run.
 - **Taxonomy typing** (`taxonomy_typing`) — one Choice per accepted claim over the 54 signal types. Confidence ≥ 0.90 with a clear top/second separation proposes a type; a near-tie or lower confidence proposes only the parent category. Proposals ride `evidence_data` — the deterministic pipeline's `signal_type` is never changed.
 - **Event dates** (`event_dates`) — for claim-bearing documents, seven Choice questions (mode/month/day/year/anchors). The CODE does all calendar math against the document's fetch date as the pinned reference. A low-confidence or unstated date records `event_at_needs_review` and nothing else. `observed_at` is unchanged.
 - **Value extraction** (`value_extraction`) — a deterministic regex proposes money spans in accepted claims. Jev picks which span (if any) states the asserted amount and whether it is a raise rather than a valuation. Code copies the span verbatim and normalizes (`amount_usd`, currency; no FX conversion in v1). The model can never invent or transpose a digit.
 - **Evidence re-rank** (`evidence_rerank`) — rides the document-gate request. A strength head orders the implement loop, strongest first. An optional `keep_n` caps how many documents get implementer calls at all.
-- **Entity alignment** (`entity_alignment`) — runs in `sweep --discover` / `--competitors` (scope-guard v2 authorizes the discover frames; watch/scheduler remain excluded). The top candidate pairs get one request each: a three-level Score (different / related / same — routed by round-to-nearest-level, no thresholds) plus per-field Nouls. Queued candidates carry `jev_alignment` with the per-field disagreement evidence — exactly what the human review queue lacked. The deterministic apex auto-accept ladder is untouched.
+- **Entity alignment** (`entity_alignment`) — runs in `sweep --discover` / `--competitors` (scope-guard v2 authorizes the discover frames; watch/scheduler remain excluded). The top candidate pairs get one request each: a three-level Score (different / related / same — routed by round-to-nearest-level, no thresholds) plus per-field noul scores. Queued candidates carry `jev_alignment` with the per-field disagreement evidence — exactly what the human review queue lacked. The deterministic apex auto-accept ladder is untouched.
 
 **Fail rules.** The deterministic derive/package output is always produced in full. LLM content is additive on top. A Jev outage drops all LLM content, and the artifact says so: `decide_degraded: true` in `manifest.json` plus a gap line.
 

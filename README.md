@@ -646,7 +646,7 @@ See [`src/sources/techstack/README.md`](src/sources/techstack/README.md) for the
 News matching came first. P2 added the first families beyond news —
 `pricing_change` and `hiring_surge` — and later rounds kept expanding the
 set. The catalog holds **54 signal types**. The bullets below group the
-newer additions by family, from core-source insights to operational needs.
+newer additions by family, from filings to reputation.
 
 **Filings and regulators.**
 
@@ -672,8 +672,12 @@ newer additions by family, from core-source insights to operational needs.
   plan or price change means budget is moving.
 - `renewal_window` — vendor first-seen anniversaries.
 - `new_subdomain` — crt.sh cycle-over-cycle.
-- `tech_removed` / `competitor_detected` / `backfill_open` — all three now
-  wired.
+- `tech_removed` — a named technology observed in a prior techstack cycle goes
+  missing for two consecutive runs: the account removed a tool from its stack.
+- `competitor_detected` — a newly observed technology is on your competitors
+  list: the account runs a competitor's product.
+- `backfill_open` — a title closed within the last 120 days re-opens on the
+  same domain: the role is being refilled.
 - `tech_churn` — mail-vendor churn read from DNS evidence: removed SPF
   includes.
 
@@ -692,10 +696,10 @@ newer additions by family, from core-source insights to operational needs.
 - `reputation_drop` — BBB grade downgrade.
 - `competitor_outage` — direct statuspage.io polling.
 
-Entity resolution ties same-company variants across sources to one account:
-`normalize_entity` plus fuzzy match, with aliases in the `entity_aliases`
-config. And `config/icp.yaml` scores accounts at seed time, so tiering is
-real from day one.
+**Matching signals to accounts.** Entity resolution ties same-company variants
+across sources to one account: `normalize_entity` plus fuzzy match, with
+aliases in `config/lists/entity_aliases.yaml`. And `config/icp.yaml` scores
+accounts at seed time, so tiering is real from day one.
 
 ### Relevance reranking (enabled)
 
@@ -706,12 +710,11 @@ relevance, drops below-floor matches before classification, and stamps
 survivors with `evidence_data["relevance"]`. That stamp then decides which
 same-day candidates survive the per-type cap.
 
-**Shipped enabled** in `config/default.yaml` (`rerank.enabled: true`, floor
-0.35) with the `signals[rerank]` extra installed:
+Reranking ships enabled: `rerank.enabled: true`, floor 0.35, in
+`config/default.yaml`. Install the extra:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[rerank]"
-# rerank.enabled is already true in config/default.yaml (floor 0.35)
 ```
 
 With `enabled: true` but the extra not installed, the reranker degrades
@@ -846,9 +849,9 @@ See [`data/probe/G4_WALL_2026_10.md`](data/probe/G4_WALL_2026_10.md).
 - **Export destinations** — `exports.destinations` in `config/default.yaml`
   (default `[{type: file}]`) configures the fan-out. Add
   `{type: webhook, ...}` for signed alert-webhook delivery via the same
-  path, or `{type: slack}` — the same webhook destination with Slack
+  path. Or add `{type: slack}` — the same webhook destination with Slack
   payloads pinned, for Slack-app incoming webhooks. The install flow is
-  self-contained; the webhook URL is itself the revocable secret; channel
+  self-contained: the webhook URL is itself the revocable secret. Channel
   and icon are fixed in the Slack app config and not overridable per
   message.
 - **Raw-store quota** — set `storage.raw_quota_mb` in `config/default.yaml`
@@ -878,10 +881,9 @@ substantially more involved — see `src/sources/marketplace/README.md`.
 - No auth bypass, no paywall circumvention, no personal non-work data.
 - Cloudflare and DataDome bot-challenge bypass is scoped to `techstack`,
   `marketplace_g2`, `marketplace_capterra`, and `marketplace_trustradius`
-  (public business/review pages). It solves JS/managed challenges (external
-  Turnstile/DataDome solver tiers) to read that
-  content — it does not bypass authentication, paywalls, or login-gated
-  content.
+  (public business/review pages). It solves JS/managed challenges via the
+  external Turnstile/DataDome solver tiers to read that content. It does not
+  bypass authentication, paywalls, or login-gated content.
 - G2 / Capterra / TrustRadius / LinkedIn ToS restrict automation — those
   adapters stay disabled by default (opt-in via the `enabled` gate above).
 - Never resell raw content. The raw store is a local reproducibility cache.

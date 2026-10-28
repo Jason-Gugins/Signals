@@ -533,74 +533,101 @@ legal name, searches Form D for the quoted name, and drops collisions
 
 ## Sources
 
-Enabled adapters live in `config/sources.yaml`:
+Enabled adapters live in `config/sources.yaml`. Each bullet below names one adapter and what it collects.
 
-- SEC: `sec_edgar`, `sec_formd`
-- ATS: `ats_greenhouse`, `ats_lever`, `ats_ashby`, `ats_smartrecruiters`, `ats_workable`, `ats_recruitee`, `ats_workday`
-- ATS (P2): `ats_rippling`, `ats_jobvite`, `ats_breezy`, `ats_teamtailor` (same `ats_vendor`+`ats_token` contract), plus `ats_careers_page` — a conservative `/careers` HTML fallback that fires ONLY for accounts with no ATS vendor/token
+**SEC.**
 
-**Making an ATS source fire:** set the account's `ats_vendor` and `ats_token`
-(Feed Me CSV columns at seed time, or `deepen` for per-account updates);
-`ats_careers_page` then stays quiet for that account (no duplicate job rows)
-and covers accounts with neither field set.
-Careers-page auto-detection is sitemap-first: the resolver reads the site's
-robots.txt `Sitemap:` directives, walks the sitemap (or sitemap index) and
-scores every URL for careers-index shape before falling back to a homepage
-link hop and then the hardcoded path guesses
-(`src/identity/sitemap_careers.py`; `resolve --ats` and the sweep resolver pass
-both use it). A sitemap-discovered `careers_url` is persisted even when no ATS
-is detected, so the `ats_careers_page` fallback scrapes the real index instead
-of a guessed path. Detection covers all 11 collected vendors; detections of
-collector-less boards (bamboohr, jazzhr, personio) deliberately set only
-`careers_url` so the careers-page fallback keeps firing for those accounts.
+- `sec_edgar` — EDGAR filings for the account's resolved CIK.
+- `sec_formd` — Form D private-offering notices (see *Form D funding*).
 
-- News / regulators: `news_rss`, `google_news`, `company_feed`, `federal_register` (agency-rule watch over the Federal Register API), `warn_notices` (NY/CA collect live; NJ/FL/OH parsers ship but are not in the fanout; WA/TX/IL are recon stubs; MI deferred)
+**ATS.**
 
-`google_news` fetches keyword search RSS (per-account name) plus named section feeds (TECHNOLOGY, BUSINESS — a class constant, not configurable). Same `classify_news` pipeline — funding, exec hires, M&A, product launches, security breaches. SERP manipulation: the account query is also run augmented with signal keywords (fundraising, new leadership, new GTM product, acquisition) for higher recall — see `serp_keywords` in `config/sources.yaml`. Full notes: [`src/sources/news/README.md`](src/sources/news/README.md).
+- `ats_greenhouse` — job postings from the account's Greenhouse board.
+- `ats_lever` — job postings from the account's Lever board.
+- `ats_ashby` — job postings from the account's Ashby board.
+- `ats_smartrecruiters` — job postings from the account's SmartRecruiters board.
+- `ats_workable` — job postings from the account's Workable board.
+- `ats_recruitee` — job postings from the account's Recruitee board.
+- `ats_workday` — job postings from the account's Workday board.
+- `ats_rippling` — Rippling postings, on the same `ats_vendor` + `ats_token` contract.
+- `ats_jobvite` — Jobvite postings, on the same `ats_vendor` + `ats_token` contract.
+- `ats_breezy` — Breezy postings, on the same `ats_vendor` + `ats_token` contract.
+- `ats_teamtailor` — Teamtailor postings, on the same `ats_vendor` + `ats_token` contract.
+- `ats_careers_page` — a conservative `/careers` HTML fallback. It fires only for accounts with no ATS vendor or token.
 
-- Federal spend: `federal_contracts` (live usaspending.gov award search — keyless POST, trailing-12-month window, never-guess name matching: ambiguous recipients emit nothing)
-- Footprint: `techstack` (observed third-party tech + DNS/header evidence — full notes below), `wayback` (archived homepage/pricing diffs), `crtsh` (certificate-transparency subdomains; hint labels + new-subdomain deltas), `jobsignals` (hiring trends derived from stored job postings), `needs` (derives profile-matched operational needs from first-party docs and explicit job stack demands)
-- Community: `community_hn` (Hacker News mentions via the Algolia API), `community_github`
-  (org repos/releases → `product_launch`, stagnation, `github_momentum` for new
-  repos / star surges / archived; authenticates with `GITHUB_TOKEN` from the
-  environment when set — 5,000 req/hr instead of the unauthenticated 60; the
-  org login is guessed from the domain label / account name with only the
-  first guess probed per cycle, so a GitHub login that differs from both is a
-  known gap)
-- App stores / registry: `appstore_reviews` (live iTunes RSS reviews + version capture; set the
-  account's `app_store_id` — a seed CSV column or `deepen` update),
-  `content_itunes` (vendor podcast presence via the iTunes Search API),
-  `bbb_profile` (live BBB business profiles; seed
-  `extra_data.bbb_url` per account — URLs are not derivable from name+domain;
-  grade downgrades emit `reputation_drop`)
-- Local / opt-in DBs: `owned_intent`, `linkedin_db`, `repvue_db` (optional local sales-hiring DB; no live fetch).
-  `linkedin_db` reads the companion LinkedIn scraper's local DB (read-only; live
-  collection is manual via `deepen` — see `src/sources/linkedin_db/README.md`).
+**Making an ATS source fire.** Set the account's `ats_vendor` and `ats_token` — Feed Me CSV columns at seed time, or `deepen` for per-account updates. Once both are set, `ats_careers_page` stays quiet for that account (no duplicate job rows). It still covers accounts with neither field set.
 
-Disabled by default: `community_reddit` (live fetching blocked — www 403 block
-page + old.reddit login wall, P2 spike 2026-08-31), `yc_batch` (Y Combinator
-directory is a client-rendered Inertia shell; parser needs a browser-tier
-upgrade), `content_producthunt` (Cloudflare-blocked). Marketplace collection
-(`marketplace_g2`, `marketplace_capterra`, `marketplace_trustradius`, plus the
-Gartner-network pair `marketplace_softwareadvice` / `marketplace_getapp` —
-server-rendered JSON-LD reviews, opt-in via `extra_data.sa_url` /
-`extra_data.getapp_url`) is
-opt-in — the adapter's `enabled` flag in `config/sources.yaml` is the enforced
-gate and they all ship `false`. The `sites.*` blocks in
-`config/marketplace.yaml` hold per-site options (cookie file, page limits) —
-setting a site's `enabled` there is documentation of intent, not an additional
-code-enforced gate.
-G2 is a browser-tier DataDome target (live runs need
-`DATADOME_SOLVER_PROVIDER` / `DATADOME_SOLVER_API_KEY` /
-`DATADOME_RESIDENTIAL_PROXY` — see `.env.example`); Capterra and TrustRadius
-are server-rendered HTTP behind Cloudflare. ToS restricts automation — full
-notes for all three in `src/sources/marketplace/README.md`.
+**Careers-page detection.** Auto-detection is sitemap-first (`src/identity/sitemap_careers.py`; `resolve --ats` and the sweep resolver pass both use it). The resolver reads robots.txt `Sitemap:` directives, walks the sitemap (or sitemap index), and scores every URL for careers-index shape. Failing that, it hops homepage links, then tries hardcoded path guesses. A sitemap-discovered `careers_url` is persisted even when no ATS is detected, so `ats_careers_page` scrapes the real index instead of a guessed path.
 
-`techstack` indexes observed third-party hosts from HTML/HAR-lite; YAML only *names* common platforms (HubSpot, Webflow, GTM, …). Unknown SaaS still lands as `host:cdn.example` in `technologies`, not as `tech_install_new`. After seed: `.\.venv\Scripts\python.exe -m src.cli collect --source techstack --force`. Full notes: [`src/sources/techstack/README.md`](src/sources/techstack/README.md).
+Detection covers all 11 collected vendors. Collector-less boards (bamboohr, jazzhr, personio) deliberately set only `careers_url`, so the careers-page fallback keeps firing for those accounts.
+
+**News / regulators.**
+
+- `news_rss` — Google News search on the quoted account name, plus Bing News.
+- `google_news` — keyword search RSS plus named topic sections (details below).
+- `company_feed` — the account's own blog via `blog_feed_url` (product launches).
+- `federal_register` — agency-rule watch over the Federal Register API.
+- `warn_notices` — WARN Act layoff notices. NY and CA collect live; NJ/FL/OH parsers ship but are not in the fanout; WA/TX/IL are recon stubs; MI is deferred.
+
+**How `google_news` works.** It fetches keyword search RSS (per-account name) plus named section feeds (TECHNOLOGY, BUSINESS — a class constant, not configurable). Everything runs through the same `classify_news` pipeline: funding, exec hires, M&A, product launches, security breaches. For higher recall, the account query is also re-run as SERP-augmented searches with signal keywords (fundraising, new leadership, new GTM product, acquisition) — see `serp_keywords` in `config/sources.yaml`. Full notes: [`src/sources/news/README.md`](src/sources/news/README.md).
+
+**Federal spend.**
+
+- `federal_contracts` — live usaspending.gov award search (keyless POST). It uses a trailing-12-month window and never-guess name matching: ambiguous recipients emit nothing.
+
+**Footprint.**
+
+- `techstack` — observed third-party tech plus DNS/header evidence (details below).
+- `wayback` — archived homepage/pricing diffs.
+- `crtsh` — certificate-transparency subdomains; hint labels plus new-subdomain deltas.
+- `jobsignals` — hiring trends derived from stored job postings.
+- `needs` — derives profile-matched operational needs from first-party docs and explicit job stack demands.
+
+**How `techstack` works.** It indexes observed third-party hosts from HTML and HAR-lite evidence; the YAML only *names* common platforms (HubSpot, Webflow, GTM, …). Unknown SaaS still lands as `host:cdn.example` in `technologies`, not as `tech_install_new`. After seed, backfill once with `.\.venv\Scripts\python.exe -m src.cli collect --source techstack --force`. Full notes: [`src/sources/techstack/README.md`](src/sources/techstack/README.md).
+
+**Community.**
+
+- `community_hn` — Hacker News mentions via the Algolia API.
+- `community_github` — org repos and releases: `product_launch`, stagnation, `github_momentum` (new repos, star surges, archived repos).
+
+**How `community_github` finds the org.** It authenticates with `GITHUB_TOKEN` from the environment when set — 5,000 req/hr instead of the unauthenticated 60. The org login is guessed from the domain label or account name; only the first guess is probed per cycle. A GitHub login that differs from both is a known gap.
+
+**App stores / registry.**
+
+- `appstore_reviews` — live iTunes RSS reviews plus version capture. Set the account's `app_store_id` (a seed CSV column or a `deepen` update).
+- `content_itunes` — vendor podcast presence via the iTunes Search API.
+- `bbb_profile` — live BBB business profiles; grade downgrades emit `reputation_drop`. Seed `extra_data.bbb_url` per account — those URLs are not derivable from name and domain.
+
+**Local / opt-in DBs.**
+
+- `owned_intent` — intent data you drop in locally; nothing is fetched from the network.
+- `linkedin_db` — reads the companion LinkedIn scraper's local DB, read-only. Live collection stays manual via `deepen` (see `src/sources/linkedin_db/README.md`).
+- `repvue_db` — an optional local sales-hiring DB; no live fetch.
+
+**Disabled by default.**
+
+- `community_reddit` — live fetching is blocked: a www 403 block page plus the old.reddit login wall (P2 spike 2026-08-31).
+- `yc_batch` — the Y Combinator directory is a client-rendered Inertia shell; the parser needs a browser-tier upgrade.
+- `content_producthunt` — Cloudflare-blocked.
+- `marketplace_g2` — G2 reviews; a browser-tier DataDome target. Live runs need `DATADOME_SOLVER_PROVIDER`, `DATADOME_SOLVER_API_KEY`, and `DATADOME_RESIDENTIAL_PROXY` — see `.env.example`.
+- `marketplace_capterra` — Capterra reviews; server-rendered HTTP behind Cloudflare.
+- `marketplace_trustradius` — TrustRadius reviews; server-rendered HTTP behind Cloudflare.
+- `marketplace_softwareadvice` / `marketplace_getapp` — the Gartner-network pair: server-rendered JSON-LD reviews, opt in via `extra_data.sa_url` / `extra_data.getapp_url`.
+
+**Marketplace gating.** The adapter's `enabled` flag in `config/sources.yaml` is the enforced gate; all marketplace adapters ship `false`. The `sites.*` blocks in `config/marketplace.yaml` hold per-site options (cookie file, page limits). Setting a site's `enabled` there is documentation of intent, not an additional code-enforced gate. ToS restricts automation — full notes for G2, Capterra, and TrustRadius in `src/sources/marketplace/README.md`.
 
 ### Cloudflare bypass
 
-When `techstack` (or a marketplace source) hits a Cloudflare challenge (403 or managed interstitial), a 6-tier bypass waterfall attempts to solve it: cached `cf_clearance` cookie reuse → SignalsShadow native-engine request (when the antibot engine is built) → headless Chromium JS solve → external solver (2Captcha Turnstile token, re-injected via browser as a `cf_clearance` cookie and polled for clearance) → headed auto-solve fallback (no manual interaction) → honest hard stop (names `cloudflare`, invents nothing). Bypass is scoped to `techstack`, `marketplace_g2`, `marketplace_capterra`, and `marketplace_trustradius` (`_CF_BYPASS_SOURCES` in `src/pipeline/runner.py`); all other sources retain the 403 hard-stop. Cookies persist in `cloudflare_cookies` (UA + proxy bound). Enable the solver in `.env`:
+When `techstack` (or a marketplace source) hits a Cloudflare challenge (403 or managed interstitial), a 6-tier bypass waterfall attempts to solve it:
+
+1. Reuse a cached `cf_clearance` cookie.
+2. Send the request through the SignalsShadow native engine (when the antibot engine is built).
+3. Solve the JavaScript challenge in headless Chromium.
+4. Call an external solver: a 2Captcha Turnstile token, re-injected via the browser as a `cf_clearance` cookie and polled for clearance.
+5. Fall back to headed auto-solve (no manual interaction).
+6. Stop honestly: the result names `cloudflare` and invents nothing.
+
+Bypass is scoped to `techstack`, `marketplace_g2`, `marketplace_capterra`, and `marketplace_trustradius` (`_CF_BYPASS_SOURCES` in `src/pipeline/runner.py`). All other sources retain the 403 hard-stop. Cookies persist in `cloudflare_cookies`, bound to the user agent and proxy. Enable the solver in `.env`:
 
 ```
 CLOUDFLARE_SOLVER_PROVIDER=2captcha

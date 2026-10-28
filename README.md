@@ -1,30 +1,39 @@
 # Signals
 
-Sales signal enrichment engine. Continuously collects buying signals about
-target accounts from ~30 self-built, **zero-cost** sources, resolves them to a
-single account identity graph, scores and tiers them per High Probability
-Prospecting (HPP), maps each signal to a sales play, and exports ranked
-account briefs.
+Signals is a sales signal enrichment engine: it continuously collects buying
+signals about your target accounts from ~30 self-built, **zero-cost** sources.
+It resolves one identity per account, scores and tiers the signals per High
+Probability Prospecting (HPP), and maps each signal to a sales play. The
+output is a cited dossier per account under `data/dossiers/`, plus ranked
+account briefs you can act on. Signals exists because commercial signal
+platforms are priced per seat and still need gluing together.
 
-No paid APIs. No ZoomInfo, Apollo, Exa, BuiltWith, or Bombora. The only keyed
+## Why zero-cost?
+
+No paid APIs: no ZoomInfo, Apollo, Exa, BuiltWith, or Bombora. The only keyed
 integrations are free and stay off until credentials exist: `GITHUB_TOKEN`
-(raised GitHub API rate limit) and Google's Knowledge Graph APIs — Cloud
-Enterprise Knowledge Graph, with the legacy Knowledge Graph Search API as a
-fallback (identity discovery only; see *Identity discovery* below). Two
-documented exceptions, both off until configured: the optional captcha-solver
-keys in *Cloudflare bypass* and the opt-in LLM decision layer below (metered
-`OPENROUTER_API_KEY` / `TYPESAFE_API_KEY`, see its *Cost* paragraph).
+raises the GitHub API rate limit, and Google's Knowledge Graph APIs serve
+identity discovery (see *Identity discovery* below). Two documented exceptions
+carry paid credentials: the optional captcha-solver keys in *Cloudflare
+bypass* and the metered LLM decision layer (see its *Cost* paragraph). Both
+are also off until configured.
 
-Public, business-relevant data only. Polite HTTP (`robots.txt` honored by
-default). A real contact address in the User-Agent. Rate limits are floors.
-The one documented exception: the optional DuckDuckGo SERP stage of
-`sweep --discover --ddg` — duckduckgo.com's robots.txt disallows scraping and
-the curl tier carries no robots logic, so that stage ships off by default,
-runs only at resolve time (never on a collection cadence, one request per
-lookup), and is probe-gated (see
-`data/probe/KEYLESS_IDENTITY_2026_09.md`). The second documented exception is
-the opt-in `xray` command (manual, self-paced, never scheduled — see *X-ray
-SERP prospecting* below), which fetches DuckDuckGo's LITE SERP.
+## How it stays polite
+
+- Public, business-relevant data only.
+- Polite HTTP: `robots.txt` is honored by default.
+- A real contact address goes in the User-Agent (`SIGNALS_CONTACT_EMAIL`).
+- Rate limits are floors, not targets.
+- **The first documented robots exception: the DuckDuckGo SERP stage of
+  `sweep --discover --ddg`.** duckduckgo.com's robots.txt disallows scraping
+  and the curl tier carries no robots logic, so the stage ships off by
+  default. It runs only at resolve time (one request per lookup), never on a
+  collection cadence, and it is probe-gated per
+  `data/probe/KEYLESS_IDENTITY_2026_09.md`.
+- **The second documented robots exception: the opt-in `xray` command.**
+  Manual, self-paced, never scheduled. It fetches DuckDuckGo's LITE SERP; see
+  *X-ray SERP prospecting* below.
+
 Marketplace scraping is opt-in — see the *Sources* section below for the full
 gate and per-site options.
 

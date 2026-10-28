@@ -176,7 +176,9 @@ The `resolve` opt-ins, spelled out: `--appstore` via iTunes Search, `--bbb` via
 the BBB search API, and `--linkedin` — slug discovery through the companion
 scraper's `discover` human-triggered posture, no automated login.
 
-`index` takes `--domain X`, `--limit N`, `--stats`, and `--rebuild-fts`.
+`index` takes `--domain X`: `--limit N` budgets a partial backfill, `--stats`
+reports per-domain coverage without indexing, and `--rebuild-fts` regenerates
+the FTS shadow.
 
 Where things land:
 
@@ -250,13 +252,15 @@ Left alone, the implement stage (the document gate + implementers, next section)
 **newest** stored documents for the account — a pure recency cut. A six-month-old but highly
 relevant page (a funding announcement, a needs statement) falls off that tail, while newer
 irrelevant pages each cost a document-gate request. The `retrieval:` block stages the most
-**relevant** documents instead; it has been **on by default** since the 2026-10 A/B test
-(`data/probe/RETRIEVAL_AB_2026_10.md`: identical G4/G5 outcomes at 75–79% lower Jev gate load).
+**relevant** documents instead. It has been **on by default** since the 2026-10 A/B test:
+identical G4/G5 outcomes at 75–79% lower Jev gate load
+(`data/probe/RETRIEVAL_AB_2026_10.md`).
 
 SQLite FTS5 BM25 wins on exact tokens — vendor names, filing codes like `8-K`, proper nouns.
 Local MiniLM cosine embeddings win on paraphrases — "hiring head of sales" ↔ "VP Sales role".
 Reciprocal Rank Fusion merges the two lists, and the ms-marco cross-encoder reranks the
-shortlist. MMR suppresses the near-duplicates that content-addressed storage mints.
+shortlist. MMR suppresses the near-duplicates content-addressed storage mints — it stores a new
+document per byte-diff, so identical boilerplate can exist N times.
 
 The top `stage_docs: 35` survivors flow through the same document gate, G3–G5 and citation chain
 as before. Retrieval reselects the candidates; it never adds a spend path. 35 is not a round
@@ -264,19 +268,28 @@ number: it is the `decider.max_decide_tokens_per_run` break-even with every wave
 enabled (~10.3k tokens/doc against the 400k run ceiling). Raise it only when batteries are
 disabled in `config/decide.yaml`.
 
-**Prerequisites.** Retrieval needs the `[rerank]` extra (`pip install -e ".[rerank]"`) and a
-built index (`python -m src.cli index --domain acme.com`); the first run downloads the ~25MB
-embedding model once. Without the extra the vector leg is disabled and `doctor` warns via
-`retrieval_readiness`. The query reuses the account identity plus the seller-market vocabulary —
-the profile you already wrote for `needs` steers retrieval for free. `candidate_limit: 180`
-(chunks per leg before fusion) is the real staging selector — 60 under-selected at 5–19 docs in
-the A/B.
+**Prerequisites.** Retrieval needs the `[rerank]` extra and a built index.
+`pip install -e ".[rerank]"` — the extra carries onnxruntime/tokenizers. Then
+`python -m src.cli index --domain acme.com`; the first run downloads the ~25MB
+embedding model once, HF-cached like the reranker. Without the extra the vector
+leg is disabled and `doctor` warns via `retrieval_readiness`. The query reuses
+the account identity plus the seller-market vocabulary — the profile you
+already wrote for `needs` steers retrieval for free. `candidate_limit: 180`
+(chunks per leg before fusion) is the real staging selector — 60 under-selected
+at 5–19 docs in the A/B.
 
-**Honest fallback.** Retrieval problems can never fail an `intel` run. Below `min_index_coverage`
-(0.8), with an unavailable leg, or on any retrieval error, the stage stages the 200 newest
-documents exactly as before. The stage record's `retrieval.staged_by` always says which selection
-ran: `retrieval`, `uncovered`, `unavailable`, or `error`. A fresh install with no index stages
-the recency tail instead and records a gap naming the `index` remediation.
+**Fresh installs.** With retrieval on and no index built yet, `--with-llm` runs
+stage the recency tail and record an honest gap naming the coverage and the
+remediation (`python -m src.cli index --domain <domain>`). `doctor` shows the
+matching `retrieval_readiness` WARN. That WARN is the intended onboarding
+signal, not an error — build the index and it goes green (`retrieval enabled;
+index ready (N chunks)`).
+
+**Honest fallback.** Retrieval problems can never fail an `intel` run. Below
+`min_index_coverage` (0.8), with an unavailable leg, or on any retrieval error,
+the stage stages the 200 newest documents exactly as before. The stage record's
+`retrieval.staged_by` always says which selection ran: `retrieval`, `uncovered`,
+`unavailable`, or `error`.
 
 **Turning it off.** Set `retrieval.enabled: false` in `config/default.yaml`; a yaml file with no
 retrieval block is also off. The stage record then carries no `retrieval` key at all — the run is

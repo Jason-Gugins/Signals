@@ -643,58 +643,88 @@ See [`src/sources/techstack/README.md`](src/sources/techstack/README.md) for the
 
 ## Signals and the backtesting loop
 
-P2 added signal families beyond news: `pricing_change` (wayback snapshots of
-`/pricing` diffed each cycle — a plan/price change means budget is moving) and
-`hiring_surge` (open-role deltas from the ATS/job-board sources, with both a
-minimum percentage delta and an absolute-count floor so tiny boards don't
-fire). The catalog holds **54 signal types** — newer additions:
-`security_breach` (news-classified breach detection; maps to the
-`trust_rebuild_pitch` play), `relocation` (BBB business-profile address
-delta, fires only for accounts seeded with a `bbb_url`), and the core-source
-insights families: `positioning_change` (archived-homepage title/meta diff),
-`renewal_window` (vendor first-seen anniversaries), `github_momentum`
-(new repos / star surges / archived repos), `funding_drought` (18–24 months
-silent after a Form D raise), `federal_contract_award` (usaspending.gov),
-`new_subdomain` (crt.sh cycle-over-cycle), `bankruptcy_signal` /
-`contract_terminated` (8-K items 1.03/1.02), `insider_trade` (Form 4),
-`competitor_outage` (direct statuspage.io polling), `reputation_drop` (BBB
-grade downgrade), `tech_removed` / `competitor_detected` / `backfill_open`
-(now all wired), and mail-vendor churn from DNS evidence (`tech_churn` on
-removed SPF includes), plus three operational-need signals — `need_statement`
-and `required_stack_demand` from the `needs` derive pass, and LLM-gated
-`llm_need` (promoted only through the G5 gate above). Entity resolution
-(`normalize_entity` + fuzzy match, `config`
-`entity_aliases`) ties same-company variants across sources to one account,
-and `config/icp.yaml` scores accounts at seed time so tiering is real from
-day one.
+News matching came first. P2 added the first families beyond news —
+`pricing_change` and `hiring_surge` — and later rounds kept expanding the
+set. The catalog holds **54 signal types**. The bullets below group the
+newer additions by family, from core-source insights to operational needs.
+
+**Filings and regulators.**
+
+- `bankruptcy_signal` / `contract_terminated` — 8-K items 1.03/1.02.
+- `insider_trade` — Form 4 filings.
+- `federal_contract_award` — contract awards from usaspending.gov.
+- `funding_drought` — 18–24 months of silence after a Form D raise.
+
+**Hiring.**
+
+- `hiring_surge` — open-role deltas from the ATS/job-board sources. It needs
+  both a minimum percentage delta and an absolute-count floor, so tiny
+  boards don't fire.
+
+**Community.**
+
+- `github_momentum` — new repos, star surges, and archived repos.
+
+**Web and tech footprint.**
+
+- `positioning_change` — archived-homepage title/meta diff.
+- `pricing_change` — wayback snapshots of `/pricing` diffed each cycle. A
+  plan or price change means budget is moving.
+- `renewal_window` — vendor first-seen anniversaries.
+- `new_subdomain` — crt.sh cycle-over-cycle.
+- `tech_removed` / `competitor_detected` / `backfill_open` — all three now
+  wired.
+- `tech_churn` — mail-vendor churn read from DNS evidence: removed SPF
+  includes.
+
+**Operational needs.**
+
+- `need_statement` and `required_stack_demand` — both from the `needs`
+  derive pass.
+- `llm_need` — LLM-gated, and promoted only through the G5 gate above.
+
+**Reputation and trust.**
+
+- `security_breach` — news-classified breach detection. It maps to the
+  `trust_rebuild_pitch` play.
+- `relocation` — BBB business-profile address delta. Fires only for accounts
+  seeded with a `bbb_url`.
+- `reputation_drop` — BBB grade downgrade.
+- `competitor_outage` — direct statuspage.io polling.
+
+Entity resolution ties same-company variants across sources to one account:
+`normalize_entity` plus fuzzy match, with aliases in the `entity_aliases`
+config. And `config/icp.yaml` scores accounts at seed time, so tiering is
+real from day one.
 
 ### Relevance reranking (enabled)
 
-Google News matches on company name are surface-level: an `"Acme" CEO` SERP
+Google News matches on company name are surface-level — an `"Acme" CEO` SERP
 query returns tangential coverage that keyword guards can't fully judge. The
 cross-encoder reranker scores every SERP candidate for true semantic
 relevance, drops below-floor matches before classification, and stamps
-survivors with `evidence_data["relevance"]` (which then decides which same-day
-candidates survive the per-type cap). **Shipped enabled** in
-`config/default.yaml` (`rerank.enabled: true`, floor 0.35) with the
-`signals[rerank]` extra installed:
+survivors with `evidence_data["relevance"]`. That stamp then decides which
+same-day candidates survive the per-type cap.
+
+**Shipped enabled** in `config/default.yaml` (`rerank.enabled: true`, floor
+0.35) with the `signals[rerank]` extra installed:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[rerank]"
 # rerank.enabled is already true in config/default.yaml (floor 0.35)
 ```
 
-Enablement note: with `enabled: true` but the extra not installed, the reranker
-degrades silently to `NullScorer` (log line: "rerank model unavailable,
-reranking disabled: ...") — the pipeline never fails, but check the log line
-if you expect ranking and see none.
+With `enabled: true` but the extra not installed, the reranker degrades
+silently to `NullScorer` — the pipeline never fails. The log line tells you:
+"rerank model unavailable, reranking disabled: ...". Check for it if you
+expect ranking and see none.
 
-Implementation: `ms-marco-MiniLM-L-6-v2` cross-encoder (22M params, Apache-2.0)
-via ONNX Runtime on CPU (~1-4ms/pair; a full SERP pool costs ~0.1-0.3s per
-account), model revision pinned in `src/signals/rerank.py`, session memoized
-per process. If the model can't download or inference fails, that feed falls
-back to unranked with a logged warning — reranking is an enhancement, never a
-dependency.
+Under the hood: the `ms-marco-MiniLM-L-6-v2` cross-encoder (22M params,
+Apache-2.0) via ONNX Runtime on CPU. That is ~1-4ms/pair — a full SERP pool
+costs ~0.1-0.3s per account. The model revision is pinned in
+`src/signals/rerank.py`, and the session is memoized per process. If the
+model can't download or inference fails, that feed falls back to unranked
+with a logged warning — reranking is an enhancement, never a dependency.
 
 The play-outcome loop closes the calibration circuit:
 
@@ -705,43 +735,57 @@ The play-outcome loop closes the calibration circuit:
 .\.venv\Scripts\python.exe -m src.cli plays-calibrate    # feed decided outcomes into calibration
 ```
 
-Once ≥30 decided outcomes exist for a (source, signal_type), `blend_confidence`
-starts adjusting candidate confidence from real hit rates. Digests are the
-read-side: `digest --period daily` writes per-account markdown (grouped by
-signal type with why-now lines) to `data/digests/`; add `--email` to send it.
+Once ≥30 decided outcomes exist for a (source, signal_type),
+`blend_confidence` starts adjusting candidate confidence from real hit
+rates.
 
-An account health score (polarity of its signals — a WARN + layoffs account
-scores negative) gates growth-family plays automatically, so you don't pitch
-growth into a layoff. Defaults are fine; tune via `config/health.yaml` and the
-`health_gate` block in `config/plays.yaml` (add the key to override the
-code defaults: threshold −0.5, suppressed family `growth_pitch`).
+Digests are the read-side. `digest --period daily` writes per-account
+markdown to `data/digests/`, grouped by signal type with why-now lines. Add
+`--email` to send it.
+
+An account health score gates growth-family plays automatically. The score
+is the polarity of the account's signals — a WARN + layoffs account scores
+negative — so you don't pitch growth into a layoff. Defaults are fine. To
+tune them, set weights in `config/health.yaml`. For the gate itself, add the
+`health_gate` block to `config/plays.yaml` — that key overrides the code
+defaults: threshold −0.5, suppressed family `growth_pitch`.
 
 ## Anti-Bot Evasion
 
-`src/antibot` (SignalsShadow) is a native Rust/BoringSSL fetch tier whose TLS
+`src/antibot` (SignalsShadow) is a native Rust/BoringSSL fetch tier. Its TLS
 fingerprint is emergent from Chrome's own engine — "Chrome TLS, not
-Chrome-like" — plus an in-house HTTP/2 stack (Akamai h2 byte-exact), temporal
-stealth (session resumption, pooling, 304 revalidation), and solve-and-bounce
-ghost orchestration with per-domain routing that learns clearance-cookie
-lifetimes (RouteState, `data/antibot/routing.json`). Falls back to
-`curl_cffi` when the engine isn't built. The antibot module itself does no
-CAPTCHA solving and no login bypass (the external-solver Cloudflare/DataDome
-tiers live in the source fetchers — see *Cloudflare bypass* above) — honest
-limits are documented. Full notes: [`src/antibot/README.md`](src/antibot/README.md).
+Chrome-like". It ships an in-house HTTP/2 stack (Akamai h2 byte-exact),
+temporal stealth (session resumption, pooling, 304 revalidation), and
+solve-and-bounce ghost orchestration. Per-domain routing learns
+clearance-cookie lifetimes (`RouteState`, `data/antibot/routing.json`).
+
+The engine is optional at runtime: when it isn't built, the transport falls
+back to `curl_cffi`. The antibot module itself does no CAPTCHA solving and no
+login bypass — the external-solver Cloudflare/DataDome tiers live in the
+source fetchers (see *Cloudflare bypass* above). Honest limits are
+documented. Full notes: [`src/antibot/README.md`](src/antibot/README.md).
 
 ## Decide lab (dev tooling, opt-in)
 
 `src/lab` is a dev-only package for tuning the decide layer's gates against
-the decision ledgers intel already collects — the TypeSafe
-`autoresearch_feature_discovery` shape: propose candidate gate questions →
-4-Noul prescreen → correlation prune → replay against recorded corpus states
-under a weighted score (acceptance precision / claim recall / promotion
-proxy / cost / latency) → supervised comparison (elastic-net/RF/SVR/HGB +
-the deterministic + MiniLM-embedding baselines) → errors feed the next
-round, with chronological + domain-grouped folds, a final holdout, plateau
-stopping, and stability checks. It never runs inside `intel` (an
-import-graph guard enforces the isolation) and its report PROPOSES
-`config/decide.yaml` diffs — applying them is a human step.
+the decision ledgers intel already collects. It follows the TypeSafe
+`autoresearch_feature_discovery` shape. Each round runs a fixed pipeline:
+
+1. Propose candidate gate questions.
+2. 4-Noul prescreen.
+3. Correlation prune.
+4. Replay against recorded corpus states under a weighted score: acceptance
+   precision, claim recall, promotion proxy, cost, latency.
+5. Supervised comparison — elastic-net/RF/SVR/HGB plus the deterministic and
+   MiniLM-embedding baselines.
+6. Errors feed the next round.
+
+Evaluation uses chronological and domain-grouped folds, a final holdout,
+plateau stopping, and stability checks.
+
+The lab never runs inside `intel` — an import-graph guard enforces the
+isolation. Its report PROPOSES `config/decide.yaml` diffs; applying them is
+a human step.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[lab]"
@@ -750,65 +794,78 @@ import-graph guard enforces the isolation) and its report PROPOSES
 .\.venv\Scripts\python.exe -m src.lab run --rounds 3 --budget-calls 150 --target claim_survival
 ```
 
-Live rounds need the same TypeSafe/OpenRouter credentials + data-exit
-consent as the decide layer (skipped honestly without them). The measured
-opening targets: G5's `band_low` (all 49 G4-accepted claims in the fix-wave
-validation died at promotion nouls 0.08–0.13 vs the 0.30 band), the batch
-output screen (`output_review` is the dominant reviewer post-fix), and the
-`taxonomy_typing` 422s — see
-[`data/probe/G4_WALL_2026_10.md`](data/probe/G4_WALL_2026_10.md).
+Live rounds need the same TypeSafe/OpenRouter credentials and data-exit
+consent as the decide layer — without them, rounds are skipped honestly. The
+measured opening targets:
+
+- G5's `band_low` — all 49 G4-accepted claims in the fix-wave validation
+  died at promotion nouls 0.08–0.13, against the 0.30 band.
+- The batch output screen — `output_review` is the dominant reviewer
+  post-fix.
+- The `taxonomy_typing` 422s.
+
+See [`data/probe/G4_WALL_2026_10.md`](data/probe/G4_WALL_2026_10.md).
 
 ## Scheduling, retention, and calibration (ops)
 
-- **Durable scheduling** — `watch` runs on a `Scheduler` (`src/pipeline/scheduler.py`):
-  per-source cadence from `config/sources.yaml`, missed-run catchup, ±5%
-  jitter, failure backoff (cadence ×2 per consecutive failure, capped 8×), and
-  a single-flight lockfile (`data/state/collect.lock`, atomic create, stale
-  lock auto-break). OS cron invoking `collect` per source remains the
+- **Durable scheduling** — `watch` runs on a `Scheduler`
+  (`src/pipeline/scheduler.py`): per-source cadence from
+  `config/sources.yaml`, missed-run catchup, ±5% jitter, and failure backoff
+  (cadence ×2 per consecutive failure, capped 8×). A single-flight lockfile
+  (`data/state/collect.lock`, atomic create, stale lock auto-break) keeps
+  runs from overlapping. OS cron invoking `collect` per source remains the
   recommended production setup.
 - **Retention** — `prune --keep-days N` deletes expired `fetch_log` /
   `documents` / `runs` rows and raw-store files, then WAL-checkpoints and
   ANALYZEs. Add `--vacuum` to reclaim disk.
 - **Confidence calibration** — a `calibration` table (schema migration v2)
   stores per-source/per-signal-type hit rates; `blend_confidence` adjusts
-  candidate confidence once ≥30 samples exist. The loop is now closed: record
-  play outcomes with `plays --outcome`, then `plays-calibrate` feeds decided
-  outcomes into the table (P2 backtesting, migration v5).
-- **DB migrations** — schema changes run as ordered, transactional migrations
-  tracked by `PRAGMA user_version` (currently v9), with a startup
+  candidate confidence once ≥30 samples exist. The loop is closed end to
+  end: record play outcomes with `plays --outcome`, then `plays-calibrate`
+  feeds decided outcomes into the table (P2 backtesting, migration v5).
+- **DB migrations** — schema changes run as ordered, transactional
+  migrations tracked by `PRAGMA user_version` (currently v9), with a startup
   `integrity_check`.
 - **Account health gate** — a pure polarity score (`src/signals/health.py`,
   weights in `config/health.yaml`) suppresses growth-family plays for
-  negative-signal accounts (default threshold −0.5; `health_gate` in
-  `config/plays.yaml`).
+  negative-signal accounts. Default threshold −0.5; tune via `health_gate`
+  in `config/plays.yaml`.
 - **Signed webhooks** — beyond the Slack channel, `ALERT_WEBHOOKS_JSON`
-  configures generic JSON webhooks with optional HMAC signing (secret
-  referenced by env-var name, resolved at send time). Each entry takes a
-  per-webhook `signature` option: `legacy` (`X-Signature: sha256=<hex>`,
-  default), `hub` (`X-Hub-Signature-256: sha256=<hex>`), or `stripe`
-  (`Stripe-Signature: t=<unix-seconds>,v1=<hex>`); unknown values fall back to
-  `legacy` with a warning.
+  configures generic JSON webhooks with optional HMAC signing. The secret is
+  referenced by env-var name and resolved at send time. Each entry takes a
+  per-webhook `signature` option:
+  - `legacy` — `X-Signature: sha256=<hex>` (the default).
+  - `hub` — `X-Hub-Signature-256: sha256=<hex>`.
+  - `stripe` — `Stripe-Signature: t=<unix-seconds>,v1=<hex>`.
+
+  Unknown values fall back to `legacy` with a warning.
 - **Per-tier routing** — `ALERT_ROUTES_JSON` (a JSON array of
-  `{min_tier, max_tier, webhooks, digest?}`) routes alerts by account tier to
-  specific webhooks or digest-only; absent = all alerts to all webhooks.
+  `{min_tier, max_tier, webhooks, digest?}`) routes alerts by account tier
+  to specific webhooks or digest-only. Absent means all alerts go to all
+  webhooks.
 - **Export destinations** — `exports.destinations` in `config/default.yaml`
-  (default `[{type: file}]`) configures the fan-out; add
-  `{type: webhook, ...}` for signed alert-webhook delivery via the same path,
-  or `{type: slack}` — the same webhook destination with Slack payloads pinned,
-  for Slack-app incoming webhooks (self-contained install flow; the webhook URL
-  is itself the revocable secret; channel and icon are fixed in the Slack app
-  config and not overridable per message).
-- **Raw-store quota** — set `storage.raw_quota_mb` in `config/default.yaml` to
-  cap `data/raw` disk usage (doctor/status WARN when exceeded; off by default).
+  (default `[{type: file}]`) configures the fan-out. Add
+  `{type: webhook, ...}` for signed alert-webhook delivery via the same
+  path, or `{type: slack}` — the same webhook destination with Slack
+  payloads pinned, for Slack-app incoming webhooks. The install flow is
+  self-contained; the webhook URL is itself the revocable secret; channel
+  and icon are fixed in the Slack app config and not overridable per
+  message.
+- **Raw-store quota** — set `storage.raw_quota_mb` in `config/default.yaml`
+  to cap `data/raw` disk usage. `doctor`/`status` WARN when exceeded; off by
+  default.
 
 ## Add a source in 20 lines
 
 1. Write a pure `parse_*(body) -> list[SignalCandidate]` (no I/O, no clock).
 2. `@register` a `SourceAdapter` with `plan` + `parse`.
-3. Import the module in `src/sources/__init__.py` — `@register` only populates
-   `SOURCES` if the module is imported there (missing this = silent no-op).
+3. Import the module in `src/sources/__init__.py`. `@register` only
+   populates `SOURCES` if the module is imported there.
 4. Enable it in `config/sources.yaml`.
 5. Drop a fixture under `tests/fixtures/<source>/` and a test.
+
+Miss step 3 and you get a silent no-op — nothing errors, the source just
+never runs.
 
 Marketplace-tier sources (browser/HTTP fetcher wiring, a
 `config/marketplace.yaml` site entry, a selector-drift selfcheck) are

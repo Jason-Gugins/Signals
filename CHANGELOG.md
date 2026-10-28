@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### README humanized
+- Main README rewritten end-to-end for readability: narrative intro (pitch, zero-cost stance, ethics as bullets), a linear quick start with stage glosses, command reference / flags / signal-catalog tables and family-grouped bullets replacing the run-on paragraphs. Every fact, caveat, and test-pinned string preserved — `tests/test_readme.py` unchanged and green, verified by per-section spec + editorial review passes.
+
 ### X-ray SERP prospecting (`xray`)
 - New manual, opt-in CLI command `xray`: search-operator prospecting over DuckDuckGo's LITE SERP (`site:`, quoted phrases, `OR`, minus, `intitle:`/`inurl:`) with a string library at `config/lists/xray_strings.yaml` (five families: people-by-title, people-by-niche, hiring-post, recently-funded, intent-problem-phrase). Slots (`--title/--location/--niche/--role/--problem-phrase`) fill the library strings; a string with an unfilled slot is never fetched.
 - Engine selection behind `--engine` (default from new config key `xray.default_engine`, itself defaulting to `ddg_lite`), per the 2026-10 Google bypass-ladder probe verdicts in `data/probe/XRAY_SERP_2026_10.md`: the headed-browser and fresh-cookie-replay captures carry a FULL organic result set as embedded `window.W_jd` "2003" url+title state (the prior "zero anchors" verdict was a measurement artifact — result hrefs are opaque `/goto?url=` blobs), so `google_state` parses that state; cookies do NOT amortize ≥1 day (429 captcha on a 24h-old jar) so the jar is refreshed per session via `scripts/google_cookie_refresh.py` (solve → harvest `data/xray/google_cookies.json` → curl_cffi replay) and a missing/empty jar is a clean CLI error; intermittent IP-level captcha walls surface as explicit ledger `challenge` rows, never results; bing/brave/mojeek probed NO-GO (bing silently drops every operator, brave/mojeek hard-walled) and SearXNG is blocked on Docker — `ddg_lite` stays the default.

@@ -135,9 +135,9 @@ bare domain, then runs every enabled source for it. `--force` recollects even if
 the account already exists. `--deep` extends the sweep to existing accounts —
 resolve pass and collect in one command. Bare company names are refused; use
 `sweep --discover "Name"` or `sweep --competitors "Name"` for name-keyed
-discovery (see *Identity discovery* below). Sources whose required account
-fields are missing are reported as skipped. LinkedIn deepen stays a separate
-manual `deepen` call.
+discovery (see *Identity discovery* below). If an account is missing fields a
+source requires, the run reports that source as skipped. LinkedIn deepen stays
+a separate manual `deepen` call.
 
 One row per command:
 
@@ -153,7 +153,7 @@ One row per command:
 | `resolve` | Fill identity fields: CIK, ATS vendor/token, feeds, ICP — `--cik`/`--ats`/`--feeds`/`--icp` are always-on. `--g2`/`--capterra` discover marketplace slugs via each site's search; opt-ins below. |
 | `find-careers` | Careers-page discovery for one domain (`find-careers DOMAIN`) — sitemap-first; prints the URL and which rung found it. |
 | `reparse` | Re-run parsers over already-stored raw documents (`--source`, `--since`). |
-| `index` | Build the hybrid-retrieval index over stored documents (chunks + FTS5 + local embeddings). Prerequisite of the default-on retrieval staging — explicit, budgeted, resumable, never lazy inside `intel`; see *Hybrid retrieval staging*. |
+| `index` | Build the hybrid-retrieval index (chunks + FTS5 + local embeddings). It is the prerequisite for the default-on retrieval staging — explicit, budgeted, resumable, never lazy inside `intel`; see *Hybrid retrieval staging*. |
 | `score` | Classify each signal and tier the account. |
 | `status` | Health report: storage quota and per-source fetch success rates. |
 | `doctor` | Environment health check; `--no-network` skips the network checks. |
@@ -167,15 +167,16 @@ One row per command:
 | `ats-set` | Manually stamp `ats_vendor`/`ats_token` on an existing account (`ats-set DOMAIN VENDOR TOKEN`) — never creates one. Workday compound tokens contain `/`. |
 | `prune` | Retention: finalize `runs` rows stuck in `running` past `--stale-run-hours` (default 6); delete old fetch_log/documents/runs rows and raw files past `--keep-days`; WAL checkpoint + ANALYZE. `--vacuum` reclaims space. |
 | `plays` | Record a local play outcome for backtesting: `--outcome hit` or `miss`, plus `--domain X --play Y`. |
-| `plays-report` | Per-play sent/hit/rate table (read-only). |
-| `plays-calibrate` | Feed decided outcomes into the calibration table. |
+| `plays-report` | Print per-play sent/hit/rate numbers from recorded plays (read-only). |
+| `plays-calibrate` | Feed decided play outcomes into the calibration table (see *Signals and the backtesting loop*). |
 | `digest` | Per-account markdown alert digest in `data/digests/` (`--period daily` or `weekly`, `--domain X`). `--tier-4` includes dormant tier-4 accounts as nurture digests with no plays; `--email` sends it via SMTP. |
 | `selfcheck` | Generic five-state selector-drift check (`--source techstack`, `news_rss`, or `ats_greenhouse`). Challenge/empty exit 0; drift/error exit 1. |
 
 The `resolve` opt-ins, spelled out: `--appstore` via iTunes Search, `--bbb` via
 the BBB search API, and `--linkedin` — slug discovery through the companion
-scraper's `discover` human-triggered posture, no automated login. `index` takes
-`--domain X`, `--limit N`, `--stats`, and `--rebuild-fts`.
+scraper's `discover` human-triggered posture, no automated login.
+
+`index` takes `--domain X`, `--limit N`, `--stats`, and `--rebuild-fts`.
 
 Where things land:
 

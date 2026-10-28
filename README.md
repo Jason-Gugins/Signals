@@ -118,6 +118,8 @@ Next: load accounts — see the `seed` example under *Everyday commands*.
 
 `--dry-run` goes **before** the subcommand (`python -m src.cli --dry-run collect`).
 
+The core loop:
+
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli seed --csv seeds.csv --linkedin --repvue
 #   --linkedin: also read the companion scraper's local DB (silent no-op
@@ -128,45 +130,60 @@ Next: load accounts — see the `seed` example under *Everyday commands*.
 .\.venv\Scripts\python.exe -m src.cli watch --once
 ```
 
-Also: `sweep <url-or-domain> [--force] [--deep]` (one-command onboarding: seed-or-update
-the account from a URL or bare domain, then run every enabled source for it —
-`--force` recollects even if the account already exists; `--deep` extends the
-sweep to existing accounts: resolve pass + collect in one command; bare company names are
-refused — use `sweep --discover "Name"` / `sweep --competitors "Name"` for
-name-keyed discovery, see *Identity discovery* below — sources whose required
-account fields are missing are reported
-as skipped, and LinkedIn deepen stays a separate manual `deepen` call), `init`,
-`resolve` (`--g2`, `--capterra` — slug discovery via each
-marketplace's search; `--cik`/`--ats`/`--feeds`/`--icp` always-on resolvers;
-opt-in `--appstore` via iTunes Search, `--bbb` via BBB search API, and
-`--linkedin` — slug discovery through the companion scraper's `discover`
-human-triggered posture, no automated login), `find-careers DOMAIN` (careers-page
-discovery for one domain - sitemap-first, prints the URL and which rung found
-it), `collect`,
-`reparse`, `index [--domain X] [--limit N] [--stats] [--rebuild-fts]` (build
-the hybrid-retrieval index over stored documents — chunks + FTS5 +
-local embeddings; the prerequisite of the default-on retrieval staging,
-explicit, budgeted and resumable, never lazy inside `intel`,
-see *Hybrid retrieval staging* below), `score`, `status`, `doctor`,
-`accounts`, `champions`, `signals`, `deepen`, `g2-export`, `g2-selfcheck`,
-`capterra-selfcheck`, `ats-set DOMAIN VENDOR TOKEN` (manually stamp
-`ats_vendor`/`ats_token` on an existing account — never creates one; the
-workday compound tokens contain '/'), `prune` (retention: finalize `runs` rows stuck in `running` older than
-`--stale-run-hours` (default 6), delete old fetch_log/documents/runs rows + raw
-files past `--keep-days`, then WAL checkpoint + ANALYZE; `--vacuum` reclaims
-space), `plays --outcome hit|miss --domain X --play Y` (record a
-local play outcome for backtesting), `plays-report` (per-play sent/hit/rate
-table), `plays-calibrate` (feed decided outcomes into the calibration table),
-`digest --period daily|weekly [--domain X] [--tier-4] [--email]` (per-account
-markdown alert digest in `data/digests/`; `--tier-4` includes dormant tier-4
-accounts as nurture digests with no plays; `--email` sends it via SMTP), and
-`selfcheck --source techstack|news_rss|ats_greenhouse` (generic five-state
-selector-drift check; challenge/empty exit 0, drift/error exit 1).
+`sweep` is one-command onboarding: it seeds or updates the account from a URL or
+bare domain, then runs every enabled source for it. `--force` recollects even if
+the account already exists. `--deep` extends the sweep to existing accounts —
+resolve pass and collect in one command. Bare company names are refused; use
+`sweep --discover "Name"` or `sweep --competitors "Name"` for name-keyed
+discovery (see *Identity discovery* below). Sources whose required account
+fields are missing are reported as skipped. LinkedIn deepen stays a separate
+manual `deepen` call.
 
-Outputs land in `data/exports/`, `data/briefs/`, `data/digests/`, and
-`data/alerts/`. Run logs rotate in `data/logs/` keyed by run ID (10 MB
-rotation, configured via `logging.logs_dir`).
-Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
+One row per command:
+
+| Command | What it does |
+| --- | --- |
+| `seed` | Load the accounts you care about into the registry. |
+| `run` | Run the pipeline for a cohort: resolve, collect, score, brief, export. |
+| `brief` | Turn an account's top signals into sales plays — one cited brief. |
+| `export` | Write results to `data/exports/` (`--format csv` or `json`; `--what` picks a subset). |
+| `watch` | Loop the pipeline on an interval (`--interval-minutes`, default 60); `--once` runs a single pass. |
+| `init` | Create the `data/` directory tree and the SQLite database. |
+| `collect` | Run every enabled source the account qualifies for. |
+| `resolve` | Fill identity fields: CIK, ATS vendor/token, feeds, ICP — `--cik`/`--ats`/`--feeds`/`--icp` are always-on. `--g2`/`--capterra` discover marketplace slugs via each site's search; opt-ins below. |
+| `find-careers` | Careers-page discovery for one domain (`find-careers DOMAIN`) — sitemap-first; prints the URL and which rung found it. |
+| `reparse` | Re-run parsers over already-stored raw documents (`--source`, `--since`). |
+| `index` | Build the hybrid-retrieval index over stored documents (chunks + FTS5 + local embeddings). Prerequisite of the default-on retrieval staging — explicit, budgeted, resumable, never lazy inside `intel`; see *Hybrid retrieval staging*. |
+| `score` | Classify each signal and tier the account. |
+| `status` | Health report: storage quota and per-source fetch success rates. |
+| `doctor` | Environment health check; `--no-network` skips the network checks. |
+| `accounts` | List registered accounts: domain, name, tier, score. |
+| `champions` | Load prior buyers from CSV (`--load`). |
+| `signals` | Print an account's stored signals (`--domain` required; `--type`, `--since` filter). |
+| `deepen` | Trigger the companion LinkedIn scraper for one company (manual, gated). |
+| `g2-export` | Export G2 reviews to JSON and/or CSV. |
+| `g2-selfcheck` | Fetch one G2 product live and verify the parser still works. |
+| `capterra-selfcheck` | The same drift check for Capterra — plain HTTP fetch, no stealth browser. |
+| `ats-set` | Manually stamp `ats_vendor`/`ats_token` on an existing account (`ats-set DOMAIN VENDOR TOKEN`) — never creates one. Workday compound tokens contain `/`. |
+| `prune` | Retention: finalize `runs` rows stuck in `running` past `--stale-run-hours` (default 6); delete old fetch_log/documents/runs rows and raw files past `--keep-days`; WAL checkpoint + ANALYZE. `--vacuum` reclaims space. |
+| `plays` | Record a local play outcome for backtesting: `--outcome hit` or `miss`, plus `--domain X --play Y`. |
+| `plays-report` | Per-play sent/hit/rate table (read-only). |
+| `plays-calibrate` | Feed decided outcomes into the calibration table. |
+| `digest` | Per-account markdown alert digest in `data/digests/` (`--period daily` or `weekly`, `--domain X`). `--tier-4` includes dormant tier-4 accounts as nurture digests with no plays; `--email` sends it via SMTP. |
+| `selfcheck` | Generic five-state selector-drift check (`--source techstack`, `news_rss`, or `ats_greenhouse`). Challenge/empty exit 0; drift/error exit 1. |
+
+The `resolve` opt-ins, spelled out: `--appstore` via iTunes Search, `--bbb` via
+the BBB search API, and `--linkedin` — slug discovery through the companion
+scraper's `discover` human-triggered posture, no automated login. `index` takes
+`--domain X`, `--limit N`, `--stats`, and `--rebuild-fts`.
+
+Where things land:
+
+- Exports, briefs, digests, and alerts go to `data/exports/`, `data/briefs/`,
+  `data/digests/`, and `data/alerts/`.
+- Run logs rotate in `data/logs/`, keyed by run ID — 10 MB rotation, configured
+  via `logging.logs_dir`.
+- Raw bytes live in `data/raw/<xx>/<sha>.gz` — content-addressed gzip.
 
 ## Master intelligence flow (`intel`)
 
@@ -540,6 +557,7 @@ never crash the run (the digest/brief file is written either way).
 SEC private-offering notices. Pooled investment funds are excluded by default.
 Unknown issuers land on stub domains like `cik0001234567.edgar`.
 
+The `funding` command has three subcommands — `recent`, `search`, and `company`.
 `funding company --domain radicl.com` fetches the homepage, peels a legal name,
 quoted Form D search, and drops name collisions (Scanner ≠ Surgical Safety Scanner).
 

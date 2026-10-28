@@ -384,56 +384,60 @@ The token budget is pre-flighted per run (`decider.max_decide_tokens_per_run`, d
 through a keyless waterfall. Discovery never creates accounts — the outcome is
 a printed report plus a review queue:
 
-1. **Wikidata** — `P856` official website
+1. **Wikidata** — the `P856` official website
 2. **Wikipedia** — external links
-3. **Google Knowledge Graph** — credential-gated, see below (the `gkg_ids`
-   entry ships `enabled: false` in `config/sources.yaml` — it is not a cadence
-   adapter, the waterfall calls it at resolve time only)
-4. **DuckDuckGo SERP** — only behind `--ddg` (the probe-gated robots exception
-   owned at the top of this README)
+3. **Google Knowledge Graph** — credential-gated, see below
+4. **DuckDuckGo SERP** — only behind `--ddg`, the probe-gated robots exception
+   owned at the top of this README
+
+The `gkg_ids` entry ships `enabled: false` in `config/sources.yaml`. It is not
+a cadence adapter — the waterfall calls it at resolve time only.
 
 A run reports `resolved` when a single stage returns an unambiguous hit, or
 when two stages agree on the same root domain (the 2-source apex rule, e.g.
-Wikidata `P856` == GKG url — the agreeing stages are printed). Everything else
-is `ambiguous`/`no_match`. Ranked candidates land in the `identity_candidates`
-review queue either way (kind=domain; alternates from resolved runs included)
-and `doctor` surfaces the pending count. Promotion is always human: rerun
-`sweep <chosen-domain>` to onboard the account.
+Wikidata `P856` == GKG url). The agreeing stages are printed; everything else
+is `ambiguous` or `no_match`. Either way, ranked candidates land in the
+`identity_candidates` review queue (kind=domain; alternates from resolved runs
+included), and `doctor` surfaces the pending count. Promotion is always human:
+rerun `sweep <chosen-domain>` to onboard the account.
 
-**GKG credentials.** Both GKG stages are silent no-ops (`status:
-unconfigured`) until configured; the doctor's `gkg_credentials` check WARNs
-while they are:
+**GKG credentials.** Both GKG stages are silent no-ops (`status: unconfigured`)
+until configured. The doctor's `gkg_credentials` check WARNs while they are:
 
-- **EKG (default backend)** — enable the Enterprise Knowledge Graph API in the
-  Google Cloud console, create a service account, set `GOOGLE_APPLICATION_CREDENTIALS`
-  (path to its JSON key) and `GKG_PROJECT_ID`, and install the optional extra:
-  `.\.venv\Scripts\python.exe -m pip install -e ".[gkg]"` (google-auth; bare
-  API keys do not work on EKG — auth is a service-account OAuth2 bearer token).
+- **EKG (default backend)** — enable the Cloud Enterprise Knowledge Graph API
+  in the Google Cloud console and create a service account. Set
+  `GOOGLE_APPLICATION_CREDENTIALS` (path to its JSON key) and `GKG_PROJECT_ID`,
+  then install the optional extra:
+  `.\.venv\Scripts\python.exe -m pip install -e ".[gkg]"` (google-auth). Bare
+  API keys do not work on EKG — auth is a service-account OAuth2 bearer token.
 - **Legacy fallback** — set `gkg_backend: kgsearch` in `config/default.yaml`
   and `GOOGLE_KGSEARCH_KEY` (a bare API key).
 
 Only derived fields (name, url, entity id, domain) are ever persisted — never
 raw Google payloads.
 
-`sweep --competitors "Company Name"` mines comparison headlines (Bing News RSS
-+ HN Algolia, keyless) into the same queue as kind=competitor rows. Promotion
-is a human edit: approved domains go into `config/lists/competitors.txt`
-(drives the `icp.yaml` competitor disqualifier) and/or names into
-`competitors:` in `config/fingerprints.yaml` (drives `competitor_detected`).
-The G2 competitors-page pass is deferred — DataDome-challenged, see
-`data/probe/G2_COMPETITORS_2026_09.md` (needs fresh cookies or solver keys).
+`sweep --competitors "Company Name"` mines comparison headlines into the same
+queue as kind=competitor rows. The sources are Bing News RSS and HN Algolia,
+both keyless. Promotion is a human edit: approved domains go into
+`config/lists/competitors.txt` (drives the `icp.yaml` competitor
+disqualifier), and/or names into `competitors:` in `config/fingerprints.yaml`
+(drives `competitor_detected`).
+
+The G2 competitors-page pass is deferred — it is DataDome-challenged. See
+`data/probe/G2_COMPETITORS_2026_09.md`; it needs fresh cookies or solver keys.
 
 ## X-ray SERP prospecting (opt-in)
 
 `xray` runs search-operator prospecting ("X-ray search"): a library of SERP
-query strings built from the five operators — `site:`, quoted phrases, `OR`
-variants, minus exclusions, `intitle:`/`inurl:` — pointed at a SERP engine
-(DuckDuckGo's LITE endpoint by default; `--engine google_state` opts into the
-browser-cookie-gated Google path) to discover people by title and companies
-by their hiring posts, funding phrases, and buyer-intent phrases. This is
-the keyless route to "who is the VP Sales at a company we've never scraped"
-and "which unknown companies are hiring the role our service replaces" — the
-two discovery shapes the account-keyed fanout cannot do.
+query strings pointed at a SERP engine. The strings combine five operators —
+`site:`, quoted phrases, `OR` variants, minus exclusions,
+`intitle:`/`inurl:`. They find people by title, and companies by their hiring
+posts, funding phrases, and buyer-intent phrases.
+
+This is the keyless route to "who is the VP Sales at a company we've never
+scraped" and "which unknown companies are hiring the role our service
+replaces." Those are the two discovery shapes the account-keyed fanout cannot
+do.
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli xray --kind hiring --role "head of sales"
@@ -441,24 +445,24 @@ two discovery shapes the account-keyed fanout cannot do.
 .\.venv\Scripts\python.exe -m src.cli xray --stats
 ```
 
-- **Strings live in `config/lists/xray_strings.yaml`** (five families:
+- **Strings live in `config/lists/xray_strings.yaml`** — five families:
   `people_title_city`, `people_niche_keyword`, `hiring_post_role`,
-  `recently_funded_niche`, `intent_problem_phrase`). "Swap the niche" = edit
-  the file; `{title} {location} {niche} {role} {problem_phrase}` are slots
-  filled by the CLI options, and a string with an unfilled slot is never
-  fetched. `--kind` filters by string kind (`people`, `company`, `hiring`,
-  `intent`; repeatable).
-- **Never-guess outputs.** Company hits from
-  company/hiring/intent strings queue ONE `identity_candidates` row per query
-  (kind=domain, source=xray) for human review — nothing auto-creates
-  accounts, and known cohort roots are dropped before review. Profile hits
-  from people strings become `contacts` rows only when the parsed company
-  name casefold-matches a cohort account; unmatched profiles are ledger-only.
-- **Every query lands in `data/xray/ledger.jsonl`** (UTC, one row per query
-  with status `ok`/`challenge`/`empty`/`error`), and `xray --stats` aggregates
-  per string id — run the strings that produce, drop the ones that don't.
+  `recently_funded_niche`, `intent_problem_phrase`. "Swap the niche" = edit
+  the file. The slots `{title} {location} {niche} {role} {problem_phrase}` are
+  filled by the CLI options; a string with an unfilled slot is never fetched.
+  `--kind` filters by string kind (`people`, `company`, `hiring`, `intent`;
+  repeatable).
+- **Never-guess outputs.** Company hits from company/hiring/intent strings
+  queue ONE `identity_candidates` row per query (kind=domain, source=xray)
+  for human review. Nothing auto-creates accounts, and known cohort roots are
+  dropped before review. Profile hits from people strings become `contacts`
+  rows only when the parsed company name casefold-matches a cohort account.
+  Unmatched profiles are ledger-only.
+- **Every query lands in `data/xray/ledger.jsonl`** — UTC, one row per query,
+  status `ok`/`challenge`/`empty`/`error`. `xray --stats` aggregates per
+  string id: run the strings that produce, drop the ones that don't.
 - **The engine is stochastic.** The lite endpoint serves 202 anomaly
-  challenges / 403 error-lites on some requests, so each query retries
+  challenges / 403 error-lites on some requests. Each query retries
   (`--attempts`, `--attempt-pause`) with pacing (`--pace`) and records the
   honest outcome; a challenge never parses as results. Budget: `--limit`
   queries per run.
@@ -467,33 +471,33 @@ two discovery shapes the account-keyed fanout cannot do.
   - `ddg_lite` (default) — keyless, stochastic, thin yield on operator
     queries; the only probe-proven keyless path.
   - `google_state` — Google embeds its full organic result set as
-    `window.W_jd` "2003" url+title state (the rendered hrefs are opaque
-    `/goto?url=` blobs, so the state blob is the only parse source;
-    snippets are always empty — the records carry url+title only, which is
-    what the company/profile extraction works from). It REQUIRES a fresh
+    `window.W_jd` "2003" url+title state. The rendered hrefs are opaque
+    `/goto?url=` blobs, so the state blob is the only parse source.
+    Snippets are always empty — the records carry url+title only, which is
+    what the company/profile extraction works from. It REQUIRES a fresh
     browser-harvested cookie jar: run
     `.venv\Scripts\python.exe scripts\google_cookie_refresh.py` before the
     session (solve → harvest `data/xray/google_cookies.json` → replay).
     Cookies are PER-SESSION (~24h max observed; they do NOT amortize ≥1
-    day, and stale jars correlate with 429 captchas — never replay them).
+    day). Stale jars correlate with 429 captchas — never replay them.
     Intermittent IP-level captcha walls serve explicit `challenge` ledger
-    rows — never results. Robots-exception posture extends to it: manual,
-    opt-in, self-paced, and it spends browser-minutes (the refresh script)
-    plus a handful of paced replay fetches per session.
-- **Robots exception + probe record.** This is the second documented
-  robots exception (see the ethics paragraph above): manual invocation only,
-  never scheduled, never a cadence fanout, self-paced, a handful of requests
-  per run. Google probed NO-GO *keylessly* on every transport (the 200
-  JS-gate shell), but the 2026-10 bypass ladder proved the headed-browser /
-  fresh-cookie-replay bodies carry full result sets as embedded state —
-  hence the opt-in `google_state` engine above. Bing/Brave/Mojeek probed
-  NO-GO (operators ignored / hard walls); SearXNG blocked on Docker.
-  Full verdict matrix: `data/probe/XRAY_SERP_2026_10.md`.
+    rows — never results. The robots-exception posture extends to this
+    engine: manual, opt-in, self-paced, and it spends browser-minutes (the
+    refresh script) plus a handful of paced replay fetches per session.
+- **Robots exception + probe record.** This is the second documented robots
+  exception (see the ethics paragraph above): manual invocation only, never
+  scheduled, never a cadence fanout, self-paced, a handful of requests per
+  run. Google probed NO-GO *keylessly* on every transport (the 200 JS-gate
+  shell). But the 2026-10 bypass ladder proved the headed-browser /
+  fresh-cookie-replay bodies carry full result sets as embedded state — hence
+  the opt-in `google_state` engine above. Bing/Brave/Mojeek probed NO-GO
+  (operators ignored / hard walls); SearXNG blocked on Docker. Full verdict
+  matrix: `data/probe/XRAY_SERP_2026_10.md`.
 
 ## Email delivery
 
-Briefs and digests can be emailed via stdlib SMTP (`digest --email`,
-`brief --email`). Configure in `.env`:
+Email briefs and digests over stdlib SMTP: `digest --email`, `brief --email`.
+Configure in `.env`:
 
 ```
 SIGNALS_SMTP_HOST=smtp.example.com
@@ -503,18 +507,19 @@ SIGNALS_SMTP_PASS_ENV=SIGNALS_SMTP_PASS
 SIGNALS_EMAIL_TO=you@example.com
 ```
 
-The actual username/password live in the env vars those names point at and are
-resolved at send time — never stored in config. Send failures are logged and
-never crash the run (the digest/brief file is written either way).
+Credentials live in the env vars those names point at — resolved at send
+time, never stored in config. Send failures are logged and never crash the
+run; the digest/brief file is written either way.
 
 ## Form D funding
 
 SEC private-offering notices. Pooled investment funds are excluded by default.
 Unknown issuers land on stub domains like `cik0001234567.edgar`.
 
-The `funding` command has three subcommands — `recent`, `search`, and `company`.
-`funding company --domain radicl.com` fetches the homepage, peels a legal name,
-quoted Form D search, and drops name collisions (Scanner ≠ Surgical Safety Scanner).
+The `funding` command has three subcommands — `recent`, `search`, and
+`company`. `funding company --domain radicl.com` fetches the homepage, peels a
+legal name, searches Form D with the quoted name, and drops collisions
+(Scanner ≠ Surgical Safety Scanner).
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli funding recent --days 30 --limit 100

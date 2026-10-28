@@ -145,9 +145,9 @@ Raw bytes live in `data/raw/<xx>/<sha>.gz` (content-addressed gzip).
 dossier.
 
 ```powershell
-.\\.venv\\Scripts\\python.exe -m src.cli intel acme.com
-.\\.venv\\Scripts\\python.exe -m src.cli intel acme.com --name "Acme Inc" --force
-.\\.venv\\Scripts\\python.exe -m src.cli --dry-run intel acme.com
+.\.venv\Scripts\python.exe -m src.cli intel acme.com
+.\.venv\Scripts\python.exe -m src.cli intel acme.com --name "Acme Inc" --force
+.\.venv\Scripts\python.exe -m src.cli --dry-run intel acme.com
 ```
 
 Five stages, always in this order:
@@ -294,7 +294,7 @@ warns when the layer is configured on without them, without echoing values.
 Then run:
 
 ```powershell
-.\\.venv\\Scripts\\python.exe -m src.cli intel acme.com --with-llm
+.\.venv\Scripts\python.exe -m src.cli intel acme.com --with-llm
 ```
 
 **Gates.** Jev answers typed questions at the stage boundaries; every decision

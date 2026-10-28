@@ -301,20 +301,13 @@ automatically. Indexing is the only extra step, and it is explicit.
 
 ## LLM decision layer (opt-in)
 
-`intel` carries an optional agentic layer: a MiMo planner that narrows and
-orders source scope, DeepSeek/GLM implementers that atomize already-stored
-documents into cited claims, and a TypeSafe Jev typed-decision gate at the
-stage boundaries. It exists only inside `intel` runs — `watch` and scheduled
-`collect` cycles never invoke it. It is OFF by default and inert unless BOTH
-`--with-llm` is passed AND `config/decide.yaml` sets `mode:` to `shadow` or
-`enforce` (env `SIGNALS_DECIDE_MODE` overrides the config). With `mode: "off"`
-(or without `--with-llm`), `intel` behaves exactly as it does without this
-section — one extra config load is the only difference. With the layer
-requested but keys or consent missing, the deterministic pipeline is unchanged
-and no outbound call is made, but the run records gaps plus decide provenance.
-Opt in when you want planner-narrowed collection and LLM-atomized cited claims
-on top of the dossier; stay at `mode: "off"` when you need byte-identical,
-reproducible runs or zero outbound calls.
+`intel` carries an optional agentic layer. A MiMo planner narrows and orders source scope. DeepSeek/GLM implementers atomize already-stored documents into cited claims. A TypeSafe Jev typed-decision gate sits at the stage boundaries.
+
+The layer exists only inside `intel` runs — `watch` and scheduled `collect` cycles never invoke it. It is OFF by default and inert unless BOTH conditions hold: `--with-llm` is passed, and `config/decide.yaml` sets `mode:` to `shadow` or `enforce`. The env var `SIGNALS_DECIDE_MODE` overrides the config.
+
+At `mode: "off"` (or without `--with-llm`), `intel` behaves exactly as it does without this section. One extra config load is the only difference. If the layer is requested but keys or consent are missing, the deterministic pipeline is unchanged and no outbound call is made. The run records gaps plus decide provenance.
+
+Opt in when you want planner-narrowed collection and LLM-atomized cited claims on top of the dossier. Stay at `mode: "off"` when you need byte-identical, reproducible runs or zero outbound calls.
 
 ```yaml
 # config/decide.yaml — ships mode: "off"
@@ -328,101 +321,56 @@ decider:
   model: jev-1.13.0       # TypeSafe Jev (api.typesafe.ai), bills input tokens only
 ```
 
-**Keys and consent** (untracked `.env`, never committed — all three are
-pre-listed in `.env.example`): `OPENROUTER_API_KEY` (planner + implementers),
-`TYPESAFE_API_KEY` (Jev), and the data-exit consent —
-`SIGNALS_DECIDE_DATA_EXIT` must equal the exact string
-`I-understand-document-text-leaves-this-machine` for ANY live outbound LLM
-call, shadow mode included. Missing keys or consent degrade that role to its
-deterministic fallback and record a gap (planner and implementers); a missing
-Jev key/consent silently degrades to a not-applicable decider — visible in the
-decide records and `doctor`. A run never fails for any of them. `doctor`
-warns when the layer is configured on without them, without echoing values.
+**Keys and consent.** Keys live in an untracked `.env`, never committed. You need `OPENROUTER_API_KEY` (planner + implementers) and `TYPESAFE_API_KEY` (Jev). For ANY live outbound LLM call, shadow mode included, `SIGNALS_DECIDE_DATA_EXIT` must equal the exact string `I-understand-document-text-leaves-this-machine`. All three are pre-listed in `.env.example`.
+
+Missing keys or consent degrade that role to its deterministic fallback and record a gap (planner and implementers). A missing Jev key or consent silently degrades to a not-applicable decider — visible in the decide records and `doctor`. A run never fails for any of them. `doctor` warns when the layer is configured on without them, without echoing values.
+
 Then run:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli intel acme.com --with-llm
 ```
 
-**Gates.** Jev answers typed questions at the stage boundaries; every decision
-lands in a per-run `decisions.jsonl` beside the package, and each boundary
-adds one aggregate evidence record (`kind: "jev_decision"`) to the dossier.
-The seven gates — five numbered, plus two unnumbered screens placed where
-they run in the pipeline — have G1/G4/G5 floors of 0.70 noul (Jev's typed
-numeric score) and every threshold configurable in `config/decide.yaml`:
+**Gates.** Jev answers typed questions at the stage boundaries. Every decision lands in a per-run `decisions.jsonl` beside the package. Each boundary also adds one aggregate evidence record (`kind: "jev_decision"`) to the dossier.
+
+There are seven gates: five numbered, plus two unnumbered screens placed where they run in the pipeline. G1, G4, and G5 have floors of 0.70 noul — Jev's typed numeric score. Every threshold is configurable in `config/decide.yaml`.
 
 | Gate | Boundary | What it does | On Jev error |
 |---|---|---|---|
-| G1 plan qualification | plan → collect | in enforce, keeps/drops each LLM plan step | step reverts to deterministic collection (never dropped from collection) |
-| G2 posture audit | after collect | shadow-only audit — logs, NEVER binds (the deterministic posture machinery is the gate) | n/a |
-| G3 routing | per document | deterministic token heuristic first; Jev breaks ties only (±20% of `route_threshold`) | deterministic heuristic |
-| Document gate | before implementer spend | in enforce, screens each staged document with three questions — relevant to the account, contains citable evidence, contains prompt-injection instructions — and irrelevant/weak/injected docs never reach the implementers | docs pass through un-screened |
-| G4 citation soundness | per document's claim batch | in enforce, after deterministic doc-existence + lexical-overlap prefilter + a verbatim quote-span check, matched after case/whitespace/quote-mark normalization (a claim whose quote is not in the document dies at zero Jev cost, in every mode), a 3-way Choice routes each claim: supported → kept, contradicted → dropped, says-nothing or sub-floor probability → review. The per-claim excerpt Jev judges anchors on the claim's VERIFIED QUOTE (window around the span; claim text rides the question) — the paraphrase-anchored excerpt judged 88–97% of claims against boilerplate heads before this fix (`data/probe/G4_WALL_2026_10.md`); with `lab.persist_claims: true` in decide.yaml, G4 rows carry the judged claims for offline diagnosis | LLM claims for that boundary dropped |
-| Output screen | on the citation request | in enforce, two batch questions (do claims assert facts absent from the excerpt? do they concern the wrong entity?) can hold the whole claim batch for review or drop it — its decisions fold into the citation-soundness record | existing citation-gate error path |
-| G5 need promotion | implement → score | in enforce, `llm_need` candidates promote at noul ≥ the floor, land in the review band (`band_low`, default 0.30) below it, or drop under it — the probability is stored regardless | LLM-promoted need dropped |
+| G1 plan qualification | plan → collect | In enforce, keeps/drops each LLM plan step. | Step reverts to deterministic collection (never dropped from collection). |
+| G2 posture audit | after collect | Shadow-only audit — logs, NEVER binds. The deterministic posture machinery is the gate. | n/a |
+| G3 routing | per document | Deterministic token heuristic first. Jev breaks ties only (±20% of `route_threshold`). | Falls to the deterministic heuristic. |
+| Document gate | before implementer spend | In enforce, screens each staged document with three questions: relevant to the account, contains citable evidence, contains prompt-injection instructions. Irrelevant, weak, or injected docs never reach the implementers. | Docs pass through un-screened. |
+| G4 citation soundness | per document's claim batch | In enforce, deterministic prefilters run first, then a 3-way Choice routes each claim: supported → kept, contradicted → dropped, says-nothing or sub-floor probability → review. | LLM claims for that boundary are dropped. |
+| Output screen | on the citation request | In enforce, two batch questions: do claims assert facts absent from the excerpt, and do they concern the wrong entity? The gate can hold the whole claim batch for review or drop it. Its decisions fold into the citation-soundness record. | Falls to the existing citation-gate error path. |
+| G5 need promotion | implement → score | In enforce, `llm_need` candidates promote at noul ≥ the floor. Below the floor they land in the review band (`band_low`, default 0.30); below the band they drop. The probability is stored regardless. | The LLM-promoted need is dropped. |
 
-**Review outcomes.** Verdicts inside the review band (or a says-nothing Choice) are
-NEVER applied in any mode. In enforce, the content does not land in this run. In
-shadow, nothing binds, so the pre-review shadow behavior stands and only the detail
-row records the would-be review. The decision is always recorded (`reviewed` counts
-in the decide aggregates, detail rows in the dossier and `decisions.jsonl`) so the
-floors can be calibrated from real traffic instead of guesses
-(`src/decide/audit.py` ships the repeat-and-measure sampler). Review is
-bookkeeping, not a third mode.
+**G4, in detail.** In enforce, two deterministic checks run first: doc-existence and lexical overlap. A verbatim quote-span check follows, matched after case, whitespace, and quote-mark normalization. A claim whose quote is not in the document dies at zero Jev cost, in every mode.
 
-**Enrichment passes.** Beyond the gates, the enforce path adds calibrated
-enrichment to candidates and the dossier (all fail-open to skip with rows in
-`decisions.jsonl`; shadow records only — none of it lands in shadow dossiers):
+The per-claim excerpt Jev judges anchors on the claim's VERIFIED QUOTE — a window around the span, with the claim text riding the question. The paraphrase-anchored excerpt had judged 88–97% of claims against boilerplate heads before this fix (`data/probe/G4_WALL_2026_10.md`). With `lab.persist_claims: true` in `decide.yaml`, G4 rows carry the judged claims for offline diagnosis.
 
-- **Completeness cascade** (`completeness_verify`) — after the five dossier fields
-  are extracted, a per-field verify battery (bad=TRUE heads: "the doc states it, so
-  unknown is wrong" / "this fill is not supported by the doc") decides with max-style
-  routing: unsupported fills are quarantined, unknown-but-supported fields escalate
-  the document to the reasoning model for a re-extract (capped per run).
-- **Taxonomy typing** (`taxonomy_typing`) — one Choice per accepted claim over the 54
-  signal types; confidence ≥ 0.90 with a clear top/second separation proposes a type,
-  a near-tie or lower confidence proposes only the parent category. Proposals ride
-  `evidence_data` — the deterministic pipeline's `signal_type` is never changed.
-- **Event dates** (`event_dates`) — for claim-bearing documents, seven Choice
-  questions (mode/month/day/year/anchors) and the CODE does all calendar math against
-  the document's fetch date as the pinned reference; a low-confidence or unstated
-  date records `event_at_needs_review` and nothing else. `observed_at` is unchanged.
-- **Value extraction** (`value_extraction`) — a deterministic regex proposes money
-  spans in accepted claims, Jev picks which span (if any) states the asserted amount
-  and whether it is a raise rather than a valuation, and code copies the span
-  verbatim and normalizes (`amount_usd`, currency; no FX conversion in v1). The
-  model can never invent or transpose a digit.
-- **Evidence re-rank** (`evidence_rerank`) — rides the document-gate request: a
-  strength head orders the implement loop (strongest first) and an optional `keep_n`
-  caps how many documents get implementer calls at all.
-- **Entity alignment** (`entity_alignment`) — in `sweep --discover` /
-  `--competitors` (scope-guard v2 authorizes the discover frames; watch/scheduler
-  remain excluded), the top candidate pairs get one request each: a three-level
-  Score (different / related / same — routed by round-to-nearest-level, no
-  thresholds) plus per-field Nouls. Queued candidates carry `jev_alignment` with
-  the per-field disagreement evidence — exactly what the human review queue lacked.
-  The deterministic apex auto-accept ladder is untouched.
+**Review outcomes.** Verdicts inside the review band (or a says-nothing Choice) are NEVER applied in any mode. In enforce, the content does not land in this run. In shadow, nothing binds: the pre-review shadow behavior stands, and only the detail row records the would-be review.
 
-**Fail rules.** The deterministic derive/package output is always produced in
-full — LLM content is additive on top. A Jev outage drops all LLM content and
-the artifact says so: `decide_degraded: true` in `manifest.json` plus a gap
-line; dropped G1 steps still revert to deterministic collection; the
-planner-narrowed enforce scope itself stays narrowed — reverting the steps
-does not widen the plan back. Shadow mode never
-changes the applied path; it only logs. Narrow-only invariant: no gate verdict
-can add sources, budget, or posture.
+The decision is always recorded — `reviewed` counts in the decide aggregates, detail rows in the dossier and `decisions.jsonl`. Floors can then be calibrated from real traffic instead of guesses (`src/decide/audit.py` ships the repeat-and-measure sampler). Review is bookkeeping, not a third mode.
 
-**Cost.** ≈ $0.15–0.30 per `intel` run at ~200 stored documents — the
-implementers dominate, and the document gate cuts their spend by excluding
-irrelevant documents before any implementer call (each individual Jev decision
-is sub-cent). The token budget is pre-flighted per run
-(`decider.max_decide_tokens_per_run`, default 400,000); over the ceiling the
-whole run degrades to shadow, never aborts mid-run.
+**Enrichment passes.** Beyond the gates, the enforce path adds calibrated enrichment to candidates and the dossier. Every pass fails open to skip, with rows in `decisions.jsonl`. Shadow records only — none of it lands in shadow dossiers.
 
-**Determinism caveat.** Run-to-run byte-identity and backtest reproducibility
-hold only at `mode: "off"`. With the layer on, outputs may differ between
-runs; the plan cache (`data/llm/plan_cache/`) and the decision ledger make
-re-runs explainable, not byte-identical.
+- **Completeness cascade** (`completeness_verify`) — after the five dossier fields are extracted, a per-field verify battery runs. Its bad=TRUE heads: "the doc states it, so unknown is wrong" / "this fill is not supported by the doc". Routing is max-style: unsupported fills are quarantined. Unknown-but-supported fields escalate the document to the reasoning model for a re-extract, capped per run.
+- **Taxonomy typing** (`taxonomy_typing`) — one Choice per accepted claim over the 54 signal types. Confidence ≥ 0.90 with a clear top/second separation proposes a type; a near-tie or lower confidence proposes only the parent category. Proposals ride `evidence_data` — the deterministic pipeline's `signal_type` is never changed.
+- **Event dates** (`event_dates`) — for claim-bearing documents, seven Choice questions (mode/month/day/year/anchors). The CODE does all calendar math against the document's fetch date as the pinned reference. A low-confidence or unstated date records `event_at_needs_review` and nothing else. `observed_at` is unchanged.
+- **Value extraction** (`value_extraction`) — a deterministic regex proposes money spans in accepted claims. Jev picks which span (if any) states the asserted amount and whether it is a raise rather than a valuation. Code copies the span verbatim and normalizes (`amount_usd`, currency; no FX conversion in v1). The model can never invent or transpose a digit.
+- **Evidence re-rank** (`evidence_rerank`) — rides the document-gate request. A strength head orders the implement loop, strongest first. An optional `keep_n` caps how many documents get implementer calls at all.
+- **Entity alignment** (`entity_alignment`) — runs in `sweep --discover` / `--competitors` (scope-guard v2 authorizes the discover frames; watch/scheduler remain excluded). The top candidate pairs get one request each: a three-level Score (different / related / same — routed by round-to-nearest-level, no thresholds) plus per-field Nouls. Queued candidates carry `jev_alignment` with the per-field disagreement evidence — exactly what the human review queue lacked. The deterministic apex auto-accept ladder is untouched.
+
+**Fail rules.** The deterministic derive/package output is always produced in full. LLM content is additive on top. A Jev outage drops all LLM content, and the artifact says so: `decide_degraded: true` in `manifest.json` plus a gap line.
+
+Dropped G1 steps still revert to deterministic collection. The planner-narrowed enforce scope itself stays narrowed — reverting the steps does not widen the plan back. Shadow mode never changes the applied path; it only logs. Narrow-only invariant: no gate verdict can add sources, budget, or posture.
+
+**Cost.** Expect ≈ $0.15–0.30 per `intel` run at ~200 stored documents. The implementers dominate. The document gate cuts their spend by excluding irrelevant documents before any implementer call — each individual Jev decision is sub-cent.
+
+The token budget is pre-flighted per run (`decider.max_decide_tokens_per_run`, default 400,000). Over the ceiling, the whole run degrades to shadow — it never aborts mid-run.
+
+**Determinism caveat.** Run-to-run byte-identity and backtest reproducibility hold only at `mode: "off"`. With the layer on, outputs may differ between runs. The plan cache (`data/llm/plan_cache/`) and the decision ledger make re-runs explainable, not byte-identical.
 
 ## Identity discovery
 

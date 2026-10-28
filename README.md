@@ -201,103 +201,90 @@ Five stages, always in this order:
 
 1. `identity` — the CIK/ATS/feeds/ICP resolver pass for the domain
 2. `collect` — every enabled source the account qualifies for (cadence-aware)
-3. `derive` — the local derived pass (`jobsignals` + `needs`) against the
-   seller-market profile
+3. `derive` — the local derived pass (`jobsignals` + `needs`) against the seller-market profile
 4. `score` — classify, score and tier the account
 5. `package` — build and write the dossier
 
-Flags: `--name NAME` (company name for name-matching sources),
-`--market-profile ID` (a profile id from `config/markets.yaml`), `--skip STAGE`
-(repeatable; any of `identity`/`collect`/`derive`/`score`/`package`), `--force`
-(ignore source cadences), `--max-signals N` (cap the active signals in the
-package), `--no-write` (build the dossier but write nothing),
-`--with-linkedin-resolve`, `--with-marketplaces`, `--include-fanout` (the
-opt-in postures below) and `--with-llm` (the opt-in LLM decision layer below).
+**Flags.**
 
-**Output.** The package is a portable directory under the configured dossiers
-dir (`data/dossiers/` by default) holding `manifest.json`, `dossier.json`,
-`dossier.md`, `evidence.jsonl` and `prompt.md` — every claim in it cites an
-evidence record.
+| Flag | Meaning |
+| --- | --- |
+| `--name NAME` | Company name for the name-matching sources. |
+| `--market-profile ID` | A profile id from `config/markets.yaml`. |
+| `--skip STAGE` | Repeatable. Skips any of `identity`, `collect`, `derive`, `score`, `package`. |
+| `--force` | Ignores source cadences. |
+| `--max-signals N` | Caps the active signals in the package. |
+| `--no-write` | Builds the dossier but writes nothing. |
+| `--with-linkedin-resolve` | Off by default — see **Opt-in posture** below. |
+| `--with-marketplaces` | Off by default — see **Opt-in posture** below. |
+| `--include-fanout` | Includes the global fanout sources `sec_formd`, `federal_register`, `warn_notices`. Those plan the whole filing universe rather than one account, so they stay off for `intel` without this flag. |
+| `--with-llm` | The opt-in LLM decision layer — see the next section. |
 
-**Dry run.** `--dry-run` goes before the subcommand, like every command. It
-requires an account that already exists (an unknown domain is refused with
-`intel refused: ...` and a non-zero exit) and performs planning only: it plans
-the collection and writes nothing.
+A skipped run records a gap naming those sources. An included run reports how many accounts the
+fanout seeded.
 
-**Opt-in posture.** The LinkedIn slug resolver (`--with-linkedin-resolve`,
-human-triggered discover posture, no automated login) and the marketplace
-adapters (`--with-marketplaces`, the anti-bot paced G2/Capterra/TrustRadius/
-SoftwareAdvice/GetApp set) are OFF by default. When they are not requested they
-appear as coverage gaps rather than silent holes. The single ATS/careers
-discovery ladder is capped at 10 requests. The global fanout sources
-(`sec_formd`, `federal_register`, `warn_notices`) plan the whole filing
-universe rather than one account, so they are OFF for `intel` unless
-`--include-fanout` is passed; a skipped run records a gap naming them, and an
-included run reports how many accounts the fanout seeded.
+**Output.** The package is a portable directory under the configured dossiers dir
+(`data/dossiers/` by default). It holds `manifest.json`, `dossier.json`, `dossier.md`,
+`evidence.jsonl` and `prompt.md`. Every claim in it cites an evidence record.
 
-**Seller-market profiles.** `needs` / `required_stack_demand` come from the
-seller-market profile selected by `--market-profile`, read from
-`config/markets.yaml` — which ships empty. Until it is filled in, those sources
-promote nothing and `intel` reports a "no relevance vocabulary configured" gap;
-nothing is promoted until then.
+**Dry run.** `--dry-run` goes before the subcommand, like every command. It requires an account
+that already exists — an unknown domain is refused with `intel refused: ...` and a non-zero exit.
+It performs planning only: it plans the collection and writes nothing.
+
+**Opt-in posture.** Two capabilities stay off unless you ask for them: LinkedIn slug discovery
+(`--with-linkedin-resolve`) and the marketplace adapters (`--with-marketplaces`). LinkedIn
+resolution is human-triggered by design — no automated login. The marketplace set is pace-limited
+and anti-bot aware. When either is skipped, the run records a coverage gap rather than leaving a
+silent hole.
+
+The single ATS/careers discovery ladder is capped at 10 requests.
+
+**Seller-market profiles.** `needs` / `required_stack_demand` come from the seller-market profile
+selected by `--market-profile`, read from `config/markets.yaml`. That file ships empty on
+purpose. Until it is filled in, those sources promote nothing and `intel` reports a
+"no relevance vocabulary configured" gap.
 
 ### Hybrid retrieval staging (on by default)
 
-The implement stage (the document gate + implementers, next section) would
-normally screen the 200 **newest** stored documents for the account — a pure
-recency cut, so a six-month-old but highly relevant page (a funding
-announcement, a needs statement) can fall off the tail while newer, irrelevant
-pages each cost a document-gate request. The `retrieval:` block — **on by
-default** since the 2026-10 A/B split test (`data/probe/RETRIEVAL_AB_2026_10.md`:
-identical G4/G5 outcomes at 75–79% lower Jev gate load) — stages the most
-**relevant** documents instead: SQLite FTS5 BM25 (exact-token wins —
-vendor names, filing codes like `8-K`, proper nouns) + local MiniLM cosine
-embeddings (paraphrase wins — "hiring head of sales" ↔ "VP Sales role"), fused
-with Reciprocal Rank Fusion, reranked by the ms-marco cross-encoder over the
-shortlist, near-duplicates suppressed with MMR (content-addressed storage mints
-a new document per byte-diff, so identical boilerplate can exist N times), and
-collapsed to the top `stage_docs: 35` documents. Those 35 flow through the SAME
-document gate, G3–G5 and citation chain as before — retrieval reselects the
-candidates, it never adds a spend path. 35 is not a round number: it is the
-`decider.max_decide_tokens_per_run` break-even with every wave-2 battery
-enabled (~10.3k tokens/doc against the 400k run ceiling); raise it only when
-batteries are disabled in `config/decide.yaml`.
+Left alone, the implement stage (the document gate + implementers, next section) screens the 200
+**newest** stored documents for the account — a pure recency cut. A six-month-old but highly
+relevant page (a funding announcement, a needs statement) falls off that tail, while newer
+irrelevant pages each cost a document-gate request. The `retrieval:` block stages the most
+**relevant** documents instead; it has been **on by default** since the 2026-10 A/B test
+(`data/probe/RETRIEVAL_AB_2026_10.md`: identical G4/G5 outcomes at 75–79% lower Jev gate load).
 
-**Prerequisites.** Retrieval needs the `[rerank]` extra and a built index:
-`pip install -e ".[rerank]"` (the extra carries onnxruntime/tokenizers —
-without it the vector leg is disabled and `doctor` warns via
-`retrieval_readiness`), then `python -m src.cli index --domain acme.com`
-(`--limit N` budgets a partial backfill, `--stats` reports per-domain coverage
-without indexing, `--rebuild-fts` regenerates the FTS shadow; the first run
-downloads the ~25MB embedding model once, HF-cached like the reranker). The
-retrieval query is built from the account identity plus the seller-market
-profile vocabulary — the profile you already wrote for `needs` steers
-retrieval for free. `candidate_limit: 180` (chunks per leg before fusion) is
-the real staging selector — 60 under-selected at 5–19 docs in the A/B.
+SQLite FTS5 BM25 wins on exact tokens — vendor names, filing codes like `8-K`, proper nouns.
+Local MiniLM cosine embeddings win on paraphrases — "hiring head of sales" ↔ "VP Sales role".
+Reciprocal Rank Fusion merges the two lists, and the ms-marco cross-encoder reranks the
+shortlist. MMR suppresses the near-duplicates that content-addressed storage mints.
 
-**Fresh installs.** With retrieval on and no index built yet, `--with-llm`
-runs stage the recency tail and record an honest gap line naming the coverage
-and the remediation (`python -m src.cli index --domain <domain>`); `doctor`
-shows the matching `retrieval_readiness` WARN. That WARN is the intended
-onboarding signal, not an error — build the index and it goes green
-(`retrieval enabled; index ready (N chunks)`).
+The top `stage_docs: 35` survivors flow through the same document gate, G3–G5 and citation chain
+as before. Retrieval reselects the candidates; it never adds a spend path. 35 is not a round
+number: it is the `decider.max_decide_tokens_per_run` break-even with every wave-2 battery
+enabled (~10.3k tokens/doc against the 400k run ceiling). Raise it only when batteries are
+disabled in `config/decide.yaml`.
 
-**Honest fallback.** Retrieval problems can never fail an intel run. Index
-coverage below `min_index_coverage` (0.8), an unavailable leg, or any
-retrieval failure: the implement stage stages the 200 newest documents
-exactly as before, and the stage record's `retrieval.staged_by` always says
-which selection a run used (`retrieval` / `uncovered` / `unavailable` /
-`error`).
+**Prerequisites.** Retrieval needs the `[rerank]` extra (`pip install -e ".[rerank]"`) and a
+built index (`python -m src.cli index --domain acme.com`); the first run downloads the ~25MB
+embedding model once. Without the extra the vector leg is disabled and `doctor` warns via
+`retrieval_readiness`. The query reuses the account identity plus the seller-market vocabulary —
+the profile you already wrote for `needs` steers retrieval for free. `candidate_limit: 180`
+(chunks per leg before fusion) is the real staging selector — 60 under-selected at 5–19 docs in
+the A/B.
 
-**Turning it off.** Set `retrieval.enabled: false` in `config/default.yaml`
-(a yaml file with no retrieval block also behaves as off): the stage record
-then carries no `retrieval` key at all and `intel` is byte-identical to the
-legacy 200-newest staging.
+**Honest fallback.** Retrieval problems can never fail an `intel` run. Below `min_index_coverage`
+(0.8), with an unavailable leg, or on any retrieval error, the stage stages the 200 newest
+documents exactly as before. The stage record's `retrieval.staged_by` always says which selection
+ran: `retrieval`, `uncovered`, `unavailable`, or `error`. A fresh install with no index stages
+the recency tail instead and records a gap naming the `index` remediation.
 
-**Cost.** 35 relevant documents replace the 200-doc recency tail:
-document-gate and implementer spend goes DOWN, not up, and the token
-pre-flight bills the smaller staged list automatically. Indexing is the only
-extra step, and it is explicit.
+**Turning it off.** Set `retrieval.enabled: false` in `config/default.yaml`; a yaml file with no
+retrieval block is also off. The stage record then carries no `retrieval` key at all — the run is
+byte-identical to the legacy 200-newest staging.
+
+**Cost.** 35 relevant documents replace the 200-doc recency tail, so document-gate and
+implementer spend goes down, not up. The token pre-flight bills the smaller staged list
+automatically. Indexing is the only extra step, and it is explicit.
 
 ## LLM decision layer (opt-in)
 

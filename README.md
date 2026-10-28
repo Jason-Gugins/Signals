@@ -390,12 +390,13 @@ a printed report plus a review queue:
 4. **DuckDuckGo SERP** — only behind `--ddg`, the probe-gated robots exception
    owned at the top of this README
 
-The `gkg_ids` entry ships `enabled: false` in `config/sources.yaml`. It is not
-a cadence adapter — the waterfall calls it at resolve time only.
+The Google Knowledge Graph source (`gkg_ids`) ships `enabled: false` in
+`config/sources.yaml`. It is not a cadence adapter — the waterfall calls it at
+resolve time only.
 
-A run reports `resolved` when a single stage returns an unambiguous hit, or
-when two stages agree on the same root domain (the 2-source apex rule, e.g.
-Wikidata `P856` == GKG url). The agreeing stages are printed; everything else
+A run reports `resolved` on an unambiguous single-stage hit. Two stages
+agreeing on the same root domain also resolve — the 2-source apex rule; e.g.
+Wikidata `P856` == GKG url. The agreeing stages are printed. Any other outcome
 is `ambiguous` or `no_match`. Either way, ranked candidates land in the
 `identity_candidates` review queue (kind=domain; alternates from resolved runs
 included), and `doctor` surfaces the pending count. Promotion is always human:
@@ -474,16 +475,16 @@ do.
     `window.W_jd` "2003" url+title state. The rendered hrefs are opaque
     `/goto?url=` blobs, so the state blob is the only parse source.
     Snippets are always empty — the records carry url+title only, which is
-    what the company/profile extraction works from. It REQUIRES a fresh
-    browser-harvested cookie jar: run
-    `.venv\Scripts\python.exe scripts\google_cookie_refresh.py` before the
-    session (solve → harvest `data/xray/google_cookies.json` → replay).
-    Cookies are PER-SESSION (~24h max observed; they do NOT amortize ≥1
-    day). Stale jars correlate with 429 captchas — never replay them.
-    Intermittent IP-level captcha walls serve explicit `challenge` ledger
-    rows — never results. The robots-exception posture extends to this
-    engine: manual, opt-in, self-paced, and it spends browser-minutes (the
-    refresh script) plus a handful of paced replay fetches per session.
+    what the company/profile extraction works from.
+  - `google_state` cookies — the engine requires a fresh, browser-harvested
+    cookie jar. Run `.venv\Scripts\python.exe scripts\google_cookie_refresh.py`
+    before the session: solve, harvest `data/xray/google_cookies.json`, then
+    replay. Cookies last one session (~24h max observed) — never replay an
+    older jar; stale jars correlate with 429 captchas. Intermittent IP-level
+    captcha walls serve explicit `challenge` ledger rows — never results. The
+    robots-exception posture extends to this engine: manual, opt-in,
+    self-paced, and it spends browser-minutes (the refresh script) plus a
+    handful of paced replay fetches per session.
 - **Robots exception + probe record.** This is the second documented robots
   exception (see the ethics paragraph above): manual invocation only, never
   scheduled, never a cadence fanout, self-paced, a handful of requests per
@@ -518,7 +519,7 @@ Unknown issuers land on stub domains like `cik0001234567.edgar`.
 
 The `funding` command has three subcommands — `recent`, `search`, and
 `company`. `funding company --domain radicl.com` fetches the homepage, peels a
-legal name, searches Form D with the quoted name, and drops collisions
+legal name, searches Form D for the quoted name, and drops collisions
 (Scanner ≠ Surgical Safety Scanner).
 
 ```powershell

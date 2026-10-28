@@ -11,24 +11,24 @@ platforms are priced per seat and still need gluing together.
 ## Why zero-cost?
 
 No paid APIs: no ZoomInfo, Apollo, Exa, BuiltWith, or Bombora. The only keyed
-integrations are free and stay off until credentials exist: `GITHUB_TOKEN`
-raises the GitHub API rate limit, and Google's Knowledge Graph APIs serve
-identity discovery (see *Identity discovery* below). Two documented exceptions
-carry paid credentials: the optional captcha-solver keys in *Cloudflare
-bypass* and the metered LLM decision layer (see its *Cost* paragraph). Both
-are also off until configured.
+integrations are free, and both stay off until credentials exist. `GITHUB_TOKEN`
+raises the GitHub API rate limit. Google's Knowledge Graph APIs serve identity
+discovery (see *Identity discovery* below). Two documented exceptions carry
+paid credentials: the optional captcha-solver keys in *Cloudflare bypass* and
+the metered LLM decision layer (see its *Cost* paragraph). Both are also off
+until configured.
 
 ## How it stays polite
 
-- Public, business-relevant data only.
-- Polite HTTP: `robots.txt` is honored by default.
+- Public business data only.
+- `robots.txt` honored by default.
 - A real contact address goes in the User-Agent (`SIGNALS_CONTACT_EMAIL`).
 - Rate limits are floors, not targets.
 - **The first documented robots exception: the DuckDuckGo SERP stage of
   `sweep --discover --ddg`.** duckduckgo.com's robots.txt disallows scraping
   and the curl tier carries no robots logic, so the stage ships off by
-  default. It runs only at resolve time (one request per lookup), never on a
-  collection cadence, and it is probe-gated per
+  default. It runs only at resolve time, one request per lookup. It never
+  runs on a collection cadence, and it is probe-gated per
   `data/probe/KEYLESS_IDENTITY_2026_09.md`.
 - **The second documented robots exception: the opt-in `xray` command.**
   Manual, self-paced, never scheduled. It fetches DuckDuckGo's LITE SERP; see

@@ -555,9 +555,13 @@ Enabled adapters live in `config/sources.yaml`. Each bullet below names one adap
 - `ats_teamtailor` — Teamtailor postings, on the same `ats_vendor` + `ats_token` contract.
 - `ats_careers_page` — a conservative `/careers` HTML fallback. It fires only for accounts with no ATS vendor or token.
 
+All ATS sources read the account's `ats_vendor` + `ats_token`; the last four
+(`ats_rippling` through `ats_teamtailor`) were added in the P2 wave on the same
+contract.
+
 **Making an ATS source fire.** Set the account's `ats_vendor` and `ats_token` — Feed Me CSV columns at seed time, or `deepen` for per-account updates. Once both are set, `ats_careers_page` stays quiet for that account (no duplicate job rows). It still covers accounts with neither field set.
 
-**Careers-page detection.** Auto-detection is sitemap-first (`src/identity/sitemap_careers.py`; `resolve --ats` and the sweep resolver pass both use it). The resolver reads robots.txt `Sitemap:` directives, walks the sitemap (or sitemap index), and scores every URL for careers-index shape. Failing that, it hops homepage links, then tries hardcoded path guesses. A sitemap-discovered `careers_url` is persisted even when no ATS is detected, so `ats_careers_page` scrapes the real index instead of a guessed path.
+**Careers-page detection.** Auto-detection is sitemap-first. `resolve --ats` and the sweep resolver pass both use it (`src/identity/sitemap_careers.py`). The resolver reads robots.txt `Sitemap:` directives, walks the sitemap (or sitemap index), and scores every URL for careers-index shape. Failing that, it hops homepage links, then tries hardcoded path guesses. A sitemap-discovered `careers_url` is persisted even when no ATS is detected, so `ats_careers_page` scrapes the real index instead of a guessed path.
 
 Detection covers all 11 collected vendors. Collector-less boards (bamboohr, jazzhr, personio) deliberately set only `careers_url`, so the careers-page fallback keeps firing for those accounts.
 
@@ -569,7 +573,7 @@ Detection covers all 11 collected vendors. Collector-less boards (bamboohr, jazz
 - `federal_register` — agency-rule watch over the Federal Register API.
 - `warn_notices` — WARN Act layoff notices. NY and CA collect live; NJ/FL/OH parsers ship but are not in the fanout; WA/TX/IL are recon stubs; MI is deferred.
 
-**How `google_news` works.** It fetches keyword search RSS (per-account name) plus named section feeds (TECHNOLOGY, BUSINESS — a class constant, not configurable). Everything runs through the same `classify_news` pipeline: funding, exec hires, M&A, product launches, security breaches. For higher recall, the account query is also re-run as SERP-augmented searches with signal keywords (fundraising, new leadership, new GTM product, acquisition) — see `serp_keywords` in `config/sources.yaml`. Full notes: [`src/sources/news/README.md`](src/sources/news/README.md).
+**How `google_news` works.** It fetches keyword search RSS (per-account name) plus named section feeds (TECHNOLOGY, BUSINESS — a class constant, not configurable). Everything runs through the same `classify_news` pipeline: funding, exec hires, M&A, product launches, security breaches. For higher recall, the same query runs again with signal keywords appended: fundraising, new leadership, new GTM product, acquisition. The list lives in `serp_keywords` in `config/sources.yaml`. Full notes: [`src/sources/news/README.md`](src/sources/news/README.md).
 
 **Federal spend.**
 
@@ -618,12 +622,12 @@ Detection covers all 11 collected vendors. Collector-less boards (bamboohr, jazz
 
 ### Cloudflare bypass
 
-When `techstack` (or a marketplace source) hits a Cloudflare challenge (403 or managed interstitial), a 6-tier bypass waterfall attempts to solve it:
+When `techstack` (or a marketplace source) hits a Cloudflare challenge (403 or managed interstitial), a 6-step bypass waterfall attempts to solve it:
 
 1. Reuse a cached `cf_clearance` cookie.
 2. Send the request through the SignalsShadow native engine (when the antibot engine is built).
 3. Solve the JavaScript challenge in headless Chromium.
-4. Call an external solver: a 2Captcha Turnstile token, re-injected via the browser as a `cf_clearance` cookie and polled for clearance.
+4. Call an external solver: a 2Captcha Turnstile token. The token is re-injected via the browser as a `cf_clearance` cookie and polled for clearance.
 5. Fall back to headed auto-solve (no manual interaction).
 6. Stop honestly: the result names `cloudflare` and invents nothing.
 

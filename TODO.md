@@ -550,6 +550,14 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ### Deferred
 
+- [ ] **G5 sibling fix** — G5's promotion excerpt anchors on the paraphrased
+  need text (intel.py:871), the same defect class as the G4 wall; 49
+  post-fix accepted claims died at promotion nouls 0.08–0.13 vs band_low
+  0.30. Plan: offline diagnosis over the validation-harvest claims first
+  (STOP gate — if need-text anchor rates are already high, no fix), then
+  quote-anchored promotion excerpt reusing gates.claim_excerpt, then a
+  live validation harvest. Plan (committing with this entry):
+  `docs/plans/2026-10-12-g5-sibling-fix.md`.
 - [x] **A/B follow-up fix wave** — DELIVERED 2026-10-12 (delivery record below;
   this box was never flipped). G4 wall DOWN (accepted 0→19 databricks, 5→30
   rillet; says_nothing 66→0); retrieval default-on + candidate_limit 180;

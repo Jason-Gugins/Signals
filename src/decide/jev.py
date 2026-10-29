@@ -74,6 +74,38 @@ DEFAULT_BASE_URL = "https://api.typesafe.ai/v1/systemone"
 # Injectable retry-backoff sleep (tests monkeypatch this to a no-op).
 _backoff_sleep = time.sleep
 
+# Cause snippet cap: an HTTP error cause carries this many characters of the
+# response body (the 422 body named the taxonomy root cause; the old generic
+# "HTTPStatusError: 422" line discarded it).
+_HTTP_BODY_SNIPPET_CHARS = 110
+
+
+def _wire_questions(questions: dict[str, dict] | None) -> dict[str, dict]:
+    """Boundary normalization for the POST body's questions.
+
+    TypeSafe's schema requires a choice question's ``criteria`` to be an
+    OBJECT (``{label: description}`` — pydantic dict_type), but gates may
+    ship a LIST of labels, so any list is copied to ``{label: ""}``. One
+    point, all gates: this healed taxonomy typing (54-entry list), posture
+    audit and G3 routing — every gate that had 422'd since birth — while
+    dict-criteria gates (G4, event-dates) pass through byte-identically.
+    Dict criteria are untouched; absent/None criteria stay absent. The
+    caller's question dicts are NEVER mutated: gates re-read their
+    questions' labels after the call for answer routing, and TypeSafe
+    returns the dict keys as the choice labels those gates route on.
+    """
+    if not isinstance(questions, dict):
+        return questions
+    wire: dict[str, dict] = {}
+    for qid, spec in questions.items():
+        if isinstance(spec, dict) and isinstance(spec.get("criteria"), list):
+            copied = dict(spec)
+            copied["criteria"] = {str(label): "" for label in spec["criteria"]}
+            wire[qid] = copied
+        else:
+            wire[qid] = spec
+    return wire
+
 
 @runtime_checkable
 class Decider(Protocol):
@@ -82,7 +114,13 @@ class Decider(Protocol):
     ``state`` is an arbitrary JSON-serializable payload (str or dict);
     ``questions`` maps question-id -> spec dict
     (``{"type": "noul"|"choice"|"score", "instructions": str,
-    "criteria": [...]}`` — for noul, criteria may be omitted).
+    "criteria": ...}`` — for noul, criteria may be omitted). A choice
+    question's ``criteria`` may be EITHER shape: a LIST of labels or a DICT
+    (``{label: description}``). LiveDecider normalizes lists to
+    ``{label: ""}`` at the request boundary — TypeSafe's schema requires an
+    object (pydantic dict_type) and returns the dict keys as the choice
+    labels gates.py's ``_choice_of``/``_choice_prob`` route on; dict
+    criteria pass through untouched.
 
     ``gate`` — the calling gate's ledger name — is an OPTIONAL third
     parameter the shipped deciders accept (LiveDecider's breaker excludes
@@ -137,6 +175,12 @@ class LiveDecider:
     """Thin Jev client. Failure modes collapse to ``ok=False`` Decisions —
     each carrying ``cause``, the short failure summary the ledger's error
     column now emits (``decision.cause or "jev_error"`` at the write sites).
+
+    Request-boundary normalization (:func:`_wire_questions`): choice
+    questions may ship criteria as a list of labels; the wire always
+    carries ``{label: ""}`` because TypeSafe's schema requires an object
+    (list-shaped criteria 422'd taxonomy typing, posture_audit and routing
+    on every call since birth). Callers' question dicts are never mutated.
 
     Breaker exclusion (``breaker.exclude_gates``): calls whose ``gate`` is on
     the exclusion list do not participate in the trip decision AT ALL —
@@ -225,7 +269,13 @@ class LiveDecider:
         else:
             self.excluded_calls += 1
         timeout = effective_timeout(self.timeout_s, self.per_question_s, len(questions or {}))
-        payload = {"state": state, "model": self.model, "questions": questions}
+        # List criteria normalize to {label: ""} at this single boundary
+        # (TypeSafe's schema requires an object); see _wire_questions.
+        payload = {
+            "state": state,
+            "model": self.model,
+            "questions": _wire_questions(questions),
+        }
         # Never logged: the Authorization header / api_key stay out of log args.
         headers = {"Authorization": f"Bearer {self.api_key}"}
 
@@ -239,13 +289,11 @@ class LiveDecider:
                 )
                 if resp.status_code >= 500:
                     logger.debug("jev 5xx on attempt {}: {}", attempt + 1, resp.status_code)
-                    last_cause = f"HTTPStatusError: {resp.status_code}"
+                    last_cause = self._http_cause(resp)
                     continue  # retryable
                 if resp.status_code >= 400:
                     logger.debug("jev 4xx: {}; no retry", resp.status_code)
-                    return self._failed(
-                        f"HTTPStatusError: {resp.status_code}", counted=counted
-                    )
+                    return self._failed(self._http_cause(resp), counted=counted)
                 try:
                     body = resp.json()
                 except ValueError as exc:
@@ -278,6 +326,19 @@ class LiveDecider:
         if counted:
             self.errors += 1
         return Decision(applies=True, ok=False, answers={}, raw_tokens=0, cause=cause)
+
+    @staticmethod
+    def _http_cause(resp: httpx.Response) -> str:
+        """The HTTP-error cause WITH a snippet of the response body: for a
+        4xx the body names the violated constraint (the taxonomy 422s said
+        ``Input should be a valid dictionary`` for years — the old generic
+        line discarded that). Falls back to the bare status line when the
+        response carries no text. Stays SHORT: it lands verbatim in the
+        ledger's error column."""
+        snippet = (resp.text or "").strip()
+        if snippet:
+            return f"HTTPStatusError: {resp.status_code}: {snippet[:_HTTP_BODY_SNIPPET_CHARS]}"
+        return f"HTTPStatusError: {resp.status_code}"
 
     def _parse(self, body: object, *, counted: bool = True) -> Decision:
         """Normalize (copy only) a 200 response into a Decision."""

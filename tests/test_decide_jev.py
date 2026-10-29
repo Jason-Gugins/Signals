@@ -97,7 +97,11 @@ def test_live_decider_request_shape():
     assert set(body["questions"]) == {"q1", "q2"}
     assert body["questions"]["q1"]["type"] == "noul"
     assert body["questions"]["q1"]["instructions"] == "Score on-topic-ness."
-    assert body["questions"]["q2"]["criteria"] == ["deep", "quick"]
+    # NOTE: this assertion originally pinned the LIST as the wire format —
+    # i.e. it pinned the taxonomy-422 bug (TypeSafe's schema requires an
+    # object). Updated 2026-10-13 to the healed wire shape: list criteria
+    # normalize to {label: ""} at the boundary.
+    assert body["questions"]["q2"]["criteria"] == {"deep": "", "quick": ""}
     # Bearer auth header present (dummy value in tests; never logged anywhere).
     assert request.headers["Authorization"] == "Bearer test-dummy"
 
@@ -470,6 +474,135 @@ def test_gate_error_row_emits_decision_cause():
     # the contract under test: the error COLUMN names the real cause (the
     # outcome label follows the gate's on_error semantics, not this test)
     assert row["error"] == "ConnectError: connection refused"
+
+
+# --- Taxonomy 422 boundary fix (2026-10-13): list criteria -> dict on the wire ---
+#
+# Measured root cause (tmp/typing422_probe.py, data/probe ADDENDUM): TypeSafe's
+# schema requires a choice question's ``criteria`` to be an OBJECT
+# (``{label: description}``, pydantic dict_type) — every gate that shipped a
+# LIST (taxonomy typing 54 entries, posture_audit, G3 routing) 422'd 100% of
+# the time since birth. The normalization lives at the request boundary in
+# LiveDecider: one point heals all four gates; dict-criteria gates (G4,
+# event-dates) pass through untouched.
+
+
+def _list_criteria_q() -> dict:
+    """A typing-battery-shaped question: criteria as a LIST of labels."""
+    return {
+        "type": "choice",
+        "instructions": "Which signal type best fits this claim? Answer with the type key.",
+        "criteria": [
+            "annual_report_10k: annual report (financial)",
+            "hiring: hiring signal (hiring)",
+            "technology: technology adoption (technology)",
+        ],
+    }
+
+
+def _dict_criteria_q() -> dict:
+    """A G4/posture-shaped question: criteria already a DICT."""
+    return {
+        "type": "choice",
+        "instructions": "Was this fetch scope within the source's declared posture?",
+        "criteria": {"within_posture": "scope matched", "outside_posture": "scope exceeded"},
+    }
+
+
+@respx.mock
+def test_list_criteria_normalized_to_dict_on_the_wire():
+    """A LIST-criteria choice question must reach the wire as a DICT
+    ({label: ""}) — pre-fix this pinned a list and TypeSafe 422'd it."""
+    route = respx.post(BASE).mock(return_value=httpx.Response(200, json=_ok_body()))
+    decider = LiveDecider(base_url=BASE, model="jev-1.13.0", api_key="k", max_retries=0)
+    questions = {"type_0": _list_criteria_q()}
+    decision = decider.decide("state", questions)
+    assert decision.ok is True
+    body = json.loads(route.calls.last.request.content)
+    sent = body["questions"]["type_0"]["criteria"]
+    assert isinstance(sent, dict)
+    labels = _list_criteria_q()["criteria"]
+    assert set(sent) == set(labels)
+    assert all(v == "" for v in sent.values())
+    # The caller's own question dict is NEVER mutated: gates re-read their
+    # questions' labels for answer routing after the call.
+    assert isinstance(questions["type_0"]["criteria"], list)
+    assert questions["type_0"]["criteria"] == labels
+
+
+@respx.mock
+def test_dict_criteria_pass_through_unchanged():
+    """Dict-criteria questions (the gates that always worked) go out
+    byte-identically: labels AND descriptions intact."""
+    route = respx.post(BASE).mock(return_value=httpx.Response(200, json=_ok_body()))
+    decider = LiveDecider(base_url=BASE, model="jev-1.13.0", api_key="k", max_retries=0)
+    q = _dict_criteria_q()
+    decision = decider.decide("state", {"posture": q})
+    assert decision.ok is True
+    body = json.loads(route.calls.last.request.content)
+    assert body["questions"]["posture"]["criteria"] == {
+        "within_posture": "scope matched",
+        "outside_posture": "scope exceeded",
+    }
+
+
+@respx.mock
+def test_mixed_criteria_shapes_each_normalized():
+    """One request carrying list-criteria + dict-criteria + no-criteria
+    questions: each reaches the wire in its correct form."""
+    route = respx.post(BASE).mock(return_value=httpx.Response(200, json=_ok_body()))
+    decider = LiveDecider(base_url=BASE, model="jev-1.13.0", api_key="k", max_retries=0)
+    decision = decider.decide(
+        "state",
+        {"type_0": _list_criteria_q(), "posture": _dict_criteria_q(), "q1": _noul_q()},
+    )
+    assert decision.ok is True
+    qs = json.loads(route.calls.last.request.content)["questions"]
+    assert isinstance(qs["type_0"]["criteria"], dict)
+    assert set(qs["type_0"]["criteria"]) == set(_list_criteria_q()["criteria"])
+    assert qs["posture"]["criteria"] == _dict_criteria_q()["criteria"]
+    assert "criteria" not in qs["q1"]  # noul: absent criteria stays absent
+
+
+@respx.mock
+def test_failure_cause_carries_response_body_snippet():
+    """The 422 BODY named the taxonomy root cause — the cause field must
+    carry a snippet of the response body (the old generic line discarded
+    it, hiding a schema rejection behind "HTTPStatusError: 422")."""
+    respx.post(BASE).mock(
+        return_value=httpx.Response(
+            422,
+            json={
+                "detail": [
+                    {
+                        # msg first: it must sit inside the cause's 110-char
+                        # body snippet (a real TypeSafe 422 names the field in
+                        # loc, then the violated constraint in msg).
+                        "msg": "Input should be a valid dictionary",
+                        "loc": ["body", "questions", "type_0", "choice", "criteria"],
+                    }
+                ]
+            },
+        )
+    )
+    decider = LiveDecider(base_url=BASE, model="jev-1.13.0", api_key="k", max_retries=0)
+    d = decider.decide("state", {"type_0": _list_criteria_q()})
+    assert d.ok is False
+    assert d.cause is not None
+    assert d.cause.startswith("HTTPStatusError: 422:")
+    assert "Input should be a valid dictionary" in d.cause
+    # The cause stays SHORT (the ledger error-column contract).
+    assert len(d.cause) <= len("HTTPStatusError: 422: ") + 110
+
+
+@respx.mock
+def test_failure_cause_falls_back_without_response_body():
+    """A status error with an empty body keeps the current generic cause."""
+    respx.post(BASE).mock(return_value=httpx.Response(422))
+    decider = LiveDecider(base_url=BASE, model="jev-1.13.0", api_key="k", max_retries=0)
+    d = decider.decide("state", {"q1": _noul_q()})
+    assert d.ok is False
+    assert d.cause == "HTTPStatusError: 422"
 
 
 def test_get_decider_reads_structured_breaker_block(monkeypatch):

@@ -550,6 +550,16 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ### Deferred
 
+- [ ] **Taxonomy typing 422** — the typing battery has NEVER succeeded:
+  3,323/3,323 taxonomy_typing rows history-wide are errored (HTTP 422),
+  independent of doc size or claim count — a request-shape birth defect,
+  not size. Every doc-with-accepted-claims loses its taxonomy enrichment
+  and pollutes `decide_degraded`. Plan: parent-run penny-bisect capturing
+  the 422 response BODY (never read — the cause field held only the
+  generic httpx string), then reshape per the diagnosis (leading shape:
+  hierarchical category→type; taxonomy has 7 categories, largest 13
+  types). Plan (committing with this entry):
+  `docs/plans/2026-10-13-taxonomy-typing-422.md`.
 - [ ] **G5 sibling fix** — G5's promotion excerpt anchors on the paraphrased
   need text (intel.py:871), the same defect class as the G4 wall; 49
   post-fix accepted claims died at promotion nouls 0.08–0.13 vs band_low

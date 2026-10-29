@@ -550,6 +550,15 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ### Deferred
 
+- [ ] **Extraction before claims** — executes the accepted-claims read's fork
+  decision (`data/probe/ACCEPTED_CLAIM_READ_20261013.md`: 0/79 accepted
+  claims worth promotion; ~80% were machine-metadata restatements from four
+  envelope formats). Wave: format-sniffing human-content extraction at the
+  implement seam (ATS job lines, app descriptions, RSS item text), catalog
+  exclusion (sitemap URL lists), per-result wrong-entity exclusion
+  (publisher vs account+aliases), dual-hash join compatibility for the lab
+  corpus and A/B tooling. Two-agent verified; all findings folded in.
+  Plan: `docs/plans/2026-10-29-extraction-before-claims.md`.
 - [ ] **Customer-proof / competitive-intel signal family** — a new signal
   family decision (user's product call, not a code fix). The accepted-claims
   read (`data/probe/ACCEPTED_CLAIM_READ_20261013.md`) surfaced genuinely

@@ -550,22 +550,20 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ### Deferred
 
-- [ ] **A/B follow-up fix wave** — convert `data/probe/RETRIEVAL_AB_2026_10.md`'s
-  findings into fixes: G4 wall diagnosis (stratified study with the
-  excerpt-miss mechanism as leading Branch E candidate), retrieval
-  default-on + candidate_limit 180, Jev error-cause honesty + breaker
-  recalibration (timeout theory disproven — max observed latency 1.23s),
-  planner step-pruning for fanout AND invented sources, embedder batch cap,
-  A/B tooling promoted to scripts/ab. Plan (two-agent verified, all
-  findings folded in): `docs/plans/2026-10-12-ab-followup-fix-wave.md`.
-- [ ] **Autoresearch decide-lab** — offline A/B + autoresearch loop tuning the
-  decide layer's three spend stages (document gate / bulk implementer / G4
-  citation gate) against the decision ledger, per the TypeSafe
-  `autoresearch_feature_discovery` cookbook: propose questions → 4-Noul
-  prescreen → correlation prune → weighted replay scoring → regress
-  (elastic-net/RF/embedding baselines) → errors feed the next round.
-  Trigger: arm A measured ~97% of implementer claims routed to review
-  (floors shipped uncalibrated). Plan:
+- [x] **A/B follow-up fix wave** — DELIVERED 2026-10-12 (delivery record below;
+  this box was never flipped). G4 wall DOWN (accepted 0→19 databricks, 5→30
+  rillet; says_nothing 66→0); retrieval default-on + candidate_limit 180;
+  Jev error causes + breaker exclusions; planner step-pruning; embedder
+  32-batch cap; tooling at `scripts/ab/`; >200-doc re-test ran 2026-10-13
+  (`data/probe/RETRIEVAL_AB_RETEST_20261012.md`). Successor wall: G5 band
+  calibration, owned by the decide-lab.
+- [x] **Autoresearch decide-lab** — DELIVERED 2026-10-12 (delivery record
+  below; this box was never flipped): the lab infrastructure shipped (corpus
+  extractor + isolation guard, model zoo, round runner, report/propose).
+  The remaining OPERATION is running calibration rounds against the live
+  ledger — G5 `band_low` (0.30 vs observed promotion nouls 0.08–0.13) and
+  the batch output screen are the two named levers, spending real budget,
+  gated on a go decision. Plan:
   `docs/plans/2026-10-11-autoresearch-decide-lab.md` (committed).
 - [x] **Fill in `config/markets.yaml`** — DONE 2026-10-28: the seller's real
   profile (`gorgias_icp` — ecommerce helpdesk + AI agent for Shopify brands,

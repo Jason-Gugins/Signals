@@ -165,6 +165,15 @@ EVIDENCE = (
     + TAIL
 )
 
+# The cascade shape (data/probe/G5_WALL_2026_10.md): the claim's verified
+# quote sits mid-document past the ~400-char head while the need is a
+# PARAPHRASE that never verbatim-anchors — quote_span-anchored state must
+# reach the window around the quote; need_text re-anchoring head-fell back on
+# 450/450 measured promotion rows.
+G5_NEED_PARAPHRASE = "Wants consolidated monitoring across the whole fleet"
+G5_QUOTE_SPAN = "The platform team plans to consolidate three monitoring tools into one."
+G5_EVIDENCE = HEAD + G5_QUOTE_SPAN + " " + TAIL
+
 # The REAL signal taxonomy (config/signals.yaml): the typing battery's
 # criteria MUST be built from this object, never a hardcoded list.
 TAX = Taxonomy.load("config/signals.yaml")
@@ -954,6 +963,63 @@ def test_need_promotion_state_anchor_windows_the_evidence():
     assert "Nav header" in state["evidence_excerpt"]  # head excerpt rides along
     assert list(questions) == ["promotion"]
     assert questions["promotion"]["type"] == "noul"
+
+
+def test_need_promotion_state_anchors_on_the_verified_quote_span():
+    """Cascade fix (data/probe/G5_WALL_2026_10.md): with the claim's verified
+    quote_span the state excerpt anchors on IT — the quote-bearing window
+    reaches the decider even though the paraphrased need_text never
+    verbatim-anchors (the internal need_text re-anchor head-fell back on
+    450/450 measured G5 rows, leaving nouls unmoved)."""
+    decider = CountingDecider({"promotion": _ok({"promotion": {"noul": 0.9}})})
+    gate_need_promotion(
+        G5_NEED_PARAPHRASE,
+        G5_EVIDENCE,
+        False,
+        decider,
+        {},
+        DecideLedger(),
+        RUN,
+        "enforce",
+        quote_span=G5_QUOTE_SPAN,
+    )
+    state, questions = decider.calls[0]
+    assert state["need"] == G5_NEED_PARAPHRASE
+    # the window around the VERIFIED quote rides in — the head fallback can
+    # never carry it (the quote starts past the ~400-char head cut).
+    assert G5_QUOTE_SPAN in state["evidence_excerpt"]
+    assert "Nav header" in state["evidence_excerpt"]  # head excerpt still rides along
+    assert list(questions) == ["promotion"]
+    assert questions["promotion"]["type"] == "noul"
+
+
+def test_need_promotion_without_quote_span_keeps_need_text_anchor():
+    """Fallback pin: no quote_span (keyword absent) builds today's state
+    exactly — anchor_window(evidence_excerpt, need_text)."""
+    decider = CountingDecider({"promotion": _ok({"promotion": {"noul": 0.9}})})
+    gate_need_promotion(NEED, EVIDENCE, False, decider, {}, DecideLedger(), RUN, "enforce")
+    state, _ = decider.calls[0]
+    assert state["evidence_excerpt"] == anchor_window(EVIDENCE, NEED)
+
+
+def test_need_promotion_blank_quote_span_treated_as_absent():
+    """Fallback pin: a blank quote_span string is treated as absent — the
+    need_text anchor stands (a mid-document support sentence rides in, which
+    a blank-anchor head fallback would lose)."""
+    decider = CountingDecider({"promotion": _ok({"promotion": {"noul": 0.9}})})
+    gate_need_promotion(
+        NEED,
+        EVIDENCE,
+        False,
+        decider,
+        {},
+        DecideLedger(),
+        RUN,
+        "enforce",
+        quote_span="   ",
+    )
+    state, _ = decider.calls[0]
+    assert state["evidence_excerpt"] == anchor_window(EVIDENCE, NEED)
 
 
 # --- wave-1 task 2: G4 quote-span check + 3-way Choice, G4/G5 bands, review ----

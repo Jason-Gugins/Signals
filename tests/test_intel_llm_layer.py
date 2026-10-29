@@ -3158,7 +3158,13 @@ def _spy_need_promotion(monkeypatch):
     real_gate = intel.decide_gates.gate_need_promotion
 
     def spy(need_text, evidence_excerpt, *args, **kwargs):
-        captured.append({"need": need_text, "evidence_excerpt": evidence_excerpt})
+        captured.append(
+            {
+                "need": need_text,
+                "evidence_excerpt": evidence_excerpt,
+                "quote_span": kwargs.get("quote_span"),
+            }
+        )
         return real_gate(need_text, evidence_excerpt, *args, **kwargs)
 
     monkeypatch.setattr(intel.decide_gates, "gate_need_promotion", spy)
@@ -3200,6 +3206,45 @@ def test_g5_anchors_promotion_excerpt_on_the_verified_quote_span(monkeypatch):
     assert G5_QUOTE in captured[0]["evidence_excerpt"]
     # not the bare head: the window around the quote brings the tail along.
     assert "More closing content here." in captured[0]["evidence_excerpt"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_g5_passes_the_verified_quote_span_into_the_gate(monkeypatch):
+    """Cascade fix (data/probe/G5_WALL_2026_10.md): intel threads the claim's
+    verified quote_span INTO gate_need_promotion, so the gate's internal
+    re-anchor hits the quote instead of head-falling back on the paraphrased
+    need_text (0/450 measured). Pinned END-TO-END at the decider state: the
+    state excerpt the judge actually receives contains the quote."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", G5_DOC_TEXT)])
+    _patch_coverage(monkeypatch)
+    _patch_package_recorder(monkeypatch)
+    decider = _RecordingDecider(_high_decider().verdicts)
+    _patch_layer(monkeypatch, decide_cfg=_decide_cfg("enforce"), decider=decider)
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch,
+        claims=[{"text": G5_PARAPHRASE, "doc_id": "doc-1", "quote": G5_QUOTE}],
+        fields={},
+    )
+    captured = _spy_need_promotion(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    assert result["stages"]["implement"]["promoted"] == 1
+    assert len(captured) == 1
+    # the pass-through seam: intel hands the verified quote to the gate
+    assert captured[0]["quote_span"] == G5_QUOTE
+    # the decider state (post internal re-anchor) carries the quote-bearing
+    # window — the cascade's measured failure was exactly this state
+    # head-falling back past the quote.
+    assert len(decider.promotion_states) == 1
+    state = decider.promotion_states[0]
+    assert G5_QUOTE in state["evidence_excerpt"]
+    assert "More closing content here." in state["evidence_excerpt"]
     assert respx.calls.call_count == 0
 
 

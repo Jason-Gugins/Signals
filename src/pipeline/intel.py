@@ -890,6 +890,11 @@ def _implement_pass(
                 ledger,
                 run_id,
                 mode,
+                # The gate re-anchors the excerpt internally; hand it the
+                # VERIFIED quote so that anchor hits (the cascade wall:
+                # need_text re-anchoring head-fell back 0/450 —
+                # data/probe/G5_WALL_2026_10.md).
+                quote_span=(claim.quote_span if claim is not None else None),
             )
             # Enforce + promote flows through; shadow NEVER promotes
             # (deterministic-only) — the row carries the would-be verdict.

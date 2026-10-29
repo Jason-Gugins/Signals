@@ -1169,6 +1169,7 @@ def gate_need_promotion(
     ledger: DecideLedger,
     run_id: str,
     mode: str,
+    quote_span: str | None = None,
 ) -> tuple[bool, float | None, Decision]:
     """G5 — gate promotion of an extracted need (implement -> score boundary).
 
@@ -1186,6 +1187,17 @@ def gate_need_promotion(
     band's review/drop NEVER binds in shadow (rows record the would-be
     outcome, promotions are not applied).
 
+    State anchoring: with ``quote_span`` (the claim's deterministically
+    VERIFIED quote, threaded from intel's G5 loop) the state excerpt anchors
+    on the quote — the quote is verbatim inside the quote-anchored excerpt
+    the caller built via ``claim_excerpt``, so the window around the
+    supporting span always reaches Jev. Without it the excerpt re-anchors
+    around ``need_text`` as before. Anchoring on the paraphrased need_text
+    was the cascade wall (data/probe/G5_WALL_2026_10.md): after intel's
+    quote-anchoring fix, the internal re-anchor still missed 0/450 and
+    head-fell back to boilerplate on every measured promotion row, leaving
+    nouls unmoved (median 0.15).
+
     Returns (promote, noul, decision).
     """
     cfg = _cfg(gate_cfg)
@@ -1194,7 +1206,13 @@ def gate_need_promotion(
     det_action = "promote" if deterministic_promote else "drop"
     state = {
         "need": need_text,
-        "evidence_excerpt": anchor_window(evidence_excerpt, need_text),
+        # Quote-first anchoring: quote_span is verbatim inside the excerpt
+        # (intel built it via claim_excerpt and the quote is verified before
+        # G5), so the anchor always hits; blank/absent keeps the need_text
+        # anchor (the pre-cascade-fix behavior).
+        "evidence_excerpt": anchor_window(
+            evidence_excerpt, quote_span if (quote_span or "").strip() else need_text
+        ),
     }
     questions = {
         "promotion": {

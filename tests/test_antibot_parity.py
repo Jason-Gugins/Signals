@@ -19,6 +19,12 @@ import pytest
 REF_PATH = Path(__file__).parent / "fixtures" / "antibot" / "chrome_fingerprint_reference.json"
 pytestmark = [pytest.mark.antibot_live, pytest.mark.allow_network]
 
+# The whole file is engine parity: without the compiled engine there is
+# nothing to test. Skip the module the way tests/test_antibot_engine.py
+# does (_engine_module / importorskip) instead of erroring 3x in the
+# nightly lane (ci.yml builds no engine; curl_cffi covers runtime).
+pytest.importorskip("signals_antibot", reason="antibot engine not built")
+
 
 def _reference() -> dict:
     return json.loads(REF_PATH.read_text(encoding="utf-8"))

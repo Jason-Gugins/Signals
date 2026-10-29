@@ -8,6 +8,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
   schedule:
     # Nightly live lane at 04:00 UTC
     - cron: '0 4 * * *'
@@ -74,7 +75,7 @@ jobs:
   nightly-live:
     name: Nightly live suite
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v5
 
@@ -89,6 +90,8 @@ jobs:
       # live-network tests are inherently flaky. Deliberately parity-only here —
       # the offline suite runs on every push in the `test` job above, so the
       # nightly adds the network-dependent lane without duplicating it.
+      # Without the built engine, the parity file skips itself (importorskip),
+      # so this lane runs 0 tests rather than failing 3.
       - name: Run live parity suite
         continue-on-error: true
         run: pytest -m antibot_live --tb=short

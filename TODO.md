@@ -613,12 +613,13 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 ## Deferred — not scheduled
 
 - **Antibot engine in the nightly CI lane (deliberate decision)** — the `nightly-live`
-  job currently runs the `antibot_live` parity tests without the engine built:
+  job ran the `antibot_live` parity tests without the engine built:
   `3 failed, 5 skipped, 2798 deselected` every night
   (`ModuleNotFoundError: No module named 'signals_antibot'`), masked green by the
-  job's `continue-on-error`. Cheap honesty fix: `pytest.importorskip("signals_antibot")`
-  in `tests/test_antibot_parity.py` so the lane reports "all skipped, engine not
-  built" instead of failing silently. The expensive fix — actually building the
+  job's `continue-on-error`. Cheap honesty fix: DONE 2026-10-29 — the parity file
+  skips itself via `pytest.importorskip("signals_antibot")`, and the lane is
+  manually dispatchable (`workflow_dispatch` + the job's `|| workflow_dispatch`
+  condition) via `gh workflow run ci.yml`. The expensive fix — actually building the
   engine in the nightly job — needs a Rust toolchain plus Go (a BoringSSL build
   dependency) on the runner; worth it only if you want live parity data, which you
   can't have anyway without it running somewhere.

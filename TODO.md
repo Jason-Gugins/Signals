@@ -550,6 +550,21 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ### Deferred
 
+- [ ] **Customer-proof / competitive-intel signal family** — a new signal
+  family decision (user's product call, not a code fix). The accepted-claims
+  read (`data/probe/ACCEPTED_CLAIM_READ_20261013.md`) surfaced genuinely
+  useful competitive intel that the 54-type taxonomy has no home for: the
+  prospect's customer proof ("VSee cut its month-end close from 30 days to
+  4 on Rillet", Kickstarter chart-of-accounts case study) and competitive
+  positioning targets (rillet.com/compare/netsuite, /compare/quickbooks).
+  For a GTM seller this is real intelligence — who the prospect's customers
+  are, what outcome narrative they sell on, which incumbents they target —
+  but it is intelligence, not a need signal, and it died at G5 for exactly
+  that reason. Would require: a taxonomy family (e.g. `competitive_intel`
+  / `customer_proof`), a doc-source affinity (case-study and compare pages
+  are the natural carriers), and a plays decision on what outreach it
+  justifies. Prerequisite: the envelope/extraction wave — these claims
+  currently come from URL slugs, not page bodies.
 - [ ] **Taxonomy typing 422** — the typing battery has NEVER succeeded:
   3,323/3,323 taxonomy_typing rows history-wide are errored (HTTP 422),
   independent of doc size or claim count — a request-shape birth defect,

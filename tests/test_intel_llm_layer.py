@@ -3119,3 +3119,195 @@ def test_combined_enrichment_families_land_on_the_same_candidate(
     assert [r["outcome"] for r in rows if r["gate"] == "event_dates"] == ["extracted"]
     assert [r["outcome"] for r in rows if r["gate"] == "value_extraction"] == ["extracted"]
     assert respx.calls.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 12. G5 promotion excerpt: quote-anchored (G4 sibling fix)
+# ---------------------------------------------------------------------------
+
+
+#: A LONG document: ~500 chars of boilerplate head filler, then the quoted
+#: sentence PAST the ~400-char anchor-window head, then a tail. The G5 wall
+#: study's own RED-phase shape (data/probe/G5_WALL_2026_10.md): the quote is
+#: real mid-document content the head fallback never served.
+G5_DOC_TEXT = (
+    "Acme company blog. "
+    + "Company news and product updates follow. " * 12
+    + "The platform team plans to consolidate three monitoring tools into one. "
+    + "More closing content here."
+)
+#: The verbatim mid-document span the implementer quoted (G4's span check
+#: keeps it — it IS a substring of the doc).
+G5_QUOTE = "The platform team plans to consolidate three monitoring tools into one."
+#: The paraphrase shape the wall studies measured: reworded claim text that
+#: never verbatim-matches the document, so a need_text-anchored window
+#: misses and falls back to the boilerplate head.
+G5_PARAPHRASE = (
+    "Acme is consolidating its monitoring tooling onto one platform "
+    "after evaluating the options."
+)
+
+
+def _spy_need_promotion(monkeypatch):
+    """Capture what intel feeds gate_need_promotion (the G5 evidence seam)
+    while the REAL gate still runs so promotion keeps flowing. The spy (not
+    the decider state) is the right capture point here: gate_need_promotion
+    re-anchors its state excerpt around need_text, so the decider state
+    would hide exactly the construction this section pins."""
+    captured: list = []
+    real_gate = intel.decide_gates.gate_need_promotion
+
+    def spy(need_text, evidence_excerpt, *args, **kwargs):
+        captured.append({"need": need_text, "evidence_excerpt": evidence_excerpt})
+        return real_gate(need_text, evidence_excerpt, *args, **kwargs)
+
+    monkeypatch.setattr(intel.decide_gates, "gate_need_promotion", spy)
+    return captured
+
+
+@respx.mock
+def test_g5_anchors_promotion_excerpt_on_the_verified_quote_span(monkeypatch):
+    """G5 sibling of the G4 wall fix (data/probe/G5_WALL_2026_10.md): a
+    quote-bearing claim's promotion excerpt anchors on the claim's VERIFIED
+    quote span — mid-document, past the ~400-char head — not on the
+    paraphrased need_text, which never verbatim-anchors and served Jev a
+    boilerplate head on every G5 call the study measured (0/830)."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", G5_DOC_TEXT)])
+    _patch_coverage(monkeypatch)
+    _patch_package_recorder(monkeypatch)
+    _patch_layer(monkeypatch, decide_cfg=_decide_cfg("enforce"), decider=_high_decider())
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch,
+        claims=[{"text": G5_PARAPHRASE, "doc_id": "doc-1", "quote": G5_QUOTE}],
+        fields={},
+    )
+    captured = _spy_need_promotion(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    # the claim survived G4 (the quote is verbatim) and promoted via G5
+    assert result["stages"]["implement"]["claims_accepted"] == 1
+    assert result["stages"]["implement"]["promoted"] == 1
+    assert len(captured) == 1
+    assert captured[0]["need"] == G5_PARAPHRASE
+    # the judge's excerpt carries the verified mid-document quote — only the
+    # quote-anchored construction can contain it (the paraphrase misses and
+    # the pre-fix path falls back to the bare head, which excludes the quote).
+    assert G5_QUOTE in captured[0]["evidence_excerpt"]
+    # not the bare head: the window around the quote brings the tail along.
+    assert "More closing content here." in captured[0]["evidence_excerpt"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_g5_excerpt_without_quote_keeps_the_need_text_anchor(monkeypatch):
+    """Fallback pin: a claim with NO quote_span builds the promotion excerpt
+    the old way — anchor_window(cited_text, need_text) — unchanged."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    _patch_coverage(monkeypatch)
+    _patch_package_recorder(monkeypatch)
+    _patch_layer(monkeypatch, decide_cfg=_decide_cfg("enforce"), decider=_high_decider())
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch,
+        claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}],
+        fields={},
+    )
+    captured = _spy_need_promotion(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    assert result["stages"]["implement"]["promoted"] == 1
+    assert len(captured) == 1
+    assert captured[0]["need"] == CLAIM_TEXT
+    assert captured[0]["evidence_excerpt"] == intel.decide_gates.anchor_window(
+        DOC_TEXT_1, CLAIM_TEXT
+    )
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_g5_excerpt_falls_back_to_need_text_when_doc_out_of_scope(monkeypatch):
+    """Fallback pin: a candidate whose cited doc_id is missing from
+    doc_text_by_id judges need_text itself, exactly as today."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    _patch_coverage(monkeypatch)
+    _patch_package_recorder(monkeypatch)
+    _patch_layer(monkeypatch, decide_cfg=_decide_cfg("enforce"), decider=_high_decider())
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch,
+        claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}],
+        fields={},
+    )
+    real_builder = intel.llm_implement.claims_to_candidates
+
+    def builder_with_absent_doc(pairs, **kw):
+        cands = real_builder(pairs, **kw)
+        for cand in cands:
+            cand.evidence_data["doc_id"] = "doc-absent"
+        return cands
+
+    monkeypatch.setattr(intel.llm_implement, "claims_to_candidates", builder_with_absent_doc)
+    captured = _spy_need_promotion(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    assert result["stages"]["implement"]["promoted"] == 1
+    assert len(captured) == 1
+    assert captured[0]["need"] == CLAIM_TEXT
+    assert captured[0]["evidence_excerpt"] == CLAIM_TEXT
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_g5_survives_more_candidates_than_pairs(monkeypatch):
+    """Defensive pin: candidates longer than pairs (out-of-contract shape —
+    the builder emits one candidate per pair in order) must not IndexError:
+    the tail candidate has no reachable claim and judges with today's
+    anchor_window path."""
+    orch = FakeOrchLlm(docs=[_doc("doc-1", DOC_TEXT_1)])
+    _patch_coverage(monkeypatch)
+    _patch_package_recorder(monkeypatch)
+    _patch_layer(monkeypatch, decide_cfg=_decide_cfg("enforce"), decider=_high_decider())
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    _patch_implementer(
+        monkeypatch,
+        claims=[{"text": CLAIM_TEXT, "doc_id": "doc-1"}],
+        fields={},
+    )
+    real_builder = intel.llm_implement.claims_to_candidates
+    extra_need = "A trailing extra need beyond the pairs list."
+
+    def builder_with_extra_candidate(pairs, **kw):
+        cands = real_builder(pairs, **kw)
+        cands.append(replace(cands[0], natural_key="extra-key", summary=extra_need))
+        return cands
+
+    monkeypatch.setattr(intel.llm_implement, "claims_to_candidates", builder_with_extra_candidate)
+    captured = _spy_need_promotion(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    # no IndexError: both candidates reached G5 and promoted (high mock noul)
+    assert result["stages"]["implement"]["promoted"] == 2
+    assert len(captured) == 2
+    # the tail candidate (index beyond pairs) keeps the pre-fix construction
+    assert captured[1]["need"] == extra_need
+    assert captured[1]["evidence_excerpt"] == intel.decide_gates.anchor_window(
+        DOC_TEXT_1, extra_need
+    )
+    assert respx.calls.call_count == 0

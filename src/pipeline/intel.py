@@ -852,7 +852,7 @@ def _implement_pass(
                 evidence["amount_usd"] = amount["amount_usd"]
                 evidence["amount_currency"] = amount["currency"]
                 evidence["amount_kind"] = amount["kind"]
-        for cand in candidates:
+        for cand_idx, cand in enumerate(candidates):
             if g5_calls >= MAX_G5_CALLS:
                 # G5's per-candidate call budget is spent for this run: the
                 # remaining candidates stay unpromoted (narrow-only) and the
@@ -861,17 +861,26 @@ def _implement_pass(
                 continue
             g5_calls += 1
             need_text = cand.summary or cand.title or ""
+            # candidates↔pairs is the builder's in-order contract (the
+            # amounts threading above already relies on it), so cand_idx
+            # recovers the candidate's source claim; defensive None beyond
+            # the pairs list.
+            claim = pairs[cand_idx][0] if cand_idx < len(pairs) else None
             cited_text = doc_text_by_id.get(
                 str((cand.evidence_data or {}).get("doc_id") or "")
             )
-            # The judge sees the CITED DOCUMENT — anchor-windowed around the
-            # claim — never merely the claim's own echo; the claim text is
-            # the fallback when the cited body is not in scope.
-            evidence_excerpt = (
-                decide_gates.anchor_window(cited_text, need_text)
-                if cited_text
-                else need_text
-            )
+            # The judge sees the CITED DOCUMENT — never merely the claim's
+            # own echo; need_text is the fallback when the cited body is
+            # not in scope.
+            if cited_text and claim is not None and claim.quote_span:
+                # G5 sibling of the G4 wall fix (data/probe/G5_WALL_2026_10.md):
+                # judge against the excerpt anchored on the claim's VERIFIED quote
+                # span — need_text paraphrases almost never verbatim-anchor.
+                evidence_excerpt = decide_gates.claim_excerpt(cited_text, claim)
+            elif cited_text:
+                evidence_excerpt = decide_gates.anchor_window(cited_text, need_text)
+            else:
+                evidence_excerpt = need_text
             promote, prob, _decision = decide_gates.gate_need_promotion(
                 need_text,
                 evidence_excerpt,

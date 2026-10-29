@@ -242,9 +242,11 @@ silent hole.
 The single ATS/careers discovery ladder is capped at 10 requests.
 
 **Seller-market profiles.** `needs` / `required_stack_demand` come from the seller-market profile
-selected by `--market-profile`, read from `config/markets.yaml`. That file ships empty on
-purpose. Until it is filled in, those sources promote nothing and `intel` reports a
-"no relevance vocabulary configured" gap.
+selected by `--market-profile`, read from `config/markets.yaml`. The `default` profile ships
+empty on purpose: until it is filled in (or a filled profile is selected), those sources promote
+nothing and `intel` reports a "no relevance vocabulary configured" gap. The repo also ships
+`gorgias_icp` — a real worked profile (`--market-profile gorgias_icp`) — and the fictional
+`sample_soc_platform` demo.
 
 ### Hybrid retrieval staging (on by default)
 

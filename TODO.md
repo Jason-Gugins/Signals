@@ -567,10 +567,11 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   Trigger: arm A measured ~97% of implementer claims routed to review
   (floors shipped uncalibrated). Plan:
   `docs/plans/2026-10-11-autoresearch-decide-lab.md` (committed).
-- [ ] **Fill in `config/markets.yaml`** — the shipped default profile is
-  **empty on purpose**, so nothing is promoted until the seller's offerings,
-  buyer departments, served-problem phrases and served vendors are written in.
-  This is the user's product decision, not missing code.
+- [x] **Fill in `config/markets.yaml`** — DONE 2026-10-28: the seller's real
+  profile (`gorgias_icp` — ecommerce helpdesk + AI agent for Shopify brands,
+  three offerings) is committed and selectable via `--market-profile gorgias_icp`.
+  The `default` profile stays **empty on purpose** — an empty vocabulary matches
+  nothing, by design.
 - [x] **Embeddings / neural search over the stored evidence** — DELIVERED
   2026-10-10 as the intel hybrid-retrieval wave (FTS5 BM25 + local MiniLM
   vectors, RRF fusion, ms-marco cross-encoder rerank, MMR dedup; opt-in behind

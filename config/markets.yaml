@@ -60,3 +60,56 @@ profiles:
           - salesforce
         relevant_signal_types: [required_stack_demand]
         buyer_departments: [it, operations]
+
+  # ===========================================================================
+  # gorgias_icp - Gorgias: ecommerce helpdesk + AI agent selling to Shopify DTC
+  # brands (~$10M-$200M, 2,000-30,000+ tickets/mo). Matching notes
+  # (src/intel/market.py): served_problem_phrases are lower-case substring
+  # tests - prefer stems. relevant_signal_types must contain the incoming type;
+  # needs only ever sends need_statement / required_stack_demand.
+  # ===========================================================================
+  gorgias_icp:
+    seller: "Gorgias - ecommerce helpdesk and AI agent for Shopify brands"
+    offerings:
+      - id: ecommerce-helpdesk
+        served_problem_phrases:
+          - customer support
+          - customer experience
+          - customer service
+          - helpdesk
+          - ticket volume
+          - support team
+          - support agent
+          - first response
+          - response time
+          - csat
+          - cx team
+          - seasonal support
+          - support inbox
+        relevant_signal_types: [need_statement]
+        buyer_departments: [customer experience, support, ecommerce, operations]
+
+      - id: ai-support-automation
+        served_problem_phrases:
+          - ai agent
+          - automate
+          - automation
+          - deflect
+          - self-service
+          - chatbot
+        relevant_signal_types: [need_statement]
+        buyer_departments: [customer experience, support, ecommerce]
+
+      - id: commerce-stack-fit
+        required_vendors:
+          - shopify
+          - klaviyo
+          - recharge
+          - zendesk
+          - kustomer
+          - freshdesk
+          - salesforce
+          - hubspot
+        relevant_signal_types: [required_stack_demand]
+        buyer_departments: [customer experience, support, ecommerce, operations]
+        competitor_vendors: [zendesk, kustomer, freshdesk, gladly, intercom]

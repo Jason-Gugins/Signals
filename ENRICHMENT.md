@@ -207,7 +207,8 @@ newly-funded companies the registry doesn't know yet.
 
 Prereqs: nothing for a new domain. A filled-in seller-market profile
 (`config/markets.yaml`) if you want `needs` / `required_stack_demand` to promote
-anything — the file ships empty, so nothing is promoted until you fill it in.
+anything — the `default` profile ships empty, so nothing is promoted until you
+fill it in or select a filled one with `--market-profile` (e.g. `gorgias_icp`).
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli intel acme.com --name "Acme Inc"

@@ -611,6 +611,16 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ## Deferred — not scheduled
 
+- **Antibot engine in the nightly CI lane (deliberate decision)** — the `nightly-live`
+  job currently runs the `antibot_live` parity tests without the engine built:
+  `3 failed, 5 skipped, 2798 deselected` every night
+  (`ModuleNotFoundError: No module named 'signals_antibot'`), masked green by the
+  job's `continue-on-error`. Cheap honesty fix: `pytest.importorskip("signals_antibot")`
+  in `tests/test_antibot_parity.py` so the lane reports "all skipped, engine not
+  built" instead of failing silently. The expensive fix — actually building the
+  engine in the nightly job — needs a Rust toolchain plus Go (a BoringSSL build
+  dependency) on the runner; worth it only if you want live parity data, which you
+  can't have anyway without it running somewhere.
 - **G2 competitor page pass (T6)** — blocked on a real DataDome capture: fresh
   browser cookies exported to `data/g2_cookies.json` or the solver keys
   (`DATADOME_SOLVER_API_KEY`); then rerun `scripts/probe_g2_competitors.py`

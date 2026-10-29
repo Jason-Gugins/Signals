@@ -11,3 +11,15 @@ src/antibot/engine/target/
 
 # Anti-bot runtime state (routing.json, cookies.json)
 data/antibot/
+
+# Local tool state and scratch (ZCode plans, hermes notes, user droppings)
+.zcode/
+.zcodeignore
+.hermes/
+tmp/
+PDFS/
+rfc7541_plain.txt
+sample companies.txt
+
+# Python build artifact
+signals.egg-info/

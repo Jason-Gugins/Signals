@@ -550,7 +550,26 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ### Deferred
 
-- [ ] **Detail-page sourcing** — executes the extraction validation's verdict:
+- [x] **Detail-page sourcing** — DELIVERED 2026-10-30 (delivery record below;
+  this box was never flipped). Spike: Arm A GO (boards-api content=true,
+  903/903 jobs, 7.3M chars prose — and the corpus-envelope mystery solved:
+  the ats_discovery verify probe fetched content=false, shadowing the
+  collector's content-bearing doc; fixed at the verify endpoint). Arm B
+  NO-GO (no RSS), Arm C GO. Shipped: content-bearing envelopes via the
+  reconciled collection path + doccontent unescape/content branch
+  (`28bd817`); the sitecontent adapter (sitemap-enumerated prose pages,
+  20/cycle rotation, prose floor, cadence 168h, `8b179a6`); dual-hash doc
+  join for lab/ab tooling (`c3abacb`, extraction wave). Validation: prose
+  REACHED the gates (7 greenhouse envelopes + 11 sitecontent pages staged,
+  dual-hash-joined), but the accepted pool stayed weak — rillet's 8
+  accepted claims are all wayback crawl-log statements, and databricks'
+  rich-prose batches were held by the output screen. **The constraint
+  chain is now fully mapped: output-screen thresholds → retrieval
+  composition (wayback-log exclusion) → G5 band** — the decide-lab's
+  opening targets, in that order. Original entry: spike-gated fetch of
+  job descriptions + content pages; plan
+  `docs/plans/2026-10-30-detail-page-sourcing.md`.
+- [ ] **Extraction before claims** — executes the accepted-claims read's fork
   the corpus lacks need-bearing prose because the prose-bearing pages were
   never fetched (the sitemap merely listed them). Spike-gated three arms:
   (A) Greenhouse boards-api content=true — the collector already requests

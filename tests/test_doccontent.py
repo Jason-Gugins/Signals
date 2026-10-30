@@ -11,7 +11,10 @@ HTML-escaped HTML, prose stripped and capped per job into the extraction —
 generalized (ATS-description-aliases, 2026-10-30) to the description alias
 set content | descriptionPlain | descriptionHtml | description, with the
 measured Ashby shape (no company_name, plain descriptionPlain, raw
-descriptionHtml) as a synthetic fixture and a stored rillet envelope smoke.
+descriptionHtml) as a synthetic fixture and a stored rillet envelope smoke —
+plus the html extraction branch (task 2): Webflow-shaped sitecontent pages
+and the ats_discovery careers page extract to prose at the seam instead of
+passing through as markup.
 """
 from __future__ import annotations
 
@@ -560,20 +563,133 @@ def test_human_text_sitemap_excluded_as_catalog():
     }
 
 
-def test_human_text_robots_html_text_pass_through_unchanged():
+def test_human_text_robots_text_pass_through_unchanged():
+    # robots and text stay byte-passthrough. html does NOT (ATS-description-
+    # aliases task 2, 2026-10-30): the old pin here held html byte-identical —
+    # that pinned the wart this task fixes. The same HTML fixture now extracts
+    # to prose (pinned below; full-scale cases in the html-branch section).
     for ct, body, kind in (
         ("text/plain", ROBOTS, "robots"),
-        ("text/html", HTML, "html"),
         ("text/plain", PLAIN, "text"),
     ):
         info = human_text(ct, body, publisher_hint=None)
         assert info["kind"] == kind
-        assert info["text"] == body  # byte-identical, no html_to_text at this seam
+        assert info["text"] == body  # byte-identical passthrough
         assert info["excluded"] is False
         assert info["reason"] is None
         assert info["wrong_entity_dropped"] == 0
-    # explicit: html markup is NOT converted
-    assert "<b>world</b>" in human_text("text/html", HTML, publisher_hint=None)["text"]
+    # html extracts instead of passing through
+    info = human_text("text/html", HTML, publisher_hint=None)
+    assert info["kind"] == "html"
+    assert info["text"] == "Hello world"
+    assert "<b>world</b>" not in info["text"]
+
+
+# --- human_text: html extraction branch (ATS-description-aliases task 2) ----
+# Why: stored html docs — sitecontent pages, company_feed posts, wayback-html
+# captures, the ats_discovery careers page — reach the decide-layer gates as
+# prose, not markup soup (the sourcing wave's sitecontent pages reached the
+# gate as Webflow head/CSS noise). Disclosed drift: 13 html docs re-head on
+# rillet, 8 on databricks; the dual-hash join (c3abacb) handles tooling.
+
+
+def _webflow_page() -> str:
+    """Webflow-shaped sitecontent page (~15KB): a head carrying <style>/
+    <script>, nav boilerplate, and the real case-study prose mid-page."""
+    style = ".hero-grid{display:grid;gap:1rem}\n" + "".join(
+        f".w-nav-item-{i}{{color:#333;padding:4px {i}px}}\n" for i in range(120)
+    )
+    script = 'window.trackConversion("pixel-1");\n' + "".join(
+        f'analytics.beacon("view", {{slot: {i}}});\n' for i in range(120)
+    )
+    nav = "".join(f'<a href="/solutions/s{i}">Solution {i}</a>' for i in range(40))
+    sections = "".join(
+        f"<section><h2>Story {i}</h2>"
+        f"<p>Customer {i} deployed the platform in weeks.</p></section>"
+        for i in range(80)
+    )
+    return (
+        '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>'
+        "<title>Customer Stories — Example Co</title>"
+        f"<style>{style}</style><script>{script}</script></head><body>"
+        f"<nav>{nav}</nav>"
+        "<main><h1>Customer stories</h1>"
+        "<p>Sitecontent prose marker: Example Co cut month-end close from "
+        "nine days to two with automated reconciliation across 40 entities."
+        "</p></main>"
+        f"{sections}</body></html>"
+    )
+
+
+def test_human_text_html_webflow_body_extracts_prose():
+    body = _webflow_page()
+    assert len(body) >= 10_000  # page-scale fixture, not a toy
+    info = human_text("text/html", body, publisher_hint="Example Co")
+    assert info["kind"] == "html"
+    assert info["excluded"] is False
+    text = info["text"]
+    # the mid-page prose reaches the gate
+    assert "Sitecontent prose marker" in text
+    assert "cut month-end close from nine days to two" in text
+    # script/style content does NOT survive
+    assert "trackConversion" not in text
+    assert "analytics.beacon" not in text
+    assert "hero-grid" not in text
+    assert "w-nav-item" not in text
+    # no tag fragments, no attribute soup
+    assert "<" not in text
+    assert 'href="/solutions/' not in text
+    # extraction shrinks the markup
+    assert len(text) < len(body)
+
+
+def _ats_discovery_page() -> str:
+    """ats_discovery-shaped careers page (~400KB, half-scale of the measured
+    861,886-byte databricks doc): meta-laden head with kilobytes of CSS/JS,
+    filler sections, and the careers prose deep in the body — deep enough
+    that the 120,000-char cap binds on the EXTRACTED text while the prose
+    (earlier in the extraction order) survives."""
+    head = (
+        '<!DOCTYPE html><html lang="en-US"><head><meta charSet="utf-8"/>'
+        + "".join(f'<meta name="meta-{i}" content="value-{i}"/>' for i in range(200))
+        + "<style>"
+        + "".join(f".c{i}{{color:#a1b2c3}}\n" for i in range(2000))
+        + "</style><script>"
+        + "".join(f'track{i}("evt");\n' for i in range(2000))
+        + "</script></head><body>"
+    )
+    filler_before = "".join(
+        f"<div>Division {i} field summary line with several filler words.</div>"
+        for i in range(1000)
+    )
+    prose = (
+        "<main><h1>Build the platform</h1>"
+        "<p>Atsdiscovery prose marker: we build the lakehouse platform for "
+        "data intelligence teams worldwide.</p>"
+        "<p>Open roles across engineering, sales, and field teams.</p></main>"
+    )
+    filler_after = "".join(
+        f"<div>Department {i} overview paragraph with several words of body text.</div>"
+        for i in range(3500)
+    )
+    return head + filler_before + prose + filler_after + "</body></html>"
+
+
+def test_human_text_html_ats_discovery_shape_bounded_and_prose():
+    body = _ats_discovery_page()
+    assert len(body) >= 300_000  # genuinely page-scale (~400KB)
+    info = human_text("text/html; charset=utf-8", body, publisher_hint="Databricks")
+    assert info["kind"] == "html"
+    text = info["text"]
+    # bounded by the per-kind cap — and the cap actually binds here
+    assert len(text) == 120_000
+    # prose deep in the body survives (it precedes the cap cut)
+    assert "Atsdiscovery prose marker" in text
+    assert "lakehouse platform" in text
+    # markup does not survive
+    assert "<script" not in text
+    assert "<html" not in text
+    assert "<div" not in text
 
 
 # --- malformed / never-raise -------------------------------------------------
@@ -809,3 +925,54 @@ def test_real_stored_rillet_ashby_smoke():
     assert len(info["text"]) > 10_000
     # doc-level cap holds
     assert len(info["text"]) <= 120_000
+
+
+def _load_stored_databricks_ats_discovery():
+    """Databricks ats_discovery careers page (measured: 861,886 bytes of
+    text/html) — skip-when-absent, offline-safe like the smokes above."""
+    db_path = REPO / "data" / "signals.db"
+    if not db_path.exists():
+        return None
+    try:
+        con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        row = con.execute(
+            "SELECT doc_id, path, content_type FROM documents "
+            "WHERE domain = 'databricks.com' AND source = 'ats_discovery' "
+            "ORDER BY fetched_at DESC LIMIT 1"
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+    if row is None:
+        return None
+    doc_id, rel, content_type = row
+    path = Path(rel) if rel else REPO / "data" / "raw" / doc_id[:2] / f"{doc_id}.gz"
+    if not path.exists():
+        return None
+    with gzip.open(path, "rb") as fh:
+        return (content_type or "text/html", fh.read().decode("utf-8", "replace"))
+
+
+def test_real_stored_databricks_ats_discovery_html_smoke():
+    """Real-byte smoke over the stored databricks ats_discovery careers page
+    (861,886 bytes): the html branch extracts prose — no markup soup."""
+    stored = _load_stored_databricks_ats_discovery()
+    if stored is None:
+        pytest.skip("stored databricks ats_discovery doc not present")
+    content_type, body = stored
+    assert sniff(content_type, body) == "html"
+    assert len(body) > 100_000  # page-scale doc (measured 861,886 bytes)
+    info = human_text(content_type, body, publisher_hint="Databricks")
+    assert info["kind"] == "html"
+    assert info["excluded"] is False
+    # the per-kind cap bounds the extraction
+    assert len(info["text"]) < 120_000
+    # prose extracted: no markup fragments survive
+    assert "<html" not in info["text"]
+    assert "<script" not in info["text"]
+    # prose-bearing: the extraction carries real page words
+    assert "Databricks" in info["text"]

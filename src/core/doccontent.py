@@ -102,8 +102,8 @@ def sniff(content_type: str, body: str) -> str:
     - User-agent: + Disallow ⇒ robots.
     - <html or <!DOCTYPE ⇒ html.
     - Tiebreaker: a markerless body under an html content type promotes to
-      html (cosmetic — html/text pass through identically). No other
-      content-type promotion exists.
+      html (which routes through the html extraction branch — see
+      human_text). No other content-type promotion exists.
     - Default: text.
     """
     s = (body or "").lstrip("\ufeff \t\r\n")
@@ -338,9 +338,18 @@ def human_text(content_type: str, body: str, *, publisher_hint: str | None) -> d
                   "reason": "catalog_url_list"} — a URL list has no
                   claim-worthy content; excluded before the doc gate.
     - robots:    text as-is (small, honest policy file).
-    - html/text: body UNCHANGED — no html_to_text at this seam (routing
-                  markup-bearing html docs through html_to_text would alter
-                  staged text for every html doc, beyond the envelope scope).
+    - html:      html_to_text(body), capped at MAX_TEXT_CHARS
+                  (ATS-description-aliases task 2, 2026-10-30): stored html
+                  docs — sitecontent pages, company_feed posts, wayback-html
+                  captures, the ats_discovery careers page — reach the
+                  decide-layer gates as PROSE instead of markup soup. The
+                  sourcing wave's sitecontent pages were reaching the gate as
+                  Webflow <head>/CSS noise (script residue survives naive
+                  stripping; html_to_text drops script/style, keeps prose).
+                  Disclosed drift: staging re-heads the measured 13 html docs
+                  on rillet and 8 on databricks — the dual-hash join
+                  (c3abacb) already handles that for lab/ab tooling.
+    - text:      body UNCHANGED (byte-passthrough).
 
     Malformed content that sniffs to a json kind ⇒ text passthrough (never
     raise). publisher_hint=None disables publisher matching (nothing is
@@ -361,6 +370,11 @@ def human_text(content_type: str, body: str, *, publisher_hint: str | None) -> d
         return _rss(body)
     if kind == "sitemap":
         return _result("sitemap", "", excluded=True, reason="catalog_url_list")
-    if kind in ("robots", "html"):
+    if kind == "robots":
         return _result(kind, body)
+    if kind == "html":
+        # ATS-description-aliases task 2 (2026-10-30): html docs reach the
+        # gates as prose, not markup soup — see the human_text docstring for
+        # the why (Webflow-head noise) and the disclosed re-head drift.
+        return _result(kind, html_to_text(body)[:MAX_TEXT_CHARS])
     return _result("text", body)

@@ -243,6 +243,16 @@ def board_token_candidates(
 #   recruitee      200 + non-empty "offers" (POS tether, NEG 404 {"error": ...})
 #   teamtailor     200 + non-empty "items" (JSON Feed) or "jobs"
 #                  (POS recruitgo, NEG 404 empty body)
+#
+# Greenhouse verifies against the SAME boards-api URL the collector fetches
+# (content=true, GreenhouseSource.plan): every fetch through the discovery
+# budgeted closure persists into the raw store under source `ats_discovery`,
+# so the verification probe's stored envelope IS a corpus document. The
+# content=false default left databricks' stored envelope (doc d8419437…,
+# 892 metadata-only jobs) alongside the collector's content-bearing
+# ?content=true docs — the metadata-only variant was what corpus reads kept
+# hitting as "the" careers envelope (sourcing spike arm A, 2026-10-30).
+# Payload predicate is unchanged: acceptance is still jobs-list presence.
 # Budget 12 = round 1 (t1 x N pinned vendors) + as much of round 2 (t2 x N)
 # as the cap allows — with today's 8 pinned vendors round 1 completes and the
 # first 4 probes of round 2 fire, so the alias-token showcase
@@ -252,7 +262,7 @@ def board_token_candidates(
 MAX_VERIFY_REQUESTS = 12
 
 _VERIFY_ENDPOINTS: dict[str, str] = {
-    "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{t}/jobs",
+    "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{t}/jobs?content=true",
     "lever": "https://api.lever.co/v0/postings/{t}?mode=json",
     "ashby": "https://api.ashbyhq.com/posting-api/job-board/{t}",
     "workable": "https://apply.workable.com/api/v1/widget/accounts/{t}?details=true",

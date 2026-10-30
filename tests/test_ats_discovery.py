@@ -367,7 +367,7 @@ class FakeJsonFetcher:
 
 def test_verify_board_candidates_greenhouse_hit():
     fetch = FakeJsonFetcher({
-        "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs":
+        "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs?content=true":
             '{"jobs": [{"title": "AE"}]}',
     })
     cands = [("greenhouse", "abnormal"), ("greenhouse", "abnormalsecurity")]
@@ -461,7 +461,7 @@ def test_discover_candidate_ladder_stamps_verified_alias_token(tmp_path):
     """No markers anywhere; the alias-derived token verified against the JSON API."""
     pages = {
         "https://acme.com/careers": "<p>we are hiring</p>",  # marker-free shell
-        "https://boards-api.greenhouse.io/v1/boards/oldname/jobs": '{"jobs":[{"id":1}]}',
+        "https://boards-api.greenhouse.io/v1/boards/oldname/jobs?content=true": '{"jobs":[{"id":1}]}',
     }
     disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
     acct.careers_url = "https://acme.com/careers"
@@ -482,7 +482,7 @@ def test_discover_ladder_hit_never_stamps_site_root(tmp_path):
     bare site root (here the only fetched page) as careers_url."""
     pages = {
         "https://acme.com/": "<html><body>we are hiring</body></html>",
-        "https://boards-api.greenhouse.io/v1/boards/acme/jobs": '{"jobs":[{"id":1}]}',
+        "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true": '{"jobs":[{"id":1}]}',
     }
     disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
     match = disc.discover(acct, alias_names=[])
@@ -550,7 +550,7 @@ def test_discover_ladder_probe_order_is_diagonal(tmp_path):
     probes = fake.seen[-MAX_VERIFY_REQUESTS:]
     # Round 1 opens with the majors seeing the domain-prefix token...
     assert probes[:5] == [
-        "https://boards-api.greenhouse.io/v1/boards/abnormal/jobs",
+        "https://boards-api.greenhouse.io/v1/boards/abnormal/jobs?content=true",
         "https://api.lever.co/v0/postings/abnormal?mode=json",
         "https://api.ashbyhq.com/posting-api/job-board/abnormal",
         "https://apply.workable.com/api/v1/widget/accounts/abnormal?details=true",
@@ -563,7 +563,7 @@ def test_discover_ladder_probe_order_is_diagonal(tmp_path):
     assert probes[:n] == [
         _VERIFY_ENDPOINTS[v].format(t="abnormal") for v in _LADDER_VENDORS
     ]
-    assert probes[n] == "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs"
+    assert probes[n] == "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs?content=true"
     # Round-2 tail pinned: the 12-probe budget buys only the first 4 probes of
     # round 2 — the majors in ladder order on the round-2 (alias) token. At
     # today's cap breezy/recruitee/teamtailor never see depth-2 tokens (see
@@ -580,7 +580,7 @@ def test_discover_ladder_diagonal_hit_on_round2(tmp_path):
     by the diagonal, not by the old vendor-major probe #2."""
     pages = {
         "https://abnormal.ai/careers": "<html>hiring</html>",
-        "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs":
+        "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs?content=true":
             '{"jobs": [{"title": "AE", "absolute_url": "https://abnormal.ai/careers/jobs/1"}]}',
     }
     disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
@@ -604,7 +604,7 @@ def test_discover_ladder_diagonal_hit_on_round2(tmp_path):
     assert probes[:n] == [
         _VERIFY_ENDPOINTS[v].format(t="abnormal") for v in _LADDER_VENDORS
     ]
-    assert probes[-1] == "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs"
+    assert probes[-1] == "https://boards-api.greenhouse.io/v1/boards/abnormalsecurity/jobs?content=true"
 
 
 def test_verify_board_endpoints_module_invariants():
@@ -632,6 +632,33 @@ def test_verify_board_endpoints_module_invariants():
     # collector, and the tuple covers the endpoint map exactly.
     assert set(_LADDER_VENDORS) == set(_VERIFY_ENDPOINTS)
     assert set(_LADDER_VENDORS) <= COLLECTED_VENDORS
+
+
+def test_greenhouse_verify_endpoint_is_collector_content_true_url():
+    """Sourcing spike arm A (2026-10-30) reconciliation: the ladder's
+    greenhouse verification URL must be EXACTLY the collector's planned URL
+    (boards-api …/jobs?content=true). Every fetch through the discovery
+    budgeted closure persists into the raw store under source
+    `ats_discovery`, so the content=false probe stored a metadata-only jobs
+    envelope (databricks doc d8419437…, 892 jobs, no content fields)
+    alongside the collector's content-bearing response — the metadata-only
+    doc was what corpus reads kept hitting as "the" careers envelope.
+    Requesting content=true at the probe makes the persisted discovery doc
+    the content-bearing boards-api envelope."""
+    from src.core.models import Account
+    from src.sources.ats.collector import GreenhouseSource
+
+    assert _VERIFY_ENDPOINTS["greenhouse"].endswith("content=true")
+    # token-for-token parity with what the collector plans
+    for token in ("databricks", "abnormalsecurity"):
+        assert _VERIFY_ENDPOINTS["greenhouse"].format(t=token) == GreenhouseSource().plan(
+            Account(domain="databricks.com", ats_token=token), None
+        )[0].url
+    # the acceptance predicate is unchanged: jobs-list presence (a
+    # content-bearing payload carries the same "jobs" key)
+    assert _board_payload_ok(
+        "greenhouse", json.dumps({"jobs": [{"id": 1, "content": "&lt;p&gt;x&lt;/p&gt;"}]})
+    )
 
 
 # --- Live-probe-pinned predicates (2026-10-04) ------------------------------

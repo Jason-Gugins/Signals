@@ -16,15 +16,29 @@ from __future__ import annotations
 
 import json
 import xml.etree.ElementTree as ET
+from html import unescape
 
 from src.core.textutil import html_to_text
 
-__all__ = ["MAX_TEXT_CHARS", "JOB_WINDOW", "sniff", "human_text", "publisher_matches"]
+__all__ = [
+    "MAX_TEXT_CHARS",
+    "JOB_WINDOW",
+    "JOB_CONTENT_CHARS",
+    "sniff",
+    "human_text",
+    "publisher_matches",
+]
 
 # Bounded implementer input: any text this module returns is capped here.
 MAX_TEXT_CHARS = 120_000
 # json_jobs extraction window: most recent N jobs by updated_at.
 JOB_WINDOW = 100
+# json_jobs per-job detail-prose cap (sourcing spike arm A, 2026-10-30): a
+# content-bearing board's descriptions are board-controlled and unbounded
+# (7.3M stripped chars across the databricks board), so each job's prose is
+# capped before it joins the line — the doc-level MAX_TEXT_CHARS cap stays
+# the backstop.
+JOB_CONTENT_CHARS = 2000
 
 _KINDS = ("json_jobs", "json_results", "rss", "sitemap", "robots", "html", "text")
 
@@ -172,8 +186,21 @@ def _json_jobs(body: str, publisher_hint: str | None) -> dict:
         else:
             unjudged += 1  # no company_name ⇒ can't judge ≠ wrong: kept
         parts = [part for part in (title, location, company) if part]
-        if parts:
-            lines.append(" — ".join(parts))
+        # Job detail prose (sourcing spike arm A, 2026-10-30): boards-api
+        # content=true ships each job's description as HTML-escaped HTML
+        # (`&lt;p&gt;…`) — one unescape restores the markup, html_to_text
+        # strips it (the same shape parse_greenhouse strips). Wrong-entity
+        # jobs never reach this point (dropped above), so their prose is
+        # excluded with them.
+        prose = ""
+        content = job.get("content")
+        if content:
+            prose = html_to_text(unescape(str(content)))[:JOB_CONTENT_CHARS]
+        if parts or prose:
+            line = " — ".join(parts)
+            if prose:
+                line = f"{line}\n{prose}" if line else prose
+            lines.append(line)
     return _result(
         "json_jobs",
         "\n".join(lines),
@@ -259,15 +286,21 @@ def human_text(content_type: str, body: str, *, publisher_hint: str | None) -> d
     wrong_entity_dropped, unjudged}:
 
     - json_jobs  ({"jobs": [{title, location?, company_name?, updated_at?,
-                   first_published?}, …]}): one line per job
+                   first_published?, content?}, …]}): one line per job
                    "{title} — {location} — {company_name}", most recent 100
                    by updated_at (else first_published, else file order);
-                   PER-JOB publisher matching vs publisher_hint — jobs whose
-                   company_name fails the match are dropped and counted
-                   (wrong_entity_dropped). Per-ITEM matching replaces any
-                   doc-level majority (undefined on ties, and the measured
-                   databricks iTunes doc mixes four distinct artistNames).
-                   publisher_items counts window jobs carrying company_name.
+                   when a job carries `content` (boards-api content=true:
+                   HTML-escaped HTML), the line becomes
+                   "{title} — {location} — {company_name}\n{prose}" with
+                   prose = html_to_text(unescape(content)) capped at
+                   JOB_CONTENT_CHARS per job; PER-JOB publisher matching vs
+                   publisher_hint — jobs whose company_name fails the match
+                   are dropped and counted (wrong_entity_dropped), their
+                   content prose excluded with them. Per-ITEM matching
+                   replaces any doc-level majority (undefined on ties, and
+                   the measured databricks iTunes doc mixes four distinct
+                   artistNames). publisher_items counts window jobs carrying
+                   company_name.
     - json_results ({"results": [{artistName?, description?, trackName?},
                    …]}): PER-RESULT publisher matching on artistName —
                    mismatched results' descriptions are dropped and counted

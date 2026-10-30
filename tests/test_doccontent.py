@@ -5,7 +5,9 @@ Synthetic fixtures mirror the MEASURED envelope shapes (plan grounding,
 updated_at and NO description key), iTunes Search JSON (results with
 artistName/description/trackName, shipped as text/javascript), sitemap XML
 that ships under an rss+xml content type (the measured body-sniff lesson),
-RSS with HTML anchor-soup item descriptions, robots.txt, html, plain text.
+RSS with HTML anchor-soup item descriptions, robots.txt, html, plain text —
+plus the sourcing-spike arm A shape (2026-10-30): jobs whose `content` is
+HTML-escaped HTML, prose stripped and capped per job into the extraction.
 """
 from __future__ import annotations
 
@@ -223,6 +225,139 @@ def test_human_text_json_jobs_skips_non_dict_entries_without_raising():
     assert info["text"] == "A — L — Databricks"
 
 
+# --- json_jobs content branch (sourcing spike arm A, 2026-10-30) -----------
+# Measured wire shape (boards-api.greenhouse.io …/jobs?content=true, spike
+# SOURCING_SPIKE_20261030.md): each job's `content` is HTML-escaped HTML
+# ("&lt;p&gt;…") — ONE html.unescape restores the markup, html_to_text
+# strips it (the same shape parse_greenhouse strips).
+
+_GREENHOUSE_CONTENT_RAW = (
+    "&lt;p&gt;Req ID: CSQ427R266&lt;br&gt;Location: Tokyo, Japan&lt;/p&gt;\n"
+    "&lt;p&gt;You will build lakehouse &amp;amp; AI platforms for customers.&lt;/p&gt;\n"
+    "&lt;script&gt;tracker()&lt;/script&gt;"
+)
+_GREENHOUSE_CONTENT_PROSE = (
+    "Req ID: CSQ427R266\nLocation: Tokyo, Japan\n"
+    "You will build lakehouse & AI platforms for customers."
+)
+
+GREENHOUSE_CONTENT = json.dumps(
+    {
+        "jobs": [
+            {
+                "id": 1,
+                "title": "Solutions Architect",
+                "location": {"name": "Tokyo, Japan"},  # measured: dict shape
+                "company_name": "Databricks Inc.",
+                "updated_at": "2026-10-30T12:00:00Z",
+                "content": _GREENHOUSE_CONTENT_RAW,
+            },
+            {
+                "id": 2,
+                "title": "Bare Role",
+                "location": "Berlin, Germany",
+                "company_name": "Databricks Inc.",
+                "updated_at": "2026-10-30T11:00:00Z",
+                # no content: metadata-only line, exactly as shipped
+            },
+        ]
+    }
+)
+
+
+def test_human_text_json_jobs_content_prose_flows_through():
+    info = human_text("application/json", GREENHOUSE_CONTENT, publisher_hint="Databricks")
+    assert info["kind"] == "json_jobs"
+    assert info["excluded"] is False
+    lines = info["text"].splitlines()
+    # metadata + 3 prose lines for job 1, metadata line for job 2
+    assert len(lines) == 5
+    # the content-bearing job's line: metadata line, then stripped prose
+    assert lines[0] == "Solutions Architect — Tokyo, Japan — Databricks Inc."
+    assert lines[1:4] == _GREENHOUSE_CONTENT_PROSE.splitlines()
+    assert lines[4] == "Bare Role — Berlin, Germany — Databricks Inc."
+    # no escaped-entity or markup residue from the measured double-escaped form
+    assert "&lt;" not in info["text"] and "&gt;" not in info["text"]
+    assert "<p>" not in info["text"] and "<script" not in info["text"]
+    # publisher counters unchanged: window jobs carrying company_name
+    assert info["publisher_items"] == 2
+    assert info["wrong_entity_dropped"] == 0
+    assert info["unjudged"] == 0
+    # the contentless job keeps its shipped metadata-only line
+    assert "Bare Role — Berlin, Germany — Databricks Inc." in info["text"]
+
+
+def test_human_text_json_jobs_content_capped_per_job():
+    long_html = "&lt;p&gt;" + ("word " * 20_000) + "&lt;/p&gt;"
+    body = json.dumps(
+        {
+            "jobs": [
+                {
+                    "title": "Big",
+                    "location": "L",
+                    "company_name": "Databricks",
+                    "updated_at": "2026-10-30T12:00:00Z",
+                    "content": long_html,
+                }
+            ]
+        }
+    )
+    from src.core.doccontent import JOB_CONTENT_CHARS
+
+    info = human_text("application/json", body, publisher_hint="Databricks")
+    lines = info["text"].splitlines()
+    assert lines[0] == "Big — L — Databricks"
+    prose = "\n".join(lines[1:])
+    assert len(prose) == JOB_CONTENT_CHARS == 2000
+    assert info["text"].count("word") == 400  # 2000 chars / 5 per "word "
+    # doc-level cap stays the backstop
+    assert len(info["text"]) <= 120_000
+
+
+def test_human_text_json_jobs_wrong_entity_content_dropped():
+    body = json.dumps(
+        {
+            "jobs": [
+                {
+                    "title": "Not Ours",
+                    "location": "Elsewhere",
+                    "company_name": "Zibma Infotech",
+                    "updated_at": "2026-10-30T12:00:00Z",
+                    "content": _GREENHOUSE_CONTENT_RAW,
+                }
+            ]
+        }
+    )
+    info = human_text("application/json", body, publisher_hint="Databricks")
+    # the wrong-entity job's PROSE is excluded with it
+    assert info["wrong_entity_dropped"] == 1
+    assert info["publisher_items"] == 1
+    assert "Req ID" not in info["text"]
+    assert "Not Ours" not in info["text"]
+    assert info["text"] == ""
+
+
+def test_human_text_json_jobs_unjudged_content_kept():
+    body = json.dumps(
+        {
+            "jobs": [
+                {
+                    "title": "NoCo",
+                    "location": "L1",
+                    "updated_at": "2026-10-30T12:00:00Z",
+                    "content": _GREENHOUSE_CONTENT_RAW,
+                }
+            ]
+        }
+    )
+    info = human_text("application/json", body, publisher_hint="Rillet")
+    # no company_name ⇒ can't judge ≠ wrong: kept, counted unjudged, prose intact
+    assert info["unjudged"] == 1
+    assert info["wrong_entity_dropped"] == 0
+    assert info["text"].splitlines()[0] == "NoCo — L1"
+    assert "Req ID: CSQ427R266" in info["text"]
+
+
 # --- human_text: json_results ----------------------------------------------
 
 
@@ -417,7 +552,12 @@ def _load_stored_greenhouse():
 
 
 def test_real_stored_greenhouse_smoke():
-    """Real-byte smoke over the measured databricks greenhouse envelope."""
+    """Real-byte smoke over the measured databricks greenhouse envelope.
+
+    The stored d8419437… doc is the CONTENTLESS discovery-probe envelope
+    (boards-api /jobs without content=true, 892 metadata-only jobs — see the
+    reconciliation test in test_ats_discovery.py), so the content branch adds
+    nothing here: expectations are the shipped metadata-only shape."""
     stored = _load_stored_greenhouse()
     if stored is None:
         pytest.skip("stored greenhouse envelope not present")
@@ -430,4 +570,59 @@ def test_real_stored_greenhouse_smoke():
     assert "absolute_url" not in info["text"]
     assert "gdpr" not in info["text"]
     assert " — " in info["text"]
+    assert len(info["text"]) <= 120_000
+    if "&lt;p&gt;" not in body:
+        # contentless stored envelope: every extracted line is metadata-only
+        assert all("&lt;" not in ln for ln in info["text"].splitlines())
+
+
+def _load_stored_greenhouse_content():
+    """Content-bearing collector doc (ats_greenhouse, boards-api ?content=true),
+    the spike arm A shape — skip-when-absent, offline-safe like the smoke above."""
+    db_path = REPO / "data" / "signals.db"
+    if not db_path.exists():
+        return None
+    try:
+        con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        row = con.execute(
+            "SELECT doc_id, path, content_type FROM documents "
+            "WHERE source = 'ats_greenhouse' AND url LIKE '%content=true%' "
+            "ORDER BY fetched_at DESC LIMIT 1"
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+    if row is None:
+        return None
+    doc_id, rel, content_type = row
+    path = Path(rel) if rel else REPO / "data" / "raw" / doc_id[:2] / f"{doc_id}.gz"
+    if not path.exists():
+        return None
+    with gzip.open(path, "rb") as fh:
+        return (content_type or "application/json", fh.read().decode("utf-8", "replace"))
+
+
+def test_real_stored_greenhouse_content_smoke():
+    """Real-byte smoke over the CONTENT-BEARING collector envelope (spike arm
+    A measured shape: 903/903 jobs carry HTML-escaped HTML content)."""
+    stored = _load_stored_greenhouse_content()
+    if stored is None:
+        pytest.skip("stored content-bearing greenhouse envelope not present")
+    content_type, body = stored
+    assert sniff(content_type, body) == "json_jobs"
+    info = human_text(content_type, body, publisher_hint="Databricks")
+    assert info["kind"] == "json_jobs"
+    assert info["excluded"] is False
+    assert info["text"]
+    # the content branch fired: escaped-entity markup and raw tags are gone
+    assert "&lt;p&gt;" not in info["text"]
+    assert "<script" not in info["text"]
+    # prose survived into the extraction (content-bearing lines exist)
+    assert "\n" in info["text"]
+    assert " — " in info["text"]
+    # per-job caps + the doc-level cap hold on 7.3M chars of board prose
     assert len(info["text"]) <= 120_000

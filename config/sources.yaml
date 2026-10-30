@@ -95,4 +95,20 @@ sources:
   needs:
     enabled: true
     cadence_hours: 24
-
+  # Sitemap-enumerated first-party content pages (spike arm C,
+  # data/probe/SOURCING_SPIKE_20261030.md: rillet case-study/compare pages are
+  # server-rendered 200s with real prose; arm B NO-GO — no RSS, so /blog/
+  # folds into content_patterns). plan() reads the account's STORED sitemap
+  # document, filters <loc> URLs by content_patterns, skips URLs the documents
+  # table already holds, and rotates a URL cursor so successive cycles cover
+  # the rest (max_fetches_per_cycle each cycle). Fetched through the standard
+  # http fetcher tier — robots.txt honored by default; the spike verified
+  # rillet robots does not disallow the patterns.
+  sitecontent:
+    enabled: true
+    cadence_hours: 168          # weekly
+    rate_per_host: 0.5
+    content_patterns: ["/case-studies/", "/blog/", "/compare/", "/solutions/"]
+    max_fetches_per_cycle: 20
+    prose_floor_chars: 500
+    max_prose_chars: 50000

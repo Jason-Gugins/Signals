@@ -25,6 +25,7 @@ import src.sources.content.producthunt  # noqa: F401  (content_producthunt — s
 import src.sources.yc.collector  # noqa: F401  (yc_batch — stub, browser-tier upgrade required)
 import src.sources.appstores.appstore  # noqa: F401  (appstore_reviews — live iTunes RSS)
 import src.sources.bbb.collector  # noqa: F401  (bbb_profile — live SSR)
+import src.sources.sitecontent.collector  # noqa: F401  (sitecontent — sitemap-enumerated prose pages, spike arm C)
 import src.sources.owned.collector  # noqa: F401
 import src.sources.linkedin_db.collector  # noqa: F401
 import src.sources.repvue_db.collector  # noqa: F401

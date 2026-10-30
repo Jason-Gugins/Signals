@@ -603,6 +603,7 @@ Detection covers all 11 collected vendors. Collector-less boards (bamboohr, jazz
 - `appstore_reviews` — live iTunes RSS reviews plus version capture. Set the account's `app_store_id` (a seed CSV column or a `deepen` update).
 - `content_itunes` — vendor podcast presence via the iTunes Search API.
 - `bbb_profile` — live BBB business profiles; grade downgrades emit `reputation_drop`. Seed `extra_data.bbb_url` per account — those URLs are not derivable from name and domain.
+- `sitecontent` — sitemap-enumerated first-party content pages (case studies, blog, compare, solutions). The account's stored sitemap document is the URL catalog; per-cycle fetches are capped and a rotation cursor covers the rest across cycles. Fetched through the standard http tier (robots honored); pages with enough rendered prose earn a thin `content_appearance` marker and their text feeds the claim pipeline.
 
 **Local / opt-in DBs.**
 

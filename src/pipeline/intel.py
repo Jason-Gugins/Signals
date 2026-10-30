@@ -34,6 +34,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from src.core import doccontent
 from src.core.models import Account
 from src.decide import gates as decide_gates
 from src.decide import policy as decide_policy
@@ -334,7 +335,8 @@ def _implement_pass(
     "promoted", "llm_fields", "degraded", "projected_tokens",
     "token_ceiling", "gaps", "five_fields_escalations",
     "five_fields_quarantined", "claims_typed", "event_dates_extracted",
-    "amounts_extracted"}`` plus ``"retrieval"`` (staged_by / docs /
+    "amounts_extracted", "excluded_catalog", "excluded_wrong_entity_docs",
+    "excluded_wrong_entity_items"}`` plus ``"retrieval"`` (staged_by / docs /
     coverage / provenance) ONLY when the retrieval block ran. NEVER raises
     past the caller's try/except; degradation is expressed by return value,
     never by aborting the run.
@@ -348,6 +350,9 @@ def _implement_pass(
         "claims_typed": 0,
         "event_dates_extracted": 0,
         "amounts_extracted": 0,
+        "excluded_catalog": 0,
+        "excluded_wrong_entity_docs": 0,
+        "excluded_wrong_entity_items": 0,
         "promoted": 0,
         "llm_fields": {},
         "degraded": False,
@@ -459,7 +464,13 @@ def _implement_pass(
         # convention). Carries staged_by/docs/coverage/provenance so the
         # stage record always says WHICH selection a run used.
         result["retrieval"] = retrieval_info
+    # The account identity for extraction's wrong-entity guard (and the doc
+    # gate below): the DB account name, falling back to the bare domain.
+    account_name = str(getattr(account, "name", None) or domain)
     docs: list[tuple[object, str]] = []
+    excluded_catalog = 0
+    excluded_wrong_entity_docs = 0
+    excluded_wrong_entity_items = 0
     for meta_doc in staged:
         doc_id = str(getattr(meta_doc, "doc_id", "") or "")
         full = None
@@ -472,14 +483,74 @@ def _implement_pass(
         text = _decode_body(getattr(full, "body", None) if full is not None else None)
         if not text.strip():
             continue
-        docs.append((full if full is not None else meta_doc, text))
+        # Extraction before claims (plan 2026-10-29, Task 2): machine
+        # envelopes are reduced to their human content BEFORE the doc gate,
+        # and catalog formats + wrong-entity documents are excluded here —
+        # never staged, never gated, never spent on. _decode_body stays the
+        # byte decoder; human_text takes the DECODED text. html/text bodies
+        # pass through unchanged (sniffer-only extraction), so plain-text
+        # docs stage exactly as before.
+        carrier = full if full is not None else meta_doc
+        info = doccontent.human_text(
+            str(getattr(carrier, "content_type", "") or ""),
+            text,
+            publisher_hint=account_name,
+        )
+        if info["excluded"]:
+            # Catalog format (the sitemap/URL-list class): nothing
+            # claim-worthy to mine.
+            excluded_catalog += 1
+            continue
+        wrong_items = int(info.get("wrong_entity_dropped") or 0)
+        if (
+            info["kind"] == "json_results"
+            and int(info.get("publisher_items") or 0) > 0
+            and wrong_items == int(info.get("publisher_items") or 0)
+        ):
+            # Doc-level wrong-entity guard for results envelopes: EVERY
+            # artistName-bearing result mismatched the account (the matching
+            # itself ran per item inside human_text against the account
+            # hint — its counters are the seam's doc-level signal), so the
+            # whole envelope is a wrong-entity document: excluded wholesale,
+            # its items still counted (the measured Zibma case).
+            excluded_wrong_entity_docs += 1
+            excluded_wrong_entity_items += wrong_items
+            continue
+        text = info["text"]
+        if wrong_items:
+            # Per-item wrong-entity drops (json_jobs / mixed results): the
+            # doc stays in scope, only the items were dropped.
+            excluded_wrong_entity_items += wrong_items
+        if not text.strip():
+            continue
+        docs.append((carrier, text))
     result["docs"] = len(docs)
+    result["excluded_catalog"] = excluded_catalog
+    result["excluded_wrong_entity_docs"] = excluded_wrong_entity_docs
+    result["excluded_wrong_entity_items"] = excluded_wrong_entity_items
     if staged and not docs:
         # A silent no-op is never acceptable: documents ARE in scope, so the
-        # stage must say why it produced nothing.
+        # stage must say why it produced nothing. When exclusions fired, the
+        # pre-existing "0 bodies loadable" line would MISLEAD — exclusions
+        # are not unloadable bodies (review finding) — so it is reworded.
+        if excluded_catalog or excluded_wrong_entity_docs or excluded_wrong_entity_items:
+            result["gaps"].append(
+                f"llm implementers: {len(staged)} documents in scope, all excluded "
+                f"before the gate (catalog docs: {excluded_catalog}, wrong-entity docs: "
+                f"{excluded_wrong_entity_docs}, wrong-entity items: "
+                f"{excluded_wrong_entity_items}); stage no-op"
+            )
+        else:
+            result["gaps"].append(
+                f"llm implementers: {len(staged)} documents in scope but 0 bodies loadable; "
+                "stage no-op"
+            )
+    elif excluded_catalog or excluded_wrong_entity_docs or excluded_wrong_entity_items:
+        # Honest one-line note when exclusions fired alongside staged docs.
         result["gaps"].append(
-            f"llm implementers: {len(staged)} documents in scope but 0 bodies loadable; "
-            "stage no-op"
+            f"extraction: {excluded_catalog} catalog docs and "
+            f"{excluded_wrong_entity_docs} wrong-entity docs / "
+            f"{excluded_wrong_entity_items} wrong-entity items excluded before the gate"
         )
 
     # Token pre-flight (a documented cost envelope, see the module constants):
@@ -590,7 +661,6 @@ def _implement_pass(
             "evidence_rerank enabled but document_gate disabled; re-rank inert (run={})",
             run_id,
         )
-    account_name = str(getattr(account, "name", None) or domain)
     if doc_gate_on and decider is not None:
         excluded_reasons: dict[str, int] = {}
         screened: list[tuple[object, str, float | None]] = []
@@ -1791,6 +1861,9 @@ def run_intel(
                 dates_extracted = int(impl.get("event_dates_extracted", 0) or 0)
                 amounts_extracted = int(impl.get("amounts_extracted", 0) or 0)
                 reranked_count = int(impl.get("docs_reranked", 0) or 0)
+                excluded_catalog = int(impl.get("excluded_catalog", 0) or 0)
+                excluded_wrong_docs = int(impl.get("excluded_wrong_entity_docs", 0) or 0)
+                excluded_wrong_items = int(impl.get("excluded_wrong_entity_items", 0) or 0)
                 retrieval_stage = impl.get("retrieval") or None
                 record(
                     "implement",
@@ -1813,6 +1886,19 @@ def run_intel(
                     **({"event_dates_extracted": dates_extracted} if dates_extracted else {}),
                     **({"amounts_extracted": amounts_extracted} if amounts_extracted else {}),
                     **({"docs_reranked": reranked_count} if reranked_count else {}),
+                    # Extraction-before-claims bookkeeping (plan 2026-10-29
+                    # Task 2): ONLY when nonzero, like every counter above.
+                    **({"excluded_catalog": excluded_catalog} if excluded_catalog else {}),
+                    **(
+                        {"excluded_wrong_entity_docs": excluded_wrong_docs}
+                        if excluded_wrong_docs
+                        else {}
+                    ),
+                    **(
+                        {"excluded_wrong_entity_items": excluded_wrong_items}
+                        if excluded_wrong_items
+                        else {}
+                    ),
                 )
         except Exception as exc:
             logger.exception("intel implement sub-stage failed for {}", domain)

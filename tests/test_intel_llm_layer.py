@@ -3356,3 +3356,279 @@ def test_g5_survives_more_candidates_than_pairs(monkeypatch):
         DOC_TEXT_1, extra_need
     )
     assert respx.calls.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# 13. Extraction before claims (plan 2026-10-29, Task 2): machine envelopes
+#     are reduced to human content — and catalog / wrong-entity documents
+#     excluded — at the _implement_pass decode seam, BEFORE the doc gate.
+#     Fixtures mirror the MEASURED stored envelopes (greenhouse ATS JSON,
+#     iTunes search JSON, sitemap-as-rss+xml).
+# ---------------------------------------------------------------------------
+
+
+def _typed_doc(
+    doc_id,
+    text,
+    content_type,
+    fetched_at="2026-08-15T00:00:00+00:00",
+    source="ats_discovery",
+):
+    """A document carrying a content_type (the plain-text _doc fixtures have
+    none — that is exactly the passthrough class the existing tests pin)."""
+    return Document(
+        doc_id=doc_id,
+        source=source,
+        url=f"https://acme.com/{doc_id}",
+        domain=DOMAIN,
+        content_type=content_type,
+        fetched_at=fetched_at,
+        body=text.encode("utf-8"),
+    )
+
+
+GREENHOUSE_BODY = json.dumps(
+    {
+        "jobs": [
+            {
+                "id": 8124001,
+                "title": "Data Engineer",
+                "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/8124001",
+                "company_name": "Acme",
+                "location": {"name": "Amsterdam, NL"},
+                "metadata": '[{"id":1,"name":"Employment type","value_type":"single_select",'
+                '"value":"Full-time"}]',
+                "data_compliance": [{"type": "gdpr", "requires_consent": True}],
+                "first_published": "2026-10-01",
+                "updated_at": "2026-10-20T12:00:00Z",
+                "requisition_id": "req-1",
+                "internal_job_id": 9001,
+                "language": "en",
+            },
+            {
+                "id": 8124002,
+                "title": "Third-party Quiz Builder",
+                "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/8124002",
+                "company_name": "Zibma Infotech",
+                "location": {"name": "Remote"},
+                "metadata": "[]",
+                "updated_at": "2026-10-21T12:00:00Z",
+            },
+            {
+                "id": 8124003,
+                "title": "Solutions Architect",
+                "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/8124003",
+                "company_name": "Acme",
+                "location": {"name": "Berlin, DE"},
+                "updated_at": "2026-10-22T12:00:00Z",
+            },
+        ]
+    }
+)
+
+ITUNES_BODY = json.dumps(
+    {
+        "resultCount": 1,
+        "results": [
+            {
+                "artistName": "Zibma Infotech",
+                "trackName": "Rillet Education",
+                "description": (
+                    "Rillet Education by Zibma Infotech is a study planner that "
+                    "tracks homework, timetables and exam countdowns for students."
+                ),
+                "kind": "software",
+            }
+        ],
+    }
+)
+
+SITEMAP_BODY = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    "<url><loc>https://acme.com/pricing</loc></url>\n"
+    "<url><loc>https://acme.com/blog/siem-trends</loc></url>\n"
+    "</urlset>"
+)
+
+
+def _patch_staged_text_recorder(monkeypatch, *, fields=None):
+    """Bulk-implementer recorder that captures WHICH doc ids were spent on and
+    EACH doc's staged text (the user message after 'Document text:')."""
+    rec = {"bulk": [], "texts": {}, "fields": []}
+
+    def fake_call_implementer(
+        messages, *, model, base_url, api_key, reasoning_effort=None, timeout_s=60.0, **kw
+    ):
+        if "REASONING IMPLEMENTER" in messages[0]["content"]:
+            rec["fields"].append(messages[1]["content"])
+            return fields or {}
+        body = messages[1]["content"]
+        doc_id = body.split("Document doc_id: ", 1)[1].splitlines()[0].strip()
+        rec["bulk"].append(doc_id)
+        rec["texts"][doc_id] = body.split("Document text:", 1)[1]
+        return {"claims": [{"text": CLAIM_TEXT, "doc_id": doc_id}]}
+
+    monkeypatch.setattr(intel.llm_implement, "call_implementer", fake_call_implementer)
+    return rec
+
+
+def _extraction_bootstrap(monkeypatch, *, docs, account_name="Acme"):
+    """The standard layer-active bootstrap for the extraction tests: faked
+    planner/decider/seams, real staging, real doccontent extraction."""
+    orch = FakeOrchLlm(
+        accounts={DOMAIN: Account(domain=DOMAIN, name=account_name)}, docs=docs
+    )
+    _patch_coverage(monkeypatch)
+    _patch_package_recorder(monkeypatch)
+    _patch_layer(monkeypatch, decide_cfg=_decide_cfg("enforce"), decider=_high_decider())
+    _patch_adapters(monkeypatch)
+    _patch_planner(monkeypatch)
+    rec = _patch_staged_text_recorder(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("SIGNALS_DECIDE_DATA_EXIT", DATA_EXIT_CONSENT)
+    return orch, rec
+
+
+@respx.mock
+def test_extraction_greenhouse_envelope_stages_clean_job_lines(monkeypatch):
+    """The greenhouse ATS list envelope stages ONLY the clean per-job lines:
+    metadata/gdpr/absolute_url scaffolding absent, the wrong-company job's
+    title absent, the per-item drop counted."""
+    docs = [
+        _typed_doc("gh-doc", GREENHOUSE_BODY, "application/json"),
+    ]
+    orch, rec = _extraction_bootstrap(monkeypatch, docs=docs)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"
+    assert stage["docs"] == 1
+    assert rec["bulk"] == ["gh-doc"]
+    staged = rec["texts"]["gh-doc"]
+    assert "Solutions Architect — Berlin, DE — Acme" in staged
+    assert "Data Engineer — Amsterdam, NL — Acme" in staged
+    # envelope scaffolding never reaches the implementer (nor G4/G5 behind it)
+    for absent in ("absolute_url", "metadata", "gdpr", "requisition_id", "greenhouse.io"):
+        assert absent not in staged
+    # the wrong-company job is dropped per item and counted
+    assert "Third-party Quiz Builder" not in staged
+    assert "Zibma" not in staged
+    assert stage["excluded_wrong_entity_items"] == 1
+    assert stage.get("excluded_wrong_entity_docs", 0) == 0  # doc stays in scope
+    assert stage.get("excluded_catalog", 0) == 0
+    assert any("extraction:" in gap for gap in result["gaps"]), result["gaps"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_extraction_wrong_entity_results_doc_excluded_before_gate(monkeypatch):
+    """The iTunes results envelope whose every artistName mismatches the
+    account is a wrong-entity DOCUMENT: excluded before the doc gate — its
+    description never reaches the implementer, G4 or G5."""
+    docs = [
+        _typed_doc("itunes-doc", ITUNES_BODY, "text/javascript", source="appstore"),
+    ]
+    orch, rec = _extraction_bootstrap(monkeypatch, docs=docs, account_name="Rillet")
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"  # the run completes
+    assert stage["docs"] == 0
+    assert stage["excluded_wrong_entity_docs"] == 1
+    assert stage["excluded_wrong_entity_items"] == 1
+    # no implementer / five-fields spend on the wrong-entity doc
+    assert rec["bulk"] == [] and rec["fields"] == []
+    # the Zibma description is absent from every staged text and from the
+    # promoted signal pool (nothing was staged at all)
+    assert all("study planner" not in t for t in rec["texts"].values())
+    assert orch.signal_store.upserted == []
+    # the misleading "0 bodies loadable" line must NOT fire (exclusions are
+    # not unloadable bodies), and an honest gap names the exclusion
+    assert not any("0 bodies loadable" in gap for gap in result["gaps"]), result["gaps"]
+    assert any("all excluded before the gate" in gap for gap in result["gaps"]), result["gaps"]
+    # excluded BEFORE the gate: the doc gate never screened anything
+    assert stage.get("docs_screened", 0) == 0
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_extraction_sitemap_doc_excluded_as_catalog(monkeypatch):
+    """The sitemap that ships as application/rss+xml is BODY-sniffed as a
+    catalog URL list and excluded before the gate: excluded_catalog counted,
+    the URL list never staged."""
+    docs = [
+        _typed_doc("sitemap-doc", SITEMAP_BODY, "application/rss+xml"),
+    ]
+    orch, rec = _extraction_bootstrap(monkeypatch, docs=docs)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"
+    assert stage["docs"] == 0
+    assert stage["excluded_catalog"] == 1
+    assert rec["bulk"] == [] and rec["fields"] == []
+    assert not any("0 bodies loadable" in gap for gap in result["gaps"]), result["gaps"]
+    assert any("all excluded before the gate" in gap for gap in result["gaps"]), result["gaps"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_extraction_mixed_world_excludes_envelopes_and_stages_plain_text(monkeypatch):
+    """Mixed world: the excluded envelopes + one plain-text doc — the plain
+    doc still stages BYTE-IDENTICAL and the stage record carries the counts."""
+    docs = [
+        _typed_doc("itunes-doc", ITUNES_BODY, "text/javascript", source="appstore"),
+        _typed_doc("sitemap-doc", SITEMAP_BODY, "application/rss+xml"),
+        _doc("doc-1", DOC_TEXT_1),
+    ]
+    orch, rec = _extraction_bootstrap(monkeypatch, docs=docs)
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"
+    assert stage["docs"] == 1
+    assert rec["bulk"] == ["doc-1"]
+    # html/text passthrough: the plain doc's staged text is byte-identical
+    assert rec["texts"]["doc-1"] == "\n" + DOC_TEXT_1
+    assert stage["excluded_catalog"] == 1
+    assert stage["excluded_wrong_entity_docs"] == 1
+    assert stage["excluded_wrong_entity_items"] == 1
+    assert any(
+        "extraction: 1 catalog docs and 1 wrong-entity docs" in gap
+        for gap in result["gaps"]
+    ), result["gaps"]
+    assert respx.calls.call_count == 0
+
+
+@respx.mock
+def test_extraction_all_docs_excluded_rewords_the_noop_gap(monkeypatch):
+    """All staged docs excluded before the gate: the run completes, the stage
+    is an honest no-op, and the MISLEADING '0 bodies loadable' line is
+    suppressed (exclusions are not unloadable bodies — review finding)."""
+    docs = [
+        _typed_doc("itunes-doc", ITUNES_BODY, "text/javascript", source="appstore"),
+        _typed_doc("sitemap-doc", SITEMAP_BODY, "application/rss+xml"),
+    ]
+    orch, rec = _extraction_bootstrap(monkeypatch, docs=docs, account_name="Rillet")
+
+    result = intel.run_intel(DOMAIN, config=orch.config, orch=orch, with_llm=True)
+
+    stage = result["stages"]["implement"]
+    assert stage["status"] == "ran"
+    assert stage["docs"] == 0
+    assert stage["claims_accepted"] == 0
+    assert stage["excluded_catalog"] == 1
+    assert stage["excluded_wrong_entity_docs"] == 1
+    assert not any("0 bodies loadable" in gap for gap in result["gaps"]), result["gaps"]
+    assert any(
+        "2 documents in scope, all excluded before the gate" in gap
+        for gap in result["gaps"]
+    ), result["gaps"]
+    assert rec["bulk"] == [] and rec["fields"] == []
+    assert orch.signal_store.upserted == []
+    assert respx.calls.call_count == 0

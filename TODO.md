@@ -550,6 +550,18 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ### Deferred
 
+- [ ] **ATS description aliases + html branch** — the two-layer ATS gap
+  measured 2026-10-30: parsers read descriptions into JobPost (lever/
+  workable/jobvite/breezy/rippling/teamtailor + greenhouse via content=true)
+  but the claim pipeline's json_jobs extraction only carried greenhouse's
+  `content` key — rillet's 610KB ats_ashby envelope (40/40 jobs with
+  descriptionPlain, 236K chars) extracted to 1,662 chars of title lines.
+  Wave: alias-set prose branch (uniform html_to_text(unescape())[:2000]
+  treatment — idempotency verified) + the html branch at the implement seam
+  (kind=html -> prose instead of markup soup; fixes the sourcing wave's own
+  sitecontent pages reaching the gate as tag noise; measured drift 13 rillet
+  + 8 databricks docs, dual-hash join handles it). Plan:
+  `docs/plans/2026-10-30-ats-description-aliases.md`.
 - [x] **Detail-page sourcing** — DELIVERED 2026-10-30 (delivery record below;
   this box was never flipped). Spike: Arm A GO (boards-api content=true,
   903/903 jobs, 7.3M chars prose — and the corpus-envelope mystery solved:

@@ -125,3 +125,42 @@ were never miscalibrated; the corpus lacked promotable content. The
 decision record now supports the next investment: detail-page fetching
 (and, when real need-bearing prose exists, the decide-lab's band/criteria
 calibration on material that can actually clear it).
+
+## Alias-branch validation (2026-10-30, post ATS-description-aliases wave) — THE BAND IS REACHED
+
+Harvest: rillet.com-20261030T234923165282Z (Ashby prose arm — 81,702 chars of
+descriptionPlain extracted from the 610KB envelope, was 1,662) +
+databricks.com-20261030T235409489127Z. Frozen corpus, enforce, retrieval
+staging, persist on.
+
+- **Deterministic assertion PASS**: the ashby doc staged and its gate state
+  contains the descriptionPlain prose ("Rillet serves accounting and finance
+  teams…"), via the dual-hash join.
+- **The claim mix TRANSFORMED**: 65 unique accepted claims (was 25), led by
+  real material — "Rillet raised a $100 million Series C", "led by ICONIQ",
+  "Sequoia and Andreessen Horowitz continued participation", "capital funds
+  an AI-native ERP that reasons about financial events as they happen",
+  "closed the year at 100 customers with an NPS of 70". Verbatim-quoted,
+  G4-verified facts from the job-description prose the alias branch unlocked.
+- **G5 nouls: 0.07–0.34** (60 calls — the MAX_G5_CALLS cap bound; gap
+  visible), with **NINE claims at 0.30–0.34 — inside the review band
+  [band_low 0.30, floor 0.70) for the first time in project history.**
+  Pre-alias medians: ~0.13. The material moved the judge.
+- **Promotions: 0** — the nine band claims land as `reviewed` (calibration
+  bookkeeping; review never applies content), the rest dropped below 0.30.
+  No claim reached the 0.70 promote floor.
+- databricks: 5 accepted (employer-branding prose from the greenhouse
+  descriptions), G5 nouls 0.15–0.23, dropped. degraded=False both runs.
+
+## Interpretation (contract applied)
+
+The alias branch moved the judge from "uniform ~0.13" to a distribution
+whose top reaches the band — the material thesis is CONFIRMED with real
+evidence. The remaining gap is now exactly one lever: **the 0.70 promote
+floor vs a band full of 0.30–0.34 claims.** Whether the strongest accepted
+claims (the Series C cluster; the 100-customers/NPS-70 fact) deserve
+promotion is a calibration decision the decide-lab is built to make — and
+the Series C facts are partially duplicative of deterministic funding
+coverage, so the play-worthiness judgment is the user's. The deterministic
+assertions (ashby staged, prose in state) are the wave's proof; the band
+population is its reward.

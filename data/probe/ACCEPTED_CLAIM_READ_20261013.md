@@ -89,3 +89,39 @@ the AB-test seller (a fictional profile). The structural conclusion does
 not depend on taste: the provenance table (machine formats → metadata
 restatements) is mechanical, and the wrong-entity class is objective. The
 user is the final calibration on the 2–3 borderline items.
+
+## Extraction validation (2026-10-30, post extraction-before-claims wave)
+
+Harvest: rillet.com-20261030T000643278490Z + databricks.com-20261030T000751095097Z
+(frozen corpus, enforce, retrieval staging, persist on).
+
+- **Deterministic assertions — ALL PASS.** rillet's stage record: "1 catalog
+  docs and 1 wrong-entity docs / 1 wrong-entity items excluded before the
+  gate" — the sitemap (376-URL catalog) and the Zibma iTunes result were
+  excluded before any Jev spend, exactly as the read predicted. Accepted
+  claims containing Zibma/education content: **0** (was 5). Slug/marketing
+  restatements: **0** (was ~38).
+- **The buried question, answered**: the envelopes contained almost no
+  promotable prose. Rillet's post-extraction accepted claims are all
+  robots.txt policy statements (AI-crawler allow/block, llms.txt) — the
+  only human prose its envelopes hold after exclusions. The genuinely
+  need-bearing content (job DESCRIPTIONS, case-study page bodies, blog
+  posts) was never fetched as documents: the sitemap merely listed those
+  pages. **The promotion path now requires detail-page fetching** — a
+  source-level follow-up (staged in the extraction plan).
+- **databricks**: 26 G4 rows, all reviewed by the output screen, 0
+  accepted — the output screen remains the binding reviewer at this
+  domain. degraded=False, zero errored rows (the typing fix holds).
+- **G5**: 5 calls (rillet), nouls 0.09–0.14, all dropped — even the
+  cleanest available claims don't approach the 0.30 band. Consistent with
+  the read: the band is not miscalibrated; the material was the problem.
+
+## Final wave verdict
+
+The extraction wave worked exactly as designed: catalog and wrong-entity
+material is structurally excluded, and the first honest post-extraction
+claim pool is small, clean, and weak — which settles the fork: the gates
+were never miscalibrated; the corpus lacked promotable content. The
+decision record now supports the next investment: detail-page fetching
+(and, when real need-bearing prose exists, the decide-lab's band/criteria
+calibration on material that can actually clear it).

@@ -15,6 +15,16 @@ scope), falling back to the capitalized domain prefix. ``text`` on joined
 rows is the 9,600-char head the gate actually hashed — the deterministic
 replay input, not the full body; ``byte_size`` carries the real size.
 
+Dual-hash join (extraction-before-claims Task 2b): since the extraction
+seam, document-gate states are hashed over the doccontent-EXTRACTED text,
+while every pre-extraction package hashed the RAW stored body head —
+sniffer-classified docs (RSS dominant: measured 43/75 rillet, 163+/226
+databricks) drift between the two. Both recomputers (this module's
+_DocIndex and scripts/ab/report.py::staged(), via :func:`doc_gate_hashes`)
+key BOTH hashes per doc, so pre- and post-extraction packages join alike;
+the variant whose head the gate actually hashed is the one surfaced as
+``text``.
+
 ``citation_soundness`` rows may carry persisted ``claims`` (the opt-in
 ``lab.persist_claims`` ledger field: [{text, quote_span, doc_id}, ...]) —
 they pass through untouched; the claims' doc_ids are that row's document
@@ -30,6 +40,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from src.core import doccontent
 from src.core.db import Database
 from src.core.rawstore import RawStore
 from src.core.textutil import truncate
@@ -56,6 +67,35 @@ def account_name(db: Database, domain: str) -> str:
     if row and row["name"]:
         return str(row["name"])
     return domain.split(".")[0].capitalize()
+
+
+def doc_gate_hashes(
+    doc_id: str, account: str, text: str, content_type: str | None
+) -> list[tuple[str, str]]:
+    """The (state_hash, head) variants a document_gate row for this doc can
+    carry — the dual-hash join key set (extraction-before-claims Task 2b).
+
+    The doc gate hashes state = {"doc_id", "source": account_name, "text":
+    truncate(text, 9600)} (src/decide/gates.py); WHICH text depends on when
+    the run shipped: pre-extraction runs hashed the RAW stored body head,
+    post-extraction runs hash the ``doccontent.human_text``-EXTRACTED head.
+    This returns both pairs — raw first, extracted second — deduped to the
+    raw pair alone when the heads are identical (text/html/robots pass
+    through the extractor unchanged, so those docs index and join exactly as
+    before). ``publisher_hint`` is the account name: the same value the
+    pipeline passed at the extraction seam (the state's ``source`` term), so
+    per-item wrong-entity drops replay byte-identically. Pure and never
+    raises on document content (doccontent degrades to passthrough)."""
+    head = truncate(text, _DOC_STATE_CHARS) or ""
+    raw_digest = state_hash({"doc_id": doc_id, "source": account, "text": head})
+    extracted = doccontent.human_text(
+        content_type or "", text or "", publisher_hint=account
+    )
+    ext_head = truncate(extracted.get("text"), _DOC_STATE_CHARS) or ""
+    ext_digest = state_hash({"doc_id": doc_id, "source": account, "text": ext_head})
+    if ext_digest == raw_digest:
+        return [(raw_digest, head)]
+    return [(raw_digest, head), (ext_digest, ext_head)]
 
 
 def _read_json(path: Path) -> dict:
@@ -145,23 +185,29 @@ class _DocIndex:
                 if isinstance(body, (bytes, bytearray))
                 else str(body or "")
             )
-            head = truncate(text, _DOC_STATE_CHARS) or ""
-            digest = state_hash({"doc_id": did, "source": name, "text": head})
-            if digest not in index:  # shared 9,600-char heads: first wins
-                index[digest] = {
-                    "doc_id": did,
-                    "text": head,
-                    # the FULL body: the G4 replay's citation excerpts must
-                    # see what gate_citation_batch saw — quotes can sit past
-                    # the 9,600-char head, and anchoring on the head alone
-                    # would silently degrade long-doc excerpts to head-only
-                    # (review finding: replay-state drift vs the pipeline).
-                    "full_text": text,
-                    "url": getattr(full, "url", None),
-                    "source": getattr(full, "source", None),
-                    "byte_size": getattr(full, "byte_size", None),
-                    "fetched_at": getattr(full, "fetched_at", None),
-                }
+            base = {
+                # the FULL body: the G4 replay's citation excerpts must
+                # see what gate_citation_batch saw — quotes can sit past
+                # the 9,600-char head, and anchoring on the head alone
+                # would silently degrade long-doc excerpts to head-only
+                # (review finding: replay-state drift vs the pipeline).
+                "full_text": text,
+                "url": getattr(full, "url", None),
+                "source": getattr(full, "source", None),
+                "byte_size": getattr(full, "byte_size", None),
+                "fetched_at": getattr(full, "fetched_at", None),
+            }
+            # Dual-hash join (Task 2b): key the doc under BOTH gate-state
+            # variants — the raw-body head (pre-extraction packages) and the
+            # doccontent-extracted head (post-extraction packages). The
+            # variant whose head THAT package's gate hashed is surfaced as
+            # ``text``, so each joined row carries its own replay input.
+            # content_type needs no query change: iter_docs/get SELECT * and
+            # Document.from_db_row populates it.
+            content_type = getattr(full, "content_type", None)
+            for digest, head in doc_gate_hashes(did, name, text, content_type):
+                if digest not in index:  # shared 9,600-char heads: first wins
+                    index[digest] = {**base, "doc_id": did, "text": head}
         return index
 
 

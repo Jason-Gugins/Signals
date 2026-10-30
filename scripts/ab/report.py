@@ -8,9 +8,13 @@ Reconstructs each arm's staged-doc set by recomputing the document gate's
 state_hash per corpus document (state = {"doc_id", "source": account_name,
 "text": truncate(text, 9600)}) and matching it against the gate rows in each
 package's decisions.jsonl — the ledger does not persist doc_id directly.
-This reconstruction is the proven method and is kept exactly; the
-account_name term is read from the accounts table (the name run_intel had
-in scope when each arm ran), so new domains work without a hardcoded map.
+This reconstruction is the proven method; since extraction-before-claims it
+is a DUAL-hash join (src.lab.corpus.doc_gate_hashes, Task 2b): pre-extraction
+packages hashed the raw body head, post-extraction packages the
+doccontent-extracted head, so each document keys BOTH and a gate row joins
+on either. The account_name term is read from the accounts table (the name
+run_intel had in scope when each arm ran), so new domains work without a
+hardcoded map.
 
 Usage (run from anywhere; paths resolve from the repo root):
   python scripts/ab/report.py [--ledger tmp/ab_arms.tsv]
@@ -36,8 +40,7 @@ sys.path.insert(0, str(REPO_ROOT))  # takes precedence when run from elsewhere
 from src.core.config import Config
 from src.core.db import Database
 from src.core.rawstore import RawStore
-from src.core.textutil import truncate
-from src.decide.gates import state_hash
+from src.lab.corpus import doc_gate_hashes
 
 DEFAULT_LEDGER = "tmp/ab_arms.tsv"
 DEFAULT_OUT = "data/probe/RETRIEVAL_AB_2026_10.md"
@@ -150,7 +153,8 @@ def main() -> None:
         "models, same gates, same market profile, enforce mode. Staged sets",
         "reconstructed by matching each arm's document-gate `state_hash` against",
         "per-document recomputed hashes (state = doc_id + account_name + text",
-        "head-truncated to 9,600 chars).",
+        "head-truncated to 9,600 chars; both the raw-body and the",
+        "extraction-extracted head variants — dual-hash join).",
         "",
         f"Ledger: `{ledger}` (domains: {', '.join(domains)}).",
         "",
@@ -163,7 +167,7 @@ def main() -> None:
         pkgB = Path("data/dossiers") / arms["B"][domain]
         rowsA, rowsB = rows_of(pkgA), rows_of(pkgB)
 
-        doc_text, doc_age = {}, {}
+        doc_text, doc_age, doc_hashes = {}, {}, {}
         for meta in rs.iter_docs(domain=domain):
             did = str(getattr(meta, "doc_id", "") or "")
             try:
@@ -173,6 +177,12 @@ def main() -> None:
             body = getattr(full, "body", None) if full is not None else None
             text = body.decode("utf-8", "replace") if isinstance(body, (bytes, bytearray)) else str(body or "")
             doc_text[did] = text
+            # Dual-hash join (Task 2b): both gate-state variants a doc can
+            # carry — raw head (pre-extraction arms) and extracted head
+            # (post-extraction arms); identical heads dedupe to one.
+            doc_hashes[did] = {d for d, _ in doc_gate_hashes(
+                did, name, text, getattr(full, "content_type", None)
+            )}
             fa = str(getattr(meta, "fetched_at", "") or "")
             try:
                 doc_age[did] = (datetime.now(timezone.utc) - datetime.fromisoformat(fa)).total_seconds() / 86400.0
@@ -182,8 +192,8 @@ def main() -> None:
         def staged(rows):
             hashes = {r.get("state_hash") for r in rows if r.get("gate") == "document_gate"}
             return {
-                did for did, text in doc_text.items()
-                if state_hash({"doc_id": did, "source": name, "text": truncate(text, 9600) or ""}) in hashes
+                did for did, variants in doc_hashes.items()
+                if variants & hashes
             }
 
         sA, sB = staged(rowsA), staged(rowsB)

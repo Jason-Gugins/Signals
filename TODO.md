@@ -550,6 +550,15 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 
 ### Deferred
 
+- [ ] **Detail-page sourcing** — executes the extraction validation's verdict:
+  the corpus lacks need-bearing prose because the prose-bearing pages were
+  never fetched (the sitemap merely listed them). Spike-gated three arms:
+  (A) Greenhouse boards-api content=true — the collector already requests
+  it and parse_greenhouse already handles content; diagnose why the corpus
+  envelope lacks it; (B) blog RSS via the existing company_feed source
+  (one account field, zero code); (C) sitemap-enumerated content pages as
+  a bounded new adapter. Then the re-harvest: does need-bearing prose move
+  G5's nouls? Plan: `docs/plans/2026-10-30-detail-page-sourcing.md`.
 - [ ] **Extraction before claims** — executes the accepted-claims read's fork
   decision (`data/probe/ACCEPTED_CLAIM_READ_20261013.md`: 0/79 accepted
   claims worth promotion; ~80% were machine-metadata restatements from four

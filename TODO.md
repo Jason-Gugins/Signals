@@ -581,6 +581,18 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   opening targets, in that order. Original entry: spike-gated fetch of
   job descriptions + content pages; plan
   `docs/plans/2026-10-30-detail-page-sourcing.md`.
+- [ ] **Name-resolution test expansion** — offline wave pinning the never-guess
+  contract where more test area was asked for: EDGAR `match_cik` (fuzzy 0.9
+  arm, multi-hit → None, degenerate inputs), multi-filer generic-name
+  collisions end-to-end (resolver wiring + Form D attach), waterfall
+  ambiguity pins (realistic Delta/Delta payloads, Wikipedia disambiguation
+  first-hit, apex-agreement tie, DDG non-official #1), `name_matches_domain`
+  prefix/first-token false-positive class, names.py vs resolve.py
+  normalization-divergence table. One production fix: `_by_entity_alias`
+  legacy-scan tie-guard (mirrors `_normalized_name`'s ties→None policy —
+  latent wrong-company path via Form D attach). Deferred decisions recorded:
+  boundary policy change, stack unification, `parse_submissions_identity`
+  unused hook. Plan: `docs/plans/2026-10-30-name-resolution-tests.md`.
 - [ ] **Extraction before claims** — executes the accepted-claims read's fork
   the corpus lacks need-bearing prose because the prose-bearing pages were
   never fetched (the sitemap merely listed them). Spike-gated three arms:

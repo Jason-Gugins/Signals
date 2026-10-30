@@ -51,3 +51,45 @@ URLs × pattern filter, per-cycle cap), RSS sub-path dropped (404s).
   solutions patterns, per-cycle cap 20, cadence-gated); arm B folded in
   (/blog/ pattern, no RSS).
 - Task 4: growth pass + re-harvest — G5 nouls on need-bearing prose.
+
+## Validation harvest (2026-10-30, post wave — the buried question answered)
+
+Packages: rillet.com-20261030T222338239549Z, databricks.com-20261030T222506470852Z
+(growth pass first: databricks 228 docs, rillet 116 docs, coverage 1.00;
+greenhouse content-bearing envelope verified in-store — 902/902 jobs with
+content, extraction yields 120KB of real prose).
+
+**Content reached the gates (proven by the dual-hash join):** rillet staged
+19 docs — 11 sitecontent pages, plus ashby/wayback/news/itunes envelopes;
+databricks staged 15 docs — **7 ats_greenhouse content-bearing envelopes**.
+
+**But the claim pool is still not promotable, for two NEW reasons now
+precisely located:**
+
+1. **rillet's accepted claims (8) are ALL wayback crawl-log statements**
+   ("the earliest record of rillet.com in this log is a crawl on
+   2018-03-16… HTTP 200") — a NEW metadata class winning retrieval because
+   crawl logs are dense with identity terms. The sitecontent pages staged
+   but produced no accepted claims (held by the output screen or judged
+   says-nothing — their content is customer-proof/competitive intel, which
+   the taxonomy has no promotable type for).
+2. **databricks: 0 accepted claims** despite 7 content-bearing greenhouse
+   envelopes staged — the batch output screen held the rich-prose batches
+   (20 reviewed). The output screen is now the binding reviewer on the
+   BEST material in the corpus.
+
+**G5 was barely exercised** (8 calls, nouls 0.08–0.13, dropped) — the
+accepted-claim pool feeding it is still weak, so the band question remains
+open until the screen/calibration lets rich prose through.
+
+## Wave verdict
+
+Sourcing SHIPPED and VALIDATED: the fetch machinery works (content-bearing
+envelopes + 40 sitecontent pages in-store, staged, joined via dual-hash).
+The constraint chain is now fully mapped and each link measured:
+corpus material (fixed) → staging composition (retrieval pulls wayback
+logs — a query/selection question) → output screen (holds rich-prose
+batches — the calibration lever) → G5 band (untested on rich prose until
+the screen lets it through). The decide-lab's opening targets are now
+exactly: output-screen thresholds, retrieval query composition (or a
+wayback-log exclusion), then the G5 band.

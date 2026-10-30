@@ -7,7 +7,11 @@ artistName/description/trackName, shipped as text/javascript), sitemap XML
 that ships under an rss+xml content type (the measured body-sniff lesson),
 RSS with HTML anchor-soup item descriptions, robots.txt, html, plain text —
 plus the sourcing-spike arm A shape (2026-10-30): jobs whose `content` is
-HTML-escaped HTML, prose stripped and capped per job into the extraction.
+HTML-escaped HTML, prose stripped and capped per job into the extraction —
+generalized (ATS-description-aliases, 2026-10-30) to the description alias
+set content | descriptionPlain | descriptionHtml | description, with the
+measured Ashby shape (no company_name, plain descriptionPlain, raw
+descriptionHtml) as a synthetic fixture and a stored rillet envelope smoke.
 """
 from __future__ import annotations
 
@@ -358,6 +362,134 @@ def test_human_text_json_jobs_unjudged_content_kept():
     assert "Req ID: CSQ427R266" in info["text"]
 
 
+# --- json_jobs description alias set (ATS-description-aliases, 2026-10-30) --
+# Measured Ashby shape (rillet ats_ashby envelope, doc 1ed1012f…): job keys =
+# address/applyUrl/compensation/department/descriptionHtml/descriptionPlain/
+# employmentType/id/isListed/isRemote/jobUrl/location/publishedAt/
+# secondaryLocations/shouldDisplayCompensationOnJobPostings/team/title/
+# workplaceType — NO company_name key anywhere (organization None).
+# descriptionPlain is clean plain text; descriptionHtml is raw HTML. The
+# prose source is the FIRST non-empty of content | descriptionPlain |
+# descriptionHtml | description (greenhouse `content` keeps priority), all
+# treated uniformly: html_to_text(unescape(...))[:JOB_CONTENT_CHARS].
+
+_ASHBY_PLAIN = (
+    "WHAT WE DO\n\nRillet serves accounting and finance teams with close automation."
+)
+_ASHBY_HTML = (
+    "<style>.hero{color:red}</style>"
+    "<h1>What We Do</h1>"
+    '<p style="min-height:1.5em">Rillet builds the close automation platform.</p>'
+    "<script>tracker()</script>"
+)
+
+
+def _ashby_job(**overrides):
+    job = {
+        "id": "8f14e45f",
+        "title": "Senior Accountant",
+        "location": "San Francisco",
+        "isRemote": True,
+        "organization": None,  # measured: no company_name key in the envelope
+        "employmentType": "FULL_TIME",
+        "publishedAt": "2026-10-28T12:00:00.000Z",
+        "jobUrl": "https://jobs.ashbyhq.com/rillet/senior-accountant",
+        "applyUrl": "https://jobs.ashbyhq.com/rillet/senior-accountant/application",
+        "secondaryLocations": [],
+    }
+    job.update(overrides)
+    return job
+
+
+ASHBY_SHAPE = json.dumps(
+    {
+        "jobs": [
+            _ashby_job(title="Senior Accountant", location="San Francisco",
+                       descriptionPlain=_ASHBY_PLAIN),
+            _ashby_job(title="Platform Engineer", location="Remote",
+                       descriptionPlain="", descriptionHtml=_ASHBY_HTML),
+        ]
+    }
+)
+
+
+def test_human_text_json_jobs_ashby_alias_shape():
+    info = human_text("application/json", ASHBY_SHAPE, publisher_hint="Rillet")
+    assert info["kind"] == "json_jobs"
+    assert info["excluded"] is False
+    text = info["text"]
+    # descriptionPlain prose survives (plain text, whitespace-collapsed per line)
+    assert "WHAT WE DO" in text
+    assert "Rillet serves accounting and finance teams" in text
+    # descriptionHtml's tags/styles/scripts do NOT survive
+    assert "<h1>" not in text
+    assert "<p" not in text
+    assert ".hero" not in text  # <style> body dropped
+    assert "tracker()" not in text  # <script> body dropped
+    assert "min-height" not in text  # attribute soup dropped
+    # the Html-sourced job's prose survives stripped
+    assert "Rillet builds the close automation platform." in text
+    # no company_name ⇒ lines stay clean, no "None" anywhere
+    assert "None" not in text
+    assert "Senior Accountant — San Francisco" in text
+    assert "Platform Engineer — Remote" in text
+    # no company_name in the envelope ⇒ unjudged, never wrong
+    assert info["publisher_items"] == 0
+    assert info["unjudged"] == 2
+    assert info["wrong_entity_dropped"] == 0
+
+
+def test_human_text_json_jobs_alias_priority_content_wins():
+    # greenhouse shape unchanged: `content` keeps priority over descriptionPlain
+    body = json.dumps(
+        {
+            "jobs": [
+                {
+                    "title": "Solutions Architect",
+                    "location": "Tokyo, Japan",
+                    "company_name": "Databricks Inc.",
+                    "updated_at": "2026-10-30T12:00:00Z",
+                    "content": "&lt;p&gt;Greenhouse content prose marker.&lt;/p&gt;",
+                    "descriptionPlain": "Ashby plain prose marker.",
+                }
+            ]
+        }
+    )
+    info = human_text("application/json", body, publisher_hint="Databricks")
+    assert "Greenhouse content prose marker." in info["text"]
+    assert "Ashby plain prose marker." not in info["text"]
+
+
+def test_human_text_json_jobs_description_plain_idempotent():
+    # a markup-free descriptionPlain extracts unmangled: html_to_text is
+    # idempotent on plain text — only the whitespace collapse applies
+    plain = "Responsible for month-end close.\n\nWorks with the finance team on P&L reviews."
+    body = json.dumps(
+        {"jobs": [{"title": "Staff Accountant", "location": "Boston", "descriptionPlain": plain}]}
+    )
+    info = human_text("application/json", body, publisher_hint="Rillet")
+    assert info["text"] == (
+        "Staff Accountant — Boston\n"
+        "Responsible for month-end close.\n"
+        "Works with the finance team on P&L reviews."
+    )
+
+
+def test_human_text_json_jobs_description_plain_capped_per_job():
+    from src.core.doccontent import JOB_CONTENT_CHARS
+
+    body = json.dumps(
+        {"jobs": [{"title": "Big", "location": "L", "descriptionPlain": "a" * 5_000}]}
+    )
+    info = human_text("application/json", body, publisher_hint="Rillet")
+    lines = info["text"].splitlines()
+    assert lines[0] == "Big — L"
+    prose = "\n".join(lines[1:])
+    assert len(prose) == JOB_CONTENT_CHARS == 2000
+    # doc-level cap stays the backstop
+    assert len(info["text"]) <= 120_000
+
+
 # --- human_text: json_results ----------------------------------------------
 
 
@@ -625,4 +757,54 @@ def test_real_stored_greenhouse_content_smoke():
     assert "\n" in info["text"]
     assert " — " in info["text"]
     # per-job caps + the doc-level cap hold on 7.3M chars of board prose
+    assert len(info["text"]) <= 120_000
+
+
+def _load_stored_ashby():
+    """Rillet Ashby collector doc (ats_ashby, doc 1ed1012f…) — skip-when-absent,
+    offline-safe like the greenhouse smokes above."""
+    db_path = REPO / "data" / "signals.db"
+    if not db_path.exists():
+        return None
+    try:
+        con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        row = con.execute(
+            "SELECT doc_id, path, content_type FROM documents "
+            "WHERE domain = 'rillet.com' AND source = 'ats_ashby' "
+            "ORDER BY fetched_at DESC LIMIT 1"
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+    if row is None:
+        return None
+    doc_id, rel, content_type = row
+    path = Path(rel) if rel else REPO / "data" / "raw" / doc_id[:2] / f"{doc_id}.gz"
+    if not path.exists():
+        return None
+    with gzip.open(path, "rb") as fh:
+        return (content_type or "application/json", fh.read().decode("utf-8", "replace"))
+
+
+def test_real_stored_rillet_ashby_smoke():
+    """Real-byte smoke over the stored rillet Ashby envelope (measured:
+    40 jobs, 40/40 with descriptionPlain, no company_name). Pre-fix baseline:
+    1,662 title-line chars; the alias branch should stage real prose."""
+    stored = _load_stored_ashby()
+    if stored is None:
+        pytest.skip("stored rillet Ashby envelope not present")
+    content_type, body = stored
+    assert sniff(content_type, body) == "json_jobs"
+    info = human_text(content_type, body, publisher_hint="Rillet")
+    assert info["kind"] == "json_jobs"
+    assert info["excluded"] is False
+    # the measured descriptionPlain head reaches the extraction
+    assert "Rillet serves accounting and finance teams" in info["text"]
+    # prose jumped far past the pre-fix 1,662-char title-line baseline
+    assert len(info["text"]) > 10_000
+    # doc-level cap holds
     assert len(info["text"]) <= 120_000

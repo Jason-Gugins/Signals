@@ -39,6 +39,13 @@ JOB_WINDOW = 100
 # capped before it joins the line — the doc-level MAX_TEXT_CHARS cap stays
 # the backstop.
 JOB_CONTENT_CHARS = 2000
+# json_jobs prose-source alias set (ATS-description-aliases, 2026-10-30): a
+# job's prose comes from the FIRST NON-EMPTY of these keys — greenhouse's
+# `content` keeps priority (boards-api content=true), then the measured
+# lever/ashby/workable description keys. All four go through the same
+# html_to_text(unescape(...)) path (idempotent on plain text, strips
+# script/style).
+_JOB_PROSE_KEYS = ("content", "descriptionPlain", "descriptionHtml", "description")
 
 _KINDS = ("json_jobs", "json_results", "rss", "sitemap", "robots", "html", "text")
 
@@ -186,16 +193,23 @@ def _json_jobs(body: str, publisher_hint: str | None) -> dict:
         else:
             unjudged += 1  # no company_name ⇒ can't judge ≠ wrong: kept
         parts = [part for part in (title, location, company) if part]
-        # Job detail prose (sourcing spike arm A, 2026-10-30): boards-api
-        # content=true ships each job's description as HTML-escaped HTML
-        # (`&lt;p&gt;…`) — one unescape restores the markup, html_to_text
-        # strips it (the same shape parse_greenhouse strips). Wrong-entity
-        # jobs never reach this point (dropped above), so their prose is
-        # excluded with them.
+        # Job detail prose (sourcing spike arm A, 2026-10-30; generalized to
+        # the ATS description alias set, plan 2026-10-30): the prose source is
+        # the FIRST NON-EMPTY key of _JOB_PROSE_KEYS — greenhouse's `content`
+        # keeps priority (boards-api content=true ships HTML-escaped HTML,
+        # `&lt;p&gt;…`), then the ashby/lever/workable shapes (`descriptionPlain`
+        # clean plain text, `descriptionHtml` raw HTML, `description`). One
+        # uniform path: unescape first (restores the measured double-escaped
+        # greenhouse form), then html_to_text — idempotent on plain text (plain
+        # aliases get only a harmless whitespace collapse) and drops
+        # script/style from the HTML ones. Wrong-entity jobs never reach this
+        # point (dropped above), so their prose is excluded with them.
         prose = ""
-        content = job.get("content")
-        if content:
-            prose = html_to_text(unescape(str(content)))[:JOB_CONTENT_CHARS]
+        for alias in _JOB_PROSE_KEYS:
+            value = job.get(alias)
+            if value:
+                prose = html_to_text(unescape(str(value)))[:JOB_CONTENT_CHARS]
+                break
         if parts or prose:
             line = " — ".join(parts)
             if prose:
@@ -286,17 +300,25 @@ def human_text(content_type: str, body: str, *, publisher_hint: str | None) -> d
     wrong_entity_dropped, unjudged}:
 
     - json_jobs  ({"jobs": [{title, location?, company_name?, updated_at?,
-                   first_published?, content?}, …]}): one line per job
+                   first_published?, content?/descriptionPlain?/
+                   descriptionHtml?/description?}, …]}): one line per job
                    "{title} — {location} — {company_name}", most recent 100
                    by updated_at (else first_published, else file order);
-                   when a job carries `content` (boards-api content=true:
-                   HTML-escaped HTML), the line becomes
+                   when a job carries one of the description-alias keys, the
+                   line becomes
                    "{title} — {location} — {company_name}\n{prose}" with
-                   prose = html_to_text(unescape(content)) capped at
-                   JOB_CONTENT_CHARS per job; PER-JOB publisher matching vs
-                   publisher_hint — jobs whose company_name fails the match
-                   are dropped and counted (wrong_entity_dropped), their
-                   content prose excluded with them. Per-ITEM matching
+                   prose from the FIRST NON-EMPTY of content |
+                   descriptionPlain | descriptionHtml | description
+                   (greenhouse's boards-api `content` keeps priority),
+                   computed as html_to_text(unescape(alias)) capped at
+                   JOB_CONTENT_CHARS per job — unescape restores the measured
+                   double-escaped greenhouse form, and html_to_text is
+                   idempotent on plain text (a plain descriptionPlain passes
+                   through with only a whitespace collapse) while HTML forms
+                   are stripped (script/style dropped); PER-JOB publisher
+                   matching vs publisher_hint — jobs whose company_name fails
+                   the match are dropped and counted (wrong_entity_dropped),
+                   their prose excluded with them. Per-ITEM matching
                    replaces any doc-level majority (undefined on ties, and
                    the measured databricks iTunes doc mixes four distinct
                    artistNames). publisher_items counts window jobs carrying

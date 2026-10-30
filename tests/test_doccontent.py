@@ -722,6 +722,7 @@ def _load_stored_greenhouse_content():
         row = con.execute(
             "SELECT doc_id, path, content_type FROM documents "
             "WHERE source = 'ats_greenhouse' AND url LIKE '%content=true%' "
+            "AND domain = 'databricks.com' "
             "ORDER BY fetched_at DESC LIMIT 1"
         ).fetchone()
     except sqlite3.Error:

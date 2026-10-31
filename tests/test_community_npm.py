@@ -3,6 +3,7 @@ from pathlib import Path
 
 from src.core.models import Account
 from src.sources.community.npm import (
+    npm_delta,
     npm_search_url,
     npm_to_candidates,
     owned_packages,
@@ -70,3 +71,32 @@ def test_adapter_plan_and_harvest():
     # (it is Task 12's momentum input via harvest_packages).
     cands = src.parse(doc, acct, {"today": "2026-10-30"})
     assert [c.natural_key for c in cands] == ["npm:acme-helpers"]
+
+
+# ── Task 12 (C3): package momentum (new_package / downloads_surge) ──────────
+
+
+def test_npm_delta_new_package_window():
+    prev = {}
+    pkgs = [{"name": "@acme/sdk", "date": "2026-10-20T00:00:00.000Z", "downloads_monthly": 5}]
+    out = npm_delta(prev, pkgs, today=date(2026, 10, 30))
+    assert out == [("new_package", {"name": "@acme/sdk", "version": None, "published": "2026-10-20"})]
+
+
+def test_npm_delta_old_package_silent():
+    prev = {}
+    pkgs = [{"name": "@acme/sdk", "date": "2021-01-01T00:00:00.000Z", "downloads_monthly": 5}]
+    assert npm_delta(prev, pkgs, today=date(2026, 10, 30)) == []
+
+
+def test_npm_delta_downloads_surge():
+    prev = {"@acme/sdk": {"version": "1.0.0", "downloads_monthly": 200, "seen_at": "2026-09-01"}}
+    pkgs = [{"name": "@acme/sdk", "date": "2026-10-01T00:00:00.000Z", "downloads_monthly": 400}]
+    kinds = [k for k, _ in npm_delta(prev, pkgs, today=date(2026, 10, 30))]
+    assert kinds == ["downloads_surge"]
+
+
+def test_npm_delta_surge_needs_floor():
+    prev = {"@acme/sdk": {"version": "1.0.0", "downloads_monthly": 10, "seen_at": "2026-09-01"}}
+    pkgs = [{"name": "@acme/sdk", "date": "2026-10-01T00:00:00.000Z", "downloads_monthly": 40}]
+    assert npm_delta(prev, pkgs, today=date(2026, 10, 30)) == []

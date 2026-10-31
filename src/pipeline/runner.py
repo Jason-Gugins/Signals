@@ -267,6 +267,11 @@ class CollectorRunner:
         # kind == "repos" docs). Diffed against the stats file after the
         # pass loop, exactly like the review/jobs trend signals.
         repo_harvests: dict[str, list] = {}
+        # Per-domain owned-package snapshots for the npm momentum signal
+        # (community_npm), gathered from the duck-typed harvest_packages hook
+        # across the pass loop — mirror of repo_harvests above. Diffed
+        # against the npm stats file after the pass loop.
+        pkg_harvests: dict[str, list] = {}
         # ALL jobs harvested this cycle (every pass, every task), in PASS ORDER
         # and deliberately NOT deduped. ATS persistence (upsert + mark_closed +
         # snapshot) is deferred to ONE call after the pass loop using this
@@ -719,6 +724,15 @@ class CollectorRunner:
                     gh_repos = harvest_gh_repos(result.doc, account, meta) or []
                     if gh_repos:
                         repo_harvests.setdefault(account.domain, []).extend(gh_repos)
+                harvest_npm_pkgs = getattr(adapter, "harvest_packages", None)
+                if callable(harvest_npm_pkgs):
+                    # Duck-typed hook (harvest_repos precedent): the
+                    # account-owned package dicts from community_npm search
+                    # docs, for the npm momentum diff below; [] when nothing
+                    # attributes (never guess).
+                    npm_pkgs = harvest_npm_pkgs(result.doc, account, meta) or []
+                    if npm_pkgs:
+                        pkg_harvests.setdefault(account.domain, []).extend(npm_pkgs)
             # Review-velocity trend signals: diff this cycle's per-slug
             # count/avg-rating against the previous cycle's stored stats.
             if review_harvests:
@@ -875,6 +889,75 @@ class CollectorRunner:
                         save_stats(stats_state)
                 except Exception:
                     logger.exception("github momentum diff failed for {}", account.domain)
+            # npm momentum signals (community_npm): diff this cycle's
+            # per-domain owned-package snapshot against the previous cycle's
+            # stored per-package stats (new_package / downloads_surge). Mirror
+            # of the github momentum block above; the candidates persist
+            # immediately (doc=None — the evidence comes from the stats
+            # delta, not one raw doc). new_package is a launch
+            # (product_launch, w22 primary); a download surge is adoption
+            # momentum and rides the existing github_momentum type with
+            # via=npm evidence.
+            if pkg_harvests:
+                from src.sources.community.npm import (
+                    DEFAULT_STATS_PATH as NPM_STATS_PATH,
+                    npm_delta,
+                )
+                from src.sources.community.stats import load_stats, save_stats
+
+                try:
+                    # Single-process assumption: the load→mutate→save cycle
+                    # below touches a shared JSON file, so it is serialized
+                    # against a manually running `collect` via the fail-open
+                    # state lock.
+                    with exclusive_lock(NPM_STATS_PATH):
+                        stats_state = load_stats(NPM_STATS_PATH)
+                        for domain, pkgs in pkg_harvests.items():
+                            today_iso = now.date().isoformat()
+                            month = today_iso[:7]
+                            momentum = npm_delta(
+                                stats_state.get(domain) or {}, pkgs, today=now.date()
+                            )
+                            cands = [
+                                SignalCandidate(
+                                    signal_type=(
+                                        "product_launch"
+                                        if kind == "new_package"
+                                        else "github_momentum"
+                                    ),
+                                    observed_at=today_iso,
+                                    # Monthly re-affirmation like the sibling
+                                    # trend types: a fresh surge next month
+                                    # is a new signal.
+                                    natural_key=f"npm:{domain}:{ev['name']}:{kind}:{month}",
+                                    title=ev["name"],
+                                    confidence=0.6,
+                                    evidence_data={"via": "npm", **ev},
+                                )
+                                for kind, ev in momentum
+                            ]
+                            if cands:
+                                added = self._persist(account, adapter.key, cands, None)
+                                stats.signals_new += added
+                                stats._src(adapter.key)["signals_new"] += added
+                                stats.candidates += len(cands)
+                            # Snapshot EVERY package seen this cycle (not just
+                            # the delta emitters) so the next cycle diffs
+                            # against the full set; entries for packages that
+                            # vanished this cycle are kept (last-seen).
+                            domain_state = stats_state.setdefault(domain, {})
+                            for pkg in pkgs:
+                                name = str(pkg.get("name") or "")
+                                if not name:
+                                    continue
+                                domain_state[name] = {
+                                    "version": pkg.get("version"),
+                                    "downloads_monthly": pkg.get("downloads_monthly"),
+                                    "seen_at": today_iso,
+                                }
+                        save_stats(stats_state, NPM_STATS_PATH)
+                except Exception:
+                    logger.exception("npm momentum diff failed for {}", account.domain)
             # Challenge-unsolved guard: when the primary HTML evidence channel
             # ended cloudflare_unsolved, harvest_tech collapses to a
             # [cloudflare]-only match — diffing that against the prior vendor

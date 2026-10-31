@@ -24,6 +24,12 @@ NEW_PACKAGE_WINDOW_DAYS = 90
 DOWNLOAD_SURGE_FRACTION = 0.25
 DOWNLOAD_SURGE_MIN_ABS = 50
 DOWNLOAD_SURGE_FLOOR = 100
+# npm momentum state home (Task C3): the per-domain stats-file pattern of
+# community/stats.py — whose DEFAULT_STATS_PATH is the github-keyed
+# data/github/stats.json — so the npm default lives beside the npm momentum
+# constants. Data only (no I/O in this module): the runner loads/saves the
+# state file under this path; tests redirect it.
+DEFAULT_STATS_PATH = "data/npm/stats.json"
 
 
 def npm_search_url(name: str) -> str:
@@ -96,4 +102,35 @@ def npm_to_candidates(pkgs: list[dict], account: Account, *, today: date) -> lis
             confidence=0.4,
             evidence_data={"downloads_monthly": p.get("downloads_monthly"),
                            "description": (p.get("description") or "")[:200]}))
+    return out
+
+
+def npm_delta(prev: dict, pkgs: list[dict], *, today: date) -> list[tuple[str, dict]]:
+    """Cycle-over-cycle package momentum. prev: {name: {"version","downloads_monthly","seen_at"}}.
+    new_package: absent from prev AND last publish within NEW_PACKAGE_WINDOW_DAYS
+    (old packages newly seen by us are not bets). downloads_surge: prior row and
+    growth >= max(fraction*prev, min_abs) with prev >= DOWNLOAD_SURGE_FLOOR."""
+    out: list[tuple[str, dict]] = []
+    for p in pkgs if isinstance(pkgs, list) else []:
+        name = str(p.get("name") or "")
+        if not name:
+            continue
+        dm = int(p.get("downloads_monthly") or 0)
+        row = prev.get(name)
+        if row is None:
+            published = to_iso_date(p.get("date"))
+            fresh = True
+            if published:
+                try:
+                    fresh = (today - date.fromisoformat(published)).days <= NEW_PACKAGE_WINDOW_DAYS
+                except ValueError:
+                    fresh = True
+            if fresh:
+                out.append(("new_package", {"name": name, "version": p.get("version"),
+                                            "published": published or None}))
+            continue
+        prev_dm = int(row.get("downloads_monthly") or 0)
+        if prev_dm >= DOWNLOAD_SURGE_FLOOR and dm - prev_dm >= max(DOWNLOAD_SURGE_FRACTION * prev_dm, DOWNLOAD_SURGE_MIN_ABS):
+            out.append(("downloads_surge", {"name": name, "downloads": dm, "downloads_prev": prev_dm,
+                                            "detail": f"monthly downloads {prev_dm} -> {dm}"}))
     return out

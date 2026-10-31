@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from src.core.models import Account
 from src.signals.normalize import make_signal_id, normalize_batch
@@ -280,8 +280,16 @@ def _runner(tmp_path, monkeypatch):
     stats_path = tmp_path / "github_stats.json"
     real_load, real_save = gh_stats.load_stats, gh_stats.save_stats
     monkeypatch.setattr(gh_stats, "DEFAULT_STATS_PATH", str(stats_path))
-    monkeypatch.setattr(gh_stats, "load_stats", lambda *a, **k: real_load(stats_path))
-    monkeypatch.setattr(gh_stats, "save_stats", lambda st, *a, **k: real_save(st, stats_path))
+    # Path-aware redirects: the github momentum block calls load_stats()/
+    # save_stats(state) with the (redirected) module default, while the npm
+    # momentum block (community_npm, Task C3) passes its OWN redirected path
+    # explicitly — both must land in their own tmp file, never at data/.
+    monkeypatch.setattr(
+        gh_stats, "load_stats", lambda path=str(stats_path), **k: real_load(path)
+    )
+    monkeypatch.setattr(
+        gh_stats, "save_stats", lambda st, path=str(stats_path), **k: real_save(st, path)
+    )
 
     db = Database(tmp_path / "s.db")
     cfg = Config()
@@ -373,3 +381,94 @@ def test_community_github_harvest_repos_is_repos_docs_only():
     assert src.harvest_repos(doc, acct, {"kind": "releases"}) == []
     assert src.harvest_repos(doc, acct, {}) == []
     assert src.harvest_repos(type("D", (), {"body": b""})(), acct, {"kind": "repos"}) == []
+
+
+# ── npm momentum wiring (community_npm, Task C3 mirror of the block above) ──
+
+
+class _NpmStub(SourceAdapter):
+    """community_npm-shaped stub: plan() emits the registry search task (the
+    real adapter's shape) and harvest_packages yields the owned package dicts
+    exactly like the real hook (NpmSource.harvest_packages)."""
+
+    key = "community_npm"
+    tier = "http"
+    cadence_hours = 72
+
+    def __init__(self, pkgs: list[dict]):
+        self.pkgs = pkgs
+
+    def plan(self, account, cursor):
+        return [
+            FetchTask(
+                source=self.key,
+                url="https://registry.npmjs.org/-/v1/search?text=acme&size=20",
+                domain=account.domain,
+            )
+        ]
+
+    def parse(self, doc, account, task_meta):
+        return []
+
+    def harvest_packages(self, doc, account, task_meta):
+        if not doc.body:
+            return []
+        return self.pkgs
+
+
+def test_runner_persists_npm_momentum_and_writes_stats(tmp_path, monkeypatch):
+    """community_npm mirror of the github momentum wiring above: the runner
+    harvests owned packages via the duck-typed harvest_packages hook, diffs
+    them with npm_delta under an exclusive_lock over the npm stats file, and
+    persists a product_launch for a genuinely-new package (last publish
+    within NEW_PACKAGE_WINDOW_DAYS) with an npm: monthly natural key."""
+    import src.sources.community.npm as npm_mod
+
+    now_date = datetime.now(timezone.utc).date()
+    published = (now_date - timedelta(days=10)).isoformat()
+    pkgs = [
+        {
+            "name": "@acme/sdk",
+            "version": "1.0.0",
+            "date": f"{published}T00:00:00.000Z",
+            "description": "The Acme SDK",
+            "downloads_monthly": 5,
+            "downloads_weekly": 1,
+            "repository": "git+https://github.com/acmecorp/sdk.git",
+            "publisher": "acme",
+        }
+    ]
+    stub = _NpmStub(pkgs)
+    npm_stats_path = tmp_path / "npm_stats.json"
+    monkeypatch.setattr(npm_mod, "DEFAULT_STATS_PATH", str(npm_stats_path))
+    runner, db, ctx, _gh_stats_path = _runner(tmp_path, monkeypatch)
+    accounts = [Account(domain="acme.com", name="Acme")]
+    try:
+        stats = runner.run([stub], accounts, force=True)
+        rows = db.query("SELECT * FROM signals WHERE signal_type='product_launch'")
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["domain"] == "acme.com"
+        assert row["source"] == "community_npm"
+        assert row["title"] == "@acme/sdk"
+        evidence = json.loads(row["evidence_data"])
+        assert evidence["via"] == "npm"
+        assert evidence["published"] == published
+        assert row["signal_id"] == make_signal_id(
+            "acme.com",
+            "product_launch",
+            f"npm:acme.com:@acme/sdk:new_package:{now_date.isoformat()[:7]}",
+        )
+        assert stats.by_source["community_npm"]["signals_new"] == 1
+        # The stats file was written under the (redirected) tmp path, keyed
+        # by domain with per-package dicts — never at data/.
+        assert npm_stats_path.exists()
+        saved = json.loads(npm_stats_path.read_text(encoding="utf-8"))
+        assert set(saved) == {"acme.com"}
+        assert saved["acme.com"]["@acme/sdk"] == {
+            "version": "1.0.0",
+            "downloads_monthly": 5,
+            "seen_at": now_date.isoformat(),
+        }
+    finally:
+        ctx.__exit__(None, None, None)

@@ -40,20 +40,34 @@ class CommunityGithubSource(SourceAdapter):
     cadence_hours = 48
 
     def plan(self, account, cursor):
-        org = github_org_guess(account)[0]
+        # Recoverable org probes (2026-10-31): probe the FIRST TWO
+        # github_org_guess entries — domain label first, then name slug (the
+        # third guess is usually the slug again). Each probe carries
+        # meta["recoverable"]: a 404 ("no org at this guess") is an EXPECTED
+        # miss, not a source failure — the runner skips it non-fatally (no
+        # parse, no follow from it, no fail_count/backoff poisoning) while the
+        # sibling search_users task still processes. When BOTH probes 404, the
+        # search doc's follow_tasks recovers to repos/releases directly (see
+        # github_search.py for the pass math). The search task is deliberately
+        # NOT recoverable: a Search-API failure is a real failure worth
+        # surfacing. Task-meta convention (documented here, not in the shared
+        # FetchTask contract): "recoverable" is honored by
+        # CollectorRunner._run_pair for any task.
         # Same env var the config loader reads (src/core/config.py _apply_env_overrides),
         # so config.github_token and the collector always agree. Never log/persist it.
         headers = {}
         token = os.environ.get("GITHUB_TOKEN")
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        return [
-            FetchTask(source=self.key, url=f"https://api.github.com/orgs/{org}", domain=account.domain, headers=headers, meta={"kind": "org"}),
-            # Search-API org recovery (Task 6): keyless lookup for the real
-            # login when the guessed slug is wrong. follow_tasks only follows
-            # a returned login that casefolds to a github_org_guess entry.
-            FetchTask(source=self.key, url=search_users_url(account.name or account.domain), domain=account.domain, headers=headers, meta={"kind": "search_users"}),
+        tasks = [
+            FetchTask(source=self.key, url=f"https://api.github.com/orgs/{guess}", domain=account.domain, headers=headers, meta={"kind": "org", "guess": guess, "recoverable": True})
+            for guess in github_org_guess(account)[:2]
         ]
+        # Search-API org recovery (Task 6): keyless lookup for the real
+        # login when the guessed slug is wrong. follow_tasks only follows
+        # a returned login that casefolds to a github_org_guess entry.
+        tasks.append(FetchTask(source=self.key, url=search_users_url(account.name or account.domain), domain=account.domain, headers=headers, meta={"kind": "search_users"}))
+        return tasks
 
     def parse(self, doc, account, task_meta):
         if not doc.body:

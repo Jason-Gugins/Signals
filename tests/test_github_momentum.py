@@ -23,6 +23,8 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 from src.core.models import Account
 from src.signals.normalize import make_signal_id, normalize_batch
 from src.signals.taxonomy import Taxonomy
@@ -266,7 +268,7 @@ class _Fetch:
         return FetchResult(True, 200, doc, False, None, 1)
 
 
-def _runner(tmp_path, monkeypatch):
+def _runner(tmp_path, monkeypatch, fetch_factory=None):
     from src.core.config import Config
     from src.core.db import Database
     from src.core.rawstore import RawStore
@@ -300,7 +302,9 @@ def _runner(tmp_path, monkeypatch):
     ctx = RunContext(db, "collect")
     ctx.__enter__()
     runner = CollectorRunner(
-        cfg, db, AccountRegistry(db), store, _Fetch(store), SignalStore(db, tax), tax, ctx,
+        cfg, db, AccountRegistry(db), store,
+        fetch_factory(store) if fetch_factory else _Fetch(store),
+        SignalStore(db, tax), tax, ctx,
     )
     return runner, db, ctx, stats_path
 
@@ -470,5 +474,179 @@ def test_runner_persists_npm_momentum_and_writes_stats(tmp_path, monkeypatch):
             "downloads_monthly": 5,
             "seen_at": now_date.isoformat(),
         }
+    finally:
+        ctx.__exit__(None, None, None)
+
+
+# ── recoverable org probes: runner softening (2026-10-31) ────────────────────
+
+
+class _StatusFetch:
+    """Fetcher stub mirroring src/core/http.py's failure seam: ok=False,
+    doc=None, error="HTTP 404" for fail_urls; 200 + body otherwise."""
+
+    def __init__(self, store, fail_urls: set[str], body: bytes = b'{"items": []}'):
+        self.store = store
+        self.fail_urls = fail_urls
+        self.body = body
+
+    def get(self, task, *, etag=None, last_modified=None):
+        from src.core.http import FetchResult
+
+        if task.url in self.fail_urls:
+            return FetchResult(False, 404, None, False, "HTTP 404", 1)
+        doc = self.store.put(
+            source=task.source,
+            url=task.url,
+            body=self.body,
+            content_type="application/json",
+            status=200,
+            domain=task.domain,
+        )
+        return FetchResult(True, 200, doc, False, None, 1)
+
+
+class _RecoverPairStub(SourceAdapter):
+    """community_github-shaped stub for the live 404+recovery pair
+    (astranis.com / alpha-sense.com, 2026-10-30): plan() emits a recoverable
+    org probe that 404s next to a sibling search task that 200s; the search
+    doc's follow_tasks emits one extra task whose parse yields a candidate."""
+
+    key = "community_github"
+    tier = "http"
+    cadence_hours = 48
+
+    def plan(self, account, cursor):
+        return [
+            FetchTask(
+                source=self.key,
+                url="https://api.github.com/orgs/acme",
+                domain=account.domain,
+                meta={"kind": "org", "recoverable": True},
+            ),
+            FetchTask(
+                source=self.key,
+                url="https://api.github.com/search/users?q=acme%20in%3Alogin&per_page=5",
+                domain=account.domain,
+                meta={"kind": "search_users"},
+            ),
+        ]
+
+    def parse(self, doc, account, task_meta):
+        if (task_meta or {}).get("kind") != "recovered":
+            return []
+        return [
+            SignalCandidate(
+                signal_type="github_momentum",
+                observed_at=task_meta["today"],
+                natural_key=f"github:{account.domain}:recovered:test",
+                title="recovered sibling",
+                confidence=0.5,
+                evidence_data={"momentum_kind": "test"},
+            )
+        ]
+
+    def follow_tasks(self, doc, account, task_meta):
+        if (task_meta or {}).get("kind") == "search_users":
+            return [
+                FetchTask(
+                    source=self.key,
+                    url="https://api.github.com/orgs/acme/repos?per_page=100",
+                    domain=account.domain,
+                    meta={"kind": "recovered", "org": "acme"},
+                )
+            ]
+        return []
+
+
+def test_recoverable_404_lets_pair_live_and_sibling_follow_persists(tmp_path, monkeypatch):
+    """A failed fetch on a task flagged meta["recoverable"] (community_github
+    org probe 404: no org at this guess) is skipped NON-fatally: no parse, no
+    follow from it — but the pair lives, so the sibling search task still
+    processes and its follow task's candidate PERSISTS. The clean 404 must not
+    count as a source failure (no stats.failed, no fail_count/backoff poison)."""
+    stub = _RecoverPairStub()
+    runner, db, ctx, _stats_path = _runner(
+        tmp_path, monkeypatch,
+        fetch_factory=lambda store: _StatusFetch(
+            store, fail_urls={"https://api.github.com/orgs/acme"},
+        ),
+    )
+    accounts = [Account(domain="acme.com", name="Acme")]
+    try:
+        stats = runner.run([stub], accounts, force=True)
+    finally:
+        ctx.__exit__(None, None, None)
+    # No pair failure: the recoverable 404 did not raise out of _run_pair.
+    assert stats.failed == 0
+    assert stats.by_source["community_github"]["failed"] == 0
+    # The sibling search task processed and its follow task's candidate
+    # persisted end-to-end.
+    assert stats.signals_new == 1
+    rows = db.query("SELECT * FROM signals WHERE signal_type='github_momentum'")
+    assert len(rows) == 1
+    assert rows[0]["domain"] == "acme.com"
+    assert rows[0]["source"] == "community_github"
+    assert rows[0]["title"] == "recovered sibling"
+    # Pair recorded success: ledger row ran_data, cursor fail_count stays 0.
+    outcome = next(o for o in stats.outcomes if o["source"] == "community_github")
+    assert outcome["status"] == "ran_data"
+    cur = db.one("SELECT * FROM source_cursors WHERE source='community_github'")
+    assert cur["fail_count"] == 0
+    assert cur["last_error"] is None
+
+
+class _NoRecoverStub(SourceAdapter):
+    """The same 404 probe WITHOUT the recoverable flag: the runner softening
+    is flag-scoped, so this must still raise out of _run_pair."""
+
+    key = "community_github"
+    tier = "http"
+    cadence_hours = 48
+
+    def plan(self, account, cursor):
+        return [
+            FetchTask(
+                source=self.key,
+                url="https://api.github.com/orgs/acme",
+                domain=account.domain,
+                meta={"kind": "org"},
+            )
+        ]
+
+    def parse(self, doc, account, task_meta):
+        return []
+
+    def follow_tasks(self, doc, account, task_meta):
+        return []
+
+
+def test_non_recoverable_404_still_raises(tmp_path, monkeypatch):
+    """Pins the flag-scoping of the runner softening: an ok=False fetch on a
+    task WITHOUT meta["recoverable"] still raises RuntimeError from
+    _run_pair (real failures must surface). Pins existing behavior — passes
+    before AND after the softening; an unflagged-softening regression would
+    turn this RED."""
+    from src.pipeline.runner import RunnerStats, _now
+
+    stub = _NoRecoverStub()
+    runner, db, ctx, _stats_path = _runner(
+        tmp_path, monkeypatch,
+        fetch_factory=lambda store: _StatusFetch(
+            store, fail_urls={"https://api.github.com/orgs/acme"},
+        ),
+    )
+    try:
+        with pytest.raises(RuntimeError):
+            runner._run_pair(
+                stub,
+                Account(domain="acme.com", name="Acme"),
+                RunnerStats(),
+                force=True,
+                dry_run=False,
+                max_passes=2,
+                limit_per_source=None,
+                now=_now(),
+            )
     finally:
         ctx.__exit__(None, None, None)

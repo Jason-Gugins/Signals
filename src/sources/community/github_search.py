@@ -30,13 +30,16 @@ Known accepted redundancy: when the org probe SUCCEEDS, the search doc's
 follow may re-emit the same repos/releases fetch — conditional GET turns that
 into a 304; no cross-task state is added to avoid it (YAGNI).
 
-Known limitation (honest note, 2026-10-30): the live runner raises on a
-failed fetch (``if not result.ok ... raise`` in its pass loop) BEFORE follow
-tasks are queued, so a hard-404 org probe still fails the pair for that
-cycle; firing the recovery on that trigger additionally requires the runner
-to tolerate the failed probe — a runner.py change outside Task 6's file
-scope. The ``follow_tasks`` branch here is the recovery contract this module
-pins.
+Recovery fires live (2026-10-31): community_github's org probes carry
+``meta["recoverable"]=True``, and the runner skips a failed fetch on a
+recoverable task NON-fatally (no parse, no follow from it, no
+fail_count/backoff poisoning) while the pair's sibling tasks still process.
+The chain is therefore: both org probes 404 (an expected "no org at this
+guess" state, not a source failure) -> skipped non-fatally -> the search
+doc's ``follow_tasks`` recovers DIRECTLY to the repos/releases pair for the
+matched login, fetched in pass 1. Direct (not via another org-probe hop)
+for the ``max_passes=2`` pass math documented above; the ``follow_tasks``
+branch here remains the recovery contract this module pins.
 """
 from __future__ import annotations
 

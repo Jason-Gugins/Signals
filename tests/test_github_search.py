@@ -7,6 +7,45 @@ from src.sources.community.github import PUSH_BURST_THRESHOLD, parse_events, pus
 from src.sources.community.github_search import parse_search_users, search_users_url
 
 
+# ── plan(): recoverable multi-guess org probes (2026-10-31) ─────────────────
+
+
+def test_plan_probes_two_guesses_recoverable():
+    """plan() probes the FIRST TWO github_org_guess entries (domain label,
+    then name slug) as separate org tasks, each flagged recoverable (a 404
+    there is an expected "no org at this guess" state, not a failure), plus
+    the unchanged search_users task (NOT recoverable — a Search-API failure
+    is a real failure worth surfacing)."""
+    from src.sources.community.collector import CommunityGithubSource
+
+    src = CommunityGithubSource()
+    tasks = src.plan(Account(domain="alpha-sense.com", name="AlphaSense"), None)
+    assert len(tasks) == 3
+    assert [t.url for t in tasks[:2]] == [
+        "https://api.github.com/orgs/alpha-sense",
+        "https://api.github.com/orgs/alphasense",
+    ]
+    for t, guess in zip(tasks[:2], ("alpha-sense", "alphasense")):
+        assert t.meta["kind"] == "org"
+        assert t.meta["recoverable"] is True
+        assert t.meta["guess"] == guess
+    # The search task is unchanged: same meta as before (no recoverable).
+    assert tasks[2].url == search_users_url("AlphaSense")
+    assert tasks[2].meta == {"kind": "search_users"}
+    # GITHUB_TOKEN headers are shared by every task (empty dict when unset).
+    assert tasks[0].headers == tasks[1].headers == tasks[2].headers
+
+    # One-guess edge: name == domain label dedupes the guesses to one ->
+    # a single org probe next to the search task.
+    tasks1 = src.plan(Account(domain="acme.com", name="Acme"), None)
+    assert len(tasks1) == 2
+    assert tasks1[0].url == "https://api.github.com/orgs/acme"
+    assert tasks1[0].meta["kind"] == "org"
+    assert tasks1[0].meta["recoverable"] is True
+    assert tasks1[1].url == search_users_url("Acme")
+    assert tasks1[1].meta == {"kind": "search_users"}
+
+
 def test_url_shape():
     url = search_users_url("acme corp")
     assert url == "https://api.github.com/search/users?q=acme%20corp%20in%3Alogin&per_page=5"

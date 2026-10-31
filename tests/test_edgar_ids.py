@@ -12,6 +12,7 @@ from src.identity.edgar_ids import (
     parse_company_tickers,
     parse_submissions_identity,
 )
+from src.identity.names import name_similarity, normalize_name
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "company_tickers.json"
@@ -51,6 +52,84 @@ def test_match_cik_ambiguous_returns_none():
     ]
     acct = Account(domain="acme.com", name="Acme")
     assert match_cik(acct, index, min_similarity=0.4) is None
+
+
+def test_match_cik_single_fuzzy_survivor_at_default_attaches():
+    # Fuzzy arm at the real default min_similarity=0.9 (no override): one
+    # surviving CIK auto-accepts. Token sets {acme,alpha,beta,gamma} vs
+    # {acme,alpha,beta} = 0.75 Jaccard + 0.15 prefix bonus = 0.90 exactly.
+    # Plan: docs/plans/2026-10-30-name-resolution-tests.md Task 1.1.
+    index = [{"cik": "0000000001", "ticker": "AAB", "name": "ACME ALPHA BETA INC"}]
+    acct = Account(domain="acme.com", name="Acme Alpha Beta Gamma")
+    assert name_similarity("Acme Alpha Beta Gamma", "ACME ALPHA BETA INC") >= 0.9
+    assert match_cik(acct, index) == "0000000001"
+
+
+def test_match_cik_just_below_fuzzy_threshold_misses():
+    # Same index row, account name misses the 0.9 bar: 2/4 Jaccard + 0.08
+    # first-token tie = 0.58 -> conservative None. Plan Task 1.2.
+    index = [{"cik": "0000000001", "ticker": "AAB", "name": "ACME ALPHA BETA INC"}]
+    acct = Account(domain="acme.com", name="Acme Alpha Gamma")
+    assert name_similarity("Acme Alpha Gamma", "ACME ALPHA BETA INC") < 0.9
+    assert match_cik(acct, index) is None
+
+
+def test_match_cik_two_fuzzy_survivors_returns_none():
+    # Never-guess: two index rows both clear 0.9 against one account name
+    # (prefix bonus both ways — one row shorter, one longer) with distinct
+    # CIKs -> None. Plan Task 1.3.
+    index = [
+        {"cik": "0000000001", "ticker": "AAB", "name": "ACME ALPHA BETA INC"},
+        {"cik": "0000000002", "ticker": "AABG", "name": "ACME ALPHA BETA GAMMA DELTA INC"},
+    ]
+    acct = Account(domain="acme.com", name="Acme Alpha Beta Gamma")
+    assert name_similarity("Acme Alpha Beta Gamma", "ACME ALPHA BETA INC") >= 0.9
+    assert name_similarity(
+        "Acme Alpha Beta Gamma", "ACME ALPHA BETA GAMMA DELTA INC"
+    ) >= 0.9
+    assert match_cik(acct, index) is None
+
+
+def test_match_cik_generic_short_name_misses_conservatively():
+    # "Acme" alone is too generic to attach to ACME GLOBAL HOLDINGS INC:
+    # 1/3 Jaccard + 0.15 prefix bonus ~ 0.48, well under 0.9. Plan Task 1.4.
+    index = [
+        {"cik": "0000000001", "ticker": "AGH", "name": "ACME GLOBAL HOLDINGS INC"},
+    ]
+    acct = Account(domain="acme.com", name="Acme")
+    assert name_similarity("Acme", "ACME GLOBAL HOLDINGS INC") < 0.9
+    assert match_cik(acct, index) is None
+
+
+def test_match_cik_ticker_collision_returns_none():
+    # Ticker arm with two same-ticker rows / distinct CIKs -> None, and it
+    # returns early without falling through to the (here unique) name arm.
+    # Plan Task 1.5.
+    index = [
+        {"cik": "0000000001", "ticker": "ACME", "name": "Acme East Inc"},
+        {"cik": "0000000002", "ticker": "ACME", "name": "Acme West Inc"},
+    ]
+    acct = Account(domain="acme.com", name="Acme East Inc", ticker="ACME")
+    assert match_cik(acct, index) is None
+
+
+def test_match_cik_degenerate_account_returns_none():
+    # name=None + ticker=None: neither arm runs, None without a crash even
+    # against a populated index. Plan Task 1.6.
+    index = parse_company_tickers(FIXTURE.read_bytes())
+    acct = Account(domain="acme.com")
+    assert acct.name is None
+    assert acct.ticker is None
+    assert match_cik(acct, index) is None
+
+
+def test_match_cik_punctuated_edgar_title_matches_via_exact_arm():
+    # EDGAR titles carry punctuation ("Acme (Delaware)"); normalize_name
+    # strips it, so the exact normalized-name arm attaches. Plan Task 1.7.
+    index = [{"cik": "0000000001", "ticker": "ACME", "name": "Acme (Delaware)"}]
+    acct = Account(domain="acme.com", name="Acme Delaware Inc")
+    assert normalize_name("Acme (Delaware)") == normalize_name("Acme Delaware Inc")
+    assert match_cik(acct, index) == "0000000001"
 
 
 def test_parse_submissions_identity_extracts_sic():

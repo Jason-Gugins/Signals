@@ -581,18 +581,41 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   opening targets, in that order. Original entry: spike-gated fetch of
   job descriptions + content pages; plan
   `docs/plans/2026-10-30-detail-page-sourcing.md`.
-- [ ] **Name-resolution test expansion** — offline wave pinning the never-guess
-  contract where more test area was asked for: EDGAR `match_cik` (fuzzy 0.9
-  arm, multi-hit → None, degenerate inputs), multi-filer generic-name
-  collisions end-to-end (resolver wiring + Form D attach), waterfall
-  ambiguity pins (realistic Delta/Delta payloads, Wikipedia disambiguation
-  first-hit, apex-agreement tie, DDG non-official #1), `name_matches_domain`
-  prefix/first-token false-positive class, names.py vs resolve.py
-  normalization-divergence table. One production fix: `_by_entity_alias`
-  legacy-scan tie-guard (mirrors `_normalized_name`'s ties→None policy —
-  latent wrong-company path via Form D attach). Deferred decisions recorded:
-  boundary policy change, stack unification, `parse_submissions_identity`
-  unused hook. Plan: `docs/plans/2026-10-30-name-resolution-tests.md`.
+- [x] **Name-resolution test expansion** — DELIVERED 2026-10-30 (offline, zero
+  live fetches; +53 tests, 2,912 → 2,965 collected; wave review PASS, 0
+  blockers/0 majors). Commits `27f8785`…`3bc1017`. The never-guess contract
+  is now pinned where more test area was asked for: EDGAR `match_cik` (fuzzy
+  0.9 arm boundary verified live at exactly 0.90; multi-hit → None; ticker
+  collision early-return; degenerate inputs), multi-filer generic-name
+  collisions end-to-end (12-row collision fixture; "Acme"/"Signals Inc"/
+  "Delta" → None; resolver wiring; Form D attach → stub, never steals), the
+  waterfall ambiguity contract (Delta Air Lines vs Delta Faucet; apex-tie =
+  single winner by STAGE_PRIORITY; DDG non-official #1 stays ambiguous), and
+  the names.py/resolve.py divergence table. Two production changes:
+  `_by_entity_alias` legacy-scan tie-guard (RED via direct-SQL legacy rows —
+  the PK prevents new collisions, the guard defends legacy ones; mirrors
+  `_normalized_name`'s ties→None) and the Wikipedia disambiguation-page
+  guard in `pick_wikipedia_domain` (TDD RED→GREEN). Findings + deferred
+  decisions: `data/probe/NAME_RESOLUTION_TESTS_20261030.md`. Plan:
+  `docs/plans/2026-10-30-name-resolution-tests.md`.
+- [ ] **`name_matches_domain` boundary policy** — the prefix/first-token rules
+  false-positive on generic brands ("Signal" → signalfire.com, "Delta" →
+  deltafaucet.com — both via the prefix arm, names.py:117-118); pinned as a
+  known-limitation class in `tests/test_names.py::TestKnownLimitations`.
+  Tightening changes every waterfall stage + the DDG strict rule at once —
+  a threshold decision, not a drive-by fix.
+- [ ] **Unify the two name-normalization stacks** — names.py (EDGAR/CIK +
+  domain matching) vs resolve.py `normalize_entity` (alias/queue keys)
+  differ in suffix sets (SPA/Pte/PLC/Incorporated), "the"-handling, and
+  empty sentinel (None vs ""). Pinned in
+  `tests/test_name_stacks_divergence.py`; unifying re-keys `entity_aliases`
+  and identity-candidate rows — product decision.
+- [ ] **Wire or delete `parse_submissions_identity`** — extracts EDGAR
+  `name/tickers/sic/website` (edgar_ids.py:88-98) and is consumed by no
+  production code; the natural feed for automatic alias/name-variant
+  discovery (still deliberately unattempted). Also: `fuzzy_match` (difflib
+  0.87) is production-dead (imported registry.py:11, never called) — its
+  boundary tests in test_entity_resolution.py protect nothing real.
 - [ ] **Extraction before claims** — executes the accepted-claims read's fork
   the corpus lacks need-bearing prose because the prose-bearing pages were
   never fetched (the sitemap merely listed them). Spike-gated three arms:

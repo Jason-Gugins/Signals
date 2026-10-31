@@ -154,6 +154,7 @@ def run_xray(
         "company_candidates": 0,
         "contacts_written": 0,
         "profiles_unmatched": 0,
+        "skipped_cap": 0,
         "errors": [],  # [{"query", "reason"}] — degradation stays visible
     }
 
@@ -183,7 +184,8 @@ def run_xray(
             report["empty"] += 1
             continue
         if max_queries is not None and report["queries"] >= max_queries:
-            break  # cap reached: stop before starting a new query
+            report["skipped_cap"] += 1
+            continue  # cap reached: no fetch, count the skip, keep scanning
 
         report["queries"] += 1
         url = encode_query(query, engine)

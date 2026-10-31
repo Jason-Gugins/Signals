@@ -366,3 +366,15 @@ def test_xray_stats_rollup_flag(fake_orch):
     assert result.exit_code == 0
     assert "engine\tstatus\tcount" in result.output
     assert "ddg_lite\tok\t1" in result.output
+
+
+# --- 7. repo-root-anchored X-ray paths (improvement plan Task 4) -------------
+
+def test_xray_paths_repo_root_anchored():
+    # The old CWD-relative strings silently broke when the CLI ran from
+    # outside the repo root; both X-ray paths must be absolute, anchored to
+    # the repo (src/cli.py -> parents[1]).
+    from src.cli import XRAY_GOOGLE_COOKIES_PATH, XRAY_LEDGER_PATH
+    assert Path(XRAY_LEDGER_PATH).is_absolute()
+    assert Path(XRAY_GOOGLE_COOKIES_PATH).is_absolute()
+    assert Path(XRAY_GOOGLE_COOKIES_PATH).name == "google_cookies.json"

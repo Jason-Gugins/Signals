@@ -1102,8 +1102,9 @@ def sweep(ctx, url_or_name, force, deep, discover_names, ddg, competitor_names):
         click.echo(f"reminder: {line}")
 
 
-XRAY_LEDGER_PATH = "data/xray/ledger.jsonl"
-XRAY_GOOGLE_COOKIES_PATH = "data/xray/google_cookies.json"
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+XRAY_LEDGER_PATH = _REPO_ROOT / "data" / "xray" / "ledger.jsonl"
+XRAY_GOOGLE_COOKIES_PATH = _REPO_ROOT / "data" / "xray" / "google_cookies.json"
 
 
 def _xray_fetch():
@@ -1296,6 +1297,7 @@ def xray(ctx, kinds, title, location, niche, role, problem_phrase,
     click.echo(
         f"X-ray run: {report['queries']} queries — ok {report['ok']} / "
         f"challenge {report['challenge']} / empty {report['empty']} / error {report['error']}"
+        + (f" / skipped_cap {report['skipped_cap']}" if report["skipped_cap"] else "")
     )
     click.echo(
         f"identity_candidates rows: {report['company_candidates']} · "

@@ -630,3 +630,19 @@ def test_empty_row_carries_body_bytes_and_parse_error(tmp_path):
     assert events[0]["status"] == "empty"
     assert events[0]["body_bytes"] == len(EMPTY_BODY)
     assert "no organic anchors parsed" in events[0]["parse_error"]
+
+
+# --- 14. skipped_cap report count (improvement plan Task 4) -----------------
+
+def test_cap_reports_skipped_string_count(tmp_path):
+    # max_queries=1 with three viable strings: one fetches, TWO are counted
+    # skipped — the old break was silent (report showed queries=1 and nothing
+    # about the other two).
+    report, db, events, _urls, _sleeps = _run(  # 5-tuple; events already loaded
+        tmp_path,
+        [SPEC_A, SPEC_B, SPEC_C],
+        [(200, ORG_COMPANY)],
+        max_queries=1,
+    )
+    assert report["queries"] == 1
+    assert report["skipped_cap"] == 2

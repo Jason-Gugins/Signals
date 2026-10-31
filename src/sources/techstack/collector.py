@@ -11,6 +11,15 @@ from src.sources.techstack.fingerprint import TechMatch
 
 
 def upsert_technologies(db: Database, domain: str, matches: list[TechMatch], *, now: str) -> tuple[list[str], list[str]]:
+    """Upsert tech matches and advance missing-run churn bookkeeping.
+
+    The row's ``version`` is the last-seen npm package version from
+    CDN/npm_packages evidence (``TechMatch.evidence_data["version"]``): it is
+    stored on insert, refreshed whenever a new ref is observed, and carried
+    forward via COALESCE when a later cycle matches the vendor through other
+    channels (no npm ref) — so the column always holds the last version
+    actually seen, never a blank, and stays NULL for npm-never vendors.
+    """
     seen = {m.vendor for m in matches}
     new = []
     for m in matches:
@@ -29,14 +38,16 @@ def upsert_technologies(db: Database, domain: str, matches: list[TechMatch], *, 
                     "evidence": m.evidence,
                     "confidence": m.confidence,
                     "source": "techstack",
+                    "version": (m.evidence_data or {}).get("version"),
                 },
                 pk=("domain", "vendor"),
             )
             new.append(m.vendor)
         else:
             db.execute(
-                "UPDATE technologies SET last_seen_at=?, missing_runs=0, evidence=?, confidence=? WHERE domain=? AND vendor=?",
-                (now, m.evidence, m.confidence, domain, m.vendor),
+                "UPDATE technologies SET last_seen_at=?, missing_runs=0, evidence=?, confidence=?,"
+                " version=COALESCE(?, version) WHERE domain=? AND vendor=?",
+                (now, m.evidence, m.confidence, (m.evidence_data or {}).get("version"), domain, m.vendor),
             )
     gone = []
     rows = db.query("SELECT vendor, missing_runs FROM technologies WHERE domain=?", (domain,))

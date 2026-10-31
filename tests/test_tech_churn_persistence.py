@@ -26,7 +26,7 @@ from src.signals.normalize import normalize_batch
 from src.signals.store import SignalStore
 from src.signals.taxonomy import Taxonomy
 from src.sources.base import FetchTask, SourceAdapter
-from src.sources.techstack.collector import TechstackSource
+from src.sources.techstack.collector import TechstackSource, upsert_technologies
 from src.sources.techstack.diff import diff_technologies
 from src.sources.techstack.dns_probe import DnsEvidence
 from src.sources.techstack.fingerprint import TechMatch
@@ -332,3 +332,46 @@ def test_flap_guard_suppresses_immediate_rechurn(tmp_path, monkeypatch):
     removed = db.query("SELECT title FROM signals WHERE signal_type='tech_removed'")
     assert [r["title"] for r in removed] == ["hubspot"]  # gone path unguarded
     ctx.__exit__(None, None, None)
+
+
+# ── npm version persistence: technologies.version = last-seen ───────────────
+#
+# The CDN evidence extractor already observes the exact npm package version
+# (@segment/analytics-next@1.71.0) and carries it on TechMatch.evidence_data.
+# upsert_technologies must persist it: stored on insert, refreshed when a new
+# ref is observed, and carried forward (COALESCE) when a later cycle matches
+# the vendor through a channel without an npm ref — "last seen version".
+
+def test_upsert_technologies_version_insert_and_update(tmp_path):
+    db = Database(tmp_path / "version.db")
+
+    def _tm(vendor, evidence, version, category, tier):
+        return TechMatch(
+            vendor=vendor, display=vendor.capitalize(), category=category,
+            tier=tier, evidence=evidence, confidence=0.8,
+            evidence_data=({"version": version} if version else {}),
+        )
+
+    # insert: the observed npm version lands on the new row
+    m1 = _tm("segment", "npm_packages", "1.71.0", ["cdp"], "mid")
+    upsert_technologies(db, "acme.com", [m1], now="2026-11-01")
+    row = db.one("SELECT * FROM technologies WHERE domain='acme.com' AND vendor='segment'")
+    assert row["version"] == "1.71.0"
+
+    # new ref observed -> version updates
+    m2 = _tm("segment", "npm_packages", "2.0.1", ["cdp"], "mid")
+    upsert_technologies(db, "acme.com", [m2], now="2026-11-08")
+    row = db.one("SELECT version FROM technologies WHERE domain='acme.com' AND vendor='segment'")
+    assert row["version"] == "2.0.1"
+
+    # vendor still present via script_src (no npm ref) -> version CARRIES FORWARD
+    m3 = _tm("segment", "script_src", None, ["cdp"], "mid")
+    upsert_technologies(db, "acme.com", [m3], now="2026-11-15")
+    row = db.one("SELECT version FROM technologies WHERE domain='acme.com' AND vendor='segment'")
+    assert row["version"] == "2.0.1"
+
+    # a vendor never matched via npm has NULL version (not "")
+    m4 = _tm("workday", "dns_cname", None, ["hris"], "enterprise")
+    upsert_technologies(db, "acme.com", [m4], now="2026-11-15")
+    row = db.one("SELECT version FROM technologies WHERE domain='acme.com' AND vendor='workday'")
+    assert row["version"] is None

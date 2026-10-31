@@ -72,7 +72,14 @@ def parse_reddit_atom(body: bytes) -> list[dict]:
 def reddit_to_candidates(hits, account: Account, *, today: date) -> list[SignalCandidate]:
     """Mirrors hn_to_candidates: title-or-body brand mention -> intent_3rd_topic
     (static 0.5 — search RSS carries no score); launch regex + own-domain link
-    -> product_launch. PURE."""
+    -> product_launch. PURE.
+
+    POSTS ONLY (live-capture drift fix, 2026-10-31): reddit search.rss mixes
+    subreddit entries (id ``t5_…``, url = the subreddit home, description may
+    mention the brand) in with post entries (id ``t3_…``). A subreddit whose
+    sidebar/description mentions the brand is structural noise, not a
+    third-party discussion — t5_ entries never produce candidates.
+    """
     want = normalize_name(account.name) if account.name else ""
     if not want:
         return []
@@ -80,7 +87,7 @@ def reddit_to_candidates(hits, account: Account, *, today: date) -> list[SignalC
     out: list[SignalCandidate] = []
     for h in hits:
         pid = h.get("id")
-        if not pid or pid in seen:
+        if not pid or pid in seen or not str(pid).startswith("t3_"):
             continue
         seen.add(pid)
         title = h.get("title") or ""

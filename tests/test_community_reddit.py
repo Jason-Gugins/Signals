@@ -86,3 +86,40 @@ def test_adapter_registered_plan_parse_roundtrip():
     assert any(c.natural_key == "reddlaunch:t3_4pqrs7" for c in cands)
     assert adapter.parse(Document(doc_id="r2", source="community_reddit", body=b""),
                          acct, {"today": today.isoformat()}) == []
+
+
+# --- Live-capture fixture (Task 16, drift fixes) ----------------------------
+# tests/fixtures/community/reddit_search_live.rss is a REAL capture: probed
+# 2026-10-31 via collect --source community_reddit --force --domain
+# brooklinen.com (HTTP 200, application/atom+xml) through the scoped
+# /search.rss robots override — see tests/fixtures/community/REDDIT_LIVE.md.
+# Its proven pinned: the live feed mixes t5_ SUBREDDIT entries with t3_ posts,
+# which the synthetic fixture never had.
+LIVE = Path("tests/fixtures/community/reddit_search_live.rss").read_bytes()
+
+
+def test_live_fixture_posts_only():
+    """t5_ subreddit rows (e.g. r/Bedding 'A subreddit devoted to bedding',
+    r/malelivingspace — descriptions that merely mention the brand) must never
+    become candidates; only t3_ posts do."""
+    hits = parse_reddit_atom(LIVE)
+    ids = {h["id"] for h in hits}
+    assert any(i.startswith("t5_") for i in ids)  # the noise class is really present
+    acct = Account(domain="brooklinen.com", name="Brooklinen")
+    cands = reddit_to_candidates(hits, acct, today=date(2026, 10, 30))
+    assert cands, "the t3_ posts discussing Brooklinen must still emit"
+    assert all(c.natural_key.startswith("redd:t3_") for c in cands)
+
+
+def test_live_fixture_subreddit_extracted_from_category():
+    hits = parse_reddit_atom(LIVE)
+    subs = {h["subreddit"] for h in hits if h["id"].startswith("t3_")}
+    assert "BuyItForLife" in subs  # <category term="BuyItForLife" label="r/BuyItForLife"/>
+
+
+def test_t5_subreddit_entries_yield_nothing():
+    acct = Account(domain="acme.com", name="Acme")
+    hits = [{"id": "t5_2v70p", "title": "acme", "url": "https://www.reddit.com/r/acme/",
+             "created_at": "2011-01-01T00:00:00+00:00", "subreddit": None,
+             "author": "/u/x", "body": "a subreddit devoted to acme"}]
+    assert reddit_to_candidates(hits, acct, today=date(2026, 10, 30)) == []

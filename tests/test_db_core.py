@@ -203,3 +203,33 @@ def test_execute_from_worker_thread(tmp_path):
     row = db.one("SELECT v FROM _t")
     assert row is not None and row["v"] == "from-worker"
     db.close()
+
+
+def test_technologies_version_column_fresh_db(tmp_path):
+    db = Database(str(tmp_path / "fresh.db"))
+    cols = {r["name"] for r in db.conn.execute("PRAGMA table_info(technologies)").fetchall()}
+    assert "version" in cols
+
+
+def test_technologies_version_column_upgrade_path(tmp_path):
+    # Simulate a pre-column DB: create WITHOUT version, then open — the
+    # late-bound pass must add it. Mirror the existing monkeypatched
+    # NEW_COLUMNS test's style; here the column ships in NEW_COLUMNS itself,
+    # so instead build the table manually then reopen via Database.
+    import sqlite3
+    p = tmp_path / "legacy.db"
+    conn = sqlite3.connect(p)
+    conn.execute(
+        "CREATE TABLE technologies (domain TEXT NOT NULL, vendor TEXT NOT NULL,"
+        " category TEXT, tier TEXT, first_seen_at TEXT, last_seen_at TEXT,"
+        " missing_runs INTEGER DEFAULT 0, evidence TEXT, confidence REAL,"
+        " source TEXT, PRIMARY KEY (domain, vendor))"
+    )
+    conn.execute("INSERT INTO technologies VALUES ('a.com','zendesk','support','mid','2026-01-01','2026-01-01',0,'dns_cname',0.8,'techstack')")
+    conn.commit()
+    conn.close()
+    db = Database(str(p))
+    cols = {r["name"] for r in db.conn.execute("PRAGMA table_info(technologies)").fetchall()}
+    assert "version" in cols
+    row = db.one("SELECT vendor FROM technologies WHERE domain='a.com'")
+    assert row["vendor"] == "zendesk"  # existing rows survive the additive pass

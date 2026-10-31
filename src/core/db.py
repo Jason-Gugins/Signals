@@ -259,6 +259,7 @@ CREATE TABLE IF NOT EXISTS technologies (
     domain TEXT NOT NULL, vendor TEXT NOT NULL, category TEXT, tier TEXT,
     first_seen_at TEXT, last_seen_at TEXT, missing_runs INTEGER DEFAULT 0,
     evidence TEXT, confidence REAL, source TEXT,
+    version TEXT,                   -- last-seen npm package version (npm_packages/CDN evidence)
     PRIMARY KEY (domain, vendor)
 );
 
@@ -334,6 +335,10 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
     # the source_cursors.error_class column in SCHEMA_SQL. The late-bound
     # additive pass below backfills it idempotently on any upgrade path.
     "source_cursors": {"error_class": "TEXT"},
+    # Version persistence (2026-10-31 plan): exact npm package version from
+    # CDN evidence (cdn.py → TechMatch.evidence_data), carried on the
+    # technologies row as last-seen-value. See .zcode/plans/2026-10-31_160400-npm-version-persistence.md
+    "technologies": {"version": "TEXT"},
 }
 
 

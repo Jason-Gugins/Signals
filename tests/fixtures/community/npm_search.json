@@ -1,0 +1,86 @@
+{
+  "total": 2,
+  "time": "2026-10-30T21:04:41.513Z",
+  "objects": [
+    {
+      "package": {
+        "name": "@acme/sdk",
+        "scope": "acme",
+        "version": "2.3.1",
+        "description": "Official Acme Corp SDK for the Acme platform APIs",
+        "keywords": ["acme", "sdk", "api"],
+        "date": "2026-10-20T14:22:31.000Z",
+        "links": {
+          "homepage": "https://acme.com/developers",
+          "repository": "git+https://github.com/acmecorp/sdk.git",
+          "bugs": "https://github.com/acmecorp/sdk/issues"
+        },
+        "publisher": {
+          "username": "acme-dev",
+          "email": "dev@acme.com"
+        },
+        "maintainers": [
+          {
+            "username": "acme-dev",
+            "email": "dev@acme.com"
+          }
+        ]
+      },
+      "downloads": {
+        "monthly": 1234,
+        "weekly": 318
+      },
+      "score": {
+        "final": 0.62,
+        "detail": {
+          "quality": 0.81,
+          "popularity": 0.42,
+          "maintenance": 0.7
+        }
+      },
+      "searchScore": 12.45,
+      "flags": {
+        "unstable": false
+      }
+    },
+    {
+      "package": {
+        "name": "acme-helpers",
+        "scope": "unscoped",
+        "version": "0.9.0",
+        "description": "Assorted helpers for the Acme brand of kitchen widgets (unrelated to Acme Corp)",
+        "keywords": ["helpers", "widgets"],
+        "date": "2026-09-15T09:10:05.000Z",
+        "links": {
+          "repository": "git+https://github.com/widgettools/acme-helpers.git"
+        },
+        "publisher": {
+          "username": "widgetfan",
+          "email": "widgetfan@example.com"
+        },
+        "maintainers": [
+          {
+            "username": "widgetfan",
+            "email": "widgetfan@example.com"
+          }
+        ]
+      },
+      "downloads": {
+        "monthly": 87,
+        "weekly": 21
+      },
+      "score": {
+        "final": 0.31,
+        "detail": {
+          "quality": 0.5,
+          "popularity": 0.2,
+          "maintenance": 0.33
+        }
+      },
+      "searchScore": 8.02,
+      "flags": {
+        "unstable": true
+      }
+    }
+  ]
+}

@@ -889,6 +889,7 @@ class CollectorRunner:
                 from src.sources.techstack.collector import upsert_technologies
                 from src.sources.techstack.diff import diff_technologies
                 from src.sources.techstack.fingerprint import load_fingerprint_rules, merge_matches
+                from src.sources.techstack.migration import infer_migrations
 
                 merged = merge_matches(*tech_harvests)
                 # Previous stored rows for this domain: the diff needs the
@@ -963,6 +964,40 @@ class CollectorRunner:
                     stats.signals_new += added
                     stats._src(adapter.key)["signals_new"] += added
                     stats.candidates += len(change_cands)
+                # Migration inference: a REMOVED vendor and an ADDED vendor
+                # sharing a fingerprint category in the same cycle is a
+                # replacement -> tech_migration_mentioned (w24 primary).
+                # Guarded by the same flap set the diff uses (prior_flap
+                # suppresses both sides); categories come from the same
+                # fingerprints.yaml rules the renewal pass reads. Same
+                # fail-open pattern as the renewal estimator: inference
+                # problems must never block the harvest.
+                try:
+                    rules = load_fingerprint_rules()
+                    cat_map = {
+                        k: set(spec.get("category") or [])
+                        for k, spec in (rules.get("vendors") or {}).items()
+                    }
+                    prev_vendors = {r["vendor"] for r in prev_rows}
+                    curr_vendors = {m.vendor for m in merged}
+                    mig_cands = infer_migrations(
+                        curr_vendors - prev_vendors,
+                        prev_vendors - curr_vendors,
+                        lambda v: cat_map.get(v, set()),
+                        domain=account.domain,
+                        today=_iso(now)[:10],
+                        flap_guard=prior_flap,
+                    )
+                except Exception:
+                    logger.exception(
+                        "tech migration inference failed for {}", account.domain
+                    )
+                    mig_cands = []
+                if mig_cands:
+                    added = self._persist(account, adapter.key, mig_cands, None)
+                    stats.signals_new += added
+                    stats._src(adapter.key)["signals_new"] += added
+                    stats.candidates += len(mig_cands)
                 # Renewal-window estimation from the stored first-seen dates,
                 # with per-vendor contract terms from fingerprints.yaml
                 # (optional contract_years; default 1-year cycle). Same

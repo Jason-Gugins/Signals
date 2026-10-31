@@ -211,7 +211,15 @@ class AccountRegistry:
     def _by_entity_alias(self, name: str) -> Optional[Account]:
         """entity_aliases lookup: exact normalized key first, then a
         full-table normalized-equality pass (handles legacy rows written
-        with a different normalization). Higher priority than fuzzy."""
+        with a different normalization). Higher priority than fuzzy.
+
+        The legacy scan carries the same tie policy as _normalized_name:
+        multiple DISTINCT domains whose stored aliases normalize identically
+        are ambiguous — return None so the caller falls through, instead of
+        a nondeterministic merge to whichever row the scan hits first. The
+        alias PK plus add_entity_alias's normalize-on-write prevent new
+        collisions; this guard defends legacy rows written before that
+        normalization or via direct SQL."""
         key = normalize_entity(name)
         if not key:
             return None
@@ -220,10 +228,12 @@ class AccountRegistry:
         )
         if row:
             return self.get(row["domain"])
-        rows = self.db.query("SELECT alias, domain FROM entity_aliases")
-        for r in rows:
-            if normalize_entity(r["alias"]) == key:
-                return self.get(r["domain"])
+        hits: list[str] = []
+        for r in self.db.query("SELECT alias, domain FROM entity_aliases"):
+            if normalize_entity(r["alias"]) == key and r["domain"] not in hits:
+                hits.append(r["domain"])
+        if len(hits) == 1:
+            return self.get(hits[0])
         return None
 
     def _fuzzy_name(self, name: str, min_similarity: float) -> Optional[Account]:

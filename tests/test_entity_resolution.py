@@ -21,6 +21,7 @@ from src.core.db import Database
 from src.core.http import FetchResult
 from src.core.models import Account, Document
 from src.identity.registry import AccountRegistry
+from src.identity.names import name_similarity, normalize_name
 from src.identity.resolve import fuzzy_match, normalize_entity
 from src.pipeline.orchestrator import Orchestrator
 
@@ -202,6 +203,188 @@ def test_normalized_name_collision_falls_through(tmp_path):
     # 'Inc/Corp/Co' all collapse to 'acme', so use a distinct token:
     reg.add_alias("Zeta Analytics", "name", "acme.com", source="test")
     assert reg._normalized_name("Zeta Analytics Ltd").domain == "acme.com"
+
+
+# ── _by_entity_alias: legacy-scan tie guard (plan Task 3) ──────────────────
+
+
+def _legacy_entity_tie_seed(reg: AccountRegistry) -> None:
+    """Seed the legacy state the _by_entity_alias full scan must defend
+    against: two DIRECT-SQL entity_aliases rows whose raw stored aliases
+    normalize identically but point at DIFFERENT domains.
+
+    add_entity_alias cannot create this today — it stores the
+    normalize_entity form and the alias PK upsert-collapses equal keys —
+    but rows written before that normalization (or via direct SQL) can
+    carry raw aliases exactly like these."""
+    reg.upsert(Account(domain="alpha.com", name="Alpha Prime"))
+    reg.upsert(Account(domain="beta.com", name="Beta Prime"))
+    reg.db.execute(
+        "INSERT OR REPLACE INTO entity_aliases (alias, domain)"
+        " VALUES ('Acme East', 'alpha.com')"
+    )
+    reg.db.execute(
+        "INSERT OR REPLACE INTO entity_aliases (alias, domain)"
+        " VALUES ('ACME EAST', 'beta.com')"
+    )
+
+
+def test_entity_alias_legacy_scan_tie_returns_none(tmp_path: Path) -> None:
+    """_by_entity_alias legacy scan: two entity_aliases rows whose STORED
+    aliases normalize_entity to the same key but point at DIFFERENT domains
+    are ambiguous — must return None (the caller falls through to the next
+    arm), NOT whichever row the full-table scan hits first. Same ties->None
+    policy _normalized_name documents for name-aliases.
+
+    Reachability: entity_aliases' alias PK prevents NEW collisions
+    (add_entity_alias stores the normalize_entity form, so equal keys
+    upsert-collapse to one row), but it does NOT stop two legacy raw rows
+    like 'Acme East' / 'ACME EAST' written before that normalization or via
+    direct SQL — the exact-key SELECT misses both (case-sensitive string
+    equality), so only the legacy scan sees them. Plan Task 3 RED."""
+    db = Database(tmp_path / "tie.db")
+    reg = AccountRegistry(db)
+    _legacy_entity_tie_seed(reg)
+    # sanity: the stored raw aliases normalize identically...
+    assert (
+        normalize_entity("Acme East") == normalize_entity("ACME EAST") == "acme east"
+    )
+    # ...both rows persisted (distinct raw strings, distinct PKs)...
+    rows = reg.db.query("SELECT alias, domain FROM entity_aliases")
+    assert [(r["alias"], r["domain"]) for r in rows] == [
+        ("Acme East", "alpha.com"),
+        ("ACME EAST", "beta.com"),
+    ]
+    # ...and the exact-key fast path misses both (stored strings differ from
+    # the query key), so the legacy scan is the only path that can decide.
+    assert (
+        reg.db.one(
+            "SELECT domain FROM entity_aliases WHERE alias = ?", ("acme east",)
+        )
+        is None
+    )
+    assert reg._by_entity_alias("acme east") is None  # ambiguous tie -> None
+    assert reg.resolve(name="acme east") is None  # falls through, not row #1
+
+
+# ── entity-alias priority pins (plan Task 3, characterization) ─────────────
+
+
+def test_entity_alias_exact_key_beats_legacy_scan(tmp_path: Path) -> None:
+    """Priority pin: an exact-key entity_aliases hit short-circuits before
+    the legacy scan — legacy raw rows that would tie must not poison the
+    canonical (normalize_entity-stored) row for the same key."""
+    db = Database(tmp_path / "exact.db")
+    reg = AccountRegistry(db)
+    reg.upsert(Account(domain="alpha.com", name="Alpha Prime"))
+    reg.upsert(Account(domain="beta.com", name="Beta Prime"))
+    reg.upsert(Account(domain="exact.com", name="Exact Prime"))
+    # legacy raw rows that would tie under the scan...
+    reg.db.execute(
+        "INSERT OR REPLACE INTO entity_aliases (alias, domain)"
+        " VALUES ('Acme East', 'alpha.com')"
+    )
+    reg.db.execute(
+        "INSERT OR REPLACE INTO entity_aliases (alias, domain)"
+        " VALUES ('ACME EAST', 'beta.com')"
+    )
+    # ...plus the canonical exact-key row add_entity_alias writes.
+    reg.add_entity_alias("Acme East Co", "exact.com")
+    rows = reg.db.query("SELECT alias, domain FROM entity_aliases ORDER BY alias")
+    assert [(r["alias"], r["domain"]) for r in rows] == [
+        ("ACME EAST", "beta.com"),
+        ("Acme East", "alpha.com"),
+        ("acme east", "exact.com"),
+    ]
+    hit = reg.resolve(name="acme east")
+    assert hit is not None
+    assert hit.domain == "exact.com"
+
+
+def test_name_alias_beats_entity_alias_same_key(tmp_path: Path) -> None:
+    """Priority pin: the exact name-alias arm runs BEFORE the entity-alias
+    lookup — when the same normalized key points at a DIFFERENT domain via
+    account_aliases vs entity_aliases, the name-alias owner wins."""
+    db = Database(tmp_path / "prio.db")
+    reg = AccountRegistry(db)
+    reg.upsert(Account(domain="namealias.com", name="Namealias Prime"))
+    reg.upsert(Account(domain="entity.com", name="Entity Prime"))
+    reg.add_alias("Acme East", "name", "namealias.com", source="test")
+    reg.add_entity_alias("Acme East Co", "entity.com")
+    # both stores hold the key 'acme east' — pointing at DIFFERENT domains
+    assert (
+        reg.db.one(
+            "SELECT domain FROM account_aliases"
+            " WHERE alias = ? AND alias_kind = 'name'",
+            ("acme east",),
+        )["domain"]
+        == "namealias.com"
+    )
+    assert (
+        reg.db.one(
+            "SELECT domain FROM entity_aliases WHERE alias = ?", ("acme east",)
+        )["domain"]
+        == "entity.com"
+    )
+    # 'Acme East LLC' normalizes (names stack) onto the name-alias key...
+    assert normalize_name("Acme East LLC") == "acme east"
+    hit = reg.resolve(name="Acme East LLC")
+    assert hit is not None
+    assert hit.domain == "namealias.com"  # NOT entity.com
+
+
+def test_tie_guarded_entity_alias_falls_through_to_normalized_name(
+    tmp_path: Path,
+) -> None:
+    """Priority pin: when the entity-alias legacy scan is tie-guarded to
+    None, resolve() continues down the waterfall — the next arm
+    (_normalized_name) still resolves via a name-alias row that only
+    normalize_entity (not the names-stack key) maps onto the query key."""
+    db = Database(tmp_path / "fall1.db")
+    reg = AccountRegistry(db)
+    _legacy_entity_tie_seed(reg)
+    reg.upsert(Account(domain="gamma.com", name="Gamma Prime"))
+    # 'incorporated' is the one resolve-suffix the names stack keeps: the
+    # exact name-alias arm misses the query, but normalize_entity maps both
+    # onto 'acme east'.
+    reg.add_alias("Acme East Incorporated", "name", "gamma.com", source="test")
+    assert normalize_name("Acme East Co") == "acme east"
+    assert normalize_name("Acme East Incorporated") == "acme east incorporated"
+    assert normalize_entity("Acme East Incorporated") == "acme east"
+    # the tie itself is guarded -> None...
+    assert reg._by_entity_alias("Acme East Co") is None
+    # ...and resolve falls through to the normalized name-alias arm
+    hit = reg.resolve(name="Acme East Co")
+    assert hit is not None
+    assert hit.domain == "gamma.com"
+
+
+def test_tie_guarded_entity_alias_falls_through_to_fuzzy(tmp_path: Path) -> None:
+    """Priority pin: with NO normalized-equality name-alias either, the
+    tie-guarded entity-alias arm still falls through to _fuzzy_name
+    (>= 0.86, single surviving domain) — the guard must not swallow the
+    whole waterfall."""
+    db = Database(tmp_path / "fall2.db")
+    reg = AccountRegistry(db)
+    _legacy_entity_tie_seed(reg)
+    reg.upsert(Account(domain="gamma.com", name="Gamma Prime"))
+    # No name-alias normalizes onto 'acme east' under either stack, but the
+    # word-order variant 'East Acme' shares the query's exact token set
+    # ({acme, east} — name_tokens strips the trailing 'co'), so
+    # name_similarity = 1.0 Jaccard >= the 0.86 registry bar.
+    reg.add_alias("East Acme", "name", "gamma.com", source="test")
+    assert name_similarity("Acme East Co", "East Acme") == pytest.approx(1.0)
+    # ...while BOTH deterministic arms miss: the names-stack key differs
+    # ('acme east' vs 'east acme') and normalize_entity('east acme')
+    # != 'acme east'.
+    assert normalize_name("Acme East Co") == "acme east"
+    assert normalize_name("East Acme") == "east acme"
+    assert normalize_entity("East Acme") == "east acme"
+    assert reg._by_entity_alias("Acme East Co") is None  # tie-guarded
+    assert reg._normalized_name("Acme East Co") is None  # normalized arm misses
+    hit = reg.resolve(name="Acme East Co")
+    assert hit is not None
+    assert hit.domain == "gamma.com"  # fuzzy arm catches the fall-through
 
 
 # ── resolve-time seeding from config/lists/entity_aliases.yaml ─────────────

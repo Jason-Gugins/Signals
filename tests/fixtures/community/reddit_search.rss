@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- synthetic fixture — written from Reddit's LIVE-verified search.rss Atom
+     shape (www.reddit.com/search.rss probe, 2026-10-30); names, ids and dates
+     are fictional. Structure mirrors the real feed: <feed xmlns=Atom>, entries
+     with <id>t3_…</id>, <link href>, <published>/<updated>,
+     <category term=" r/saas"/> (the leading space is Reddit's real quirk — the
+     parser strips it) and <content type="html">. Four cases: title mention,
+     body-only mention, non-mention, launch post linking the account domain. -->
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+  <category term=" r/saas"/>
+  <title>search results for &quot;acme corp&quot;</title>
+  <id>https://www.reddit.com/search.rss?q=%22acme%20corp%22&amp;sort=new&amp;t=week</id>
+  <link href="https://www.reddit.com/search?q=%22acme%20corp%22&amp;sort=new&amp;t=week"/>
+  <updated>2026-10-30T08:00:00+00:00</updated>
+
+  <entry>
+    <category term=" r/saas"/>
+    <content type="html">&lt;!-- SC_OFF --&gt;&lt;div class="md"&gt;&lt;p&gt;Just saw Acme Corp closed their Series B — congrats to the team.&lt;/p&gt;&lt;/div&gt;&lt;!-- SC_ON --&gt;</content>
+    <id>t3_1abcd2</id>
+    <link href="https://www.reddit.com/r/saas/comments/1abcd2/acme_corp_raised_a_series_b/"/>
+    <published>2026-10-28T10:00:00+00:00</published>
+    <updated>2026-10-28T10:05:00+00:00</updated>
+    <title>Acme Corp raised a Series B</title>
+    <author><name>u/venturewatch</name></author>
+  </entry>
+
+  <entry>
+    <category term=" r/sales"/>
+    <content type="html">&lt;div class="md"&gt;&lt;p&gt;Hunting for a forecasting tool for our revops team. We evaluated acme corp last quarter and the forecasting module was solid; pricing was the blocker.&lt;/p&gt;&lt;/div&gt;</content>
+    <id>t3_2wxyz9</id>
+    <link href="https://www.reddit.com/r/sales/comments/2wxyz9/forecasting_tool_advice/"/>
+    <published>2026-10-29T09:30:00+00:00</published>
+    <updated>2026-10-29T09:30:00+00:00</updated>
+    <title>Looking for a forecasting tool</title>
+    <author><name>u/revops_rachel</name></author>
+  </entry>
+
+  <entry>
+    <category term=" r/startups"/>
+    <content type="html">&lt;div class="md"&gt;&lt;p&gt;Two founders comparing CRMs — hubspot feels heavy for us, pondering a spreadsheet instead.&lt;/p&gt;&lt;/div&gt;</content>
+    <id>t3_3mnop4</id>
+    <link href="https://www.reddit.com/r/startups/comments/3mnop4/crm_for_small_teams/"/>
+    <published>2026-10-27T12:00:00+00:00</published>
+    <updated>2026-10-27T12:00:00+00:00</updated>
+    <title>Best CRM for small teams</title>
+    <author><name>u/founder_fred</name></author>
+  </entry>
+
+  <entry>
+    <category term=" r/saas"/>
+    <content type="html">&lt;div class="md"&gt;&lt;p&gt;Acme Corp is launching an analytics suite today — happy to answer questions.&lt;/p&gt;&lt;/div&gt;</content>
+    <id>t3_4pqrs7</id>
+    <link href="https://acme.com/blog/acme-analytics-launch"/>
+    <published>2026-10-30T07:00:00+00:00</published>
+    <updated>2026-10-30T07:00:00+00:00</updated>
+    <title>Acme Corp is launching an analytics suite</title>
+    <author><name>u/acme_founder</name></author>
+  </entry>
+</feed>

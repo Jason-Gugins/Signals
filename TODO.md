@@ -45,14 +45,18 @@ throughout.
   with provenance (`tests/fixtures/community/REDDIT_LIVE.md`); drift fix: t5_
   SUBREDDIT entries (sidebar brand mentions) never emit — t3_ posts only.
 
-**Deferred (the gating follow-up):** community_github's search-recovery cannot
-fire live yet — the runner raises on `not result.ok` (runner.py:443-451) BEFORE
-follow tasks queue, so a hard-404 org probe kills the pair (live-confirmed on
-astranis.com AND alpha-sense.com, `signals_new=0`). Fix = scoped runner
-softening (meta-flagged recoverable tasks skip the raise) + probing
-`github_org_guess` in order instead of `guesses[0]` only. Until then the
-feature is test-verified but live-dormant; run it after that fix lands.
-Also fresh-decision territory (plan open questions): wider Reddit scope than
+**Follow-up wave DELIVERED (2026-10-31) — the gating fix landed same-day** in
+`c0ef159` + `9621b8d`: recoverable-flagged tasks skip non-fatally in `_run_pair`
+on 404 ONLY (5xx/403/timeouts stay loud and feed backoff); the whole
+community_github task family (org probes ×2 guesses, repos/releases/events
+follows, search-recovery pair) carries the flag because absence is data for a
+presence-probe source. Diagnosis CORRECTION from the live evidence: the
+recurring pair-killer was never the org probe — it was `/orgs/{org}/releases`
+returning 404 for orgs with zero public repos (GitHub semantics, confirmed on
+alpha-sense AND astranis); genuine org-absence (`astranis-space-technologies`)
+was the second, rarer case. Post-fix live verification: both previously-dying
+domains now complete with `failed=0` (recoverable misses logged, pairs live).
+Remaining fresh-decision territory (plan open questions): wider Reddit scope than
 `/search.rss`; techstack→npm CDN-package bridge; Reddit needs-language mining
 behind the market-profile gate; GITHUB_TOKEN promotion (rate limits 10→30/min
 for search).

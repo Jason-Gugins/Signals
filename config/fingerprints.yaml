@@ -28,6 +28,8 @@ vendors:
       script_src: ["force.com", "salesforceliveagent.com", "pardot.com"]
       spf_include: ["salesforce.com", "pardot.com", "exacttarget.com"]
       dns_cname: ["salesforce.com"]
+  # Renewal estimate: ~2-year marketing-suite terms — judgment call, flagged
+  # for Jason to confirm against real contracts.
   marketo: { display: "Marketo", category: [marketing_automation], tier: enterprise, contract_years: 2,
              match: { script_src: ["munchkin.marketo.net"], dns_cname: ["mktoweb.com"], spf_include: ["mktomail.com"], inline_global: ["Munchkin.init"] } }
   google_workspace: { display: "Google Workspace", category: [email], tier: mid,
@@ -49,6 +51,8 @@ vendors:
       # Confirm against a live capture (Wave E probe) before trusting
       # production version evidence.
       npm_packages: ["@segment/analytics-next"]
+  # Renewal estimate: 1-year consumption contract, re-cut annually — judgment
+  # call, flagged for Jason to confirm against real contracts.
   snowflake: { display: "Snowflake", category: [data_warehouse], tier: enterprise, contract_years: 1,
              match: { job_text: ["snowflake"] } }
   # Workday HCM deals typically run on multi-year contracts, so its renewal

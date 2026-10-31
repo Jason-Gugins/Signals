@@ -616,24 +616,18 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   discovery (still deliberately unattempted). Also: `fuzzy_match` (difflib
   0.87) is production-dead (imported registry.py:11, never called) — its
   boundary tests in test_entity_resolution.py protect nothing real.
-- [ ] **Extraction before claims** — executes the accepted-claims read's fork
-  the corpus lacks need-bearing prose because the prose-bearing pages were
-  never fetched (the sitemap merely listed them). Spike-gated three arms:
-  (A) Greenhouse boards-api content=true — the collector already requests
-  it and parse_greenhouse already handles content; diagnose why the corpus
-  envelope lacks it; (B) blog RSS via the existing company_feed source
-  (one account field, zero code); (C) sitemap-enumerated content pages as
-  a bounded new adapter. Then the re-harvest: does need-bearing prose move
-  G5's nouls? Plan: `docs/plans/2026-10-30-detail-page-sourcing.md`.
-- [ ] **Extraction before claims** — executes the accepted-claims read's fork
-  decision (`data/probe/ACCEPTED_CLAIM_READ_20261013.md`: 0/79 accepted
-  claims worth promotion; ~80% were machine-metadata restatements from four
-  envelope formats). Wave: format-sniffing human-content extraction at the
-  implement seam (ATS job lines, app descriptions, RSS item text), catalog
-  exclusion (sitemap URL lists), per-result wrong-entity exclusion
-  (publisher vs account+aliases), dual-hash join compatibility for the lab
-  corpus and A/B tooling. Two-agent verified; all findings folded in.
-  Plan: `docs/plans/2026-10-29-extraction-before-claims.md`.
+- [x] **Extraction before claims** (detail-page-sourcing arm) — DELIVERED
+  2026-10-30 as detail-page sourcing (see the delivered entry above; this
+  box was never flipped). Arms A+C shipped (`28bd817`, `8b179a6`); Arm B
+  (RSS) NO-GO per spike. The re-harvest question — does need-bearing prose
+  move G5's nouls — is answered by the alias-branch validation
+  (`c78440f`): yes, first claims reach the review band.
+- [x] **Extraction before claims** (implement-seam wave) — DELIVERED 2026-10-30
+  via the extraction wave (`28bd817` doccontent unescape/content branch,
+  `c3abacb` dual-hash doc join; box was never flipped). The alias-set
+  generalization that remained shipped today in the ATS aliases wave
+  (owned by the concurrent session). Plan:
+  `docs/plans/2026-10-29-extraction-before-claims.md`.
 - [ ] **Customer-proof / competitive-intel signal family** — a new signal
   family decision (user's product call, not a code fix). The accepted-claims
   read (`data/probe/ACCEPTED_CLAIM_READ_20261013.md`) surfaced genuinely
@@ -659,13 +653,21 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   hierarchical category→type; taxonomy has 7 categories, largest 13
   types). Plan (committing with this entry):
   `docs/plans/2026-10-13-taxonomy-typing-422.md`.
-- [ ] **G5 sibling fix** — G5's promotion excerpt anchors on the paraphrased
-  need text (intel.py:871), the same defect class as the G4 wall; 49
-  post-fix accepted claims died at promotion nouls 0.08–0.13 vs band_low
-  0.30. Plan: offline diagnosis over the validation-harvest claims first
-  (STOP gate — if need-text anchor rates are already high, no fix), then
-  quote-anchored promotion excerpt reusing gates.claim_excerpt, then a
-  live validation harvest. Plan (committing with this entry):
+- [x] **G5 sibling fix** — RESOLVED BY DIAGNOSIS 2026-10-30: the phase-1
+  offline diagnosis (`data/probe/G5_SIBLING_DIAGNOSIS_20261030.md`, 120
+  unique claims, all 114 promotion rows joined by exact state_hash — 0
+  unmatched) found anchor rates 0.0% old / 12.9% new, far below the ~70%
+  STOP threshold — BUT reality already overtook the plan: the quote-anchored
+  excerpt fix (intel.py:949 `claim_excerpt` + gates.py quote-first
+  re-anchor) already shipped, is hash-proven live in the new alias-branch
+  harvest, and nouls moved 0.08–0.24 → 0.07–0.34 with 9 claims IN the
+  review band (0.30–0.34) for the first time. No further anchoring fix is
+  warranted; the residual 0.34-vs-0.70 promote-floor gap is decide-lab
+  calibration + material, not excerpt construction. Plan corrections
+  recorded: G5 loop is intel.py:925-962 (not :871); the "decide layer needs
+  ZERO changes" claim was falsified by the gates.py cascade fix; the old
+  "49 died at 0.08–0.13" bookkeeping conflated 830 flattened payload
+  copies with 50 unique claims (real span 0.08–0.24). Plan:
   `docs/plans/2026-10-12-g5-sibling-fix.md`.
 - [x] **A/B follow-up fix wave** — DELIVERED 2026-10-12 (delivery record below;
   this box was never flipped). G4 wall DOWN (accepted 0→19 databricks, 5→30

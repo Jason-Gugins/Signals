@@ -61,6 +61,28 @@ Remaining fresh-decision territory (plan open questions): wider Reddit scope tha
 behind the market-profile gate; GITHUB_TOKEN promotion (rate limits 10→30/min
 for search).
 
+**Independent quality-review pass (2026-10-31, two read-only reviewers + one
+fixer, `16f8395`)**: 2 BLOCKING fixed — `owned_packages` `rstrip(".git")`
+charset-mangled org logins ending in g/i/t (intuit→intu: momentum arm dead for
+that class, own packages leaking as third-party intent) → `removesuffix`;
+`new_topic` natural-key collision dropped all-but-first topic per repo-cycle
+(permanent loss; key now carries the topic). SHOULD-FIX fixed: subreddit
+search scope was robots-dead (`/r/<sub>/search.rss` ≠ allowed `/search.rss`
+prefix — plan() now site-wide only, widening = operator decision; robots-pin
+test added); dynamic-host promotion required label-boundary suffix
+(`evilsparkpost.com` no longer promotes to sparkpost at 0.7); evidence keys
+aligned with templates (`from_tech`/`to_tech`, `product`,
+`momentum_kind: npm_downloads_surge`); npm version evidence attached
+regardless of winning channel. RECORD-ONLY open decisions (deliberately NOT
+fixed): (1) migration inference on a raw one-cycle diff can fabricate a w24
+migration from a transient scrape miss — gating on missing_runs/gone-list is
+a precision-vs-latency tradeoff for the operator; (2) brand-mention substring
+matching has no word boundary on the new npm/reddit surfaces ("Glow" c
+"glowing" — mirrors pre-existing HN looseness); (3) `os.environ` read in
+plan() is a documented purity-boundary convention (GITHUB_TOKEN). Also noted:
+npm version evidence is captured but NOT persisted (technologies table has
+fixed columns; needs a schema migration — deferred).
+
 ---
 
 Note from the P1 review sweep (P3 candidates): `flap_guard` persistence

@@ -1,11 +1,63 @@
 # TODO — Project Roadmap
 
-Last reviewed: 2026-09-14. Baseline: **1,962 tests collected, offline lane:
-1,954 passed, 8 deselected** (live-marked tests excluded). P1 fully delivered
-(2026-08-31); **P2 fully delivered (2026-09-01)**; **P3 fully delivered
-(2026-09-02)** — see below. Keyless Clay/Exa clones roadmap delivered
-(2026-09-05). Legacy Cloudflare-bypass checklist archived at the
-bottom.
+Last reviewed: 2026-10-31. Baseline: **~3,100 tests collected, offline lane
+green** (measured 2026-10-30, 8m19s). P1 fully delivered (2026-08-31); **P2
+fully delivered (2026-09-01)**; **P3 fully delivered (2026-09-02)** — see
+below. Keyless Clay/Exa clones roadmap delivered (2026-09-05). Community
+signals + techstack insight wave delivered (2026-10-31) — record below.
+Legacy Cloudflare-bypass checklist archived at the bottom.
+
+## Community signals + techstack insight wave — DELIVERED (2026-10-31)
+
+**Status: DELIVERED (2026-10-31)** — 15 code commits across 8 gated batches
+(overnight /goal run from `.zcode/plans/2026-10-30_210441-community-signals-techstack-insight.md`;
+offline suite green at every batch gate). One commit per task, subagent TDD
+throughout.
+
+- [x] **npm-CDN version evidence** (`c33d364`, `fb0abd8`) — `extract_npm_cdn_refs`
+  pulls exact `pkg@version` from jsdelivr/unpkg URLs in already-captured HTML;
+  new `npm_packages` fingerprint arm (conf 0.8, version on `TechMatch.evidence_data`).
+- [x] **Diff-inferred tech migrations** (`8672e92`) — removed+added vendor sharing
+  a fingerprint category, same cycle → `tech_migration_mentioned` (w24 primary)
+  conf 0.65, monthly `techmig:` keys, flap-guarded; wired in the runner diff block.
+- [x] **Dynamic host promotion** (`f3d046c`) — `classify_dynamic_host` promotes
+  anonymous `host:` rows (conf 0.4) to named vendor rows (conf 0.7, evidence
+  `host_suffix`+needle) via longest-suffix needle match.
+- [x] **contract_years invariant** (`74a4f28`) — config-validation tests pin the
+  enterprise coverage; NOTE: coverage itself already shipped in `48f59fe`
+  (2026-10-03) — this wave adds enforcement + provenance comments only.
+- [x] **GitHub search-users recovery** (`4c2d7f2`) — never-guess org recovery via
+  the keyless Search API (direct-to-repos shape; pass-math documented).
+- [x] **GitHub topic momentum + push bursts** (`1060049`, `dafcd12`) — `new_topic`
+  kind in `repo_delta` (stats rows now carry topics); org-events follow emits
+  `ghevent:{domain}:{YYYYMM}` at ≥10 pushes/7d (conf 0.5).
+- [x] **`community_npm` source** (`9c42e6c`, `c3f55b0`, `f9b7924`, `510f789`) —
+  keyless registry search; strong-arm attribution (github.com repository field +
+  exact org-guess match); brand-mention `intent_3rd_topic` (0.4); momentum arm
+  (`new_package` → `product_launch` 0.6, downloads surge → `github_momentum` 0.6)
+  on `data/npm/stats.json`. **Live-verified: signals_new=15 on alpha-sense.com
+  from ONE request** (the `@alphasense/*` SDK family); astranis.com honest-empty.
+- [x] **Reddit Atom brand search, LIVE** (`b196154`, `cf1c99c`, `d059874`) —
+  dead old.reddit HTML stub replaced by the live-verified search.rss Atom parser;
+  scoped robots override (`/search.rss` only) operator-approved 2026-10-30,
+  recorded honestly in config/default.yaml; guard test pins scope+rate.
+  **Live-verified: signals_new=4 on brooklinen.com**; live-capture fixture frozen
+  with provenance (`tests/fixtures/community/REDDIT_LIVE.md`); drift fix: t5_
+  SUBREDDIT entries (sidebar brand mentions) never emit — t3_ posts only.
+
+**Deferred (the gating follow-up):** community_github's search-recovery cannot
+fire live yet — the runner raises on `not result.ok` (runner.py:443-451) BEFORE
+follow tasks queue, so a hard-404 org probe kills the pair (live-confirmed on
+astranis.com AND alpha-sense.com, `signals_new=0`). Fix = scoped runner
+softening (meta-flagged recoverable tasks skip the raise) + probing
+`github_org_guess` in order instead of `guesses[0]` only. Until then the
+feature is test-verified but live-dormant; run it after that fix lands.
+Also fresh-decision territory (plan open questions): wider Reddit scope than
+`/search.rss`; techstack→npm CDN-package bridge; Reddit needs-language mining
+behind the market-profile gate; GITHUB_TOKEN promotion (rate limits 10→30/min
+for search).
+
+---
 
 Note from the P1 review sweep (P3 candidates): `flap_guard` persistence
 (delivered 2026-10-03 — see the techstack improvements record),

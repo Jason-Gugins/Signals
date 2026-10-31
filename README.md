@@ -594,9 +594,12 @@ Detection covers all 11 collected vendors. Collector-less boards (bamboohr, jazz
 **Community.**
 
 - `community_hn` — Hacker News mentions via the Algolia API.
-- `community_github` — org repos and releases: `product_launch`, stagnation, `github_momentum` (new repos, star surges, archived repos).
+- `community_github` — org repos and releases: `product_launch`, stagnation, `github_momentum` (new repos, star surges, archived repos, new repo topics).
+- `community_github` extras — an org-events follow emits `ghevent:{domain}:{YYYYMM}` when an org pushes ≥10 times in 7 days (fresh activity the 48h repo cadence can't see), and a keyless Search-API recovery finds the org when the slug guess 404s (never-guess: a recovered login must match a known guess exactly). The recovery path is currently test-verified but live-dormant — the runner fails a hard-404 org probe before follow tasks queue — and the org probe still tries only the first slug guess.
+- `community_npm` — keyless npm registry search per account: third-party packages whose name/description mention the brand emit `intent_3rd_topic` (0.4); cycle-over-cycle momentum on the account's OWN packages (strong-arm attribution: github.com `repository` field + exact org-guess match) emits `product_launch` for new packages and `github_momentum` for monthly-download surges (`data/npm/stats.json`).
+- `community_reddit` — live brand-search via Reddit's public Atom feed (`search.rss`, quoted brand name, weekly window): title-or-body brand mention → `intent_3rd_topic` (0.5, posts only — t5_ subreddit rows never emit), launch verb + own-domain link → `product_launch`. Fetched through a **scoped robots.txt override** (operator-approved 2026-10-30; `config/default.yaml` records the decision — reddit robots is `Disallow: /` and this deliberately overrides it for ONE syndication path at trickle volume, 1-4 queries/account/72h at rate 0.2).
 
-**How `community_github` finds the org.** It authenticates with `GITHUB_TOKEN` from the environment when set — 5,000 req/hr instead of the unauthenticated 60. The org login is guessed from the domain label or account name; only the first guess is probed per cycle. A GitHub login that differs from both is a known gap.
+**How `community_github` finds the org.** It authenticates with `GITHUB_TOKEN` from the environment when set — 5,000 req/hr instead of the unauthenticated 60 (Search API: 30/min vs 10/min). The org login is guessed from the domain label or account name; only the first guess is probed per cycle. A GitHub login that differs from both is a known gap (see the recovery note above).
 
 **App stores / registry.**
 
@@ -613,7 +616,6 @@ Detection covers all 11 collected vendors. Collector-less boards (bamboohr, jazz
 
 **Disabled by default.**
 
-- `community_reddit` — live fetching is blocked: a www 403 block page plus the old.reddit login wall (P2 spike 2026-08-31).
 - `yc_batch` — the Y Combinator directory is a client-rendered Inertia shell; the parser needs a browser-tier upgrade.
 - `content_producthunt` — Cloudflare-blocked.
 - `marketplace_g2` — G2 reviews; a browser-tier DataDome target. Live runs need `DATADOME_SOLVER_PROVIDER`, `DATADOME_SOLVER_API_KEY`, and `DATADOME_RESIDENTIAL_PROXY` — see `.env.example`.

@@ -17,7 +17,7 @@ import src.sources.techstack.collector  # noqa: F401
 import src.sources.wayback.collector  # noqa: F401
 import src.sources.crtsh.collector  # noqa: F401
 import src.sources.community.collector  # noqa: F401
-import src.sources.community.reddit  # noqa: F401  (community_reddit — disabled-by-default)
+import src.sources.community.reddit  # noqa: F401  (community_reddit — live via scoped /search.rss robots override, 2026-10-30)
 import src.sources.marketplace.collector  # noqa: F401
 import src.sources.marketplace.sa_ga  # noqa: F401  (marketplace_softwareadvice / marketplace_getapp — disabled by default)
 import src.sources.content.collector  # noqa: F401

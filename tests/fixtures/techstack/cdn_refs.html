@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- SYNTHETIC FIXTURE (no real capture): exercises every arm of the
+     npm-CDN version evidence extractor (src/sources/techstack/cdn.py).
+     Arms covered: jsdelivr unscoped, jsdelivr scoped, unpkg versioned,
+     unpkg versionless, @latest (not a version), gh/ decoy (non-npm,
+     must NOT match), duplicate URL (dedupe). -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Synthetic homepage — npm CDN refs</title>
+  <!-- jsdelivr unscoped, versioned -->
+  <script src="https://cdn.jsdelivr.net/npm/some-sdk@1.71.0/dist/index.js"></script>
+  <!-- jsdelivr scoped, versioned -->
+  <script src="https://cdn.jsdelivr.net/npm/@vendor/analytics@2.3.9/dist/x.min.js"></script>
+  <!-- unpkg versioned -->
+  <script src="https://unpkg.com/other-sdk@3.1.4/lib.js"></script>
+  <!-- unpkg versionless -->
+  <script src="https://unpkg.com/plain-package/main.js"></script>
+  <!-- @latest is not a version -->
+  <script src="https://cdn.jsdelivr.net/npm/some-sdk@latest/x.js"></script>
+  <!-- gh/ jsdelivr path is NOT an npm ref — decoy, must not match -->
+  <script src="https://cdn.jsdelivr.net/gh/user/repo@main/x.js"></script>
+  <!-- duplicate of the unpkg versioned ref — must dedupe -->
+  <script src="https://unpkg.com/other-sdk@3.1.4/lib.js"></script>
+</head>
+<body>
+  <p>Some capture noise: https://example.com/not-a-cdn.js and a bare word some-sdk@9.9.9 outside any CDN URL must be ignored.</p>
+</body>
+</html>

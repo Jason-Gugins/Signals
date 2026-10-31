@@ -329,6 +329,10 @@ def test_runner_persists_github_momentum_and_writes_stats(tmp_path, monkeypatch)
             "stars": 100,
             "archived": False,
             "seen_at": (datetime.now(timezone.utc).date()).isoformat(),
+            # Topic momentum (2026-10-30): the snapshot now persists casefolded
+            # topics so repo_delta can diff them next cycle (empty here — the
+            # stub repos carry none).
+            "topics": [],
         }
         assert stats["acme.com"]["acme/beta"]["stars"] == 3
 

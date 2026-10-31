@@ -62,19 +62,26 @@ def repo_delta(prev_stats: dict, repos: list[dict], *, today: date) -> list[tupl
     """Cycle-over-cycle repo momentum diff. PURE — ``today`` is injected.
 
     ``prev_stats`` maps full_name -> {"stars": int, "archived": bool,
-    "seen_at": str} (the runner's per-domain slice of the stats file; None/{}
-    on the first observed cycle). Returns (momentum_kind, evidence) tuples:
+    "seen_at": str, "topics": [str]} (the runner's per-domain slice of the
+    stats file; None/{} on the first observed cycle; rows predating topic
+    persistence simply lack ``topics``). Returns (momentum_kind, evidence)
+    tuples:
 
     - ``new_repo``: full_name absent from prev_stats AND created_at within
       NEW_REPO_WINDOW_DAYS of ``today`` — or with no parseable created_at
       (the repo is new to us either way). Old repos seen for the first time
-      are not a fresh bet and stay silent.
+      are not a fresh bet and stay silent; their topics ride the runner's
+      snapshot silently too (new-to-us is not a new bet).
     - ``star_surge``: prior row exists and stars grew by
       >= max(STAR_SURGE_MIN_FRACTION of prev, STAR_SURGE_MIN_ABSOLUTE).
     - ``archived``: archived is truthy and the prior row was not archived.
+    - ``new_topic``: prior row exists and the repo now carries a topic it
+      did not have last cycle (casefolded compare, capped at the first 3
+      sorted per repo per cycle so a bulk re-tag never floods the diff).
 
     evidence carries repo (full_name), stars, stars_prev and a human
-    ``detail`` one-liner for the evidence template.
+    ``detail`` one-liner for the evidence template (``new_topic`` evidence
+    carries repo/topic/detail).
     """
     out: list[tuple[str, dict]] = []
     prev = prev_stats if isinstance(prev_stats, dict) else {}
@@ -122,6 +129,12 @@ def repo_delta(prev_stats: dict, repos: list[dict], *, today: date) -> list[tupl
                     },
                 )
             )
+        # Topic momentum: a topic the repo did not carry last cycle is a
+        # declared new bet area, published by the company itself. Compare
+        # casefolded; cap at the first 3 sorted per repo per cycle.
+        topics_now = {t.casefold() for t in repo.get("topics") or []} - set(row.get("topics") or [])
+        for t in sorted(topics_now)[:3]:
+            out.append(("new_topic", {"repo": name, "topic": t, "detail": f"new repo topic '{t}'"}))
     return out
 
 

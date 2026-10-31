@@ -870,6 +870,7 @@ class CollectorRunner:
                                     "stars": int(repo.get("stargazers_count") or 0),
                                     "archived": bool(repo.get("archived")),
                                     "seen_at": today_iso,
+                                    "topics": sorted({t.casefold() for t in repo.get("topics") or []}),
                                 }
                         save_stats(stats_state)
                 except Exception:

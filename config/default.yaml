@@ -12,6 +12,17 @@ http:
     # keyless JSON API the T3a identity resolvers fetch.
     - { host: www.wikidata.org, path_prefix: /w/api.php }
     - { host: en.wikipedia.org, path_prefix: /w/api.php }
+    # SCOPED ROBOTS OVERRIDE (operator-approved 2026-10-30): Reddit brand-
+    # search RSS. Recorded honestly: reddit robots.txt is
+    # `User-agent: * Disallow: /` and the Public Content Policy
+    # (support.reddithelp.com/hc/en-us/articles/26410290525844) restricts
+    # automated collection — this entry DELIBERATELY overrides both for ONE
+    # syndication path, because /search.rss is served publicly (HTTP 200
+    # Atom, probe 2026-10-30) and volume is a trickle: 1-4 quoted-brand
+    # queries/account/72h at rate_per_host 0.2. Revert
+    # community_reddit.enabled to false if Reddit starts blocking.
+    - host: www.reddit.com
+      path_prefix: /search.rss
   max_workers: 6             # global thread pool for HTTP fan-out
   default_rate_per_host: 1.0 # requests/sec
   verify_tls: true

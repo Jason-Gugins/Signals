@@ -139,6 +139,44 @@ def test_ambiguous_two_distinct_domains_ranks_but_never_picks():
     assert [c["score"] for c in out["candidates"]] == [3, 1]
 
 
+# ── disambiguation first hit (plan T5 test 4) ───────────────────────────────
+
+def test_disambiguation_first_hit_must_not_resolve():
+    """Plan T5 test 4 (docs/plans/2026-10-30-name-resolution-tests.md): a
+    generic name whose FIRST search hit is a disambiguation index page must
+    never resolve — the extlinks on "Delta (disambiguation)" belong to many
+    unrelated topics that merely share the word, not to one company."""
+    fetcher = FakeFetcher(
+        {
+            "list=search": _search_payload(
+                ["Delta (disambiguation)", "Delta Air Lines", "Delta Faucet Company"]
+            ),
+            "prop=extlinks": _extlinks_payload(
+                "Delta (disambiguation)",
+                [
+                    "https://www.deltaairlines.com/",
+                    "https://www.deltafaucet.com/",
+                ],
+            ),
+        }
+    )
+    out = WikipediaExtlinksResolver(fetcher, FakeRegistry()).discover("Delta")
+    assert out == {"status": "no_match", "domain": None, "candidates": []}
+    # Both GETs still happen: the guard lives in the pick path, not the fetch.
+    assert len(fetcher.tasks) == 2
+
+
+def test_pick_wikipedia_domain_skips_disambiguation_title():
+    """Pure-layer pin of the same guard: a disambiguation-page title yields
+    no candidates regardless of how many extlinks the page carries."""
+    out = pick_wikipedia_domain(
+        "Delta (disambiguation)",
+        ["https://www.deltaairlines.com/", "https://www.deltafaucet.com/"],
+        "Delta",
+    )
+    assert out == {"status": "no_match", "domain": None, "candidates": []}
+
+
 def test_no_extlinks_returns_no_match():
     fetcher = FakeFetcher(_stripe_routes([]))
     out = WikipediaExtlinksResolver(fetcher, FakeRegistry()).discover("Stripe, Inc.")

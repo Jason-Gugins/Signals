@@ -6,6 +6,7 @@ import json
 
 from src.identity.wikidata_ids import (
     WikidataDomainResolver,
+    _is_business,
     build_claims_url,
     build_search_url,
     parse_claims,
@@ -181,6 +182,36 @@ def test_description_keyed_filter_excludes_beetle_and_character():
     assert len(fetcher.tasks) == 6
 
 
+def test_filter_does_real_work_generic_name_resolves_to_business_only():
+    """Plan T5 test 2 — the _is_business filter earning its keep on a
+    generic name: the "Acme" search returns one business entity
+    (P856-bearing) and one non-business hit (fictional-character
+    description, no P856) -> the non-business hit is filtered out entirely
+    and the business one resolves."""
+    fetcher = FakeFetcher(
+        {
+            "wbsearchentities": _search_payload(
+                [
+                    _entity("Q1", "Acme Corporation", "American software company"),
+                    _entity("Q2", "Acme", "fictional character in the Road Runner cartoons"),
+                ]
+            ),
+            "entity=Q1": _claims_payload(["https://acme.com/"]),
+            "entity=Q2": _claims_payload([]),
+        }
+    )
+    registry = FakeRegistry()
+    out = WikidataDomainResolver(fetcher, registry).discover("Acme")
+    assert out["status"] == "resolved"
+    assert out["domain"] == "acme.com"
+    # The non-business entity is gone, not merely unranked.
+    assert [c["qid"] for c in out["candidates"]] == ["Q1"]
+    assert out["candidates"][0]["score"] == 4
+    # 1 search + claims for each of the 2 entities. Never auto-persists.
+    assert len(fetcher.tasks) == 3
+    assert registry.upserts == []
+
+
 def test_p856_subdomain_resolves_to_root_domain():
     fetcher = FakeFetcher(
         {
@@ -273,6 +304,36 @@ def test_pick_wikidata_candidate_decides_on_domain_bearing_survivors():
     assert out["status"] == "resolved"
     assert out["domain"] == "acme.io"
     assert [c["qid"] for c in out["candidates"]] == ["Q2", "Q1"]
+
+
+def test_business_terms_substring_false_survivor_is_pinned():
+    """Plan T5 test 3 — CHARACTERIZATION: pin the _is_business substring
+    false-survivor risk. "software" is a casefold substring term in
+    BUSINESS_TERMS (src/identity/wikidata_ids.py:38-56), so a non-company
+    OSS *tool* described "software for signal processing" passes the
+    business filter exactly like a software company would. Deliberately NOT
+    fixed this wave: the decision rule bounds the damage (a false survivor
+    without a domain cannot resolve, and one with a domain resolves only
+    when it is the ONLY domain-bearing survivor — otherwise everything goes
+    to the ambiguous review queue). Recorded risk, per the plan."""
+    description = "free and open-source software for signal processing"
+    # The substring mechanics: a non-company described this way is
+    # business-flagged purely because "software" occurs in the text.
+    assert _is_business({"label": "Signal DSP", "description": description}) is True
+
+    entity = {
+        "qid": "Q999",
+        "label": "Signal DSP",
+        "description": description,
+        "p856_url": "https://signaldsp.org/",
+    }
+    out = pick_wikidata_candidate([entity], "Signal DSP")
+    # P856-bearing false survivor, alone with a domain -> resolves. That is
+    # the pinned risk: the filter alone cannot keep a non-company out.
+    assert out["status"] == "resolved"
+    assert out["domain"] == "signaldsp.org"
+    assert out["candidates"][0]["qid"] == "Q999"
+    assert out["candidates"][0]["score"] == 5  # P856 + two-way + exact label
 
 
 def test_fetch_error_returns_no_match_without_raising():

@@ -111,10 +111,14 @@ def pick_wikipedia_domain(title: str, extlinks: list[str], name: str) -> dict:
 
     Every extlink is reduced to its root domain (drops URL-only junk and
     blog deep links collapse onto the apex) and Wikimedia-family/archive
-    roots are discarded. Decision over distinct surviving domains:
+    roots are discarded. A disambiguation index page never resolves: its
+    extlinks belong to many unrelated topics that merely share the name.
+    Decision over distinct surviving domains:
     zero -> no_match, exactly one -> resolved, more than one -> ambiguous
     with ALL candidates ranked by score (never auto-picks the top one).
     """
+    if "(disambiguation)" in title.casefold():
+        return _no_match()
     candidates: list[dict] = []
     seen: set[str] = set()
     for url in extlinks:

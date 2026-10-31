@@ -16,6 +16,7 @@ from src.identity.ddg_ids import (
     parse_results,
     pick_ddg_candidate,
 )
+from src.identity.names import name_matches_domain
 
 
 @pytest.fixture(autouse=True)
@@ -192,6 +193,34 @@ def test_first_result_wikipedia_is_ambiguous_and_ranked():
     assert [(c["domain"], c["score"]) for c in out["candidates"]] == [
         ("stripe.com", 2),
         ("wikipedia.org", -1),  # -1 non-official penalty
+    ]
+
+
+def test_non_official_top_hit_name_matching_stays_ambiguous():
+    """Plan T5 test 6 — #1 result on a _NON_OFFICIAL root that still
+    name-matches does NOT resolve here: the prefix rule makes "Crunch"
+    match crunchbase.com, so the strict arm fires, but the -1 non-official
+    penalty demotes that #1 below the token-overlapping rival and the
+    strict outscore rule (pick_ddg_candidate) never auto-picks a candidate
+    that is not strictly best — ambiguous."""
+    # Sanity: the NON_OFFICIAL #1 really does name-match (prefix rule), so
+    # this exercises the strict arm, not its absence.
+    assert name_matches_domain("Crunch", "crunchbase.com") is True
+    html = (
+        "<html><body>"
+        + _anchor(
+            "Crunch Inc - Startup Profile | Crunchbase",
+            _uddg("https://www.crunchbase.com/organization/crunch"),
+        )
+        + _anchor("Crunch Fitness | Gyms & Fitness Clubs", _uddg("https://crunch.com/"))
+        + "</body></html>"
+    )
+    out = DdgSerpResolver(FakeFetcher(html)).discover("Crunch")
+    assert out["status"] == "ambiguous"
+    assert out["domain"] is None
+    assert [(c["domain"], c["score"], c["position"]) for c in out["candidates"]] == [
+        ("crunch.com", 2, 2),      # +2 token overlap, no penalty
+        ("crunchbase.com", 1, 1),  # +2 strict #1+name, -1 non-official
     ]
 
 

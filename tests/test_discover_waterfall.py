@@ -156,6 +156,54 @@ def test_agreement_needs_two_distinct_stages(monkeypatch):
     assert "agreement" not in out
 
 
+def test_apex_agreement_tie_single_winner_by_stage_priority(monkeypatch):
+    """Plan T5 test 5 — apex-agreement TIE pin: two rival apexes, each backed
+    by two DISTINCT stage votes (wikidata+ddg for acme.com, wikipedia+ddg
+    for acme.org). Read of _apex_agreement (discover.py:143-151): the rank
+    tuple is (-len(agreeing), min stage index in STAGE_PRIORITY), so a tie
+    on vote count is broken by the EARLIEST agreeing stage — a single
+    resolved winner, NOT a second ambiguity round. acme.com (wikidata,
+    priority index 0) beats acme.org (wikipedia, index 1)."""
+    from src.identity import discover as dw
+
+    monkeypatch.setattr(
+        dw, "_run_wikidata",
+        lambda n, f: _stage("ambiguous", candidates=[{"domain": "acme.com", "score": 2, "qid": "Q1"}]),
+    )
+    monkeypatch.setattr(
+        dw, "_run_wikipedia",
+        lambda n, f: _stage("ambiguous", candidates=[{"domain": "acme.org", "score": 3, "title": "Acme"}]),
+    )
+    monkeypatch.setattr(dw, "_run_gkg", lambda n, b: _stage("no_match"))
+    monkeypatch.setattr(
+        dw, "_run_ddg",
+        lambda n, f, clock, sleep: _stage("ambiguous", candidates=[
+            {"domain": "acme.com", "url": "https://acme.com", "score": 1, "title": "Acme", "position": 1},
+            {"domain": "acme.org", "url": "https://acme.org", "score": 1, "title": "Acme.org", "position": 2},
+        ]),
+    )
+
+    out = dw.discover_waterfall("Acme", object(), ddg_enabled=True)
+
+    # PIN: single winner — the apex whose earliest agreeing stage ranks
+    # higher in STAGE_PRIORITY. No stage resolved individually, so nothing
+    # was skipped either.
+    assert out["status"] == "resolved"
+    assert out["domain"] == "acme.com"
+    assert out["agreement"] == ["wikidata", "ddg"]
+    assert [out["stages"][s]["status"] for s in ("wikidata", "wikipedia", "gkg", "ddg")] == [
+        "ambiguous", "ambiguous", "no_match", "ambiguous",
+    ]
+    # Merged display ranking (score desc, then stage priority) still keeps
+    # every stage's candidates: dedup is per stage, nothing fabricated.
+    assert [(c["domain"], c["score"], c["stage"]) for c in out["candidates"]] == [
+        ("acme.org", 3, "wikipedia"),
+        ("acme.com", 2, "wikidata"),
+        ("acme.com", 1, "ddg"),
+        ("acme.org", 1, "ddg"),
+    ]
+
+
 # ── composer: ddg opt-in gating ─────────────────────────────────────────────
 
 def test_ddg_skipped_without_flag_and_runs_with_it(monkeypatch):
@@ -318,6 +366,82 @@ def test_domainless_candidates_kept_not_collapsed(monkeypatch):
 
     qids = [c.get("qid") for c in out["candidates"]]
     assert qids == ["Q1", "Q2"]  # both survive; no fabricated domain/url
+
+
+# ── realistic generic-name ambiguity: Delta the airline vs Delta the faucet ─
+
+def test_generic_delta_wikidata_ambiguous_no_waterfall_promotion(monkeypatch):
+    """Plan T5 test 1 — the canonical generic-name trap: "Delta" the airline
+    vs "Delta" the faucet company. Realistic payloads run through the REAL
+    Wikidata filter/pick (both entities survive: each is P856-bearing, the
+    faucet label also carries the "company" term), so the stage comes back
+    ambiguous with both ranked — and one ambiguous stage must never promote
+    the waterfall: no first hit, no 2-source agreement for either apex,
+    merged candidates are exactly the deduped union, nothing fabricated."""
+    from src.identity.wikidata_ids import WikidataDomainResolver
+
+    search_body = json.dumps(
+        {"search": [
+            {"id": "Q44", "label": "Delta Air Lines",
+             "description": "major American airline"},
+            {"id": "Q5240378", "label": "Delta Faucet Company",
+             "description": "American plumbing fixtures manufacturer"},
+        ]}
+    ).encode()
+    claims_bodies = {
+        "entity=Q44": json.dumps(
+            {"claims": {"P856": [
+                {"mainsnak": {"datavalue": {"value": "https://www.delta.com/"}}}
+            ]}}
+        ).encode(),
+        "entity=Q5240378": json.dumps(
+            {"claims": {"P856": [
+                {"mainsnak": {"datavalue": {"value": "https://www.deltafaucet.com/"}}}
+            ]}}
+        ).encode(),
+    }
+
+    class Fetch:
+        def get(self, task, **kw):
+            if "wbsearchentities" in task.url:
+                return SimpleNamespace(ok=True, doc=SimpleNamespace(body=search_body))
+            for key, body in claims_bodies.items():
+                if key in task.url:
+                    return SimpleNamespace(ok=True, doc=SimpleNamespace(body=body))
+            return SimpleNamespace(ok=False, doc=None)
+
+    # Stage contract on the realistic payload: ambiguous, both ranked (tied
+    # at 4 — both name-match their own apex), search order kept on the tie.
+    stage = WikidataDomainResolver(Fetch(), None).discover("Delta")
+    assert stage["status"] == "ambiguous"
+    assert stage["domain"] is None
+    assert [(c["qid"], c["domain"]) for c in stage["candidates"]] == [
+        ("Q44", "delta.com"),
+        ("Q5240378", "deltafaucet.com"),
+    ]
+    assert [c["score"] for c in stage["candidates"]] == [4, 4]
+
+    # Waterfall end state: the ambiguous stage alone promotes nothing.
+    from src.identity import discover as dw
+
+    monkeypatch.setattr(dw, "_run_wikidata", lambda n, f: stage)
+    monkeypatch.setattr(dw, "_run_wikipedia", lambda n, f: _stage("no_match"))
+    monkeypatch.setattr(dw, "_run_gkg", lambda n, b: _stage("no_match"))
+
+    out = dw.discover_waterfall("Delta", object())
+
+    assert out["status"] == "ambiguous"
+    assert out["domain"] is None
+    assert "agreement" not in out
+    assert out["stages"]["wikidata"]["status"] == "ambiguous"
+    assert out["stages"]["wikipedia"]["status"] == "no_match"
+    assert out["stages"]["gkg"]["status"] == "no_match"
+    # Merged list = the (stage, domain) deduped union: both candidates once
+    # each, stage-attributed, no fabricated entries.
+    assert [(c["qid"], c["domain"], c["stage"]) for c in out["candidates"]] == [
+        ("Q44", "delta.com", "wikidata"),
+        ("Q5240378", "deltafaucet.com", "wikidata"),
+    ]
 
 
 # ── composer: real GKG stage (credential-gated no-op) ───────────────────────

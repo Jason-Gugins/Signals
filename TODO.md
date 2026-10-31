@@ -80,8 +80,12 @@ a precision-vs-latency tradeoff for the operator; (2) brand-mention substring
 matching has no word boundary on the new npm/reddit surfaces ("Glow" c
 "glowing" — mirrors pre-existing HN looseness); (3) `os.environ` read in
 plan() is a documented purity-boundary convention (GITHUB_TOKEN). Also noted:
-npm version evidence is captured but NOT persisted (technologies table has
-fixed columns; needs a schema migration — deferred).
+npm version evidence is captured but NOT persisted — **DELIVERED (2026-10-31,
+plan `.zcode/plans/2026-10-31_160400-npm-version-persistence.md`):
+`technologies.version TEXT` via the additive NEW_COLUMNS pass (`b511c4a`),
+last-seen carry-forward in `upsert_technologies` via COALESCE (`6d9e2c9`),
+full production-chain pin `46370a7`** — staleness/outdated-version inference
+is now unblocked as the next consumer of this column.
 
 ---
 

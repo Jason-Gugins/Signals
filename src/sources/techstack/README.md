@@ -58,6 +58,7 @@ Rules live in [`config/fingerprints.yaml`](../../../config/fingerprints.yaml).
 | `inline_global` | inline script globals: `window.X` captures + known init-call fragments (substring) | `hbspt.forms.create` → HubSpot |
 | `cookie_name` | Set-Cookie names (exact match, not substring) | `_shopify_s` → Shopify (no fixture-frozen needle yet — arm ships empty) |
 | `meta_generator` | `<meta name="generator">` content (casefolded substring) | `hubspot` → HubSpot |
+| `npm_packages` | exact package name on npm-CDN refs in HTML (`cdn.jsdelivr.net/npm`/`unpkg.com` via `cdn.py`) | `@segment/analytics-next` → Segment — the observed version rides `TechMatch.evidence_data` and persists as `technologies.version` (last-seen; carries forward when later cycles match via other channels) |
 
 `network_host` matching is suffix-only (`host == needle` or `host.endswith("." + needle)`). `force.com` does **not** match `workforce.com`. `cdn-cookieyes.com` is **not** a suffix of `cookieyes.com` — both needles are required. Needles are copied into YAML only from a frozen fixture — never guessed.
 

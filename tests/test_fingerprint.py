@@ -119,6 +119,66 @@ def test_promote_drops_duplicate_host_row():
     assert any(v.startswith("host:") for v in vendors)
 
 
+def test_classify_dynamic_host_suffix():
+    # Task A5: classify the anonymous host: tail — a hostname whose suffix
+    # matches an existing vendor needle (dns_cname/network_host/spf_include)
+    # maps to that vendor KEY. Longest needle wins (specificity), the match is
+    # casefolded, the needle must be the host's TAIL, and the bare vendor
+    # domain itself is not attribution (h != n guard).
+    from src.sources.techstack.fingerprint import classify_dynamic_host
+
+    rules = {"vendors": {
+        "zendesk": {"match": {"dns_cname": ["zendesk.com"]}},
+        "snowflake": {"match": {"network_host": ["snowflakecomputing.com"]}},
+    }}
+    assert classify_dynamic_host("acme.zendesk.com", rules) == "zendesk"
+    assert classify_dynamic_host("acme.eu-west-1.snowflakecomputing.com", rules) == "snowflake"
+    assert classify_dynamic_host("acme.workforce.com", rules) is None      # suffix-only, not substring
+    assert classify_dynamic_host("zendesk.com.evil.io", rules) is None     # needle must be the TAIL
+    assert classify_dynamic_host("unrelated.example.com", rules) is None
+    assert classify_dynamic_host("zendesk.com", rules) is None             # bare vendor domain: not attribution
+    assert classify_dynamic_host("", rules) is None
+
+
+def test_promote_or_observe_promotes_classified_host():
+    # Task A5: a dynamic host whose suffix classifies to a vendor is emitted
+    # as a NAMED row (vendor key, tier/category from the vendor spec,
+    # confidence 0.7) instead of an anonymous host: row at 0.4/unknown. The
+    # plan's evidence dict {"via": "host_suffix", "needle": ...} maps onto
+    # TechMatch's established channel/evidence_data pair. Hosts that still
+    # classify to None keep the observe-first host: contract.
+    from src.sources.techstack.fingerprint import NetworkEvidence, promote_or_observe
+
+    ev = NetworkEvidence(
+        page_url="https://acme.com/",
+        hosts=("acme.zendesk.com", "mystery.example.com"),
+        urls=(),
+    )
+    rules = {"vendors": {
+        "zendesk": {
+            "display": "Zendesk",
+            "category": ["support"],
+            "tier": "enterprise",
+            "match": {"dns_cname": ["zendesk.com"]},
+        },
+    }}
+    ms = promote_or_observe(ev, rules, domain="acme.com")
+    vendors = [m.vendor for m in ms]
+    assert "zendesk" in vendors
+    assert "host:acme.zendesk.com" not in vendors
+    row = [m for m in ms if m.vendor == "zendesk"][0]
+    assert row.evidence == "host_suffix"
+    assert row.evidence_data.get("needle") == "zendesk.com"
+    assert row.confidence == 0.7
+    assert row.tier == "enterprise"
+    assert row.display == "Zendesk"
+    assert row.category == ["support"]
+    # observe-first contract holds for hosts that classify to None
+    assert "host:mystery.example.com" in vendors
+    kept = [m for m in ms if m.vendor == "host:mystery.example.com"][0]
+    assert kept.confidence == 0.4 and kept.tier == "unknown"
+
+
 def test_match_network_hosts_webflow_from_fixture():
     ev = extract_network_evidence(NET_FIX.read_bytes())
     hits = match_fingerprints(ev, RULES)

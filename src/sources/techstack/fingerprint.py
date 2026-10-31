@@ -356,17 +356,80 @@ def merge_matches(*groups: list[TechMatch]) -> list[TechMatch]:
     return [best[k] for k in sorted(best)]
 
 
+def classify_dynamic_host(host: str, rules: dict) -> str | None:
+    """Map an observed third-party hostname onto a vendor via suffix needles.
+    Longest matching needle wins (specificity). Pure. Returns the vendor KEY."""
+    h = (host or "").casefold().strip(".")
+    if not h:
+        return None
+    best, best_len = None, 0
+    for key, spec in (rules.get("vendors") or {}).items():
+        match = spec.get("match") or {}
+        for channel in ("dns_cname", "network_host", "spf_include"):
+            for needle in match.get(channel) or []:
+                n = needle.casefold()
+                if n and h.endswith(n) and h != n and len(n) > best_len:
+                    best, best_len = key, len(n)
+    return best
+
+
+def _longest_suffix_needle(host: str, spec: dict) -> str | None:
+    """Companion to classify_dynamic_host (same tail-suffix rule, same channel
+    set — keep in sync): the longest dns_cname/network_host/spf_include needle
+    in ONE vendor's spec that is a proper suffix of host. Supplies the matched
+    needle for the promotion evidence. Pure."""
+    h = (host or "").casefold().strip(".")
+    best, best_len = None, 0
+    match = (spec or {}).get("match") or {}
+    for channel in ("dns_cname", "network_host", "spf_include"):
+        for needle in match.get(channel) or []:
+            n = needle.casefold()
+            if n and h.endswith(n) and h != n and len(n) > best_len:
+                best, best_len = n, len(n)
+    return best
+
+
 def promote_or_observe(ev, rules: dict, *, domain: str) -> list[TechMatch]:
     named = match_fingerprints(ev, rules)
     named_keys = {m.vendor for m in named}
+    vendors = _rules_vendors(rules)
     needles: list[str] = []
-    for key, spec in _rules_vendors(rules).items():
+    for key, spec in vendors.items():
         if key not in named_keys:
             continue
         match = (spec or {}).get("match") or {}
         needles.extend(match.get("network_host") or [])
     claimed = {h for h in observed_hosts(ev, domain=domain) if any(_host_hit(h, n) for n in needles)}
-    dyn = [m for m in dynamic_matches(ev, domain=domain) if m.display not in claimed]
+    dyn = []
+    for m in dynamic_matches(ev, domain=domain):
+        if m.display in claimed:
+            continue
+        # Task A5: before falling back to an anonymous host: row (conf 0.4,
+        # tier unknown), classify the hostname against vendor suffix needles
+        # (dns_cname/network_host/spf_include). A hit promotes the row to a
+        # NAMED observation under the vendor key at confidence 0.7; the
+        # bare-domain guard keeps a vendor's own domain from self-attributing.
+        # merge_matches still dedupes against named rows (named outranks or
+        # equals the promoted row for the same vendor).
+        key = classify_dynamic_host(m.display, rules)
+        spec = vendors.get(key) if key else None
+        if spec is None:
+            dyn.append(m)
+            continue
+        cat = spec.get("category") or []
+        if isinstance(cat, str):
+            cat = [cat]
+        dyn.append(
+            TechMatch(
+                vendor=key,
+                display=spec.get("display") or key,
+                category=list(cat),
+                tier=spec.get("tier") or "unknown",
+                evidence="host_suffix",
+                confidence=0.7,
+                evidence_data={"needle": _longest_suffix_needle(m.display, spec)},
+            )
+        )
     return merge_matches(named, dyn)
 
 

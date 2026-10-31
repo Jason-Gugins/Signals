@@ -1,0 +1,14 @@
+{
+  "0": {"cik_str": 1800010, "ticker": "AGH", "title": "ACME GLOBAL HOLDINGS INC"},
+  "1": {"cik_str": 1800020, "ticker": "ATC", "title": "ACME TECHNOLOGY CORP"},
+  "2": {"cik_str": 1800030, "ticker": "ACME", "title": "ACME CO"},
+  "3": {"cik_str": 1800040, "ticker": "ACPA", "title": "ACME COMPANY"},
+  "4": {"cik_str": 1900010, "ticker": "SGX", "title": "SIGNALS TECHNOLOGY CORP"},
+  "5": {"cik_str": 1900020, "ticker": "SGN", "title": "SIGNALS INC"},
+  "6": {"cik_str": 1900030, "ticker": "SGI", "title": "SIGNALS, INC."},
+  "7": {"cik_str": 2000010, "ticker": "DAL", "title": "DELTA AIR LINES INC"},
+  "8": {"cik_str": 2000020, "ticker": "DFC", "title": "DELTA FAUCET COMPANY"},
+  "9": {"cik_str": 2100010, "ticker": "PHX", "title": "PHOENIX LOGISTICS GROUP INC"},
+  "10": {"cik_str": 2100020, "ticker": "PHX", "title": "PHOENIX DIGITAL MEDIA INC"},
+  "11": {"cik_str": 2200010, "ticker": "WWAN", "title": "WIDGETWORKS ANALYTICS INC"}
+}

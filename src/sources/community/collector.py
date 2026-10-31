@@ -14,6 +14,7 @@ from src.sources.community.github import (
 )
 from src.sources.community.github_search import parse_search_users, search_users_url
 from src.sources.community.hn import hn_to_candidates, hn_url, parse_hn
+from src.sources.community.npm import npm_search_url, npm_to_candidates, owned_packages, parse_npm_search
 from src.sources.registry import register
 
 
@@ -127,3 +128,29 @@ class CommunityGithubSource(SourceAdapter):
             # Push-burst feed (Task 8): 1 extra request/account/48h.
             FetchTask(source=self.key, url=f"https://api.github.com/orgs/{login}/events?per_page=30", domain=account.domain, meta={"kind": "events", "org": login}),
         ]
+
+
+@register
+class NpmSource(SourceAdapter):
+    key = "community_npm"
+    tier = "http"
+    cadence_hours = 72
+
+    def plan(self, account, cursor):
+        if not (account.name or account.domain):
+            return []
+        return [FetchTask(source=self.key, url=npm_search_url(account.name or account.domain),
+                          domain=account.domain)]
+
+    def parse(self, doc, account, task_meta):
+        if not doc.body:
+            return []
+        return npm_to_candidates(parse_npm_search(doc.body), account,
+                                 today=date.fromisoformat(task_meta["today"]))
+
+    def harvest_packages(self, doc, account, task_meta):
+        """Runner hook (harvest_repos precedent): account-owned packages for
+        the momentum diff. [] when nothing attributes (never guess)."""
+        if not doc.body:
+            return []
+        return owned_packages(parse_npm_search(doc.body), account)

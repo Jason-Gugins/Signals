@@ -68,3 +68,32 @@ def owned_packages(pkgs: list[dict], account: Account) -> list[dict]:
         if org in guesses:
             out.append(p)
     return out
+
+
+def npm_to_candidates(pkgs: list[dict], account: Account, *, today: date) -> list[SignalCandidate]:
+    """Third-party packages whose name/description mention the brand ->
+    intent_3rd_topic (the HN analog: third parties talking about the account).
+    Own packages are excluded here — they surface via momentum (Task C3)."""
+    from src.identity.names import normalize_name
+
+    want = normalize_name(account.name) if account.name else ""
+    if not want:
+        return []
+    owned = {(p.get("name") or "").casefold() for p in owned_packages(pkgs, account)}
+    out: list[SignalCandidate] = []
+    seen: set[str] = set()
+    for p in pkgs:
+        name = p.get("name") or ""
+        if not name or name.casefold() in owned or name in seen:
+            continue
+        seen.add(name)
+        blob = normalize_name(f"{name} {p.get('description') or ''}") or ""
+        if want not in blob:
+            continue
+        out.append(SignalCandidate(
+            "intent_3rd_topic", today.isoformat(), f"npm:{name}",
+            title=name, url=f"https://www.npmjs.com/package/{quote(name)}",
+            confidence=0.4,
+            evidence_data={"downloads_monthly": p.get("downloads_monthly"),
+                           "description": (p.get("description") or "")[:200]}))
+    return out

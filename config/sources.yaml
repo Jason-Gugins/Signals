@@ -48,6 +48,7 @@ sources:
   community_hn:   { enabled: true, cadence_hours: 24, rate_per_host: 3.0 }
   community_github: { enabled: true, cadence_hours: 48, rate_per_host: 1.0 }
   community_reddit: { enabled: true, cadence_hours: 72, rate_per_host: 0.2 }  # LIVE via the scoped /search.rss robots override (operator-approved 2026-10-30)
+  community_npm:    { enabled: true, cadence_hours: 72, rate_per_host: 0.5 }  # keyless registry search; strong-arm repo-field attribution
   yc_batch:        { enabled: false, cadence_hours: 720, rate_per_host: 0.2 }   # stub — browser-tier upgrade required per P2 spike
   content_producthunt: { enabled: false, cadence_hours: 168, rate_per_host: 0.2 } # stub — CF-blocked per P2 spike
   # appstore_reviews shares the itunes.apple.com bucket with content_itunes — keep rates equal

@@ -344,3 +344,25 @@ def test_xray_bogus_config_engine_fails_cleanly(fake_orch, monkeypatch):
     result = runner.invoke(cli.main, ["xray", "--kind", "hiring", "--limit", "1"])
     assert result.exit_code != 0
     assert "unknown xray engine" in result.output
+
+
+# --- 6. --stats --rollup: engine x status pass-rate rollup -------------------
+
+def test_xray_stats_rollup_flag(fake_orch):
+    # Real file structure (verified): there is NO module-level runner — each
+    # test builds `runner = CliRunner()` locally and invokes cli.main; the
+    # fake_orch fixture (lines 63-71) patches cli.XRAY_LEDGER_PATH to an
+    # EMPTY tmp file (it does NOT seed). Mirror test_xray_stats_prints_table
+    # (lines 113-124): seed events manually, then invoke. Assert a DATA row —
+    # a header-only assert passes vacuously on an empty ledger.
+    # (Path and json are already imported in this test file; add if missing.)
+    Path(cli.XRAY_LEDGER_PATH).write_text(
+        json.dumps({"string_id": "s1", "engine": "ddg_lite", "status": "ok",
+                    "ts_utc": "2026-10-31T00:00:00+00:00"}) + "\n",
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["xray", "--stats", "--rollup"])
+    assert result.exit_code == 0
+    assert "engine\tstatus\tcount" in result.output
+    assert "ddg_lite\tok\t1" in result.output

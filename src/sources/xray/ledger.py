@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-__all__ = ["append_event", "load_events", "string_stats"]
+__all__ = ["append_event", "load_events", "string_stats", "status_rollup"]
 
 
 def append_event(path: str | Path, event: dict, *, clock) -> None:
@@ -91,3 +91,20 @@ def string_stats(events: list[dict]) -> dict[str, dict]:
         if isinstance(ts, str) and (s["last_ts_utc"] is None or ts > s["last_ts_utc"]):
             s["last_ts_utc"] = ts
     return stats
+
+
+def status_rollup(events: list[dict]) -> dict[str, dict[str, int]]:
+    """Aggregate engine -> status -> count (the stability pass-rate instrument).
+
+    The probe record's reliability caveat asks for lite's real pass rate over
+    time; the ledger already carries every query's engine + status, so this
+    pure aggregation over ``load_events`` output is the instrument. Events
+    missing either field bucket under "?" — never dropped.
+    """
+    rollup: dict[str, dict[str, int]] = {}
+    for ev in events:
+        engine = str(ev.get("engine") or "?")
+        status = str(ev.get("status") or "?")
+        rollup.setdefault(engine, {})
+        rollup[engine][status] = rollup[engine].get(status, 0) + 1
+    return rollup

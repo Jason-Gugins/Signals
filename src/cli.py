@@ -20,7 +20,7 @@ from src.identity.registry import AccountRegistry
 from src.pipeline.orchestrator import Orchestrator
 from src.sources.registry import COLLECTED_VENDORS
 from src.sources.xray.library import load_library
-from src.sources.xray.ledger import load_events, string_stats
+from src.sources.xray.ledger import load_events, string_stats, status_rollup
 from src.sources.xray.runner import run_xray
 from src.sources.xray.serp import SUPPORTED_ENGINES
 
@@ -1211,11 +1211,13 @@ def _xray_default_engine(cfg: Config) -> str:
 @click.option("--attempt-pause", "attempt_pause", type=float, default=45.0, show_default=True,
               help="Seconds between retries of one query.")
 @click.option("--stats", is_flag=True, help="Print per-string ledger stats and exit.")
+@click.option("--rollup", is_flag=True,
+              help="With --stats: engine x status counts (the pass-rate instrument).")
 @click.option("--engine", type=click.Choice(["ddg_lite", "google_state"]), default=None,
               help="Default from config xray.default_engine (ddg_lite).")
 @click.pass_context
 def xray(ctx, kinds, title, location, niche, role, problem_phrase,
-         limit, attempts, pace, attempt_pause, stats, engine):
+         limit, attempts, pace, attempt_pause, stats, rollup, engine):
     """X-ray SERP prospecting (manual, opt-in, self-paced).
 
     Robots-exception source — NEVER scheduled, never a cadence fanout.
@@ -1229,7 +1231,14 @@ def xray(ctx, kinds, title, location, niche, role, problem_phrase,
     data/xray/ledger.jsonl.
     """
     if stats:
-        table = string_stats(load_events(XRAY_LEDGER_PATH))
+        events = load_events(XRAY_LEDGER_PATH)
+        if rollup:
+            click.echo("engine\tstatus\tcount")
+            for engine, statuses in sorted(status_rollup(events).items()):
+                for status, n in sorted(statuses.items()):
+                    click.echo(f"{engine}\t{status}\t{n}")
+            return
+        table = string_stats(events)
         click.echo("string_id\truns\tresults\tprofile_hits\tcompany_hits\tlast_ts_utc")
         for string_id in sorted(table):
             s = table[string_id]

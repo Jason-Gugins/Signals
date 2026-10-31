@@ -40,3 +40,26 @@ def test_string_stats_ignores_bool_values(tmp_path):
                  clock=lambda: "2026-10-02T12:00:00+00:00")
     s = string_stats(load_events(p))["s1"]
     assert s["results"] == 0 and s["profile_hits"] == 2
+
+
+def test_status_rollup_counts_by_engine_and_status():
+    from src.sources.xray.ledger import status_rollup
+    events = [
+        {"engine": "ddg_lite", "status": "ok", "string_id": "a"},
+        {"engine": "ddg_lite", "status": "challenge", "string_id": "a"},
+        {"engine": "ddg_lite", "status": "challenge", "string_id": "b"},
+        {"engine": "google_state", "status": "ok", "string_id": "c"},
+        {"engine": "google_state", "status": "empty", "string_id": "c"},
+        {"status": "ok"},  # no engine -> bucketed as "?"
+    ]
+    rollup = status_rollup(events)
+    assert rollup == {
+        "ddg_lite": {"ok": 1, "challenge": 2},
+        "google_state": {"ok": 1, "empty": 1},
+        "?": {"ok": 1},
+    }
+
+
+def test_status_rollup_empty_ledger():
+    from src.sources.xray.ledger import status_rollup
+    assert status_rollup([]) == {}

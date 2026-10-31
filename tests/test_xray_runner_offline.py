@@ -608,3 +608,25 @@ def test_runner_rejects_unknown_engine(tmp_path):
     # validated up front, before any fetch.
     with pytest.raises(ValueError):
         _run(tmp_path, [SPEC_A], [(200, GS_COMPANY)], engine="bing")
+
+
+# --- 13. stability instruments on non-ok rows (improvement plan Task 3) ----
+
+def test_challenge_row_carries_body_bytes(tmp_path):
+    # _run returns a 5-TUPLE (report, db, events, urls, sleeps) — element 3
+    # is ALREADY the load_events() list; there is no ledger path to re-read.
+    report, db, events, _urls, _sleeps = _run(
+        tmp_path, [SPEC_A], [(200, CHALLENGE_BODY), (200, CHALLENGE_BODY)],
+    )
+    assert events[0]["status"] == "challenge"
+    assert events[0]["body_bytes"] == len(CHALLENGE_BODY)
+    assert report["challenge"] == 1
+
+
+def test_empty_row_carries_body_bytes_and_parse_error(tmp_path):
+    report, db, events, _urls, _sleeps = _run(
+        tmp_path, [SPEC_A], [(200, EMPTY_BODY), (200, EMPTY_BODY)],
+    )
+    assert events[0]["status"] == "empty"
+    assert events[0]["body_bytes"] == len(EMPTY_BODY)
+    assert "no organic anchors parsed" in events[0]["parse_error"]

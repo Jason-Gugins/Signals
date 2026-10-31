@@ -194,6 +194,8 @@ def run_xray(
         marker: str | None = None
         error: str | None = None
         results: list[dict] = []
+        body_bytes = 0  # last fetched body's size (challenge/empty evidence)
+        parse_error: str | None = None  # clean-empty ParseError text (D5)
         while True:
             sleep(pace_s)  # before EVERY fetch — the anti-ban budget
             attempts += 1
@@ -202,6 +204,7 @@ def run_xray(
             except Exception as exc:
                 status, error = "error", str(exc)
                 break
+            body_bytes = len(body or "")  # per-attempt overwrite (drift evidence)
             marker = is_challenge(body, engine)
             if marker is not None:
                 if attempts < max_attempts:
@@ -211,10 +214,11 @@ def run_xray(
                 break
             try:
                 results = parse_results(body, engine=engine)
-            except ParseError:
+            except ParseError as exc:
                 # is_challenge already ran clean on this body, so this is the
                 # clean zero-anchor shape: retry like a challenge attempt,
                 # else record status "empty" (exact status, no conflation).
+                parse_error = str(exc)  # the drift diagnosis must reach the ledger
                 if attempts < max_attempts:
                     sleep(attempt_pause_s)
                     continue
@@ -322,6 +326,10 @@ def run_xray(
         }
         if status == "challenge":
             event["marker"] = marker
+        if status in ("challenge", "empty"):
+            event["body_bytes"] = body_bytes
+        if status == "empty" and parse_error:
+            event["parse_error"] = parse_error
         if status == "error":
             event["error"] = error
         if persist_error:

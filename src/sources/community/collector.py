@@ -3,6 +3,7 @@ from datetime import date
 
 from src.sources.base import FetchTask, SourceAdapter
 from src.sources.community.github import github_org_guess, github_to_candidates, parse_github_org, parse_releases, parse_repos
+from src.sources.community.github_search import parse_search_users, search_users_url
 from src.sources.community.hn import hn_to_candidates, hn_url, parse_hn
 from src.sources.registry import register
 
@@ -36,7 +37,13 @@ class CommunityGithubSource(SourceAdapter):
         token = os.environ.get("GITHUB_TOKEN")
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        return [FetchTask(source=self.key, url=f"https://api.github.com/orgs/{org}", domain=account.domain, headers=headers, meta={"kind": "org"})]
+        return [
+            FetchTask(source=self.key, url=f"https://api.github.com/orgs/{org}", domain=account.domain, headers=headers, meta={"kind": "org"}),
+            # Search-API org recovery (Task 6): keyless lookup for the real
+            # login when the guessed slug is wrong. follow_tasks only follows
+            # a returned login that casefolds to a github_org_guess entry.
+            FetchTask(source=self.key, url=search_users_url(account.name or account.domain), domain=account.domain, headers=headers, meta={"kind": "search_users"}),
+        ]
 
     def parse(self, doc, account, task_meta):
         if not doc.body:
@@ -62,7 +69,26 @@ class CommunityGithubSource(SourceAdapter):
         return parse_repos(doc.body)
 
     def follow_tasks(self, doc, account, task_meta):
-        if (task_meta or {}).get("kind") not in (None, "org") or not doc.body:
+        kind = (task_meta or {}).get("kind")
+        if kind == "search_users":
+            # Search-API org recovery (Task 6): follow ONLY a returned login
+            # that casefolds to one of github_org_guess's entries — never
+            # guess. Recovers DIRECTLY to the repos/releases pair (mirroring
+            # the org-doc follow shape below) because the runner's follow
+            # budget (max_passes=2) cannot fit the extra org-probe hop; see
+            # github_search.py's docstring for the pass math and the accepted
+            # tradeoffs.
+            if not doc.body:
+                return []
+            guesses = {g.casefold() for g in github_org_guess(account)}
+            hit = next((login for login in parse_search_users(doc.body) if login.casefold() in guesses), None)
+            if not hit:
+                return []
+            return [
+                FetchTask(source=self.key, url=f"https://api.github.com/orgs/{hit}/repos?per_page=100", domain=account.domain, meta={"kind": "repos", "org": hit, "recovered_from": "search"}),
+                FetchTask(source=self.key, url=f"https://api.github.com/orgs/{hit}/releases?per_page=20", domain=account.domain, meta={"kind": "releases", "org": hit, "recovered_from": "search"}),
+            ]
+        if kind not in (None, "org") or not doc.body:
             return []
         org = parse_github_org(doc.body)
         if not org:

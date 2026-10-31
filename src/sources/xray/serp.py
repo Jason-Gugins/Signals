@@ -161,6 +161,12 @@ _AD_HINTS: tuple[str, ...] = ("y.js", "ad_provider", "ad_domain", "ad_script")
 
 _INTERNAL_HOST = "duckduckgo.com"
 
+# Characters that must never appear in a decoded URL. If unquoting a second
+# time would inject one of these, the first decode was already final — the
+# target legitimately carried a percent-encoding (e.g. %20) and decoding
+# past it corrupts the URL (improvement plan Task 2, 2026-10-31).
+_URL_INVALID_CHARS = re.compile(r"[\s<>\"{}]")
+
 _TITLE_MAX = 300
 _SNIPPET_MAX = 500
 
@@ -193,7 +199,19 @@ def _unwrap_href(href: str) -> str | None:
             return value
         target = (parse_qs(query).get("uddg") or [None])[0]
         if target:
-            return unquote(target)
+            # The uddg param is percent-encoded TWICE in the wild (%2D dashes
+            # survive one decode), so a second unquote is usually needed — but
+            # a target whose own URL legitimately carries %XX must not be
+            # decoded past its true shape. Decode again only when the
+            # once-decoded value still looks encoded AND the result stays
+            # URL-clean (a %20 target would decode to a raw space = corrupt).
+            # Residual limitation: a genuinely doubly-encoded URL-clean char
+            # (e.g. %7E tilde) still over-decodes to its URL-clean equivalent.
+            if "%" in target:
+                decoded_again = unquote(target)
+                if not _URL_INVALID_CHARS.search(decoded_again):
+                    return decoded_again
+            return target
     return value
 
 

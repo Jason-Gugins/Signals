@@ -368,3 +368,41 @@ def test_unknown_engine_still_raises_value_error():
     for bad in ("google", "bing", "brave", "mojeek"):
         with pytest.raises(ValueError):
             parse_results(body, engine=bad)
+
+
+# --- uddg second-decode gating (improvement plan Task 2) -------------------
+
+def test_unwrap_preserves_target_legit_percent_encoding():
+    # A target whose own path carries %20 (singly-legal URL escaping) must
+    # survive the wrapper: DDG encodes the already-encoded target, so the
+    # href carries %2520; parse_qs decodes once to %20 and the OLD code's
+    # unconditional second unquote corrupted it to a raw space.
+    from urllib.parse import quote
+    target = "https://example.com/a%20b.html"
+    href = "//duckduckgo.com/l/?uddg=" + quote(target, safe="") + "&amp;rut=x"
+    results = parse_results(
+        f"<html><a rel=\"nofollow\" href=\"{href}\" class='result-link'>T</a></html>",
+        engine="ddg_lite",
+    )
+    assert results[0]["url"] == target
+
+
+def test_unwrap_still_decodes_double_encoded_dash():
+    # The documented wild shape: %2D survives one decode (href carries
+    # %252D) — the second decode must still happen when the result is clean.
+    href = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fca.linkedin.com%2Fin%2Faustin%252Dgrant&amp;rut=x"
+    results = parse_results(
+        f"<html><a rel=\"nofollow\" href=\"{href}\" class='result-link'>T</a></html>",
+        engine="ddg_lite",
+    )
+    assert results[0]["url"] == "https://ca.linkedin.com/in/austin-grant"
+
+
+def test_unwrap_leaves_clean_target_untouched():
+    # A fully-decoded-once target (no % left) returns exactly as-is.
+    href = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage&amp;rut=x"
+    results = parse_results(
+        f"<html><a rel=\"nofollow\" href=\"{href}\" class='result-link'>T</a></html>",
+        engine="ddg_lite",
+    )
+    assert results[0]["url"] == "https://example.com/page"

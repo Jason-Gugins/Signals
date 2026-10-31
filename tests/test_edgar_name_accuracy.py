@@ -212,6 +212,34 @@ def test_resolve_all_generic_ambiguity_writes_no_cik():
     assert resolver._index == _index()
 
 
+def test_resolve_all_registry_write_failure_isolated_per_account():
+    # Per-account isolation arm (edgar_ids.resolve_all's except branch): a
+    # registry write failure for ONE account must not kill the CIK pass —
+    # the exception is caught, that domain maps to None in the report, and
+    # the REST of the cohort still resolves and upserts normally. Exercises
+    # the previously-unused FakeRegistry.fail_domain scaffolding.
+    fetcher = FakeFetcher(COLLISION_FIXTURE.read_bytes())
+    registry = FakeRegistry(fail_domain="widgetworks.example")
+    resolver = EdgarIdentityResolver(fetcher, registry)
+    broken = Account(domain="widgetworks.example", name="Widgetworks Analytics Inc")
+    healthy = Account(domain="signalstech.example", name="Signals Technology Corp")
+    # sanity: both names are exact normalized matches — match_cik itself
+    # succeeds for the broken account; only its registry WRITE fails.
+    assert name_similarity("Widgetworks Analytics Inc", "WIDGETWORKS ANALYTICS INC") == 1.0
+    assert name_similarity("Signals Technology Corp", "SIGNALS TECHNOLOGY CORP") == 1.0
+    out = resolver.resolve_all([broken, healthy])
+    # the failed write is reported honestly as None; the healthy account
+    # still got its CIK.
+    assert out == {"widgetworks.example": None, "signalstech.example": "0001900010"}
+    # only the healthy account was written, tagged sec_edgar
+    assert [u[0].domain for u in registry.upserts] == ["signalstech.example"]
+    assert [u[1] for u in registry.upserts] == ["sec_edgar"]
+    assert healthy.cik == "0001900010"
+    # the except arm does NOT roll back the Account: acct.cik was assigned
+    # before the failed upsert — the per-domain mapping is the report.
+    assert broken.cik == "0002200010"
+
+
 # --- 3. Form D attach safety -------------------------------------------------
 
 

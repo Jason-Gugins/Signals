@@ -18,6 +18,12 @@ Stages (one variant axis per stage, per the plan):
   :data:`src.decide.gates.CLAIM_FLOOR`, ``band_low`` alternates around the
   shipped 0.30, and ``output_screen`` threshold ladders (the G4 rider's
   ``review_threshold``/``action_threshold``).
+- ``g5`` — the need-promotion gate: ``floor`` ladders and ``band_low``
+  alternates around the shipped 0.70/0.30 (the two-sided calibration band)
+  plus one cross rung. The WHOLE family is zero-call (``requires_replay``
+  None): the promotion nouls are ALREADY recorded on the ledger rows, so
+  every rung re-routes them arithmetically (replay.py's g5 engine) — G5
+  never re-asks.
 - ``implementer`` — bulk-implementer PROMPT variants (claim-count caps,
   stricter quote-span requirements, ``route_threshold`` moves). These are
   OUT of replay scope in v1: replaying them means NEW deepseek calls to
@@ -34,7 +40,9 @@ Stages (one variant axis per stage, per the plan):
   thresholds, so the RECORDED answers re-route deterministically under the
   merged config. The incumbent anchors (``doc_incumbent``/``g4_incumbent``,
   empty deltas) use this to score the shipped behavior under the same metric
-  machinery — the A-side of every comparison.
+  machinery — the A-side of every comparison. The whole ``g5`` family rides
+  None too: G5's nouls are recorded on the rows, so even the ladder rungs
+  are pure re-threshold arithmetic.
 - ``"deepseek"`` — needs new implementer calls; metadata-only in v1.
 
 The incumbent anchors exist because :func:`src.lab.replay.advance` needs an
@@ -53,9 +61,11 @@ from __future__ import annotations
 
 import copy
 
-# The three spend stages (one variant axis each, per the plan).
+# The spend stages (one variant axis each, per the plan; g5's axis is
+# zero-call arithmetic, the others replay or stay metadata-only).
 STAGE_DOC_GATE = "doc_gate"
 STAGE_G4 = "g4"
+STAGE_G5 = "g5"
 STAGE_IMPLEMENTER = "implementer"
 
 # Replay engines a variant can require.
@@ -276,6 +286,97 @@ _REGISTRY: tuple[dict, ...] = (
         "requires_replay": REPLAY_JEV,
         "expected_direction": DIRECTION_DOWN,
     },
+    # ------------------------------------------------ g5: need_promotion
+    # incumbent + floor/band ladders + one cross rung — ALL zero-call: the
+    # promotion nouls are recorded on the rows, so every rung re-routes them
+    # arithmetically (replay.py's g5 engine; G5 never re-asks). Routing is
+    # gate_need_promotion's two-sided band: noul >= floor promotes;
+    # [band_low, floor) reviews (NOT promoted); noul < band_low drops. The 9
+    # in-band claims in the live corpus (rillet Ashby harvest, nouls
+    # 0.30-0.34) are the canary every rationale states the fate of.
+    {
+        "id": "g5_incumbent",
+        "stage": STAGE_G5,
+        "block": "need_promotion",
+        "description": (
+            "The shipped need_promotion gate under the same scorer (empty "
+            "delta): re-routes the recorded promotion nouls under floor 0.70 "
+            "/ band_low 0.30 — the zero-call A-side anchor for G5 variants. "
+            "The 9 in-band claims (nouls 0.30-0.34) stay REVIEWED."
+        ),
+        "config_delta": {},
+        "requires_replay": None,
+        "expected_direction": None,
+    },
+    {
+        "id": "g5_floor_loose",
+        "stage": STAGE_G5,
+        "block": "need_promotion",
+        "description": (
+            "Promotion floor 0.70 -> 0.60: needs nouling in [0.60, 0.70) "
+            "promote instead of reviewing. The 9 in-band claims (0.30-0.34) "
+            "stay REVIEWED — band_low stays 0.30, so [0.30, 0.60) remains "
+            "the review band."
+        ),
+        "config_delta": {"floor": 0.60},
+        "requires_replay": None,
+        "expected_direction": DIRECTION_PROBE,
+    },
+    {
+        "id": "g5_floor_loosest",
+        "stage": STAGE_G5,
+        "block": "need_promotion",
+        "description": (
+            "Promotion floor 0.70 -> 0.50 (the loosest rung): [0.50, 0.70) "
+            "promotes. The 9 in-band claims (0.30-0.34) still REVIEW — all "
+            "sit below 0.50 and at/above band_low 0.30."
+        ),
+        "config_delta": {"floor": 0.50},
+        "requires_replay": None,
+        "expected_direction": DIRECTION_PROBE,
+    },
+    {
+        "id": "g5_band_low_narrow",
+        "stage": STAGE_G5,
+        "block": "need_promotion",
+        "description": (
+            "Band low edge 0.30 -> 0.20: needs nouling 0.20-0.29 REVIEW "
+            "instead of dropping (the review band reaches deeper). The 9 "
+            "in-band claims (0.30-0.34) stay REVIEWED — [0.20, 0.70) still "
+            "covers them."
+        ),
+        "config_delta": {"band_low": 0.20},
+        "requires_replay": None,
+        "expected_direction": DIRECTION_PROBE,
+    },
+    {
+        "id": "g5_band_low_wide",
+        "stage": STAGE_G5,
+        "block": "need_promotion",
+        "description": (
+            "Band low edge 0.30 -> 0.40: needs nouling 0.30-0.39 DROP "
+            "instead of reviewing (the review band narrows upward). The 9 "
+            "in-band claims (0.30-0.34) all DROP under this rung — the "
+            "canary cost is explicit."
+        ),
+        "config_delta": {"band_low": 0.40},
+        "requires_replay": None,
+        "expected_direction": DIRECTION_DOWN,
+    },
+    {
+        "id": "g5_cross_floor_band",
+        "stage": STAGE_G5,
+        "block": "need_promotion",
+        "description": (
+            "Cross rung — floor 0.70 -> 0.50 paired with band_low 0.30 -> "
+            "0.40 (the loosest floor with the narrowest review band). The 9 "
+            "in-band claims (0.30-0.34) all DROP (below the 0.40 band "
+            "edge); [0.40, 0.50) reviews; >= 0.50 promotes."
+        ),
+        "config_delta": {"floor": 0.50, "band_low": 0.40},
+        "requires_replay": None,
+        "expected_direction": DIRECTION_DOWN,
+    },
     # ------------------------------------------------ implementer: prompt
     # variants, OUT of replay scope — metadata-only (deepseek)
     {
@@ -322,7 +423,7 @@ _REGISTRY: tuple[dict, ...] = (
 
 
 def default_variants() -> list[dict]:
-    """The baseline variant set for the three stages (fresh copies).
+    """The baseline variant set for the four stages (fresh copies).
 
     Callers may mutate their copy freely (nested ``config_delta`` maps
     included) — the module registry is never handed out, not even shallow

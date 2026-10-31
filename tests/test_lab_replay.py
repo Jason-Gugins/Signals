@@ -36,16 +36,20 @@ from src.decide.gates import (
     DOC_RELEVANT_MIN,
     OUTPUT_ACTION_THRESHOLD,
     OUTPUT_REVIEW_THRESHOLD,
+    PROMOTION_FLOOR,
     gate_citation_batch,
     gate_document,
+    gate_need_promotion,
     state_hash,
 )
 from src.lab.replay import (
     DEFAULT_WEIGHTS,
     G4_BAND_LOW_DEFAULT,
+    G5_BAND_LOW_DEFAULT,
     advance,
     replay_variant,
 )
+from src.lab.report import build_report, derive_proposal
 from src.lab.variants import (
     PROFILE_VOCAB_QUESTION_ID,
     REQUIRED_KEYS,
@@ -216,6 +220,45 @@ def variant_by_id(vid: str) -> dict:
     return next(v for v in default_variants() if v["id"] == vid)
 
 
+def g5_row(noul, outcome: str, *, run_id: str = "run-1") -> dict:
+    """One corpus-shaped need_promotion row (the real ledger row's replay-
+    relevant fields: gate/outcome/noul/state_hash/answers/run_id). The G5
+    ledger rows carry NO doc/claim identifier — only their own
+    {need, evidence_excerpt} state hash — which is exactly why the replay
+    re-routes the recorded noul arithmetically instead of joining anywhere."""
+    answers = None
+    if noul is not None:
+        answers = {"promotion": {"type": "noul", "noul": noul}}
+    return {
+        "gate": "need_promotion",
+        "boundary": "need_promotion",
+        "run_id": run_id,
+        "package": "acme.com-20261011T000000Z-run-1",
+        "domain": "acme.com",
+        "account": "Acme",
+        "state_hash": f"np-{noul}",
+        "answers": answers,
+        "outcome": outcome,
+        "noul": noul,
+    }
+
+
+#: The ladder fixture: nouls with the outcomes the SHIPPED gate (floor 0.70,
+#: band_low 0.30) recorded for them — the ground truth every rung re-routes.
+G5_LADDER_NOULS = (
+    (0.75, "accepted"),
+    (0.65, "reviewed"),
+    (0.55, "reviewed"),
+    (0.32, "reviewed"),  # the Ashby in-band canary (real corpus: 9 nouls 0.30-0.34)
+    (0.25, "dropped"),
+    (0.10, "dropped"),
+)
+
+
+def g5_ladder_rows() -> list[dict]:
+    return [g5_row(noul, outcome) for noul, outcome in G5_LADDER_NOULS]
+
+
 def _rows_of(result: dict) -> list[dict]:
     """The per-unit replay rows carried on the result (also exactly what
     lands in the out_dir JSONL when one is given)."""
@@ -229,12 +272,14 @@ def _outcomes(result: dict) -> list[str]:
 # ------------------------------------------------------------ registry shape
 
 
-def test_registry_covers_the_three_stages_with_unique_ids():
+def test_registry_covers_the_variant_stages_with_unique_ids():
     variants = default_variants()
     assert variants
     ids = [v["id"] for v in variants]
     assert len(set(ids)) == len(ids)  # unique
-    assert {v["stage"] for v in variants} == {"doc_gate", "g4", "implementer"}
+    assert {v["stage"] for v in variants} == {
+        "doc_gate", "g4", "g5", "implementer",
+    }
 
 
 def test_registry_entry_shape_pinned():
@@ -248,8 +293,8 @@ def test_registry_entry_shape_pinned():
         assert v["expected_direction"] is None or isinstance(v["expected_direction"], str)
         # the decide.yaml gate block the delta merges over is always named
         assert v["block"] in (
-            "document_gate", "citation_soundness", "output_screen",
-            "implementers.bulk", "routing",
+            "document_gate", "citation_soundness", "need_promotion",
+            "output_screen", "implementers.bulk", "routing",
         )
 
 
@@ -591,6 +636,257 @@ def test_doc_fourth_noul_variant_asks_and_routes_the_extra_noul():
         }
     assert _outcomes(result) == ["included", "excluded"]
     assert _rows_of(result)[1]["reason"] == "weak_evidence"
+
+
+# ----------------------------------------------- G5: need_promotion re-threshold
+
+
+def test_g5_registry_family_is_config_shaped_and_zero_call():
+    """The g5 family mirrors the g4 family's structure over the
+    need_promotion block: an empty-delta incumbent anchor, the floor ladder
+    {0.60, 0.50}, the band_low alternates {0.20, 0.40}, and ONE cross rung
+    pairing the loosest floor with the narrowest review band. Every rung is
+    zero-call (``requires_replay`` None): the nouls are ALREADY recorded in
+    the rows, so re-thresholding is pure arithmetic — and every delta stays
+    config-shaped (flat numeric maps) so report.py's propose-diff machinery
+    applies unchanged."""
+    g5 = [v for v in default_variants() if v["stage"] == "g5"]
+    by_id = {v["id"]: v for v in g5}
+    assert set(by_id) == {
+        "g5_incumbent", "g5_floor_loose", "g5_floor_loosest",
+        "g5_band_low_narrow", "g5_band_low_wide", "g5_cross_floor_band",
+    }
+    assert by_id["g5_incumbent"]["config_delta"] == {}
+    for v in g5:
+        assert v["block"] == "need_promotion"
+        assert v["requires_replay"] is None  # zero calls, the whole axis
+        for value in v["config_delta"].values():
+            assert isinstance(value, (int, float)) and not isinstance(value, bool)
+    assert by_id["g5_floor_loose"]["config_delta"] == {"floor": 0.60}
+    assert by_id["g5_floor_loosest"]["config_delta"] == {"floor": 0.50}
+    assert by_id["g5_band_low_narrow"]["config_delta"] == {"band_low": 0.20}
+    assert by_id["g5_band_low_wide"]["config_delta"] == {"band_low": 0.40}
+    assert by_id["g5_cross_floor_band"]["config_delta"] == {
+        "floor": 0.50, "band_low": 0.40,
+    }
+    # the ladder brackets the shipped values (gates.py's own constants)
+    floors = [v["config_delta"]["floor"] for v in g5 if "floor" in v["config_delta"]]
+    assert floors and max(floors) < PROMOTION_FLOOR
+    bands = [v["config_delta"]["band_low"] for v in g5 if "band_low" in v["config_delta"]]
+    assert any(b < G5_BAND_LOW_DEFAULT for b in bands)
+    assert any(b > G5_BAND_LOW_DEFAULT for b in bands)
+    assert G5_BAND_LOW_DEFAULT == gates_mod._BAND_LOW  # pinned to gates.py's default
+
+
+def test_g5_rationales_state_the_inband_canary_fate():
+    """Every g5 rationale must state what happens to the 9 recorded in-band
+    claims (nouls 0.30-0.34, the Ashby canary) under its rung — computed from
+    the replay's own routing, never hand-waved."""
+    canary = g5_row(0.32, "reviewed")  # the real in-band case (0.32 < 0.70 floor)
+    for v in (x for x in default_variants() if x["stage"] == "g5"):
+        result = replay_variant(v, [canary], NullDecider())
+        fate = _rows_of(result)[0]["outcome"]
+        desc = v["description"]
+        assert "0.30" in desc and "0.34" in desc, v["id"]  # the range is named
+        if fate == "reviewed":
+            assert "REVIEW" in desc, (v["id"], "canary reviews — say so")
+        elif fate == "dropped":
+            assert "DROP" in desc, (v["id"], "canary drops — say so")
+        else:
+            raise AssertionError(f"canary PROMOTED under {v['id']} — rationale must say so")
+
+
+def test_g5_replay_routes_what_the_gate_routes():
+    """Routing parity for G5 (the lesson, third gate): the REAL
+    gate_need_promotion's recorded outcomes re-route IDENTICALLY under the
+    shipped thresholds — noul >= floor promotes, [band_low, floor) reviews
+    (never promotes), below band drops."""
+    for noul, expected in ((0.75, "accepted"), (0.32, "reviewed"), (0.10, "dropped")):
+        spy = SpyDecider(lambda s, q, _n=noul: ok({"promotion": {"type": "noul", "noul": _n}}))
+        ledger = DecideLedger()
+        promote, prob, _ = gate_need_promotion(
+            "need text", "evidence excerpt", False, spy, None, ledger, "run-1", "enforce",
+        )
+        row = ledger.rows[-1]
+        assert row["outcome"] == expected
+        assert row["noul"] == noul  # the noul is stored REGARDLESS of outcome
+
+        replayed = replay_variant(variant_by_id("g5_incumbent"), [dict(row)], NullDecider())
+        assert _outcomes(replayed) == [expected]
+        assert _rows_of(replayed)[0]["reason"] == row.get("reason")
+
+
+@pytest.mark.parametrize("variant_id,expected", [
+    # routing hand-computed from gates.py's ladder (noul >= floor => accepted;
+    # band_low <= noul < floor => reviewed; noul < band_low => dropped):
+    ("g5_incumbent", {"promoted": 1, "reviewed": 3, "dropped": 2}),
+    #   0.75 acc | 0.65/0.55/0.32 rev | 0.25/0.10 drop
+    ("g5_floor_loose", {"promoted": 2, "reviewed": 2, "dropped": 2}),
+    #   0.75+0.65 acc | 0.55+0.32 rev | 0.25+0.10 drop
+    ("g5_floor_loosest", {"promoted": 3, "reviewed": 1, "dropped": 2}),
+    #   0.75+0.65+0.55 acc | 0.32 rev | 0.25+0.10 drop
+    ("g5_band_low_narrow", {"promoted": 1, "reviewed": 4, "dropped": 1}),
+    #   0.75 acc | 0.65+0.55+0.32+0.25 rev (band reaches 0.20) | 0.10 drop
+    ("g5_band_low_wide", {"promoted": 1, "reviewed": 2, "dropped": 3}),
+    #   0.75 acc | 0.65+0.55 rev | 0.32+0.25+0.10 drop (band rises to 0.40)
+    ("g5_cross_floor_band", {"promoted": 3, "reviewed": 0, "dropped": 3}),
+    #   0.75+0.65+0.55 acc | nothing in [0.40, 0.50) | 0.32+0.25+0.10 drop
+])
+def test_g5_ladder_routing_counts_are_pinned(variant_id, expected):
+    decider = SpyDecider(lambda s, q: ok({}))
+    result = replay_variant(variant_by_id(variant_id), g5_ladder_rows(), decider)
+
+    assert result["status"] == "complete"
+    assert result["calls"] == 0
+    assert decider.calls == []  # pure arithmetic over recorded nouls: no request, ever
+    assert result["components"]["routing"] == expected
+    assert [r["noul"] for r in _rows_of(result)] == [n for n, _ in G5_LADDER_NOULS]
+
+
+def test_g5_incumbent_reroute_is_zero_call_and_reproduces_recorded():
+    decider = SpyDecider(lambda s, q: ok({}))
+    result = replay_variant(variant_by_id("g5_incumbent"), g5_ladder_rows(), decider)
+
+    assert result["calls"] == 0 and decider.calls == []
+    assert _outcomes(result) == [o for _, o in G5_LADDER_NOULS]  # identity check
+    c = result["components"]
+    assert (c["tp"], c["fp"], c["fn"]) == (1, 0, 0)
+    assert c["acceptance_precision"] == 1.0 and c["claim_recall"] == 1.0
+
+
+def test_g5_floor_loose_row_level_outcomes_and_reasons():
+    """Row-level pin for one rung: outcomes AND the gate's own reasons
+    (reviewed carries ``review_below_floor``; drops carry no reason), with
+    the recorded outcome riding alongside for the A/B."""
+    result = replay_variant(variant_by_id("g5_floor_loose"), g5_ladder_rows(), NullDecider())
+    rows = _rows_of(result)
+    assert [(r["outcome"], r["reason"]) for r in rows] == [
+        ("accepted", None),
+        ("accepted", None),        # 0.65 clears the 0.60 rung now
+        ("reviewed", "review_below_floor"),
+        ("reviewed", "review_below_floor"),
+        ("dropped", None),
+        ("dropped", None),
+    ]
+    assert all(r["recorded_outcome"] == o for r, (_, o) in zip(rows, G5_LADDER_NOULS))
+    assert all(r["called"] is False and r["error"] is None for r in rows)
+
+
+def test_g5_canary_noul_032_fates_pinned():
+    """The 9-claim canary, one row: noul 0.32 reviews under the shipped
+    0.70/0.30 AND under floor 0.60 (band_low stays 0.30, so [0.30, 0.60)
+    still reviews) — but DROPS under the cross rung (0.32 < band edge 0.40)."""
+    canary = g5_row(0.32, "reviewed")
+    inc = replay_variant(variant_by_id("g5_incumbent"), [canary], NullDecider())
+    loose = replay_variant(variant_by_id("g5_floor_loose"), [canary], NullDecider())
+    cross = replay_variant(variant_by_id("g5_cross_floor_band"), [canary], NullDecider())
+    assert _outcomes(inc) == ["reviewed"]
+    assert _outcomes(loose) == ["reviewed"]  # 0.32 in [0.30, 0.60): the band still owns it
+    assert _outcomes(cross) == ["dropped"]  # 0.32 < band edge 0.40
+
+
+def test_g5_malformed_noul_routes_fail_closed_dropped():
+    """A recorded row without a usable noul re-routes dropped — the gate's
+    own malformed-verdict posture (fail-closed), mirrored exactly."""
+    row = g5_row(None, "dropped")
+    row["answers"] = {"promotion": {"type": "noul"}}  # shape without a value
+    result = replay_variant(variant_by_id("g5_incumbent"), [row], NullDecider())
+    assert _outcomes(result) == ["dropped"]
+    assert _rows_of(result)[0]["reason"] is None
+
+
+def test_g5_non_verdict_rows_are_skipped_never_hidden():
+    rows = g5_ladder_rows() + [
+        g5_row(None, "errored"),  # a Jev error row: no verdict signal
+        # a not-applicable row: never called, no outcome recorded
+        {"gate": "need_promotion", "boundary": "need_promotion", "run_id": "run-1",
+         "package": "p", "domain": "d", "account": "Acme", "state_hash": "np-na",
+         "answers": None, "noul": None},
+    ]
+    result = replay_variant(variant_by_id("g5_incumbent"), rows, NullDecider())
+    assert result["status"] == "complete"
+    assert result["components"]["n_scored"] == 6
+    assert result["components"]["n_skipped"] == 2
+
+
+def test_g5_precision_proxy_reported_unavailable_mean_noul_still_scores():
+    """The promotion PRECISION proxy (promoted needs whose linking citation
+    row was accepted) is honestly UNAVAILABLE: need_promotion ledger rows
+    carry no claim/doc/package-claim join key to the citation_soundness rows
+    (only their own {need, evidence_excerpt} state hash), so the replay
+    refuses to invent a run-level join. The mean-noul promotion proxy (the
+    shipped w3 term) still rides the score unchanged."""
+    result = replay_variant(variant_by_id("g5_floor_loose"), g5_ladder_rows(), NullDecider())
+    c = result["components"]
+    assert c["promotion_precision_proxy"] is None
+    assert "unavailable" in c["promotion_precision_note"]
+    mean_noul = sum(n for n, _ in G5_LADDER_NOULS) / len(G5_LADDER_NOULS)
+    assert c["promotion_proxy"] == pytest.approx(mean_noul)
+
+
+def test_g5_out_dir_writes_decisions_shaped_jsonl(tmp_path):
+    variant = variant_by_id("g5_cross_floor_band")
+    result = replay_variant(variant, g5_ladder_rows(), NullDecider(), out_dir=tmp_path)
+
+    path = tmp_path / "g5_cross_floor_band.jsonl"
+    assert path.exists()
+    lines = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l]
+    assert len(lines) == 6
+    assert path.read_text(encoding="utf-8").endswith("\n")  # LF-terminated
+    for line in lines:
+        assert line["gate"] == "lab_replay_g5"
+        assert line["variant_id"] == "g5_cross_floor_band"
+        assert line["called"] is False  # zero-call axis, even on disk
+        assert line["state_hash"].startswith("np-")  # the recorded hash, echoed
+        assert "recorded_outcome" in line and "noul" in line
+    assert [l["outcome"] for l in lines] == _outcomes(result)
+
+
+# ------------------------------------------------- g5 report/propose-diff flow
+
+
+def test_g5_variant_flows_through_report_and_proposal():
+    """Report integration smoke: a g5 winner's config_delta becomes a
+    need_promotion change entry (block/key/from/to) in the PROPOSED
+    decide.yaml diff, and the variant table renders the g5 stage."""
+    incumbent = {
+        "variant_id": "g5_incumbent", "stage": "g5", "status": "complete",
+        "score": 0.40, "calls": 0,
+        "components": {
+            "config": {"floor": 0.70, "band_low": 0.30},
+            "acceptance_precision": 1.0, "claim_recall": 1.0,
+        },
+    }
+    challenger = {
+        "variant_id": "g5_floor_loose", "stage": "g5", "status": "complete",
+        "score": 0.55, "calls": 0,
+        "components": {
+            "config": {"floor": 0.60, "band_low": 0.30},
+            "acceptance_precision": 0.5, "claim_recall": 1.0,
+        },
+    }
+    rd = {
+        "round": 1, "target": "claim_survival", "split": "all",
+        "variants": [incumbent, challenger],
+        "variant_specs": {
+            "g5_floor_loose": {
+                "stage": "g5", "block": "need_promotion",
+                "config_delta": {"floor": 0.60},
+            },
+        },
+    }
+    proposal = derive_proposal([rd])
+    assert len(proposal["changes"]) == 1
+    change = proposal["changes"][0]
+    assert change["block"] == "need_promotion"
+    assert change["key"] == "floor"
+    assert change["from"] == 0.70 and change["to"] == 0.60
+    assert change["evidence"]["variant"] == "g5_floor_loose"
+
+    report = build_report([rd], {}, {})
+    assert "| g5_floor_loose | g5 |" in report
+    assert "need_promotion" in report  # the proposal yaml names the block
+    assert "floor" in report
 
 
 # ------------------------------------------------------------------- budget

@@ -16,6 +16,15 @@ variant's stage questions on the cached corpus states:
   never re-implemented), and the per-claim questions are the shipped Choice
   specs. Judged-claim ids are recovered from each ledger row's ``claim_<i>``
   answer key, so the replay asks exactly the batch the pipeline asked.
+- **g5** variants (the ``need_promotion`` axis) NEVER call: the promotion
+  noul is already recorded on every verdict-bearing row, so every rung —
+  floor ladders, band alternates, the incumbent anchor alike — re-routes the
+  RECORDED nouls under the merged thresholds (pure arithmetic, zero calls)
+  and reports promote/review/drop counts. The promotion PRECISION proxy
+  (promoted needs whose linking citation row was accepted) is honestly
+  UNAVAILABLE: need_promotion rows carry no claim/doc join key to the
+  citation_soundness rows (see :func:`_replay_g5`), and inventing a
+  run-level join would misattribute per-claim outcomes.
 - ``requires_replay=None`` variants (the incumbent anchors) move only routing
   thresholds: the RECORDED answers re-route deterministically under the
   merged config — zero calls, the A-side scored by the same machinery.
@@ -80,6 +89,7 @@ from src.decide.gates import (
     DOC_RELEVANT_MIN,
     OUTPUT_ACTION_THRESHOLD,
     OUTPUT_REVIEW_THRESHOLD,
+    PROMOTION_FLOOR,
     claim_excerpt,
     state_hash,
 )
@@ -89,6 +99,7 @@ from src.lab.variants import (
     REPLAY_DEEPSEEK,
     STAGE_DOC_GATE,
     STAGE_G4,
+    STAGE_G5,
     STAGE_IMPLEMENTER,
     apply_variant,
 )
@@ -100,6 +111,13 @@ DEFAULT_WEIGHTS = {"w1": 0.4, "w2": 0.25, "w3": 0.2, "w4": 0.1, "w5": 0.05}
 #: ``citation_soundness.band_low`` (gates.py's private ``_BAND_LOW``; the
 #: test suite pins the two together so they cannot drift).
 G4_BAND_LOW_DEFAULT = 0.30
+
+#: The G5 (need_promotion) band's low edge default — the same gates.py
+#: private ``_BAND_LOW`` (decide.yaml ships ``need_promotion.band_low:
+#: 0.30``), pinned together by the test suite like the G4 twin above. Unlike
+#: the citation block's informational knob, THIS band routes: nouls in
+#: [band_low, floor) review, below it drop.
+G5_BAND_LOW_DEFAULT = 0.30
 
 #: The doc-gate state head: ``_DOC_STATE_TOKENS * _WINDOW_CHARS_PER_TOKEN``
 #: from gates.py (2400 tokens * 4 chars/token) — the same cap corpus.py
@@ -121,6 +139,12 @@ _CLAIM_VERDICTS = frozenset({OUTCOME_ACCEPTED, OUTCOME_REVIEWED, OUTCOME_DROPPED
 # G4's three Choice labels (gates.py's ``_G4_CHOICE_LABELS`` — mirrored, and
 # pinned by the routing-parity tests that run the real gate).
 _G4_LABELS = frozenset({"supports", "contradicted", "says_nothing"})
+
+# G5's verdict-bearing outcomes (gate_need_promotion's recorded vocabulary —
+# the same targets.py strings the confusion counts read). Rows carrying any
+# other outcome (``errored``) or none (not-applicable) have no verdict
+# signal and are skipped, never hidden.
+_G5_VERDICTS = frozenset({OUTCOME_ACCEPTED, OUTCOME_REVIEWED, OUTCOME_DROPPED})
 
 _CLAIM_KEY_RE = re.compile(r"^claim_(\d+)$")
 
@@ -368,6 +392,38 @@ def _route_claim(answers: dict, qid: str, floor: float) -> tuple[str, str | None
     return OUTCOME_REVIEWED, "no_answer"
 
 
+def _route_promotion(noul: float | None, floor: float, band_low: float) -> tuple[str, str | None]:
+    """``gate_need_promotion``'s two-sided band, verbatim (gates.py:1260-1267):
+    noul >= floor promotes (``accepted``); band_low <= noul < floor routes to
+    a REVIEW (recorded, NOT promoted — reason ``review_below_floor``); noul
+    < band_low drops; a malformed/missing noul keeps the fail-closed drop.
+    The g5 replay routes ONLY this ladder — the recorded noul IS the input,
+    so zero calls can re-route it under any (floor, band_low) pair."""
+    if noul is None:
+        return OUTCOME_DROPPED, None
+    if noul >= floor:
+        return OUTCOME_ACCEPTED, None
+    if noul >= band_low:
+        return OUTCOME_REVIEWED, "review_below_floor"
+    return OUTCOME_DROPPED, None
+
+
+def _row_noul(row: dict) -> float | None:
+    """The recorded promotion noul off a ledger row: the top-level ``noul``
+    extra (what gates._row stored), falling back to the answers map's
+    ``promotion`` noul when the extra is absent. None stays None — the
+    fail-closed routing owns it."""
+    value = row.get("noul")
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and not math.isnan(value)
+    ):
+        return float(value)
+    answers = row.get("answers")
+    return _noul_of(answers if isinstance(answers, dict) else None, "promotion")
+
+
 def _screen_override(answers: dict, screen_cfg: dict) -> str | None:
     """The output-screen rider's batch routing, verbatim: BLOCK beats review,
     wrong_entity before out_of_excerpt. Returns the batch reason to apply to
@@ -408,6 +464,12 @@ class _Meter:
         self.n_skipped = 0
         self.config: dict = {}
         self.rows: list[dict] = []
+        # Stage-specific extras (None on the doc/g4 stages): the g5 engine's
+        # promote/review/drop tally and its honesty note for the promotion
+        # PRECISION proxy (unavailable — no reliable ledger join; see
+        # _replay_g5). _weighted_score surfaces them only when set.
+        self.routing: dict | None = None
+        self.proxy_note: str | None = None
 
     def count(self, predicted_positive: bool, recorded_positive: bool) -> None:
         self.n_scored += 1
@@ -470,6 +532,14 @@ def _weighted_score(meter: _Meter, proxy: float, weights: dict) -> tuple[dict, f
         "latency_ms_total": round(meter.latency_ms_total, 3),
         "config": dict(meter.config),
     }
+    if meter.routing is not None:
+        components["routing"] = dict(meter.routing)
+    if meter.proxy_note:
+        # The g5 stage's precision proxy is reported as UNAVAILABLE, never
+        # invented (no reliable join between need_promotion and
+        # citation_soundness rows — see _replay_g5's comment).
+        components["promotion_precision_proxy"] = None
+        components["promotion_precision_note"] = meter.proxy_note
     return components, score
 
 
@@ -860,6 +930,92 @@ def _replay_g4(
             emit(i, outcome, reason, answer, None)
 
 
+# ------------------------------------------------------------------- g5 replay
+
+
+def _replay_g5(
+    variant: dict,
+    rows: list[dict],
+    meter: _Meter,
+    *,
+    base_cfgs: dict,
+    model: str | None,
+) -> None:
+    """Replay every verdict-bearing need_promotion row under the variant's
+    merged config — PURE ARITHMETIC, zero calls, ALWAYS: the promotion noul
+    is already recorded on the row, so every rung (floor ladders, band
+    alternates, the cross, and the incumbent anchor alike) re-routes the
+    RECORDED nouls through :func:`_route_promotion` under the merged
+    thresholds. There is no ``ask`` path here at all: re-asking would spend
+    calls to reproduce a number the ledger already holds, and the whole g5
+    axis ships ``requires_replay=None``.
+
+    THE PROMOTION PRECISION PROXY IS UNAVAILABLE — by honesty, not omission.
+    The brief's proxy (promoted needs whose corresponding G4/citation
+    outcome was accepted) needs a key linking each need_promotion row to its
+    citation_soundness row. The real ledger rows carry none: G5 rows hold
+    only their own ``{need, evidence_excerpt}`` ``state_hash`` (a different
+    state shape from the G4 batch state, so the hashes cannot match) plus a
+    run-level ``run_id`` — no doc_id, no claim id, no package-claim link
+    (verified over data/dossiers/*/decisions.jsonl, 2026-10-31: 287 G5 rows,
+    key set {gate, boundary, state_hash, answers, deterministic_action,
+    agree, agree_direction, error, latency_ms, raw_tokens, model, run_id,
+    called, outcome, noul, reason}). A run-level join would misattribute
+    per-claim outcomes, so the components report the proxy as ``None`` with
+    the reason (``promotion_precision_note``) instead of inventing one. The
+    shipped mean-noul ``promotion_proxy`` (the w3 score term) still rides
+    the score unchanged — it is invariant under re-thresholding, so it never
+    discriminates between the g5 rungs; the routing tally below is the
+    family's discriminating read.
+    """
+    cfg = apply_variant(base_cfgs.get("need_promotion"), variant)
+    floor = _threshold(cfg, "floor", PROMOTION_FLOOR)
+    band_low = _threshold(cfg, "band_low", G5_BAND_LOW_DEFAULT)
+    # The EFFECTIVE thresholds ride the config (derive_proposal reads the
+    # incumbent's `from` values off it) even when base_cfgs lacks the block.
+    meter.config = {**cfg, "floor": floor, "band_low": band_low}
+    meter.routing = {"promoted": 0, "reviewed": 0, "dropped": 0}
+    meter.proxy_note = (
+        "unavailable: need_promotion rows carry no claim/doc join key to the "
+        "citation_soundness rows (their state_hash is over the {need, "
+        "evidence_excerpt} state; run_id is run-level only) — a run-level "
+        "join would invent per-claim outcomes"
+    )
+    gate = "lab_replay_g5"
+
+    for row in rows:
+        if row.get("gate") != "need_promotion":
+            continue
+        recorded = row.get("outcome")
+        if recorded not in _G5_VERDICTS:
+            meter.n_skipped += 1  # errored / not-applicable: no verdict signal
+            continue
+        noul = _row_noul(row)
+        outcome, reason = _route_promotion(noul, floor, band_low)
+        meter.routing[
+            {"accepted": "promoted", "reviewed": "reviewed", "dropped": "dropped"}[outcome]
+        ] += 1
+        meter.rows.append(
+            {
+                "gate": gate,
+                "variant_id": variant.get("id"),
+                "run_id": row.get("run_id"),
+                "state_hash": row.get("state_hash"),
+                "noul": noul,
+                "answers": row.get("answers") if isinstance(row.get("answers"), dict) else None,
+                "recorded_outcome": recorded,
+                "outcome": outcome,
+                "reason": reason,
+                "error": None,
+                "called": False,
+                "latency_ms": 0.0,
+                "raw_tokens": 0,
+                "model": model,
+            }
+        )
+        meter.count(outcome == _CLAIM_POSITIVE, recorded == _CLAIM_POSITIVE)
+
+
 # ------------------------------------------------------------------- the API
 
 
@@ -888,8 +1044,8 @@ def replay_variant(
     - ``weights`` — partial overrides over :data:`DEFAULT_WEIGHTS`.
     - ``base_cfgs`` — the shipped decide.yaml gate blocks by name
       (``{"document_gate": ..., "citation_soundness": ..., "output_screen":
-      ...}``); absent blocks fall back to the gates' module-constant
-      defaults, so tests and the runner share one code path.
+      ..., "need_promotion": ...}``); absent blocks fall back to the gates'
+      module-constant defaults, so tests and the runner share one code path.
 
     Returns ``{variant_id, stage, score, components, calls, status, rows}``;
     ``status`` is ``complete`` | ``partial`` | ``empty`` |
@@ -908,7 +1064,7 @@ def replay_variant(
             "implementer prompt variants need new deepseek calls "
             "(out of v1 replay scope; metadata-only)",
         )
-    if stage not in (STAGE_DOC_GATE, STAGE_G4):
+    if stage not in (STAGE_DOC_GATE, STAGE_G4, STAGE_G5):
         note = (
             "implementer-stage variants are metadata-only"
             if stage == STAGE_IMPLEMENTER
@@ -927,12 +1083,16 @@ def replay_variant(
             budget_calls=budget_calls, ask=ask,
             base_cfg=cfgs.get("document_gate"), model=model,
         )
-    else:
+    elif stage == STAGE_G4:
         _replay_g4(
             variant, all_rows, decider, meter,
             budget_calls=budget_calls, ask=ask,
             base_cfgs=cfgs, model=model,
         )
+    else:
+        # g5: no decider interaction at all — the engine takes no `ask` and
+        # cannot spend budget (the nouls are recorded; re-asking is waste).
+        _replay_g5(variant, all_rows, meter, base_cfgs=cfgs, model=model)
 
     components, score = _weighted_score(meter, _promotion_proxy(all_rows),
                                         _effective_weights(weights))

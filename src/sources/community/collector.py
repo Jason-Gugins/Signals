@@ -1,8 +1,17 @@
 import os
 from datetime import date
 
-from src.sources.base import FetchTask, SourceAdapter
-from src.sources.community.github import github_org_guess, github_to_candidates, parse_github_org, parse_releases, parse_repos
+from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
+from src.sources.community.github import (
+    PUSH_BURST_THRESHOLD,
+    github_org_guess,
+    github_to_candidates,
+    parse_events,
+    parse_github_org,
+    parse_releases,
+    parse_repos,
+    push_burst_count,
+)
 from src.sources.community.github_search import parse_search_users, search_users_url
 from src.sources.community.hn import hn_to_candidates, hn_url, parse_hn
 from src.sources.registry import register
@@ -52,6 +61,24 @@ class CommunityGithubSource(SourceAdapter):
         kind = task_meta.get("kind") or "org"
         if kind == "org":
             return []
+        if kind == "events":
+            # Push-burst momentum (Task 8): 10+ pushes in the org's public
+            # events within the last 7 days is fresh "heads-down building"
+            # evidence the 48h repo-cadence snapshot cannot see. One
+            # candidate per account per month (natural key dedupes).
+            n = push_burst_count(parse_events(doc.body), today=today)
+            if n >= PUSH_BURST_THRESHOLD:
+                return [
+                    SignalCandidate(
+                        "github_momentum",
+                        today.isoformat(),
+                        f"ghevent:{account.domain}:{today:%Y%m}",
+                        title=f"{n} pushes in 7 days",
+                        confidence=0.5,
+                        evidence_data={"pushes_7d": n, "threshold": PUSH_BURST_THRESHOLD},
+                    )
+                ]
+            return []
         org = {"login": task_meta.get("org"), "blog": f"https://{account.domain}"}
         if kind == "releases":
             return github_to_candidates(org, [], parse_releases(doc.body), account, today=today)
@@ -97,4 +124,6 @@ class CommunityGithubSource(SourceAdapter):
         return [
             FetchTask(source=self.key, url=f"https://api.github.com/orgs/{login}/repos?per_page=100", domain=account.domain, meta={"kind": "repos", "org": login}),
             FetchTask(source=self.key, url=f"https://api.github.com/orgs/{login}/releases?per_page=20", domain=account.domain, meta={"kind": "releases", "org": login}),
+            # Push-burst feed (Task 8): 1 extra request/account/48h.
+            FetchTask(source=self.key, url=f"https://api.github.com/orgs/{login}/events?per_page=30", domain=account.domain, meta={"kind": "events", "org": login}),
         ]

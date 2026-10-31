@@ -43,6 +43,15 @@ def parse_releases(body: bytes) -> list[dict]:
     return raw if isinstance(raw, list) else []
 
 
+def parse_events(body: bytes) -> list[dict]:
+    """Org public events feed: tolerant JSON list in, event dicts out."""
+    try:
+        raw = json.loads(body)
+    except ValueError:
+        return []
+    return raw if isinstance(raw, list) else []
+
+
 def _one_year_ago(today: date) -> date:
     try:
         return today.replace(year=today.year - 1)
@@ -56,6 +65,10 @@ def _one_year_ago(today: date) -> date:
 NEW_REPO_WINDOW_DAYS = 90
 STAR_SURGE_MIN_FRACTION = 0.25
 STAR_SURGE_MIN_ABSOLUTE = 10
+# Push burst: 10+ pushes across the org's public events within 7 days is
+# "heads-down building" — fresh activity the 48h repo-cadence snapshot
+# cannot see. Cost: the org events feed is 1 extra request/account/48h.
+PUSH_BURST_THRESHOLD = 10
 
 
 def repo_delta(prev_stats: dict, repos: list[dict], *, today: date) -> list[tuple[str, dict]]:
@@ -135,6 +148,30 @@ def repo_delta(prev_stats: dict, repos: list[dict], *, today: date) -> list[tupl
         topics_now = {t.casefold() for t in repo.get("topics") or []} - set(row.get("topics") or [])
         for t in sorted(topics_now)[:3]:
             out.append(("new_topic", {"repo": name, "topic": t, "detail": f"new repo topic '{t}'"}))
+    return out
+
+
+def push_burst_count(events, *, today: date, window_days: int = 7) -> int:
+    """PushEvents within the last ``window_days``. Pure; ``today`` injected.
+
+    Tolerant: a raw JSON body (bytes) is parsed via :func:`parse_events`
+    first, and anything unparseable counts 0."""
+    if isinstance(events, (bytes, bytearray)):
+        events = parse_events(events)
+    if not isinstance(events, list):
+        return 0
+    out = 0
+    for e in events:
+        if (e.get("type") or "") != "PushEvent":
+            continue
+        created = to_iso_date(e.get("created_at"))
+        if not created:
+            continue
+        try:
+            if (today - date.fromisoformat(created)).days <= window_days:
+                out += 1
+        except ValueError:  # pragma: no cover - to_iso_date already validates
+            continue
     return out
 
 

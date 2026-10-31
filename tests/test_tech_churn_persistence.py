@@ -375,3 +375,35 @@ def test_upsert_technologies_version_insert_and_update(tmp_path):
     upsert_technologies(db, "acme.com", [m4], now="2026-11-15")
     row = db.one("SELECT version FROM technologies WHERE domain='acme.com' AND vendor='workday'")
     assert row["version"] is None
+
+
+def test_npm_version_survives_full_chain(tmp_path):
+    """CHAIN PIN: an npm CDN ref in captured HTML survives the full production
+    chain into the technologies row — the REAL extract_http_evidence +
+    load_fingerprints_rules/match_fingerprints (segment's
+    npm_packages: ["@segment/analytics-next"] needle ships in
+    config/fingerprints.yaml from fb0abd8) + upsert_technologies over a real
+    Database in tmp_path. No seam is stubbed: if this fails the version is
+    being dropped somewhere between the HTML and the row."""
+    from src.sources.techstack.fingerprint import (
+        extract_http_evidence,
+        load_fingerprint_rules,
+        match_fingerprints,
+    )
+
+    db = Database(tmp_path / "chain.db")
+    html = (
+        b'<html><head>'
+        b'<script src="https://cdn.jsdelivr.net/npm/@segment/analytics-next@1.71.0/dist/x.js">'
+        b"</script></head></html>"
+    )
+    evidence = extract_http_evidence(html, {}, "https://acme.com/")
+    matches = match_fingerprints(evidence, load_fingerprint_rules())
+
+    seg = [m for m in matches if m.vendor == "segment"]
+    assert seg, "segment must match from the @segment/analytics-next CDN ref"
+    assert seg[0].evidence_data.get("version") == "1.71.0"
+
+    upsert_technologies(db, "acme.com", seg, now="2026-11-01")
+    row = db.one("SELECT version FROM technologies WHERE domain='acme.com' AND vendor='segment'")
+    assert row["version"] == "1.71.0"

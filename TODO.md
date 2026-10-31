@@ -725,6 +725,15 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   are the natural carriers), and a plays decision on what outreach it
   justifies. Prerequisite: the envelope/extraction wave — these claims
   currently come from URL slugs, not page bodies.
+  UPDATE 2026-10-31: the prerequisite is met and the family now has LIVE
+  EVIDENCE — the own-language batch (`data/probe/OWN_LANGUAGE_BATCH_20261031.md`)
+  produced the first-ever G5 promotions under gorgias_icp, and they are
+  exactly this material: BrüMate customer-testimonial claims (noul 0.84 /
+  0.77, from the prospect's own homepage) and a Bubble campaign claim (0.74).
+  The need taxonomy has no home for what clears the promote floor; the
+  batch also shows company blog RSS (feed_discovery) is the dominant carrier
+  for DTC brands (165/215 claims on one account). The family decision is
+  now backed by promotions, not hypothesis.
 - [x] **Taxonomy typing 422** — DELIVERED 2026-10-31 (executed by the
   concurrent session; box flipped by the decide-lab-go wave). Root cause was
   NOT criteria count: TypeSafe requires **dict-shaped criteria** — the

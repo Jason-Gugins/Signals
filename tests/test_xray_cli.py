@@ -378,3 +378,13 @@ def test_xray_paths_repo_root_anchored():
     assert Path(XRAY_LEDGER_PATH).is_absolute()
     assert Path(XRAY_GOOGLE_COOKIES_PATH).is_absolute()
     assert Path(XRAY_GOOGLE_COOKIES_PATH).name == "google_cookies.json"
+
+
+def test_xray_stats_rollup_empty_ledger_header_only(fake_orch):
+    # Empty ledger: --stats --rollup prints the header line and exits 0 —
+    # no rows, no crash (mirrors the per-string --stats header-only shape).
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["xray", "--stats", "--rollup"])
+    assert result.exit_code == 0
+    assert "engine\tstatus\tcount" in result.output
+    assert "ddg_lite" not in result.output

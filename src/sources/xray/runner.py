@@ -206,7 +206,7 @@ def run_xray(
             except Exception as exc:
                 status, error = "error", str(exc)
                 break
-            body_bytes = len(body or "")  # per-attempt overwrite (drift evidence)
+            body_bytes = len((body or "").encode("utf-8"))  # per-attempt overwrite — UTF-8 BYTES (str chars undercount non-ASCII; this instrument is compared against recorded byte-size captures)
             marker = is_challenge(body, engine)
             if marker is not None:
                 if attempts < max_attempts:

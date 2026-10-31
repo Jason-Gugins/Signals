@@ -164,8 +164,10 @@ _INTERNAL_HOST = "duckduckgo.com"
 # Characters that must never appear in a decoded URL. If unquoting a second
 # time would inject one of these, the first decode was already final — the
 # target legitimately carried a percent-encoding (e.g. %20) and decoding
-# past it corrupts the URL (improvement plan Task 2, 2026-10-31).
-_URL_INVALID_CHARS = re.compile(r"[\s<>\"{}]")
+# past it corrupts the URL (improvement plan Task 2, 2026-10-31). C0
+# controls + U+FFFD included (review finding): unquote maps %00 -> NUL and
+# %FF -> U+FFFD, and neither may flow into a results URL.
+_URL_INVALID_CHARS = re.compile(r"[\s<>\"{}\x00-\x1f\x7f\ufffd]")
 
 _TITLE_MAX = 300
 _SNIPPET_MAX = 500

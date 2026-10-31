@@ -1235,9 +1235,11 @@ def xray(ctx, kinds, title, location, niche, role, problem_phrase,
         events = load_events(XRAY_LEDGER_PATH)
         if rollup:
             click.echo("engine\tstatus\tcount")
-            for engine, statuses in sorted(status_rollup(events).items()):
+            # loop var is `eng`, not `engine` — the --engine parameter shares
+            # this scope (review finding: shadowing latent trap)
+            for eng, statuses in sorted(status_rollup(events).items()):
                 for status, n in sorted(statuses.items()):
-                    click.echo(f"{engine}\t{status}\t{n}")
+                    click.echo(f"{eng}\t{status}\t{n}")
             return
         table = string_stats(events)
         click.echo("string_id\truns\tresults\tprofile_hits\tcompany_hits\tlast_ts_utc")

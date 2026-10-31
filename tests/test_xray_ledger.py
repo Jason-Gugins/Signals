@@ -63,3 +63,9 @@ def test_status_rollup_counts_by_engine_and_status():
 def test_status_rollup_empty_ledger():
     from src.sources.xray.ledger import status_rollup
     assert status_rollup([]) == {}
+
+
+def test_status_rollup_missing_status_buckets_under_question():
+    from src.sources.xray.ledger import status_rollup
+    # Missing status (like missing engine) buckets under "?" — never dropped.
+    assert status_rollup([{"engine": "ddg_lite"}]) == {"ddg_lite": {"?": 1}}

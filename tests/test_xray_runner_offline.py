@@ -646,3 +646,30 @@ def test_cap_reports_skipped_string_count(tmp_path):
     )
     assert report["queries"] == 1
     assert report["skipped_cap"] == 2
+
+
+# --- 15. review pins: body_bytes semantics + error rows ---------------------
+
+def test_body_bytes_counts_utf8_bytes_last_attempt_wins(tmp_path):
+    # body_bytes is the FINAL attempt's body size in UTF-8 BYTES (review
+    # finding: str-char len undercounts non-ASCII, and the drift instrument
+    # is compared against recorded byte-size captures). "ü" = 2 bytes /
+    # 1 char — the assert pins bytes-vs-chars deliberately.
+    final = CHALLENGE_BODY + "ü"
+    report, db, events, _urls, _sleeps = _run(
+        tmp_path, [SPEC_A], [(200, CHALLENGE_BODY), (200, final)],
+    )
+    assert events[0]["status"] == "challenge"
+    assert events[0]["body_bytes"] == len(final.encode("utf-8"))
+    assert events[0]["body_bytes"] != len(final)
+
+
+def test_error_row_carries_no_body_bytes(tmp_path):
+    # A fetch exception has no body — the error event must not pretend it
+    # saw one (only challenge/empty rows carry body_bytes).
+    report, db, events, _urls, _sleeps = _run(
+        tmp_path, [SPEC_A], [RuntimeError("boom")],
+    )
+    assert events[0]["status"] == "error"
+    assert "body_bytes" not in events[0]
+    assert "boom" in events[0]["error"]

@@ -9,6 +9,7 @@ import re
 from urllib.parse import urlsplit, urlunsplit
 
 from src.core.textutil import clean_text
+from src.sources.techstack.cdn import extract_npm_cdn_refs
 
 
 @dataclass
@@ -22,6 +23,9 @@ class HttpEvidence:
     inline_globals: list[str]
     text_sample: str
     html: str = ""
+    # Exact package@version refs mined from jsdelivr/unpkg URLs in the
+    # captured HTML (Task A2). Empty for DNS/network evidence objects.
+    npm_refs: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,8 @@ class TechMatch:
     tier: str
     evidence: str
     confidence: float
+    # Channel-specific extras (Task A2: the observed npm package version).
+    evidence_data: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -177,6 +183,7 @@ def extract_http_evidence(body: bytes, headers: dict, url: str) -> HttpEvidence:
         inline_globals=globals_,
         text_sample=text[:2000],
         html=html,
+        npm_refs=extract_npm_cdn_refs(html),
     )
 
 
@@ -208,6 +215,22 @@ def _header_hit(headers, spec: dict) -> bool:
         if str(needle).casefold() in str(actual).casefold():
             return True
     return False
+
+
+def _npm_hit(spec: dict, refs: list[dict] | None) -> dict | None:
+    """First npm-CDN ref whose package name EXACTLY matches (casefold) one of
+    the rule's ``npm_packages`` needles, or None. The returned ref carries the
+    observed version for evidence_data; a near-miss name never matches.
+    Evidence objects without ``npm_refs`` (DNS/network) can never hit.
+    """
+    needles = [n.casefold() for n in spec.get("npm_packages") or []]
+    if not needles:
+        return None
+    for ref in refs or []:
+        pkg = (ref.get("package") or "").casefold()
+        if pkg in needles:
+            return ref
+    return None
 
 
 def is_challenge_evidence(ev, *, status: int | None = None) -> bool:
@@ -293,6 +316,13 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
         # response headers; DNS/network evidence objects have none.
         if _header_hit(getattr(ev, "headers", None), match.get("header") or {}):
             evidence = evidence or "header"
+        # npm-CDN package evidence (Task A2): extract_http_evidence mines the
+        # exact package@version refs seen in jsdelivr/unpkg URLs. Match is an
+        # EXACT casefold package-name hit; the observed version travels in
+        # evidence_data. DNS/network evidence objects have no npm_refs.
+        npm_ref = _npm_hit(match, getattr(ev, "npm_refs", None))
+        if npm_ref is not None:
+            evidence = evidence or "npm_packages"
         if evidence:
             cat = spec.get("category") or []
             if isinstance(cat, str):
@@ -304,7 +334,9 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
                     category=list(cat),
                     tier=spec.get("tier") or "mid",
                     evidence=evidence,
-                    confidence=0.8 if evidence in {"script_src", "html_marker", "mx", "network_host", "header"} else 0.7,
+                    confidence=0.8 if evidence in {"script_src", "html_marker", "mx", "network_host", "header", "npm_packages"} else 0.7,
+                    evidence_data=({"version": npm_ref.get("version")}
+                                   if evidence == "npm_packages" else {}),
                 )
             )
     return hits

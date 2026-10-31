@@ -299,6 +299,40 @@ def test_meta_generator_evidence():
     assert hits[0].confidence == 0.7
 
 
+def test_npm_packages_arm():
+    # Task A2: npm-CDN evidence is a match channel — a vendor whose declared
+    # npm_packages needle appears as an observed package@version ref matches
+    # at confidence 0.8, with the observed version carried in evidence_data.
+    ev = extract_http_evidence(
+        b'<html><script src="https://cdn.jsdelivr.net/npm/@vendor/analytics@2.3.9/dist/x.min.js"></script></html>',
+        {},
+        "https://acme.com/",
+    )
+    spec = {"vendor_analytics": {"display": "Vendor Analytics", "match": {"npm_packages": ["@vendor/analytics"]}}}
+    hits = match_fingerprints(ev, {"vendors": spec})
+    hit = [h for h in hits if h.vendor == "vendor_analytics" and h.evidence == "npm_packages"]
+    assert hit and hit[0].confidence >= 0.8
+    assert hit[0].evidence_data.get("version") == "2.3.9"
+
+
+def test_npm_arm_requires_exact_package():
+    # Never-guess: a near-miss package name (@vendor/analytics-plus) must not
+    # satisfy the @vendor/analytics needle — package match is exact (casefold).
+    ev = HttpEvidence(
+        url="https://d.com/",
+        headers={},
+        cookies=[],
+        script_srcs=[],
+        link_hrefs=[],
+        meta={},
+        inline_globals=[],
+        text_sample="",
+        npm_refs=[{"package": "@vendor/analytics-plus", "version": "1.0.0"}],
+    )
+    spec = {"v": {"display": "V", "match": {"npm_packages": ["@vendor/analytics"]}}}
+    assert not [h for h in match_fingerprints(ev, {"vendors": spec}) if h.evidence == "npm_packages"]
+
+
 def test_enterprise_vendors_carry_explicit_contract_years():
     # Task 7 pin: renewal_window estimates default to 1-year contracts, which
     # understates multi-year enterprise terms. Presence of the key (not its

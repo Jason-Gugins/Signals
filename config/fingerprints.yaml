@@ -38,8 +38,17 @@ vendors:
              match: { script_src: ["zdassets.com"], dns_cname: ["zendesk.com"], spf_include: ["zendesk.com"] } }
   intercom: { display: "Intercom", category: [support, chat], tier: mid,
              match: { script_src: ["widget.intercom.io", "js.intercomcdn.com"] } }
-  segment: { display: "Segment", category: [cdp], tier: mid,
-             match: { script_src: ["cdn.segment.com"] } }
+  segment:
+    display: "Segment"
+    category: [cdp]
+    tier: mid
+    match:
+      script_src: ["cdn.segment.com"]
+      # MECHANISM DEMO (Task A2, 2026-10-30): arm exercised via fixture
+      # cdn_refs.html; needle pattern is Segment's real analytics package.
+      # Confirm against a live capture (Wave E probe) before trusting
+      # production version evidence.
+      npm_packages: ["@segment/analytics-next"]
   snowflake: { display: "Snowflake", category: [data_warehouse], tier: enterprise, contract_years: 1,
              match: { job_text: ["snowflake"] } }
   # Workday HCM deals typically run on multi-year contracts, so its renewal

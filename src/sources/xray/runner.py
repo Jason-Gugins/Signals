@@ -202,7 +202,7 @@ def run_xray(
             except Exception as exc:
                 status, error = "error", str(exc)
                 break
-            marker = is_challenge(body)
+            marker = is_challenge(body, engine)
             if marker is not None:
                 if attempts < max_attempts:
                     sleep(attempt_pause_s)  # stochastic challenge: back off, retry

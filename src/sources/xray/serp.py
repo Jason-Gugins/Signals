@@ -55,18 +55,17 @@ SUPPORTED_ENGINES = ("ddg_lite", "google_state")
 # Challenge/block markers, case-insensitive, most specific first (the first
 # hit is the recorded marker).
 #
-# DDG markers are in lockstep with src/identity/ddg_ids.py — the specific
-# modal copy ("unfortunately, bots use duckduckgo", "anomaly-detected") and
-# the error-lite hard-403 shape ("error-lite", the ONLY marker in that body).
-# Wave-1 review REMOVED the bare words "anomaly" and "challenge": as plain
-# substrings over the whole body (snippets included) they false-positive on
-# organic hiring/intent copy ("we love a challenge", "anomaly detection")
-# while adding nothing — the 202 modal matches the specific copy and the 403
-# matches "error-lite" (data/probe/XRAY_SERP_2026_10.md).
+# DDG markers share the specific modal copy ("unfortunately, bots use
+# duckduckgo", "anomaly-detected") and the error-lite hard-403 shape
+# ("error-lite") with src/identity/ddg_ids.py's list. Bare "captcha" was
+# REMOVED from the DDG list (improvement plan Task 1, 2026-10-31): neither
+# recorded DDG body carries it (data/probe/XRAY_SERP_2026_10.md; fixture
+# grep verified) and bare-word markers false-positive on organic copy — the
+# same wave-1 finding that removed bare "anomaly"/"challenge". It stays in
+# the GOOGLE list, whose 429 captcha body is g-recaptcha-shaped.
 _DDG_CHALLENGE_MARKERS: tuple[str, ...] = (
     "unfortunately, bots use duckduckgo",
     "anomaly-detected",
-    "captcha",
     "error-lite",
 )
 
@@ -104,14 +103,27 @@ class ParseError(ValueError):
     """A SERP body could not be parsed into organic results."""
 
 
-def is_challenge(body: str) -> str | None:
+def _challenge_markers(engine: str | None) -> tuple[str, ...]:
+    """Engine-scoped marker list; None (unknown engine) = conservative union."""
+    if engine == "ddg_lite":
+        return _DDG_CHALLENGE_MARKERS
+    if engine == "google_state":
+        return _GOOGLE_CHALLENGE_MARKERS
+    return CHALLENGE_MARKERS
+
+
+def is_challenge(body: str, engine: str | None = None) -> str | None:
     """First challenge marker in the body's first 20k chars, or None (pure).
 
     Case-insensitive; returns the marker string (never a bare bool) so the
-    ledger can record WHY a body was rejected.
+    ledger can record WHY a body was rejected. ``engine`` scopes the marker
+    list — ddg bodies are judged by DDG markers only (an organic snippet
+    saying "captcha" is not a block); ``None`` scans the union of both lists,
+    the conservative default for callers that don't know the engine yet.
     """
+    markers = _challenge_markers(engine)
     low = (body or "")[:_IS_CHALLENGE_WINDOW].casefold()
-    for marker in CHALLENGE_MARKERS:
+    for marker in markers:
         if marker in low:
             return marker
     return None
@@ -214,7 +226,7 @@ def parse_results(body: str, *, engine: str = "ddg_lite") -> list[dict]:
             f"unsupported engine {engine!r}: built engines are {SUPPORTED_ENGINES} "
             "(bing/brave/mojeek probed NO-GO per data/probe/XRAY_SERP_2026_10.md)"
         )
-    marker = is_challenge(body)
+    marker = is_challenge(body, engine)
     if marker is not None and not _enablejs_is_soft(engine, body, marker):
         raise ParseError(f"{engine}: challenge page served ({marker!r} in body)")
     if engine == "google_state":

@@ -293,7 +293,47 @@ def test_google_state_captcha_body_raises_with_marker():
     with pytest.raises(ParseError) as excinfo:
         parse_results(body, engine="google_state")
     assert "challenge page served" in str(excinfo.value)
-    assert "captcha" in str(excinfo.value)
+    assert "unusual traffic" in str(excinfo.value)
+
+
+# --- engine-scoped challenge markers (improvement plan Task 1) -------------
+
+def test_organic_ddg_snippet_mentioning_captcha_is_not_a_challenge():
+    # Bare "captcha" was a wave-1-class false positive: organic hiring copy
+    # ("captcha-free signup") must not burn a ddg_lite query. Neither recorded
+    # DDG body carries the bare word (202 body: specific modal copy; 403:
+    # "error-lite") — the marker moves to the google list only.
+    body = SYNTHETIC.replace(
+        "snippet for a", "Our signup flow is captcha-free and blazing fast."
+    )
+    assert is_challenge(body, "ddg_lite") is None
+    results = parse_results(body, engine="ddg_lite")
+    assert "captcha-free" in results[0]["snippet"]
+
+
+def test_ddg_bodies_still_detected_engine_scoped():
+    body = _load("ddg_challenge_202.html")
+    assert is_challenge(body, "ddg_lite") == "unfortunately, bots use duckduckgo"
+    assert is_challenge(_load("ddg_errorlite_403.html"), "ddg_lite") == "error-lite"
+
+
+def test_google_captcha_body_still_detected_engine_scoped():
+    # The 429 interstitial keeps its google-list coverage (unusual traffic /
+    # g-recaptcha / recaptcha) even with bare "captcha" gone from the DDG list.
+    body = (
+        '<html><body><div class="g-recaptcha" data-sitekey="6Lfw"></div>'
+        "Our systems have detected unusual traffic from your computer network."
+        "</body></html>"
+    )
+    assert is_challenge(body, "google_state") is not None
+
+
+def test_is_challenge_without_engine_is_conservative_union():
+    # engine=None (callers that don't know the engine yet) scans BOTH lists.
+    assert is_challenge(_load("ddg_challenge_202.html")) is not None
+    assert is_challenge(
+        '<html>a href="/httpservice/retry/enablejs?sei=x"</html>'
+    ) is not None
 
 
 def test_google_state_js_escapes_decoded():

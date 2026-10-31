@@ -483,22 +483,36 @@ def test_runner_persists_npm_momentum_and_writes_stats(tmp_path, monkeypatch):
 
 class _StatusFetch:
     """Fetcher stub mirroring src/core/http.py's failure seam: ok=False,
-    doc=None, error="HTTP 404" for fail_urls; 200 + body otherwise."""
+    doc=None, error="HTTP <code>" for fail_urls (default 404) or a per-URL
+    code via fail_status (which wins); 200 + body otherwise, with per-URL
+    bodies via ``bodies`` (default body otherwise)."""
 
-    def __init__(self, store, fail_urls: set[str], body: bytes = b'{"items": []}'):
+    def __init__(
+        self,
+        store,
+        fail_urls: set[str] | None = None,
+        body: bytes = b'{"items": []}',
+        fail_status: dict[str, int] | None = None,
+        bodies: dict[str, bytes] | None = None,
+    ):
         self.store = store
-        self.fail_urls = fail_urls
+        self.fail_urls = fail_urls or set()
         self.body = body
+        self.fail_status = fail_status or {}
+        self.bodies = bodies or {}
 
     def get(self, task, *, etag=None, last_modified=None):
         from src.core.http import FetchResult
 
+        if task.url in self.fail_status:
+            code = self.fail_status[task.url]
+            return FetchResult(False, code, None, False, f"HTTP {code}", 1)
         if task.url in self.fail_urls:
             return FetchResult(False, 404, None, False, "HTTP 404", 1)
         doc = self.store.put(
             source=task.source,
             url=task.url,
-            body=self.body,
+            body=self.bodies.get(task.url, self.body),
             content_type="application/json",
             status=200,
             domain=task.domain,
@@ -634,6 +648,99 @@ def test_non_recoverable_404_still_raises(tmp_path, monkeypatch):
         tmp_path, monkeypatch,
         fetch_factory=lambda store: _StatusFetch(
             store, fail_urls={"https://api.github.com/orgs/acme"},
+        ),
+    )
+    try:
+        with pytest.raises(RuntimeError):
+            runner._run_pair(
+                stub,
+                Account(domain="acme.com", name="Acme"),
+                RunnerStats(),
+                force=True,
+                dry_run=False,
+                max_passes=2,
+                limit_per_source=None,
+                now=_now(),
+            )
+    finally:
+        ctx.__exit__(None, None, None)
+
+
+def test_follow_task_404_is_expected_miss(tmp_path, monkeypatch):
+    """End-to-end on the REAL CommunityGithubSource (alpha-sense.com live,
+    2026-10-31): the org probe 200s, follow_tasks emits the repos/releases/
+    events trio, and /orgs/{org}/releases 404s because GitHub returns 404 for
+    orgs with ZERO public repos while /orgs/{org}/repos returns 200 []. For
+    this source absence is DATA (the stagnation detector needs the empty case
+    calm), so the releases 404 on a follow task must be skipped non-fatally:
+    no raise, the pair succeeds, and whatever the repos doc parsed still
+    persists (one stale repo -> one stagnation signal). The 404 must not
+    poison fail_count/backoff."""
+    from src.sources.community.collector import CommunityGithubSource
+
+    org_body = json.dumps({"login": "acme"}).encode("utf-8")
+    repos_body = json.dumps(
+        [
+            {
+                "full_name": "acme/old",
+                "stargazers_count": 5,
+                "pushed_at": "2024-01-01T00:00:00Z",
+                "created_at": "2019-01-01T00:00:00Z",
+            }
+        ]
+    ).encode("utf-8")
+    runner, db, ctx, _stats_path = _runner(
+        tmp_path, monkeypatch,
+        fetch_factory=lambda store: _StatusFetch(
+            store,
+            bodies={
+                "https://api.github.com/orgs/acme": org_body,
+                "https://api.github.com/orgs/acme/repos?per_page=100": repos_body,
+                "https://api.github.com/orgs/acme/events?per_page=30": b"[]",
+            },
+            fail_status={"https://api.github.com/orgs/acme/releases?per_page=20": 404},
+        ),
+    )
+    accounts = [Account(domain="acme.com", name="Acme")]
+    try:
+        stats = runner.run([CommunityGithubSource()], accounts, force=True)
+    finally:
+        ctx.__exit__(None, None, None)
+    # No pair failure: the follow-task 404 did not raise out of _run_pair.
+    assert stats.failed == 0
+    assert stats.by_source["community_github"]["failed"] == 0
+    # Everything else fetched: org probe + search (pass 0), repos + events
+    # (pass 1); only the releases 404 was skipped.
+    assert stats.by_source["community_github"]["fetched"] == 4
+    # The repos sibling processed and its parsed candidate persisted
+    # end-to-end (stale repo -> stagnation) despite the releases 404.
+    assert stats.signals_new == 1
+    rows = db.query("SELECT * FROM signals WHERE signal_type='stagnation'")
+    assert len(rows) == 1
+    assert rows[0]["domain"] == "acme.com"
+    assert rows[0]["source"] == "community_github"
+    assert rows[0]["title"] == "No GitHub pushes in 365 days"
+    # Pair recorded success: cursor fail_count stays 0 (the 404 is not a
+    # source failure and must not feed backoff).
+    cur = db.one("SELECT * FROM source_cursors WHERE source='community_github'")
+    assert cur["fail_count"] == 0
+    assert cur["last_error"] is None
+
+
+def test_recoverable_500_still_raises(tmp_path, monkeypatch):
+    """Pins the 404-ONLY scoping of the runner softening: a flagged
+    (meta["recoverable"]) task failing with a 5xx is infrastructure trouble,
+    NOT an expected miss — it must still raise RuntimeError out of _run_pair
+    so it stays loud and feeds fail_count/backoff. Expected-miss means 404,
+    nothing else."""
+    from src.pipeline.runner import RunnerStats, _now
+
+    stub = _RecoverPairStub()
+    runner, db, ctx, _stats_path = _runner(
+        tmp_path, monkeypatch,
+        fetch_factory=lambda store: _StatusFetch(
+            store,
+            fail_status={"https://api.github.com/orgs/acme": 500},
         ),
     )
     try:

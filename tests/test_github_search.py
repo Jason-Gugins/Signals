@@ -68,9 +68,38 @@ def test_recovery_follow_never_guesses():
     tasks = src.follow_tasks(doc, acct, meta)
     assert tasks and all(t.meta.get("kind") in ("repos", "releases", "org") for t in tasks)
     assert all("/acmecorp/" in t.url or "acmecorp" in t.url for t in tasks)
+    # Search-recovery follow tasks carry the recoverable flag too: a 404 on
+    # them is an expected miss ("no public code here"), not a failure.
+    assert all(t.meta.get("recoverable") is True for t in tasks)
     # a login that matches NO guess -> no follow (never guess)
     doc_bad = type("D", (), {"body": json.dumps({"items": [{"login": "totally-other-org"}]}).encode()})()
     assert src.follow_tasks(doc_bad, acct, meta) == []
+
+
+def test_org_follow_tasks_all_recoverable():
+    """The org-doc follow shape (repos/releases/events) flags EVERY emitted
+    task recoverable: GitHub empirically 404s /orgs/{org}/releases for orgs
+    with ZERO public repos (2026-10-31) while /orgs/{org}/repos returns 200
+    [] — the whole community_github task family treats 404 as an expected
+    miss; other statuses stay fatal via the runner's 404-only scoping."""
+    from src.sources.community.collector import CommunityGithubSource
+
+    src = CommunityGithubSource()
+    acct = Account(domain="acme.com", name="Acme")
+    doc = type("D", (), {"body": json.dumps({"login": "acme"}).encode()})()
+    tasks = src.follow_tasks(doc, acct, {"kind": "org", "today": "2026-10-31"})
+    assert [t.meta["kind"] for t in tasks] == ["repos", "releases", "events"]
+    assert all(t.meta["org"] == "acme" for t in tasks)
+    assert all(t.meta["recoverable"] is True for t in tasks)
+    assert [t.url for t in tasks] == [
+        "https://api.github.com/orgs/acme/repos?per_page=100",
+        "https://api.github.com/orgs/acme/releases?per_page=20",
+        "https://api.github.com/orgs/acme/events?per_page=30",
+    ]
+    # The kind=None path (a bare org doc without task kind) is the same branch.
+    tasks_none = src.follow_tasks(doc, acct, {"today": "2026-10-31"})
+    assert [t.meta["kind"] for t in tasks_none] == ["repos", "releases", "events"]
+    assert all(t.meta["recoverable"] is True for t in tasks_none)
 
 
 def test_parse_events_and_push_burst():

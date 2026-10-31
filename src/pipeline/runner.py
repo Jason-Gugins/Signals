@@ -445,13 +445,22 @@ class CollectorRunner:
                             cloudflare_cookies=result.cloudflare_cookies,
                         )
                         result._cloudflare_unsolved = True
-                if not result.ok and (task.meta or {}).get("recoverable"):
-                    # Expected miss (e.g. community_github org-probe 404: no
-                    # org at this guess). Skip THIS task — no parse, no follow
-                    # from it — but let the pair live so sibling tasks (the
-                    # search-users recovery) still process, and so a clean 404
-                    # does not poison fail_count/backoff for the source. Not
-                    # counted in stats.skipped: that counter means "planned
+                if (
+                    not result.ok
+                    and result.status == 404
+                    and (task.meta or {}).get("recoverable")
+                ):
+                    # Expected miss, 404 ONLY (community_github family: org-
+                    # probe 404 = no org at this guess; follow-task 404 = no
+                    # public repos there — GitHub 404s /orgs/{org}/releases
+                    # for orgs with zero public repos). Skip THIS task — no
+                    # parse, no follow from it — but let the pair live so
+                    # sibling tasks (the search-users recovery) still process,
+                    # and so a clean 404 does not poison fail_count/backoff
+                    # for the source. A 5xx/timeout/403 on a flagged task is
+                    # infrastructure trouble, NOT an expected miss: it still
+                    # raises below (loud + backoff). Not counted in
+                    # stats.skipped: that counter means "planned
                     # but not processed" (run()'s pre-fetch gates: missing
                     # requires, backed off, cadence not due), while this task
                     # WAS fetched — the fetch_log row already records the 404.

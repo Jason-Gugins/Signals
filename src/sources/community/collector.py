@@ -111,6 +111,17 @@ class CommunityGithubSource(SourceAdapter):
         return parse_repos(doc.body)
 
     def follow_tasks(self, doc, account, task_meta):
+        # Whole-family 404 policy (2026-10-31): EVERY task this adapter emits
+        # (org probes in plan(), and every follow task below — repos,
+        # releases, events, and the search-recovery pair) carries
+        # meta["recoverable"]=True. GitHub empirically 404s
+        # /orgs/{org}/releases for orgs with ZERO public repos (while
+        # /orgs/{org}/repos returns 200 []), so a 404 anywhere in the family
+        # is an expected miss ("no public code here"), not a source failure —
+        # the runner skips it non-fatally without poisoning
+        # fail_count/backoff. The runner's softening is 404-ONLY: 5xx,
+        # timeouts, and 403s on these tasks still raise (infrastructure
+        # trouble stays loud and feeds backoff).
         kind = (task_meta or {}).get("kind")
         if kind == "search_users":
             # Search-API org recovery (Task 6): follow ONLY a returned login
@@ -127,8 +138,8 @@ class CommunityGithubSource(SourceAdapter):
             if not hit:
                 return []
             return [
-                FetchTask(source=self.key, url=f"https://api.github.com/orgs/{hit}/repos?per_page=100", domain=account.domain, meta={"kind": "repos", "org": hit, "recovered_from": "search"}),
-                FetchTask(source=self.key, url=f"https://api.github.com/orgs/{hit}/releases?per_page=20", domain=account.domain, meta={"kind": "releases", "org": hit, "recovered_from": "search"}),
+                FetchTask(source=self.key, url=f"https://api.github.com/orgs/{hit}/repos?per_page=100", domain=account.domain, meta={"kind": "repos", "org": hit, "recovered_from": "search", "recoverable": True}),
+                FetchTask(source=self.key, url=f"https://api.github.com/orgs/{hit}/releases?per_page=20", domain=account.domain, meta={"kind": "releases", "org": hit, "recovered_from": "search", "recoverable": True}),
             ]
         if kind not in (None, "org") or not doc.body:
             return []
@@ -137,10 +148,10 @@ class CommunityGithubSource(SourceAdapter):
             return []
         login = org["login"]
         return [
-            FetchTask(source=self.key, url=f"https://api.github.com/orgs/{login}/repos?per_page=100", domain=account.domain, meta={"kind": "repos", "org": login}),
-            FetchTask(source=self.key, url=f"https://api.github.com/orgs/{login}/releases?per_page=20", domain=account.domain, meta={"kind": "releases", "org": login}),
+            FetchTask(source=self.key, url=f"https://api.github.com/orgs/{login}/repos?per_page=100", domain=account.domain, meta={"kind": "repos", "org": login, "recoverable": True}),
+            FetchTask(source=self.key, url=f"https://api.github.com/orgs/{login}/releases?per_page=20", domain=account.domain, meta={"kind": "releases", "org": login, "recoverable": True}),
             # Push-burst feed (Task 8): 1 extra request/account/48h.
-            FetchTask(source=self.key, url=f"https://api.github.com/orgs/{login}/events?per_page=30", domain=account.domain, meta={"kind": "events", "org": login}),
+            FetchTask(source=self.key, url=f"https://api.github.com/orgs/{login}/events?per_page=30", domain=account.domain, meta={"kind": "events", "org": login, "recoverable": True}),
         ]
 
 

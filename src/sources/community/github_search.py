@@ -40,6 +40,13 @@ doc's ``follow_tasks`` recovers DIRECTLY to the repos/releases pair for the
 matched login, fetched in pass 1. Direct (not via another org-probe hop)
 for the ``max_passes=2`` pass math documented above; the ``follow_tasks``
 branch here remains the recovery contract this module pins.
+
+Follow-task 404s are expected misses too: GitHub empirically 404s
+``/orgs/{org}/releases`` for orgs with ZERO public repos (2026-10-31,
+while ``/orgs/{org}/repos`` returns 200 []), so every follow task
+emitted by ``CommunityGithubSource.follow_tasks`` (repos/releases/events
+and the search-recovery pair) carries the same ``meta["recoverable"]=True``
+flag — the runner's softening is 404-only; other statuses stay fatal.
 """
 from __future__ import annotations
 

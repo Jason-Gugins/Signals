@@ -695,16 +695,16 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   are the natural carriers), and a plays decision on what outreach it
   justifies. Prerequisite: the envelope/extraction wave — these claims
   currently come from URL slugs, not page bodies.
-- [ ] **Taxonomy typing 422** — the typing battery has NEVER succeeded:
-  3,323/3,323 taxonomy_typing rows history-wide are errored (HTTP 422),
-  independent of doc size or claim count — a request-shape birth defect,
-  not size. Every doc-with-accepted-claims loses its taxonomy enrichment
-  and pollutes `decide_degraded`. Plan: parent-run penny-bisect capturing
-  the 422 response BODY (never read — the cause field held only the
-  generic httpx string), then reshape per the diagnosis (leading shape:
-  hierarchical category→type; taxonomy has 7 categories, largest 13
-  types). Plan (committing with this entry):
-  `docs/plans/2026-10-13-taxonomy-typing-422.md`.
+- [x] **Taxonomy typing 422** — DELIVERED 2026-10-31 (executed by the
+  concurrent session; box flipped by the decide-lab-go wave). Root cause was
+  NOT criteria count: TypeSafe requires **dict-shaped criteria** — the
+  list-shaped payload 422'd FOUR gates since birth (taxonomy typing,
+  routing, posture_audit + breaker cascades). Fix `ccd5b9a` normalizes list
+  criteria to dicts at the Jev boundary; error causes now carry response
+  bodies. Validation `31bc892`: **zero errored taxonomy_typing rows — first
+  clean decide runs in history.** Probe:
+  `data/probe/` (root-cause + validation records, commits `95c2834`,
+  `31bc892`).
 - [x] **G5 sibling fix** — RESOLVED BY DIAGNOSIS 2026-10-30: the phase-1
   offline diagnosis (`data/probe/G5_SIBLING_DIAGNOSIS_20261030.md`, 120
   unique claims, all 114 promotion rows joined by exact state_hash — 0
@@ -736,6 +736,29 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   the batch output screen are the two named levers, spending real budget,
   gated on a go decision. Plan:
   `docs/plans/2026-10-11-autoresearch-decide-lab.md` (committed).
+  OPERATION RUN 2026-10-31 (user go): 2 rounds, 300/300 calls, corpus
+  33,082 rows / 1,906 labeled claims. **Proposal: EMPTY — keep the incumbent
+  config.** G5 floor/band: 0 promoted under every rung (max noul 0.34 — the
+  floor is not the binding constraint, material is); G4 floor replayed alone
+  is precision 0.151/recall 1.000 (says_nothing 3,528 + output screen 3,760
+  do the real filtering; the screen's 32% review volume is the open untested
+  lever); 0/15 discovered questions cleared prescreen; SVR on the 12
+  deterministic features beats the baseline (PR-AUC 0.646 vs 0.387) with the
+  quote-span trio as the only stable features. Infra defect found:
+  per-variant budget starvation (one variant ate 282/300 calls). Full record:
+  `data/probe/DECIDE_LAB_GO_20261031.md`.
+- [ ] **Lab runner: per-variant budget caps** — one greedy variant can starve
+  the rest of the round (proven 2026-10-31: 282/300 calls on one variant,
+  22 partials). Allocate `budget/variants` with a floor per variant; honest
+  `partial` statuses already exist.
+- [ ] **Output-screen calibration run** — the output screen routed 3,760 of
+  11,589 citation rows (32%) to review and its variants were budget-starved
+  before scoring. Dedicated budget run after the per-variant cap lands; the
+  biggest untested lever in the decide layer.
+- [ ] **Human review pass on the 9 in-band claims** — the 0.30–0.34-noul
+  claims from rillet's Ashby harvest are already routed to `reviewed`; a
+  manual disposition pass makes them the ground-truth promotion labels the
+  lab's precision proxy currently cannot provide (no G5↔G4 join key exists).
 - [x] **Fill in `config/markets.yaml`** — DONE 2026-10-28: the seller's real
   profile (`gorgias_icp` — ecommerce helpdesk + AI agent for Shopify brands,
   three offerings) is committed and selectable via `--market-profile gorgias_icp`.

@@ -11,11 +11,18 @@ trickle — 1-4 quoted-brand queries per account per 72h at rate_per_host 0.2.
 Honest failure path: if Reddit starts blocking (403/challenge), Task D3's
 live check reverts config/sources.yaml enabled to false.
 
-Scope: quoted brand-name search only (site-wide + up to 3 operator-chosen
-subreddits via extra_data["reddit_subreddits"]), weekly window — mirrors the
-HN model (find third-party posts mentioning the account). The old old.reddit
-HTML parser (synthetic-fixture-only, P2-spike-blocked) was retired with this
-rewrite.
+Scope: quoted brand-name search only — SITE-WIDE (www.reddit.com/search.rss),
+weekly window — mirrors the HN model (find third-party posts mentioning the
+account). Subreddit-scoped queries (/r/<sub>/search.rss) are NOT planned:
+they are robots-dead under the committed config (the operator override covers
+exactly ONE path prefix, /search.rss, and robots_path_allowed's startswith
+match never lets /r/<sub>/search.rss through — those tasks failed "robots
+disallowed" every cycle). Widening to subreddit scope is a fresh operator
+decision: add the path prefix to http.robots_allow, then re-enable the
+reddit_search_url(subreddit=...) branch (kept as a pure, tested capability).
+The weekly window is enforced server-side by the t=week query param, not
+candidate-side. The old old.reddit HTML parser (synthetic-fixture-only,
+P2-spike-blocked) was retired with this rewrite.
 """
 from __future__ import annotations
 
@@ -132,17 +139,15 @@ class RedditSource(SourceAdapter):
     cadence_hours = 72
 
     def plan(self, account: Account, cursor):
+        """One site-wide quoted-brand task per account. Subreddit scopes are
+        deliberately NOT emitted: /r/<sub>/search.rss fails robots_path_allowed
+        under the committed single-path override (see module docstring), so
+        those tasks were robots-dead every cycle. Re-introducing them requires
+        a widened operator decision recorded in config/default.yaml."""
         name = account.name or account.domain
         if not name:
             return []
-        subs = list((account.extra_data or {}).get("reddit_subreddits") or [])[:3]
-        tasks = [FetchTask(source=self.key, url=reddit_search_url(name), domain=account.domain)]
-        tasks += [
-            FetchTask(source=self.key, url=reddit_search_url(name, subreddit=s),
-                      domain=account.domain, meta={"subreddit": s})
-            for s in subs
-        ]
-        return tasks
+        return [FetchTask(source=self.key, url=reddit_search_url(name), domain=account.domain)]
 
     def parse(self, doc, account: Account, task_meta: dict) -> list[SignalCandidate]:
         if not doc.body:

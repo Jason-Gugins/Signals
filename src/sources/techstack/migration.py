@@ -38,8 +38,11 @@ def infer_migrations(
                     title=f"{gone} -> {match}",
                     confidence=0.65,
                     evidence_data={
-                        "from": gone,
-                        "to": match,
+                        # Template-aligned keys (evidence.py's
+                        # tech_migration_mentioned reads {from_tech}/{to_tech};
+                        # the old {"from","to"} rendered both blanks empty).
+                        "from_tech": gone,
+                        "to_tech": match,
                         "inferred": True,
                         "categories": sorted(cats & category_of(match)),
                     },

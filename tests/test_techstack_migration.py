@@ -27,7 +27,11 @@ def test_replacement_same_category():
     assert c.signal_type == "tech_migration_mentioned"
     assert c.natural_key == "techmig:acme.com:intercom:zendesk:2026-10"
     assert c.confidence == 0.65
-    assert c.evidence_data["from"] == "intercom" and c.evidence_data["to"] == "zendesk"
+    # Evidence keys MUST be from_tech/to_tech — that is what the pre-registered
+    # tech_migration_mentioned template reads ("Job post mentions migrating
+    # from {from_tech} to {to_tech}"); the old {"from","to"} rendered as
+    # "…migrating from  to " with both blanks empty.
+    assert c.evidence_data["from_tech"] == "intercom" and c.evidence_data["to_tech"] == "zendesk"
     assert c.evidence_data["inferred"] is True
     assert c.evidence_data["categories"] == ["support"]
 
@@ -171,7 +175,7 @@ def test_runner_persists_inferred_migration_same_cycle(tmp_path, monkeypatch):
     assert row["source"] == "techstack"
     assert row["title"] == "zendesk -> intercom"
     ev = json.loads(row["evidence_data"])
-    assert ev["from"] == "zendesk" and ev["to"] == "intercom"  # from=removed, to=added
+    assert ev["from_tech"] == "zendesk" and ev["to_tech"] == "intercom"  # from=removed, to=added
     assert ev["inferred"] is True
     assert "support" in ev["categories"]
     ctx.__exit__(None, None, None)

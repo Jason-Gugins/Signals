@@ -38,22 +38,36 @@ def npm_search_url(name: str) -> str:
     return f"https://registry.npmjs.org/-/v1/search?text={quote(name)}&size=20"
 
 
+def _as_int(value) -> int:
+    """Counter coercion with sibling-parser tolerance: anything uncoercible
+    (a string, a list, None) degrades to 0 instead of raising."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def parse_npm_search(body: bytes) -> list[dict]:
     try:
         raw = json.loads(body)
     except ValueError:
         return []
+    if not isinstance(raw, dict):  # parseable-but-wrong shape ([1,2], "str", null)
+        return []
     out: list[dict] = []
     for obj in raw.get("objects") or []:
+        if not isinstance(obj, dict):
+            continue
         p = obj.get("package") or {}
         links = p.get("links") or {}
+        downloads = obj.get("downloads") or {}
         out.append({
             "name": p.get("name"),
             "version": p.get("version"),
             "date": p.get("date"),
             "description": p.get("description"),
-            "downloads_monthly": int((obj.get("downloads") or {}).get("monthly") or 0),
-            "downloads_weekly": int((obj.get("downloads") or {}).get("weekly") or 0),
+            "downloads_monthly": _as_int(downloads.get("monthly")),
+            "downloads_weekly": _as_int(downloads.get("weekly")),
             "repository": links.get("repository"),
             "publisher": (p.get("publisher") or {}).get("username"),
         })
@@ -70,7 +84,14 @@ def owned_packages(pkgs: list[dict], account: Account) -> list[dict]:
         if "github.com/" not in repo:
             continue
         tail = repo.split("github.com/", 1)[1]
-        org = tail.split("/", 1)[0].rstrip(".git").casefold()
+        seg = tail.split("/", 1)[0]
+        # removesuffix, NOT rstrip: rstrip(".git") strips the CHARSET
+        # {. g i t} from the right, mangling org logins that end in i/t/g
+        # ("intuit" -> "intu", "metaig" -> "meta"). The org path segment
+        # never legitimately carries a ".git" suffix (that belongs to the
+        # repo segment after the slash); removesuffix is the honest
+        # defensive form for it.
+        org = seg.removesuffix(".git").casefold()
         if org in guesses:
             out.append(p)
     return out

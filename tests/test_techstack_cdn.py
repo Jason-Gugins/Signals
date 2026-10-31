@@ -45,3 +45,17 @@ def test_fixture_end_to_end():
     refs = extract_npm_cdn_refs(FIXTURE)
     pkgs = {r["package"] for r in refs}
     assert {"some-sdk", "@vendor/analytics", "other-sdk", "plain-package"} <= pkgs
+
+
+def test_query_string_truncated_before_version_split():
+    """The package segment is truncated at '?' before the @-version split:
+    a tracking query on the same URL segment otherwise rides into the split
+    and fabricates garbage refs ({'package': 'pkg?email=a', 'version':
+    'b.com'}) that pollute HttpEvidence.npm_refs (exact-name matching)."""
+    refs = extract_npm_cdn_refs("https://unpkg.com/pkg?email=a@b.com/x.js")
+    assert refs == [{"package": "pkg", "version": None,
+                     "url": "unpkg.com/pkg?email=a@b.com/x.js"}]
+    # A real version before the query survives intact.
+    refs = extract_npm_cdn_refs("https://unpkg.com/sdk@2.0.0?cache=bust")
+    assert refs == [{"package": "sdk", "version": "2.0.0",
+                     "url": "unpkg.com/sdk@2.0.0?cache=bust"}]

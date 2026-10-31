@@ -19,3 +19,13 @@ def test_reddit_override_is_scoped_and_enabled():
     src = yaml.safe_load(Path("config/sources.yaml").read_text(encoding="utf-8"))
     assert src["sources"]["community_reddit"]["enabled"] is True  # operator-approved override (2026-10-30)
     assert src["sources"]["community_reddit"]["rate_per_host"] <= 0.2  # trickle volume is part of the decision
+
+
+def test_reddit_cadence_pinned_72h():
+    """Cadence is half of the operator-approved volume (72h cadence = 1
+    quoted-brand query/account between cycles). The YAML guard above cannot
+    see the adapter attribute, and a 24h regression would 6x the approved
+    volume with every other guard still green."""
+    from src.sources.community.reddit import RedditSource
+
+    assert RedditSource.cadence_hours == 72

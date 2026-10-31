@@ -140,6 +140,36 @@ def test_classify_dynamic_host_suffix():
     assert classify_dynamic_host("", rules) is None
 
 
+def test_classify_dynamic_host_label_boundary():
+    """Label-boundary rule (mirrors _host_hit): the needle must be the host's
+    TAIL AT A LABEL BOUNDARY — h.endswith("." + n), not a bare character
+    suffix. A lookalike host (evilsparkpost.com with needle sparkpost.com)
+    shares the character suffix but not the label; the bare endswith mangled
+    it into a named-vendor promotion at 0.7 with fabricated needle evidence."""
+    from src.sources.techstack.fingerprint import (
+        NetworkEvidence,
+        _longest_suffix_needle,
+        classify_dynamic_host,
+        promote_or_observe,
+    )
+
+    rules = {"vendors": {
+        "sparkpost": {"match": {"network_host": ["sparkpost.com"]}},
+        "zendesk": {"match": {"dns_cname": ["zendesk.com"]}},
+    }}
+    # Lookalike: character-suffix hit, label-boundary MISS.
+    assert classify_dynamic_host("evilsparkpost.com", rules) is None
+    assert _longest_suffix_needle("evilsparkpost.com", rules["vendors"]["sparkpost"]) is None
+    # Real subdomain still classifies (boundary dot present).
+    assert classify_dynamic_host("acme.zendesk.com", rules) == "zendesk"
+    # And end-to-end: the lookalike must NOT be promoted to a named vendor
+    # row (it keeps the anonymous host: observation instead).
+    ev = NetworkEvidence(page_url="https://acme.com/", hosts=("evilsparkpost.com",), urls=())
+    ms = promote_or_observe(ev, rules, domain="acme.com")
+    assert [m.vendor for m in ms] == ["host:evilsparkpost.com"]
+    assert ms[0].confidence == 0.4 and ms[0].tier == "unknown"
+
+
 def test_promote_or_observe_promotes_classified_host():
     # Task A5: a dynamic host whose suffix classifies to a vendor is emitted
     # as a NAMED row (vendor key, tier/category from the vendor spec,
@@ -183,6 +213,42 @@ def test_match_network_hosts_webflow_from_fixture():
     ev = extract_network_evidence(NET_FIX.read_bytes())
     hits = match_fingerprints(ev, RULES)
     assert any(m.vendor == "webflow" and m.evidence == "network_host" for m in hits)
+
+
+def test_npm_version_survives_higher_priority_channel():
+    """When an npm ref matched for a vendor, the observed version travels in
+    evidence_data even if a higher-priority channel won the `evidence` string
+    (first-wins stays for the channel label). Before, version was emitted
+    only when npm_packages WAS the winning channel — dead downstream and
+    dropped whenever script_src/html_marker fired first."""
+    ev = extract_http_evidence(
+        b'<html><head><script src="https://cdn.jsdelivr.net/npm/@acme/tracker@4.2.1/app.js"></script>'
+        b"<script>window.acmeTracker=1;</script></head></html>",
+        {}, "https://acme.com/",
+    )
+    rules = {"vendors": {
+        "acme": {
+            "display": "Acme",
+            "match": {
+                "script_src": ["cdn.jsdelivr.net/npm/@acme/tracker"],
+                "npm_packages": ["@acme/tracker"],
+            },
+        },
+    }}
+    hits = match_fingerprints(ev, rules)
+    assert len(hits) == 1
+    m = hits[0]
+    assert m.evidence == "script_src"  # script_src outranks npm_packages
+    assert m.evidence_data.get("version") == "4.2.1"
+    # npm-as-winning-channel still carries the version (existing contract).
+    ev2 = extract_http_evidence(
+        b'<html><script src="https://unpkg.com/solo@9.9.9/x.js"></script></html>',
+        {}, "https://acme.com/",
+    )
+    rules2 = {"vendors": {"solo": {"match": {"npm_packages": ["solo"]}}}}
+    hits2 = match_fingerprints(ev2, rules2)
+    assert hits2[0].evidence == "npm_packages"
+    assert hits2[0].evidence_data.get("version") == "9.9.9"
 
 
 def test_network_host_suffix_does_not_hit_workforce():

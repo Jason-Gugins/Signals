@@ -24,7 +24,12 @@ def extract_npm_cdn_refs(text: str) -> list[dict]:
     out: list[dict] = []
     seen: set[tuple[str, str | None]] = set()
     for m in _CDN_RE.finditer(text or ""):
-        seg = m.group(1)
+        # Truncate the package segment at '?' BEFORE the version split: the
+        # segment class allows '?' (it excludes only /, whitespace, quotes,
+        # <>), so a tracking query on the same segment would otherwise ride
+        # into the @-split and fabricate refs like
+        # {'package': 'pkg?email=a', 'version': 'b.com'}.
+        seg = m.group(1).split("?", 1)[0]
         pkg, ver = seg, None
         if seg.startswith("@"):
             rest = seg[1:]

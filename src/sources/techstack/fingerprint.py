@@ -335,8 +335,14 @@ def match_fingerprints(ev, rules: dict) -> list[TechMatch]:
                     tier=spec.get("tier") or "mid",
                     evidence=evidence,
                     confidence=0.8 if evidence in {"script_src", "html_marker", "mx", "network_host", "header", "npm_packages"} else 0.7,
+                    # The observed npm version rides along whenever an npm ref
+                    # matched for this vendor — even when a higher-priority
+                    # channel won the `evidence` string (first-wins stays for
+                    # the channel label). Scoping it to the npm_packages win
+                    # left the version dead downstream AND dropped exactly on
+                    # the strongest corroboration (script_src + npm ref).
                     evidence_data=({"version": npm_ref.get("version")}
-                                   if evidence == "npm_packages" else {}),
+                                   if npm_ref is not None else {}),
                 )
             )
     return hits
@@ -358,7 +364,11 @@ def merge_matches(*groups: list[TechMatch]) -> list[TechMatch]:
 
 def classify_dynamic_host(host: str, rules: dict) -> str | None:
     """Map an observed third-party hostname onto a vendor via suffix needles.
-    Longest matching needle wins (specificity). Pure. Returns the vendor KEY."""
+    Longest matching needle wins (specificity). Pure. Returns the vendor KEY.
+
+    The needle must be the host's tail AT A LABEL BOUNDARY — h.endswith("." + n),
+    same rule as _host_hit. A bare character suffix would classify lookalike
+    hosts (evilsparkpost.com vs needle sparkpost.com) as the vendor."""
     h = (host or "").casefold().strip(".")
     if not h:
         return None
@@ -368,23 +378,24 @@ def classify_dynamic_host(host: str, rules: dict) -> str | None:
         for channel in ("dns_cname", "network_host", "spf_include"):
             for needle in match.get(channel) or []:
                 n = needle.casefold()
-                if n and h.endswith(n) and h != n and len(n) > best_len:
+                if n and h.endswith("." + n) and h != n and len(n) > best_len:
                     best, best_len = key, len(n)
     return best
 
 
 def _longest_suffix_needle(host: str, spec: dict) -> str | None:
-    """Companion to classify_dynamic_host (same tail-suffix rule, same channel
-    set — keep in sync): the longest dns_cname/network_host/spf_include needle
-    in ONE vendor's spec that is a proper suffix of host. Supplies the matched
-    needle for the promotion evidence. Pure."""
+    """Companion to classify_dynamic_host (same label-boundary tail-suffix
+    rule, same channel set — keep in sync): the longest
+    dns_cname/network_host/spf_include needle in ONE vendor's spec that is a
+    proper label-boundary suffix of host. Supplies the matched needle for the
+    promotion evidence. Pure."""
     h = (host or "").casefold().strip(".")
     best, best_len = None, 0
     match = (spec or {}).get("match") or {}
     for channel in ("dns_cname", "network_host", "spf_include"):
         for needle in match.get(channel) or []:
             n = needle.casefold()
-            if n and h.endswith(n) and h != n and len(n) > best_len:
+            if n and h.endswith("." + n) and h != n and len(n) > best_len:
                 best, best_len = n, len(n)
     return best
 

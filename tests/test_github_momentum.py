@@ -387,6 +387,38 @@ def test_community_github_harvest_repos_is_repos_docs_only():
     assert src.harvest_repos(type("D", (), {"body": b""})(), acct, {"kind": "repos"}) == []
 
 
+def test_two_new_topics_persist_two_signals(tmp_path, monkeypatch):
+    """A repo gaining 2+ topics in ONE cycle emits one new_topic event per
+    topic — the natural key MUST carry the topic, or both candidates collide
+    on `github:{domain}:{repo}:new_topic:{month}` and SignalStore.upsert
+    merges them into one row while the snapshot already records every topic,
+    so the dropped topic never re-fires."""
+    repos = [_repo("acme/tool", stars=100, created="2019-01-01T00:00:00Z")]
+    stub = _GithubStub(repos)
+    runner, db, ctx, _stats_path = _runner(tmp_path, monkeypatch)
+    month = (datetime.now(timezone.utc).date()).isoformat()[:7]
+    accounts = [Account(domain="acme.com", name="Acme")]
+    try:
+        # Cycle 1: baseline snapshot (no topics) — old repo, no new_repo bet.
+        runner.run([stub], accounts, force=True)
+        assert db.query("SELECT * FROM signals WHERE signal_type='github_momentum'") == []
+        # Cycle 2: the repo gains two topics in the same cycle.
+        repos[0]["topics"] = ["ai", "mcp"]
+        runner.run([stub], accounts, force=True)
+        rows = db.query("SELECT * FROM signals WHERE signal_type='github_momentum'")
+        assert len(rows) == 2, f"topic key collision dropped a signal: {rows}"
+        keys = {r["signal_id"] for r in rows}
+        assert keys == {
+            make_signal_id("acme.com", "github_momentum", f"github:acme.com:acme/tool:new_topic:ai:{month}"),
+            make_signal_id("acme.com", "github_momentum", f"github:acme.com:acme/tool:new_topic:mcp:{month}"),
+        }
+        evidence = [json.loads(r["evidence_data"]) for r in rows]
+        assert {e["topic"] for e in evidence} == {"ai", "mcp"}
+        assert all(e["momentum_kind"] == "new_topic" for e in evidence)
+    finally:
+        ctx.__exit__(None, None, None)
+
+
 # ── npm momentum wiring (community_npm, Task C3 mirror of the block above) ──
 
 
@@ -458,6 +490,9 @@ def test_runner_persists_npm_momentum_and_writes_stats(tmp_path, monkeypatch):
         evidence = json.loads(row["evidence_data"])
         assert evidence["via"] == "npm"
         assert evidence["published"] == published
+        # product_launch's evidence template reads {product} — without the
+        # key the rendered line degrades to "Launched  (…)".
+        assert evidence["product"] == "@acme/sdk"
         assert row["signal_id"] == make_signal_id(
             "acme.com",
             "product_launch",
@@ -474,6 +509,40 @@ def test_runner_persists_npm_momentum_and_writes_stats(tmp_path, monkeypatch):
             "downloads_monthly": 5,
             "seen_at": now_date.isoformat(),
         }
+    finally:
+        ctx.__exit__(None, None, None)
+
+
+def test_runner_persists_npm_downloads_surge_momentum_kind(tmp_path, monkeypatch):
+    """The npm downloads_surge rides github_momentum, whose evidence template
+    reads ``{momentum_kind}: {detail}`` — the npm evidence must carry a
+    namespaced momentum_kind (npm_downloads_surge), mirroring how the github
+    momentum block injects momentum_kind, or the rendered line degrades to
+    ": monthly downloads …"."""
+    import src.sources.community.npm as npm_mod
+
+    now_date = datetime.now(timezone.utc).date()
+    published = (now_date - timedelta(days=10)).isoformat()
+    pkgs = [{
+        "name": "@acme/sdk", "version": "1.0.0",
+        "date": f"{published}T00:00:00.000Z", "downloads_monthly": 200,
+        "repository": "git+https://github.com/acmecorp/sdk.git",
+    }]
+    stub = _NpmStub(pkgs)
+    monkeypatch.setattr(npm_mod, "DEFAULT_STATS_PATH", str(tmp_path / "npm_stats.json"))
+    runner, db, ctx, _gh = _runner(tmp_path, monkeypatch)
+    accounts = [Account(domain="acme.com", name="Acme")]
+    try:
+        runner.run([stub], accounts, force=True)  # cycle 1: new_package baseline
+        pkgs[0]["downloads_monthly"] = 400  # +200 >= max(25% of 200, 50) -> surge
+        runner.run([stub], accounts, force=True)
+        rows = db.query("SELECT * FROM signals WHERE signal_type='github_momentum'")
+        assert len(rows) == 1
+        evidence = json.loads(rows[0]["evidence_data"])
+        assert evidence["momentum_kind"] == "npm_downloads_surge"
+        assert evidence["via"] == "npm"
+        assert evidence["downloads"] == 400 and evidence["downloads_prev"] == 200
+        assert evidence["detail"]
     finally:
         ctx.__exit__(None, None, None)
 

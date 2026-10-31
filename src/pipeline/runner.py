@@ -881,8 +881,20 @@ class CollectorRunner:
                                     observed_at=today_iso,
                                     # Monthly re-affirmation like the sibling
                                     # trend types: a fresh surge next month
-                                    # is a new signal.
-                                    natural_key=f"github:{domain}:{ev['repo']}:{kind}:{month}",
+                                    # is a new signal. new_topic carries the
+                                    # topic as its own key segment: a repo can
+                                    # gain 2+ topics in one cycle, and without
+                                    # it the candidates collide on one natural
+                                    # key and upsert drops all but one (the
+                                    # snapshot already records every topic, so
+                                    # a dropped topic would never re-fire).
+                                    # Other kinds' evidence has no topic —
+                                    # their keys stay byte-identical.
+                                    natural_key=(
+                                        f"github:{domain}:{ev['repo']}:{kind}"
+                                        + (f":{ev['topic']}" if kind == "new_topic" else "")
+                                        + f":{month}"
+                                    ),
                                     title=ev["repo"],
                                     confidence=0.6,
                                     evidence_data={"momentum_kind": kind, **ev},
@@ -955,7 +967,17 @@ class CollectorRunner:
                                     natural_key=f"npm:{domain}:{ev['name']}:{kind}:{month}",
                                     title=ev["name"],
                                     confidence=0.6,
-                                    evidence_data={"via": "npm", **ev},
+                                    # Template-aligned evidence keys: the
+                                    # product_launch template reads {product},
+                                    # the github_momentum template reads
+                                    # {momentum_kind} (namespaced so the npm
+                                    # surge can't be read as a github kind —
+                                    # same injection the github block does).
+                                    evidence_data=(
+                                        {"via": "npm", "product": ev["name"], **ev}
+                                        if kind == "new_package"
+                                        else {"via": "npm", "momentum_kind": "npm_downloads_surge", **ev}
+                                    ),
                                 )
                                 for kind, ev in momentum
                             ]
@@ -1260,6 +1282,9 @@ class CollectorRunner:
             row["tasks"] = len(tasks)
             return
         results = self._execute_tasks(adapter, tasks, cursor_row, stats)
+        # Note: meta["recoverable"] (expected-miss 404 softening) is honored
+        # only by _run_pair — no fanout adapter sets it, and a fanout 404
+        # still raises below by design.
         last_doc = None
         for task, result in results:
             if result is None or result.status == 304:

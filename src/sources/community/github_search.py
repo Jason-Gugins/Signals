@@ -27,8 +27,12 @@ never fires on the follow path; the never-guess exact-match rule is the only
 attribution gate.
 
 Known accepted redundancy: when the org probe SUCCEEDS, the search doc's
-follow may re-emit the same repos/releases fetch — conditional GET turns that
-into a 304; no cross-task state is added to avoid it (YAGNI).
+follow may re-emit the same repos/releases fetch. Conditional GET does NOT
+dedupe this within the cycle — _execute_tasks passes ONE pair-level etag
+from LAST cycle, so the duplicate follow returns 200 and is reprocessed.
+That is harmless: the duplicate candidates dedupe downstream (monthly
+natural keys in the signal store; repo_delta is idempotent against the
+already-saved snapshot), so no cross-task state is added to avoid it (YAGNI).
 
 Recovery fires live (2026-10-31): community_github's org probes carry
 ``meta["recoverable"]=True``, and the runner skips a failed fetch on a

@@ -10,8 +10,15 @@ autouse guard; everything here is offline and pure.
 from datetime import date
 from pathlib import Path
 
+import yaml
+
 from src.core.models import Account
-from src.sources.community.reddit import parse_reddit_atom, reddit_search_url, reddit_to_candidates
+from src.sources.community.reddit import (
+    RedditSource,
+    parse_reddit_atom,
+    reddit_search_url,
+    reddit_to_candidates,
+)
 
 FIXTURE = Path("tests/fixtures/community/reddit_search.rss").read_bytes()
 
@@ -54,8 +61,9 @@ def test_body_mention_counts():
 
 def test_adapter_registered_plan_parse_roundtrip():
     """Adapter contract (re-homed from the retired stub tests): registered key,
-    plan builds the quoted-brand search (+ capped subreddit scopes), parse()
-    turns Atom bytes into candidates, empty body degrades to []."""
+    plan builds the quoted-brand search (site-wide ONLY — subreddit scope is
+    robots-dead and needs a widened operator decision), parse() turns Atom
+    bytes into candidates, empty body degrades to []."""
     from src.core.models import Document
     from src.sources.registry import SOURCES
 
@@ -72,12 +80,16 @@ def test_adapter_registered_plan_parse_roundtrip():
     assert len(tasks) == 1
     assert tasks[0].url == reddit_search_url("Acme Corp")
     assert tasks[0].domain == "acme.com"
-    # account-chosen subreddits: capped at 3, appended after the site-wide task
+    # Subreddit scope is NOT planned (robots-dead: /r/<sub>/search.rss fails
+    # robots_path_allowed under the ONE approved /search.rss override, so
+    # every subreddit task failed "robots disallowed" every cycle). The
+    # reddit_search_url subreddit param stays a pure, tested capability.
     acct2 = Account(domain="acme.com", name="Acme Corp",
                     extra_data={"reddit_subreddits": ["saas", "sales", "startups", "sysadmin"]})
     tasks2 = adapter.plan(acct2, cursor=None)
-    assert [t.meta.get("subreddit") for t in tasks2] == [None, "saas", "sales", "startups"]
-    assert tasks2[1].url == reddit_search_url("Acme Corp", subreddit="saas")
+    assert len(tasks2) == 1
+    assert tasks2[0].url == reddit_search_url("Acme Corp")
+    assert tasks2[0].meta.get("subreddit") is None
     # parse roundtrip: Atom bytes in, candidates out; empty body degrades to []
     doc = Document(doc_id="r1", source="community_reddit", url=tasks[0].url, body=FIXTURE)
     cands = adapter.parse(doc, acct, {"today": today.isoformat()})
@@ -86,6 +98,23 @@ def test_adapter_registered_plan_parse_roundtrip():
     assert any(c.natural_key == "reddlaunch:t3_4pqrs7" for c in cands)
     assert adapter.parse(Document(doc_id="r2", source="community_reddit", body=b""),
                          acct, {"today": today.isoformat()}) == []
+
+
+def test_plan_urls_pass_robots():
+    """Integration pin: EVERY url plan() emits must satisfy robots_path_allowed
+    under the committed config/default.yaml robots_allow list. This is what
+    the dropped subreddit tasks failed (robots_path_allowed startswith-matches
+    the path against /search.rss; /r/<sub>/search.rss never matched), so any
+    future task shape that regresses here is caught at test time."""
+    from src.core.http import robots_path_allowed
+
+    allow = yaml.safe_load(
+        Path("config/default.yaml").read_text(encoding="utf-8")
+    )["http"]["robots_allow"]
+    acct = Account(domain="acme.com", name="Acme Corp",
+                   extra_data={"reddit_subreddits": ["saas", "sales", "startups"]})
+    for task in RedditSource().plan(acct, cursor=None):
+        assert robots_path_allowed(task.url, allow), f"robots-dead task planned: {task.url}"
 
 
 # --- Live-capture fixture (Task 16, drift fixes) ----------------------------

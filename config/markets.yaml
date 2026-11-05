@@ -113,3 +113,73 @@ profiles:
         relevant_signal_types: [required_stack_demand]
         buyer_departments: [customer experience, support, ecommerce, operations]
         competitor_vendors: [zendesk, kustomer, freshdesk, gladly, intercom]
+
+  # ===========================================================================
+  # darktrace_sec - USER-APPROVED ICP (2026-10-30): Darktrace confirmed as
+  # the test seller; the 30-company evaluation cohort is size-filtered to
+  # 51+ employees (seeded Random(42) from the RepVue Canada software file).
+  # Seller: Darktrace (darktrace.com) — Self-Learning AI cybersecurity:
+  # network detection & response (NDR), email security (Antigena Email),
+  # cloud security, OT/IoT, autonomous response.
+  #
+  # Grounding (measured, not guessed):
+  #  * Vocabulary validated against darktrace's own 266-doc corpus vs the
+  #    negative baseline (rillet/databricks): every retained phrase
+  #    separates (threat detection 29/0/0, phishing 87/0/0, ciso 51/0/0,
+  #    ransomware 131/0/0, security team 40/0/0, attack surface 53/0/0).
+  #    DROPPED as duds: "security alert" (0), "managed detection" (0 —
+  #    Darktrace does not position as MDR).
+  #  * Substring-matcher hygiene: no bare "soc" (matches "associate"),
+  #    no bare "ai" (matches "said"/"maintain") — phrases are
+  #    collision-checked stems.
+  #  * "compliance" deliberately OMITTED: measured count in darktrace's own
+  #    corpus is 5 — their positioning is threat-first, not compliance-first.
+  #  * required_vendors use ONLY names in the needs vendor vocabulary
+  #    (25 fingerprint vendors + supplemental): microsoft365/google_workspace
+  #    are present and are Antigena Email's exact environment fit; aws/azure
+  #    are NOT in the vocabulary, so the cloud offering carries none.
+  #  * OT/IoT offering deliberately omitted: the test cohort (Canadian
+  #    software companies) has no operational-technology footprint.
+  # ===========================================================================
+  darktrace_sec:
+    seller: "Darktrace — Self-Learning AI cybersecurity: network detection & response, email, cloud"
+    offerings:
+      - id: threat-detection-response
+        served_problem_phrases:
+          - threat detection
+          - incident respons
+          - security operations
+          - security team
+          - soc team
+          - cyber attack
+          - ransomware
+          - breach
+          - attack surface
+          - threat hunting
+          - malware
+          - vulnerability
+          - compromise
+          - security posture
+          - ciso
+        relevant_signal_types: [need_statement, required_stack_demand]
+        buyer_departments: [security, information technology, engineering]
+        required_vendors: []
+        competitor_vendors: [crowdstrike, palo alto networks, sentinelone, vectra]
+
+      - id: email-security
+        served_problem_phrases:
+          - email security
+          - phishing
+          - business email compromise
+        relevant_signal_types: [need_statement, required_stack_demand]
+        buyer_departments: [security, information technology]
+        required_vendors: [microsoft365, google_workspace]
+        competitor_vendors: [mimecast, proofpoint]
+
+      - id: cloud-security
+        served_problem_phrases:
+          - cloud security
+        relevant_signal_types: [need_statement, required_stack_demand]
+        buyer_departments: [security, engineering, infrastructure]
+        required_vendors: []
+        competitor_vendors: [wiz, orca security]

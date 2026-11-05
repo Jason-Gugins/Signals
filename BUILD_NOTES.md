@@ -1,23 +1,47 @@
 # BUILD_NOTES.md — native antibot engine (signals_antibot)
 
-Building and API-gap notes for `src/antibot/engine` (crate `signals_antibot`:
-boring/boring-sys 4.22.0 + PyO3 0.22.6, real BoringSSL).
+Build, engine-internals, and API-gap notes for `src/antibot/engine` (crate
+`signals_antibot`: boring/boring-sys 4 + PyO3 0.22, real BoringSSL).
+
+This file is the internals ledger that `src/antibot/README.md` points at —
+architecture, runtime behavior, config, and honest limits live there. The
+engine is the only part of the repo with a nontrivial build; everything else
+is pure Python (`pip install -e .` + pytest).
 
 ## Build (Windows)
 
-- Build MUST run inside the MSVC env: `cmd /c "C:\Users\Jason\Documents\AI\Signals\tools\build_antibot_env.bat"`
-  from `src/antibot/engine` (helper sets vcvars64, Go/LLVM/NASM PATH, LIBCLANG_PATH, Ninja, then `maturin develop --release`).
-- In git-bash, prefix with `export MSYS2_ARG_CONV_EXCL='*'`.
-- First build compiles BoringSSL (~2–4 min); cached afterwards. Rust-only errors rebuild fast.
+Two entry points, and they are **not** equivalent:
 
-## Chrome posture (Task 1)
+- `tools/build_antibot.py` (from a VS dev prompt — the helper never calls
+  vcvars itself): **auto-applies the ALPS codepoint patch** to the vendored
+  BoringSSL idempotently on every build, then runs `maturin develop --release`.
+  This is the preferred path.
+- `tools/build_antibot_env.bat` (works from any shell — calls vcvars64, sets
+  the Go/LLVM/NASM PATH, `LIBCLANG_PATH`, Ninja): runs `maturin develop
+  --release` **directly and skips the patch step**. Fine for Rust-only
+  iteration; wrong after a cargo-registry refresh (see the patch section).
 
-The Chrome ClientHello configuration lives in `src/antibot/engine/src/tls.rs`
+In git-bash, prefix with `export MSYS2_ARG_CONV_EXCL='*'`.
+First build compiles BoringSSL (~2–5 min); cached afterwards. Rust-only
+errors rebuild fast. An unbuilt engine is a healthy state, not an error:
+`SignalsTransport` degrades to the `curl_cffi` fallback and
+`python -m src.cli doctor --no-network` reports `antibot_engine` WARN.
+
+## Chrome posture
+
+Chrome's ClientHello configuration lives in `src/antibot/engine/src/tls.rs`
 (compile-time mirror) with `src/antibot/python/fingerprints.py` as the
-config-of-record data table. Config-level gate: `tests/test_antibot_engine.py::test_tls_config_has_chrome_behaviors`.
-Live parity (skipped by default):
-`.venv/Scripts/python.exe -m pytest tests/test_antibot_parity.py -v -m antibot_live`
-reference captured from real Chromium via `tools/capture_chrome_fingerprint.py`.
+config-of-record data table; the two are cross-checked by
+`tests/test_antibot_engine.py::test_tls_config_matches_fingerprints_table`,
+with `::test_tls_config_has_chrome_behaviors` as the config-level gate.
+
+Parity ground truth is `tests/fixtures/antibot/chrome_fingerprint_reference.json`,
+captured from a real headed Chromium via `tools/capture_chrome_fingerprint.py`
+(re-capture when Chrome moves and parity drifts). Live opt-in, needs network:
+
+```
+.venv/Scripts/python.exe -m pytest tests/test_antibot_parity.py -v -m antibot_live
+```
 
 ## Honest API-gap ledger (boring 4.22.0)
 
@@ -46,13 +70,19 @@ reference captured from real Chromium via `tools/capture_chrome_fingerprint.py`.
 - **Version string** — boring 4.22 does not export `openssl_version()`; we read the
   bindgen constant `boring_sys::OPENSSL_VERSION_TEXT` instead.
 
-## Known non-parity (documented, not hidden)
+## Probe vs production h2 (the akamai_h2 caveat)
 
-- `probe_fingerprint` speaks a **minimal** HTTP/2 request (literal HPACK, fixed
-  preface) so the TLS layer can be validated against tls.peet.ws before Task 2.
-  The *server-echoed TLS* fields (ja4, ja3_hash, tls_extensions) are independent of
-  request-side h2 bytes; `akamai_h2` from the probe is therefore NOT Chrome-exact
-  until Task 2's own h2 stack (Chrome-exact SETTINGS/WINDOW_UPDATE/HPACK) lands.
+The engine's production h2 stack is the in-house one (`engine/src/h2/`):
+HPACK per RFC 7541 (all 257 Huffman symbols), Chrome-exact
+SETTINGS/WINDOW_UPDATE frames, pseudo-header order `m,a,s,p` — that is what
+`fetch_h2` and the transport serve, and its parity is fixture-asserted.
+
+`probe_fingerprint` (tls.rs) is a separate diagnostic that still speaks a
+**minimal** HTTP/2 request (literal HPACK, fixed preface) so the TLS layer
+can be validated against tls.peet.ws in isolation. Consequence: the probe's
+server-echoed TLS fields (ja4, ja3_hash, tls_extensions) are meaningful, but
+its `akamai_h2` echo reflects the probe's request bytes, **not** the
+production h2 stack — don't read Akamai parity off the probe.
 
 ## Vendored BoringSSL patch (ALPS codepoint)
 
@@ -61,8 +91,14 @@ reference captured from real Chromium via `tools/capture_chrome_fingerprint.py`.
   the legacy draft value 17513 (0x4469). Live parity vs real Chromium showed
   `application_settings_old (17513)` from our engine vs `application_settings (17613)`
   from Chrome — the only extension-set diff out of 18.
-- Patch location (recreate after `cargo clean` if the registry source is
-  refreshed): `~/.cargo/registry/src/*/boring-sys-4.22.0/deps/boringssl/src/include/openssl/tls1.h`
+- **Application is automated**: `tools/build_antibot.py::apply_registry_patches()`
+  rewrites the header idempotently on every build and prints what it did. The
+  bat wrapper skips this — so after the cargo registry source is refreshed
+  (`cargo update`, registry clean), rebuild via the **.py helper**; building
+  through the bat alone silently puts the stale 17513 back on the wire
+  (symptom: parity tests fail on the ALPS codepoint).
+- Patch target if you ever need it by hand:
+  `~/.cargo/registry/src/*/boring-sys-4.22.0/deps/boringssl/src/include/openssl/tls1.h`
   — change the `#define TLSEXT_TYPE_application_settings` value and touch
   `Cargo.toml` to invalidate the boring-sys build cache.
 - This is the "update the data, not a C library" principle applied to the one

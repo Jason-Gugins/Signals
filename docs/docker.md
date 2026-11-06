@@ -42,8 +42,16 @@ additional deployment option that packages the same CLI.
   exits **0 even with a FAIL line present** (observed: `FAIL contact_email
   SIGNALS_CONTACT_EMAIL unset` when run without `--env-file`). WARN/FAIL do
   not fail the command; compose's default `command` stays doctor regardless.
-- First intel run: **pending** — Task 9 of
-  `docs/plans/2026-10-31-phase0-containerization.md`.
+- **First in-container intel run (2026-11-06): completed, exit 0, ~5 min.**
+  Domain `briefcatch.com` (smallest, 1 doc on host) against the named
+  volume; fresh volume, account auto-created. Counters: accounts=1,
+  documents=0, signals_new=0, fetch_log empty (11 tasks failed pre-fetch:
+  without `--env-file` keyed sources fail-fast and browser-tier stays
+  skipped). Dossier written (`gaps: 4`). This is the $0.00 posture the plan
+  priced: the pipeline round-trip (discover → collect → score → dossier) is
+  proven; a decide-attached variant (`--env-file .env`, LiveDecider) WOULD
+  spend LLM budget and was deliberately **not** run under the plan's $0.00
+  ceiling — run it manually when LLM spend is acceptable.
 
 ## Build
 

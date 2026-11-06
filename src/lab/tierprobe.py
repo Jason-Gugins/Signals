@@ -22,6 +22,8 @@ DTC arm.
 from __future__ import annotations
 
 import json
+import sys
+from collections import Counter
 from pathlib import Path
 
 # Domains grouped by corpus role: vendor-software (their own marketing
@@ -179,3 +181,168 @@ def compare_arms(a: dict, b: dict) -> dict:
         verdict = "INCONCLUSIVE — b moved without promotions; re-run with more docs before deciding"
     return {"verdict": verdict, "moved_p90": round(moved_p90, 3),
             "moved_max": round(moved_max, 3), "a": a, "b": b}
+
+
+MODEL_A = "deepseek/deepseek-v4.1-flash"
+MODEL_B = "deepseek/deepseek-v4.1"
+COST_PER_DOMAIN_USD = 0.33
+
+
+def extract_rows(db_path: Path, dossiers: Path, raw_dir=None,
+                 domains=None) -> list[dict]:
+    """The corpus-extraction seam (monkeypatched by tests). Opens the
+    signals DB READ-ONLY via the lab's stand-in — never migrates."""
+    from src.lab import corpus as corpus_mod
+    from src.lab.__main__ import _ReadOnlyDB
+
+    db = _ReadOnlyDB(Path(db_path))
+    try:
+        return corpus_mod.extract(db, Path(dossiers), domains=domains,
+                                  raw_dir=raw_dir)
+    finally:
+        close = getattr(db, "close", None)
+        if callable(close):
+            close()
+
+
+def probe_main(argv: list[str] | None = None) -> int:
+    """scripts/ab/implementer_tier_probe.py — thin shell over this."""
+    import argparse
+    import os
+    from pathlib import Path
+
+    ap = argparse.ArgumentParser(
+        prog="implementer_tier_probe",
+        description="Two fresh implementer arms (shipped flash vs family upgrade) "
+                    "over the SAME frozen corpus documents; promotion-noul verdict.")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print the plan; write nothing, call nothing")
+    ap.add_argument("--dossiers", default="data/dossiers")
+    ap.add_argument("--db", default="data/signals.db")
+    ap.add_argument("--raw-dir", default="data/raw")
+    ap.add_argument("--out-dir", default="data/probe")
+    ap.add_argument("--per-domain", type=int, default=12)
+    ap.add_argument("--vendor", type=int, default=2)
+    ap.add_argument("--dtc", type=int, default=6)
+    ap.add_argument("--model-b", default=MODEL_B)
+    ap.add_argument("--budget-usd", type=float, default=6.0)
+    ap.add_argument("--force", action="store_true",
+                    help="run even when the estimate exceeds --budget-usd")
+    args = ap.parse_args(argv)
+
+    print("implementer tier probe — DRY-RUN: nothing written, nothing called"
+          if args.dry_run else "implementer tier probe — LIVE")
+    # 1) frozen corpus
+    rows = extract_rows(Path(args.db), Path(args.dossiers), raw_dir=args.raw_dir)
+    domains_all = sorted({str(r.get("domain")) for r in rows if r.get("domain")})
+    domains = stratify_domains(domains_all, n_vendor=args.vendor, n_dtc=args.dtc)
+    docs = collect_docs(rows, domains, per_domain=args.per_domain)
+    per_dom = Counter(d["domain"] for d in docs)
+    est = estimate_cost(len(domains), arms=2, cost_per_domain_usd=COST_PER_DOMAIN_USD)
+    print(f"corpus: {len(rows)} rows | domains selected ({len(domains)}): {', '.join(domains)}")
+    print(f"docs: {len(docs)} ({dict(per_dom)}) | per-domain cap {args.per_domain}")
+    print(f"arms: A={MODEL_A} (shipped) | B={args.model_b} (family upgrade)")
+    print(f"cost estimate: ${est:.2f} implementer (observed ${COST_PER_DOMAIN_USD:.2f}/domain/arm)"
+          f" | budget cap ${args.budget_usd:.2f}")
+    if args.dry_run:
+        print("dry-run complete — no keys touched, no calls made")
+        return 0
+    if est > args.budget_usd and not args.force:
+        print(f"ABORT: estimate ${est:.2f} exceeds budget ${args.budget_usd:.2f} "
+              "(shrink scope or pass --force)", file=sys.stderr)
+        return 2
+
+    # 2) keys + decider (the _lab_decider pattern: live or refuse)
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    from src.lab.__main__ import _lab_decider, _load_decide_cfg
+
+    decide_cfg = _load_decide_cfg()
+    from src.lab.__main__ import _lab_decider
+
+    decider = _lab_decider(decide_cfg)
+    consent = os.environ.get("SIGNALS_DECIDE_DATA_EXIT")
+    if not api_key or decider is None or not consent:
+        print("ABORT: live run needs OPENROUTER_API_KEY + TYPESAFE_API_KEY + "
+              "SIGNALS_DECIDE_DATA_EXIT consent (the lab decider factory "
+              "refused without them)", file=sys.stderr)
+        return 2
+
+    # 3) verify arm B's model id exists BEFORE spending (1-token call)
+    err = verify_model_id(args.model_b, api_key)
+    if err:
+        print(f"ABORT: arm-B model id failed verification: {err}", file=sys.stderr)
+        return 2
+
+    # 4) both arms over the same docs
+    gates_cfg = (decide_cfg.get("decider") or {}).get("gates") or {}
+    out_dir = Path(args.out_dir) / f"tierprobe-{_ts()}"
+    arms = [("arm-a", MODEL_A), ("arm-b", args.model_b)]
+    summaries = {}
+    for arm, model in arms:
+        print(f"--- {arm}: {model} over {len(docs)} docs ---")
+        rows_out = run_arm(arm, model, docs, decider, gates_cfg=gates_cfg,
+                           out_path=out_dir / f"{arm}-claims.jsonl",
+                           api_key=api_key)
+        summaries[arm] = summarize_nouls([r["promotion_noul"] for r in rows_out
+                                          if r.get("promotion_noul") is not None])
+        print(f"{arm}: {len(rows_out)} accepted claims | {summaries[arm]}")
+
+    # 5) verdict + summary
+    comparison = compare_arms(summaries["arm-a"], summaries["arm-b"])
+    summary = _render_summary(docs, domains, summaries, comparison)
+    summary_path = out_dir / "summary.md"
+    summary_path.write_text(summary, encoding="utf-8", newline="\n")
+    print(f"VERDICT: {comparison['verdict']}")
+    print(f"summary: {summary_path}")
+    return 0
+
+
+def _ts() -> str:
+    import datetime
+
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def verify_model_id(model: str, api_key: str) -> str | None:
+    """One 1-token completion; returns the error text or None (live-only —
+    a few thousandths of a cent)."""
+    import json as _json
+    import urllib.request
+
+    body = _json.dumps({
+        "model": model, "max_tokens": 4,
+        "messages": [{"role": "user", "content": "Say OK"}],
+    }).encode()
+    req = urllib.request.Request(
+        "https://openrouter.ai/api/v1/chat/completions", data=body,
+        headers={"Authorization": f"Bearer {api_key}",
+                 "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = _json.loads(resp.read())
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"
+    if data.get("error"):
+        return str(data["error"])
+    return None
+
+
+def _render_summary(docs, domains, summaries: dict, comparison: dict) -> str:
+    lines = [
+        "# Implementer tier probe — summary", "",
+        f"docs: {len(docs)} across {len(domains)} domains ({', '.join(domains)})",
+        f"arm A (shipped): {MODEL_A}", f"arm B (upgrade): {MODEL_B}", "",
+        "| arm | n | max | p50 | p90 | >=0.70 | [0.45,0.70) | >=0.45 |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for arm in ("arm-a", "arm-b"):
+        s = summaries[arm]
+        lines.append(
+            f"| {arm} | {s['n']} | {s['max']} | {s['p50']} | {s['p90']} "
+            f"| {s['ge_floor']} | {s['band_released']} | {s['ge_045']} |")
+    lines += ["", f"**VERDICT: {comparison['verdict']}**",
+              f"(p90 moved {comparison['moved_p90']}, max moved {comparison['moved_max']})", "",
+              "Decision rule (pre-registered): MODEL-TIER if ge_floor >= 1 or p90 moved >= 0.15; "
+              "PROSE-BOUND if max moved <= 0.10 with zero promotions; else INCONCLUSIVE.",
+              "Both arms fresh (fresh-vs-fresh); recorded claims reference-only.", ""]
+    return "\n".join(lines)

@@ -128,6 +128,56 @@ def test_run_arm_wiring_offline(tmp_path, monkeypatch):
     assert (tmp_path / "arm-a.jsonl").exists()
 
 
+def _probe_corpus_rows():
+    """Corpus-shaped rows for the CLI dry-run test (three domains, joined
+    document_gate rows)."""
+    out = []
+    for dom in ("brooklinen.com", "brumate.com", "databricks.com"):
+        for j in range(3):
+            out.append({"gate": "document_gate", "domain": dom,
+                        "doc_id": f"{dom}-d{j}", "doc_joined": True,
+                        "outcome": "included", "text": f"Doc body {dom} {j}.",
+                        "market_profile_id": "gorgias_icp"})
+    return out
+
+
+def test_cli_dry_run_prints_plan_and_spends_nothing(tmp_path, monkeypatch, capsys):
+    """The CLI's dry-run: stratified domains, doc counts, cost estimate,
+    both model ids — and NOT a single network call (no keys needed)."""
+    import src.lab.tierprobe as tp
+
+    monkeypatch.setattr(tp, "extract_rows",
+                        lambda db, dossiers, raw_dir=None, domains=None:
+                        _probe_corpus_rows())
+    rc = tp.probe_main([
+        "--dry-run", "--dossiers", str(tmp_path / "unused"),
+        "--db", str(tmp_path / "unused.db"),
+        "--out-dir", str(tmp_path / "out"),
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "DRY-RUN" in out and "estimate" in out.lower()
+    assert "deepseek/deepseek-v4.1-flash" in out and "deepseek/deepseek-v4.1" in out
+    out_dir = tmp_path / "out"
+    assert not out_dir.exists() or not list(out_dir.glob("*claims*.jsonl"))
+
+
+def test_compare_arms_states_the_verdict():
+    from src.lab.tierprobe import compare_arms
+    a = {"n": 100, "max": 0.34, "p50": 0.20, "p90": 0.30, "ge_floor": 0,
+         "band_released": 0, "ge_045": 0}
+    b_moved = {"n": 100, "max": 0.72, "p50": 0.35, "p90": 0.55, "ge_floor": 3,
+               "band_released": 9, "ge_045": 14}
+    b_flat = dict(a)
+    assert "MODEL-TIER" in compare_arms(a, b_moved)["verdict"]
+    assert "PROSE" in compare_arms(a, b_flat)["verdict"]
+    b_edge = {"n": 100, "max": 0.50, "p50": 0.25, "p90": 0.38, "ge_floor": 0,
+              "band_released": 2, "ge_045": 2}
+    # max moved +0.16 (> 0.10) but p90 moved only +0.08 (< 0.15) and no
+    # promotions — neither rule fires: re-run with more docs before deciding
+    assert "INCONCLUSIVE" in compare_arms(a, b_edge)["verdict"]
+
+
 def test_collect_docs_caps_and_filters(tmp_path):
     from src.lab.tierprobe import collect_docs
 

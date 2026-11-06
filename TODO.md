@@ -899,13 +899,14 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   the review queue grows to ~77% of batches. **Applying
   `review_threshold: 0.25` to `config/decide.yaml` is a human step** (the
   proposal YAML names it; never auto-applied).
-- [ ] **Lab replay: per-domain round-robin under per-variant caps** — the
-  2026-11-06 screen run exposed the next starvation layer: capped variants
-  iterate batches in package order, so all three screen rungs spent their
-  entire caps on abnormal.ai (1,351 rows) and never reached the other 5
-  scored domains. Round-robin the replay's batch iteration across domains
-  (or shuffle deterministically) so capped variants sample every domain —
-  the subset-comparison honesty of future runs depends on it.
+- [x] **Lab replay: per-domain round-robin under per-variant caps** — DONE
+  2026-11-06: `_round_robin_by_domain` at the `replay_variant` dispatch point
+  (sorted domains, stable within each; the g4 batcher groups by
+  (package, state_hash) so batches stay intact). Every budget-capped variant
+  now samples each domain before exhausting any — TDD'd for BOTH engines
+  (the g4 screen site and the 10-31 doc-gate site). Scored replay rows now
+  also carry `domain` directly (subset analysis no longer needs a dossier
+  walk — the gap this run's hand-verification exposed).
 - [x] **Human review pass on the 9 in-band claims** — DONE 2026-11-05
   (`data/probe/G5_INBAND_REVIEW_WORKSHEET.md`): **9/9 REJECT, every one
   `not-a-need (self-description)`, 0 KEEP.** The first-ever ground-truth

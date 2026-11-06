@@ -501,6 +501,74 @@ def test_g4_replay_routes_what_the_gate_routes():
     assert _rows_of(tight)[0]["reason"] == "review_label_prob"
 
 
+def test_capped_variant_round_robins_across_domains():
+    """The 2026-11-06 finding: capped variants iterated in package order, so
+    the screen rungs spent their entire caps on the FIRST domain's batches
+    and never sampled the rest (all three screen rungs scored abnormal.ai
+    only). The replay now round-robins rows across sorted domains, so a
+    budget-capped variant samples EVERY domain before exhausting anywhere."""
+    rows: list[dict] = []
+    domains = ["aaa.com", "bbb.com", "ccc.com"]
+    decision = ok({"claim_0": g4_answer("supports", 0.92)})
+    for i, domain in enumerate(domains):
+        for b in range(4):  # 4 judged batches per domain
+            batch = claim_rows(
+                {0: ("accepted", g4_answer("supports", 0.92))},
+                doc_id=f"{domain}-doc-{b}",
+                package=f"{domain}-20261011T000000Z-run-{i}",
+                batch=f"batch-{i}-{b}",
+            )
+            for r in batch:
+                r["domain"] = domain
+            rows.extend(batch)
+
+    spy = SpyDecider(lambda state, questions: decision)
+    result = replay_variant(
+        variant_by_id("g4_floor_loose"), rows, spy, budget_calls=3
+    )
+    scored = _rows_of(result)
+    assert result["status"] == "partial"
+    scored_domains = [r["domain"] for r in scored]
+    # one call per BATCH: 3 calls -> 3 domains, round-robin, not aaa x3
+    assert set(scored_domains) == set(domains), (
+        f"capped variant starved domains: {scored_domains}"
+    )
+    assert scored_domains == domains, (
+        f"not round-robin order: {scored_domains}"
+    )
+
+
+def test_capped_doc_variant_round_robins_across_domains():
+    """Same contract for the doc-gate engine — the site of the ORIGINAL
+    starvation (doc_relevant_min_loose ate 282/300 calls on 2026-10-31). A
+    capped doc variant must sample every domain, and scored rows must carry
+    the domain for subset analysis."""
+    rows: list[dict] = []
+    domains = ["aaa.com", "bbb.com", "ccc.com"]
+    decision = ok(doc_answers(0.9, 0.8))
+    for i, domain in enumerate(domains):
+        for b in range(4):
+            r = doc_row(
+                f"{domain}-doc-{b}", f"Doc body {domain} {b}.", "included",
+                answers=doc_answers(0.9, 0.8),
+            )
+            r["domain"] = domain
+            r["package"] = f"{domain}-20261011T000000Z-run-{i}"
+            rows.append(r)
+
+    spy = SpyDecider(lambda state, questions: decision)
+    result = replay_variant(
+        variant_by_id("doc_relevant_min_loose"), rows, spy, budget_calls=3
+    )
+    scored = _rows_of(result)
+    assert result["status"] == "partial"
+    scored_domains = [r["domain"] for r in scored]
+    assert set(scored_domains) == set(domains), (
+        f"capped doc variant starved domains: {scored_domains}"
+    )
+    assert scored_domains == domains, f"not round-robin order: {scored_domains}"
+
+
 # ------------------------------------------------------- weighted-score math
 
 

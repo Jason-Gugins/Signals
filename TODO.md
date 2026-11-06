@@ -793,15 +793,27 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   TDD'd with a reproduction of the starvation (before: first variant took
   291/300 and 14 got zero → after: all 15 get a share;
   `tests/test_lab_runner.py`).
-- [ ] **Output-screen calibration run** — the output screen routed 3,760 of
-  11,589 citation rows (32%) to review and its variants were budget-starved
-  before scoring. Dedicated budget run; the biggest untested lever in the
-  decide layer. **Unblocked 2026-11-05** — per-variant caps landed AND the
-  `--block output_screen` dedicated-run seam (registry restricted to the
-  screen ladder + zero-call anchors; 6 variants vs 23; dry-run verified).
-  Command shape: `python -m src.lab run --rounds 1 --budget-calls 300
-  --target claim_survival --block output_screen`. A human go spends real
-  budget (precedent ≤$5).
+- [x] **Output-screen calibration run** — DONE 2026-11-06
+  (`data/lab/report-20261106T015835Z.md`, 300/300 calls, `--block
+  output_screen`): the **lab's first-ever non-empty proposal** —
+  `output_screen.review_threshold 0.35 -> 0.25`, i.e. review MORE. On the
+  three rungs' identical 1,351-row abnormal.ai subset: incumbent accepts
+  1,341 rows at precision 0.045; review_loose accepts 16 at precision 1.000
+  (recall 0.262); tightening (0.45) and dropping sooner (action 0.60, 44% of
+  rows killed) both scored worse — refuted. The 32%-review-volume question
+  is answered: the screen was UNDER-reviewing, not over-reviewing. Caveats
+  recorded: single-domain coverage (caps exhausted abnormal.ai first —
+  per-domain round-robin is the runner fix, open below); recall 0.262 means
+  the review queue grows to ~77% of batches. **Applying
+  `review_threshold: 0.25` to `config/decide.yaml` is a human step** (the
+  proposal YAML names it; never auto-applied).
+- [ ] **Lab replay: per-domain round-robin under per-variant caps** — the
+  2026-11-06 screen run exposed the next starvation layer: capped variants
+  iterate batches in package order, so all three screen rungs spent their
+  entire caps on abnormal.ai (1,351 rows) and never reached the other 5
+  scored domains. Round-robin the replay's batch iteration across domains
+  (or shuffle deterministically) so capped variants sample every domain —
+  the subset-comparison honesty of future runs depends on it.
 - [x] **Human review pass on the 9 in-band claims** — DONE 2026-11-05
   (`data/probe/G5_INBAND_REVIEW_WORKSHEET.md`): **9/9 REJECT, every one
   `not-a-need (self-description)`, 0 KEEP.** The first-ever ground-truth

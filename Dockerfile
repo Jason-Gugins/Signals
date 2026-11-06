@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 ########## base: offline CLI job runner (no browsers) ##########
-FROM python:3.12-slim-bookworm AS base  # trixie (current 3.12-slim alias) renamed libasound2/libcups2/libatk1.0-0 to t64 variants; bookworm keeps the browser apt list valid
+# bookworm, not trixie (current 3.12-slim alias): trixie renamed libasound2/libcups2/libatk1.0-0 to t64 variants; bookworm keeps the browser apt list valid
+FROM python:3.12-slim-bookworm AS base
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
     HF_HOME=/opt/signals-hf
 WORKDIR /app

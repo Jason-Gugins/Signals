@@ -400,6 +400,80 @@ def test_small_budget_bounds_every_decider_call(tmp_path, offline_seams):
     assert "partial" in text  # exhaustion mid-round is an honest partial
 
 
+def test_per_variant_caps_stop_one_greedy_variant_from_starving_the_rest(
+    tmp_path, offline_seams, monkeypatch
+):
+    """The 2026-10-31 defect: one call-hungry variant consumed 282/300 calls
+    and 22 of 23 variants finished partial. The runner now divides the pot —
+    each jev variant's replay cap is recomputed at its turn as
+    max(variant_floor, remaining // jev_left) — so no single variant can eat
+    the total and every variant still gets a shot while budget lasts."""
+    world = make_world(tmp_path)
+    seen: list[tuple[bool, int]] = []
+
+    def greedy_replay(variant, rows, decider, *, budget_calls, out_dir, base_cfgs):
+        is_jev = variant.get("requires_replay") == "jev"
+        seen.append((is_jev, int(budget_calls)))
+        # greedy: consume the ENTIRE cap it was granted
+        return {
+            "variant_id": variant["id"],
+            "stage": variant.get("stage"),
+            "score": None,
+            "components": {},
+            "calls": int(budget_calls),
+            "status": "complete",
+        }
+
+    monkeypatch.setattr("src.lab.replay.replay_variant", greedy_replay)
+    rc = lab_main.main(run_args(world, "--rounds", "1", "--budget-calls", "300"))
+    assert rc == 0
+    from src.lab import variants as variants_mod
+
+    n_jev = sum(
+        1 for v in variants_mod.default_variants()
+        if v.get("requires_replay") == "jev"
+    )
+    assert n_jev >= 2
+    jev_caps = [c for is_jev, c in seen if is_jev]
+    assert len(jev_caps) >= n_jev
+    # every jev variant got a shot (the floor) — none starved to zero
+    assert all(c >= 1 for c in jev_caps), f"starved variant: {jev_caps}"
+    # the pot is never overshot, and no variant can eat it
+    assert sum(caps for _, caps in seen) <= 300
+    assert max(jev_caps) <= max(2, 300 // n_jev), f"greedy cap leaked: {jev_caps}"
+
+
+def test_variant_floor_flag_guarantees_a_minimum_per_variant(
+    tmp_path, offline_seams, monkeypatch
+):
+    """--variant-floor N overrides the equal share from below: even when the
+    divided share would be smaller, every jev variant is granted at least N
+    calls (while the pot lasts)."""
+    world = make_world(tmp_path)
+    seen: list[tuple[bool, int]] = []
+
+    def frugal_replay(variant, rows, decider, *, budget_calls, out_dir, base_cfgs):
+        is_jev = variant.get("requires_replay") == "jev"
+        seen.append((is_jev, int(budget_calls)))
+        return {
+            "variant_id": variant["id"],
+            "stage": variant.get("stage"),
+            "score": None,
+            "components": {},
+            "calls": 0,  # frugal: spends nothing, unspent budget rolls forward
+            "status": "complete",
+        }
+
+    monkeypatch.setattr("src.lab.replay.replay_variant", frugal_replay)
+    rc = lab_main.main(
+        run_args(world, "--rounds", "1", "--budget-calls", "300", "--variant-floor", "40")
+    )
+    assert rc == 0
+    jev_caps = [c for is_jev, c in seen if is_jev]
+    assert len(jev_caps) >= 2
+    assert all(c >= 40 for c in jev_caps), f"floor not honored: {jev_caps}"
+
+
 def test_run_skips_network_steps_honestly_without_key_or_consent(
     tmp_path, capsys, monkeypatch
 ):

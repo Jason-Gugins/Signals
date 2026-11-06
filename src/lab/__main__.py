@@ -124,6 +124,10 @@ def build_parser() -> argparse.ArgumentParser:
                             help="round loop length (the plateau rule may stop earlier)")
             sp.add_argument("--budget-calls", type=int, default=100,
                             help="TOTAL call ceiling across proposers + prescreen + replay")
+            sp.add_argument("--variant-floor", type=int, default=2,
+                            help="minimum calls granted to each jev variant per round "
+                                 "(the pot is divided budget/variants with this floor; "
+                                 "guards against one greedy variant starving the rest)")
             sp.add_argument("--target", choices=list(TARGETS), default=DEFAULT_TARGET,
                             help="supervised target (see src/lab/targets.py)")
             sp.add_argument("--domains", nargs="*", default=None,
@@ -517,6 +521,7 @@ def _one_round(
     run_id: str,
     out_dir: Path,
     questions: list[dict],
+    variant_floor: int = 2,
 ) -> tuple[dict, list[dict]]:
     """One autoresearch round. Returns (round_dict, next_round_questions);
     raises only to the runner's per-round belt (recorded, never past)."""
@@ -620,6 +625,15 @@ def _one_round(
         _discovered_variant(s, i, index) for i, s in enumerate(survivors)
     ]
     all_variants = variants_mod.default_variants() + discovered
+    # Per-variant budget caps (the 2026-10-31 defect: one greedy variant ate
+    # 282/300 calls and 22 of 23 variants finished partial). The pot is
+    # divided across the round's jev variants — cap = max(variant_floor,
+    # remaining // jev_left), recomputed at each variant's turn so unspent
+    # budget rolls forward to the later (often call-hungrier) variants.
+    jev_pending = [
+        v["id"] for v in all_variants
+        if v.get("requires_replay") == "jev" and decider is not None
+    ]
     round_dir = Path(out_dir) / "rounds" / run_id / f"round-{index}"
     specs: dict = rd["variant_specs"]
     for variant in all_variants:
@@ -643,7 +657,12 @@ def _one_round(
                 "status": "skipped",
             })
             continue
-        limit = budget.remaining if engine == "jev" else 0
+        if engine == "jev":
+            share = budget.remaining // max(1, len(jev_pending))
+            limit = min(budget.remaining, max(variant_floor, share))
+            jev_pending = [i for i in jev_pending if i != variant["id"]]
+        else:
+            limit = 0
         result = replay_mod.replay_variant(
             variant,
             rows,
@@ -898,6 +917,7 @@ def _cmd_run(args) -> int:
                 run_id=run_id,
                 out_dir=Path(args.out_dir),
                 questions=questions,
+                variant_floor=args.variant_floor,
             )
         except Exception as exc:  # NEVER raises past a round
             logger.error("lab: round {} crashed (recorded): {}: {}", index, type(exc).__name__, exc)

@@ -12,6 +12,7 @@ import pytest
 from src.core.config import Config
 from src.core.models import Account
 from src.identity.linkedin_ids import LinkedinSlugResolver
+from src.sources.linkedin_db.collector import scraper_python
 
 
 class FakeRegistry:
@@ -38,10 +39,14 @@ CREATE TABLE companies (
 def scraper_env(tmp_path: Path):
     """Fake scraper checkout: venv exe + sqlite DB with a companies table."""
     cwd = tmp_path / "Linkedin"
-    venv = cwd / ".venv" / "Scripts"
-    venv.mkdir(parents=True)
-    exe = venv / "python.exe"
-    exe.write_text("", encoding="utf-8")
+    # Both venv layouts: scraper_python resolves per-platform (Scripts on
+    # Windows, bin on POSIX); the asserted exe follows the same helper the
+    # scraper seam uses, so the fixture stays platform-neutral.
+    (cwd / ".venv" / "Scripts").mkdir(parents=True)
+    (cwd / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
+    (cwd / ".venv" / "bin").mkdir(parents=True)
+    (cwd / ".venv" / "bin" / "python").write_text("", encoding="utf-8")
+    exe = scraper_python(cwd)
     db_path = cwd / "data" / "linkedin.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)

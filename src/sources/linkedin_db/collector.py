@@ -66,6 +66,24 @@ class LinkedinDbSource(SourceAdapter):
         return out
 
 
+def scraper_python(cwd: Path, platform: str | None = None) -> Path:
+    """Resolve the sibling scraper checkout's venv python.
+
+    Windows layout (.venv/Scripts/python.exe) stays the default so local
+    behavior is unchanged; POSIX containers resolve .venv/bin/python. An
+    explicit SIGNALS_SCRAPER_PYTHON wins outright (custom layouts, CI).
+    Callers keep their own .exists() no-op guard.
+    """
+    import os
+
+    env_exe = os.environ.get("SIGNALS_SCRAPER_PYTHON")
+    if env_exe:
+        return Path(env_exe)
+    plat = platform if platform is not None else os.name
+    rel = ".venv/Scripts/python.exe" if plat == "nt" else ".venv/bin/python"
+    return cwd / rel
+
+
 def request_linkedin_deepen(config: Config, slug: str, **kw):
     """Run the scraper's single-company extract as a subprocess.
 
@@ -79,7 +97,7 @@ def request_linkedin_deepen(config: Config, slug: str, **kw):
             from loguru import logger
             logger.warning("linkedin scraper checkout not found at {} — deepen skipped", cwd)
             return None
-        exe = cwd / ".venv" / "Scripts" / "python.exe"
+        exe = scraper_python(cwd)
         if not exe.exists():
             from loguru import logger
             logger.warning("scraper venv python missing at {} — deepen skipped", exe)

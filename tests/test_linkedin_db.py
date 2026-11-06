@@ -54,8 +54,12 @@ def test_deepen_failure_path(monkeypatch, tmp_path):
     from src.core.config import Config
     cfg = Config()
     cfg.external_dbs.linkedin_cli_cwd = str(tmp_path / "Linkedin")
+    # Both venv layouts: the collector resolves per-platform (Scripts on
+    # Windows, bin on POSIX), so the fake checkout must carry either.
     (tmp_path / "Linkedin" / ".venv" / "Scripts").mkdir(parents=True)
     (tmp_path / "Linkedin" / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
+    (tmp_path / "Linkedin" / ".venv" / "bin").mkdir(parents=True)
+    (tmp_path / "Linkedin" / ".venv" / "bin" / "python").write_text("", encoding="utf-8")
     called = {}
 
     def boom(*a, **k):
@@ -73,8 +77,12 @@ def test_deepen_invokes_extract_not_enrich(monkeypatch, tmp_path):
     the single-company entry point. argv must use extract + --url."""
     calls = {}
     fake_root = tmp_path / "Linkedin"
+    # Both venv layouts: the collector resolves per-platform (Scripts on
+    # Windows, bin on POSIX), so the fake checkout must carry either.
     (fake_root / ".venv" / "Scripts").mkdir(parents=True)
     (fake_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
+    (fake_root / ".venv" / "bin").mkdir(parents=True)
+    (fake_root / ".venv" / "bin" / "python").write_text("", encoding="utf-8")
 
     class P:
         returncode = 0
@@ -102,8 +110,12 @@ def test_deepen_max_people_not_sent_to_extract(monkeypatch, tmp_path):
     would exit 2. The kwarg is accepted for signature stability but not sent."""
     captured = {}
     fake_root = tmp_path / "Linkedin"
+    # Both venv layouts: the collector resolves per-platform (Scripts on
+    # Windows, bin on POSIX), so the fake checkout must carry either.
     (fake_root / ".venv" / "Scripts").mkdir(parents=True)
     (fake_root / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
+    (fake_root / ".venv" / "bin").mkdir(parents=True)
+    (fake_root / ".venv" / "bin" / "python").write_text("", encoding="utf-8")
 
     class P:
         returncode = 0

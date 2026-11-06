@@ -899,14 +899,43 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   0.54–0.80-at-recall-1.000), UNTESTED on databricks/rillet (both runs
   predate the rotation fix; see the box below). No threshold move is
   justified yet — incumbent stands.
-- [ ] **Third output_screen run post-rotation-fix (one $5 go)** — complete
-  the 6-domain picture before any threshold decision: `python -m src.lab
-  run --rounds 1 --budget-calls 300 --target claim_survival --block
-  output_screen` now samples all 6 domains (verified on the real corpus:
-  first-94 batches span 6 domains, databricks 4 + rillet 7 included). It
-  re-tests 0.45 (the DTC-favorable rung) with vendor-domain coverage.
-  Decision after it: apply 0.45 / keep incumbent / design a per-domain-type
-  screen.
+- [x] **Third output_screen run post-rotation-fix** — DONE 2026-11-06
+  (`report-20261106T175321Z.md`, 300/300 calls, all 6 domains sampled): the
+  lab's proposal **flipped to `review_threshold 0.45`** (0.415 vs incumbent
+  0.369; 0.25 collapsed to 0.298). Per-domain verdict vs incumbent on
+  identical rows: strictly better on abnormal (0.180/0.262 vs 0.093/0.262);
+  big precision upgrades with recall cost on brooklinen (0.990/0.617 vs
+  0.684/1.000) and brumate (0.938/0.698 vs 0.581/1.000); strictly WORSE on
+  bubbleskincare (0.627/0.299 vs 0.829/0.977 — the highest-positive domain);
+  marginal on rillet (screen hazards hot there: wrong_entity ≥0.45 on 80/123
+  rows at BOTH thresholds); databricks indeterminate (its 24 positives were
+  unsampled). Full table: decide-lab record addendum 6.
+- [ ] **DECIDE: output_screen.review_threshold 0.45 — apply, keep incumbent,
+  or per-domain screen** — the calibration is complete; this is a product
+  decision, not a measurement one. FOR 0.45: precision on accepted evidence
+  rises sharply on the ICP domains (0.58–0.68 → 0.94–0.99); reviewed ≠
+  dropped, so the recall cost is recoverable IF the review queue is actually
+  worked (~65–77% of batches held ≈ several thousand rows per corpus pass —
+  solo-operator workload is the real price). AGAINST: bubbleskincare
+  regression (recall 0.977 → 0.299 on the domain with the most positives);
+  the screen's hazard signal is domain-shaped, so one global knob cannot fit
+  all six domains — the residual lever is the screen QUESTION design
+  (calibrate across vendor-marketing vs DTC-marketing prose), recorded as
+  the follow-on box. The weighted aggregate ranked the globally-wrong rung
+  first in two of three runs — per-domain variant tables in the report are
+  the reliability fix (box below).
+- [ ] **Screen question design: calibrate hazards across domain types** —
+  the screen's wrong_entity/out_of_excerpt nouls behave differently on
+  vendor-marketing prose (rillet/abnormal: hot, 0.27–0.43 mean) vs some DTC
+  prose (bubbleskincare: fires on good batches). The 0.45-vs-incumbent
+  bubbleskincare regression is a question-calibration artifact, not a
+  threshold artifact. Design a screen question set that separates "batch
+  hazards" (wrong entity, unfounded excerpt) from "vendor self-description
+  style" (which is what the need-density probe says most of the corpus IS).
+- [ ] **Lab report: per-domain variant tables** — twice in three runs the
+  weighted aggregate ranked the globally-wrong rung first (0.25, both pre-
+  analysis). Add a per-domain precision/recall table per variant to
+  report.py's build_report so the aggregate cannot hide a domain collapse.
 - [x] **Lab replay: per-domain round-robin under per-variant caps** — DONE
   2026-11-06: `_round_robin_by_domain` at the `replay_variant` dispatch point
   (sorted domains, stable within each; the g4 batcher groups by

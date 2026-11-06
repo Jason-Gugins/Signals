@@ -1,0 +1,20 @@
+# Local-as-is note: this stack is OPTIONAL. Running `python -m src.cli` in the
+# repo venv remains the primary path; this file only packages the same CLI.
+services:
+  signals:
+    image: signals:browser
+    build:
+      context: .
+      target: browser
+    env_file: [.env]           # read at run time; never baked into the image
+    working_dir: /work
+    volumes:
+      - signals-data:/work/data  # NAMED VOLUME ONLY — never bind-mount a live
+                                 # data/ dir (cross-OS SQLite WAL corruption)
+    command: ["doctor", "--no-network"]
+    # Scheduler is deliberately NOT a long-running service (watch.py's own
+    # docstring recommends OS cron). Drive one-shots from host cron:
+    #   */60 * * * * docker compose -f /path/to/docker-compose.yml run --rm signals watch --once
+    #   7 3 * * *   docker compose -f /path/to/docker-compose.yml run --rm signals prune
+volumes:
+  signals-data:

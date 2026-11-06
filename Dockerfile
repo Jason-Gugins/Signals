@@ -26,7 +26,7 @@ FROM base AS browser
 USER root
 ENV SIGNALS_XVFB=1 PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      xvfb libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+      xvfb xauth libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
       libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
       libasound2 fonts-liberation \
     && rm -rf /var/lib/apt/lists/* \

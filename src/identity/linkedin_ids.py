@@ -29,6 +29,7 @@ from loguru import logger
 
 from src.core.config import Config
 from src.core.models import Account
+from src.sources.linkedin_db.collector import scraper_python
 
 COMPANIES_QUERY = (
     "SELECT linkedin_url, linkedin_slug, domain FROM companies "
@@ -46,7 +47,7 @@ class LinkedinSlugResolver:
 
     def resolve_all(self, accounts: list[Account]) -> dict[str, str | None]:
         cwd = Path(self.config.external_dbs.linkedin_cli_cwd)
-        exe = cwd / ".venv" / "Scripts" / "python.exe"
+        exe = scraper_python(cwd)
         if not cwd.exists() or not exe.exists():
             logger.warning(
                 "linkedin scraper checkout not found at {} — slug resolution skipped", cwd

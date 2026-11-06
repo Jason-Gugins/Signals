@@ -93,6 +93,85 @@ Notes:
 | TLS resumption / pooling | yes | partial (library defaults) |
 | 304 revalidation, cookie jar, ghost, routing | yes | yes (pure Python) |
 
+## Build (Linux/Ubuntu)
+
+Verified on **Ubuntu 24.04 (WSL2, x86_64), Python 3.12.3** — 2026-11-06. The
+crate is platform-clean (zero `cfg(windows)` gates); the ClientHello is
+byte-emergent from the same vendored BoringSSL, so fingerprint parity
+transfers.
+
+Prerequisites (LIVE downloads, all free):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential cmake ninja-build clang libclang-dev \
+  perl curl ca-certificates rsync python3.12-venv
+# Go 1.24+ TARBALL — apt's golang-go is too old for BoringSSL's build:
+curl -fsSL https://go.dev/dl/go1.24.5.linux-amd64.tar.gz | sudo tar -C /usr/local -xz
+# Rust (stable, minimal profile):
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+```
+
+NASM is **Windows-only** — Linux BoringSSL generates assembly via perl.
+
+Cold-cache ordering note: on a fresh machine the ALPS patch would run before
+boring-sys is even downloaded. Vendor first, then build through the helper:
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+cd src/antibot/engine && cargo fetch && cd -   # download sources, no compile
+.venv/bin/python tools/build_antibot.py         # patches ALPS, then builds
+```
+
+Expected: `Patched ALPS codepoint 17513 -> 17613 in ~/.cargo/registry/...`,
+then `engine_version: 0.1.0` + `tls: OpenSSL 1.1.1 (compatible; BoringSSL)`.
+Measured first compile in the WSL2 sandbox: **< 5 minutes**.
+
+### WSL2 sandbox workflow (never build under /mnt/c)
+
+One-way rsync from the Windows checkout into the WSL filesystem (9P I/O +
+SQLite WAL are the hazards; nothing is ever committed from the sandbox):
+
+```bash
+mkdir -p ~/signals-linux
+rsync -a --delete --exclude .git --exclude .venv --exclude data --exclude tmp \
+  --exclude PDFS --exclude .zcode --exclude .hermes --exclude .pytest_cache \
+  --exclude .ruff_cache --exclude signals.egg-info --exclude docs \
+  --exclude '*.pdf' --exclude 'src/antibot/engine/target' \
+  --exclude '__pycache__' \
+  /mnt/c/Users/Jason/Documents/AI/Signals/ ~/signals-linux/
+```
+
+**`--exclude '__pycache__'` is load-bearing**: stale Windows-bytecode `.pyc`
+files (with `C:\...` co_filenames) make `inspect.getsource` fail inside
+pytest, which silently defeats conftest's source-sniffing network-guard
+escape — dozens of respx-mocked tests then red-herring as "network access in
+tests". Same lesson as the Docker `.dockerignore` (`**/__pycache__`).
+
+**WSL2 ships no IPv6 egress by default.** Three live-connect tests
+(resumption ×2, happy-eyeballs timing) dial AAAA addresses the engine's own
+resolver (not getaddrinfo) obtains, and a v6 dial fails with `os error 101/99`
+instead of falling back to the v4 winner. Until the engine's eyeballs learn
+v6 fallback (out of scope for this port — recorded in TODO), disable v6 in
+the sandbox:
+
+```bash
+echo 'net.ipv6.conf.all.disable_ipv6 = 1'  | sudo tee /etc/sysctl.d/99-wsl-noipv6.conf
+echo 'net.ipv6.conf.default.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.d/99-wsl-noipv6.conf
+```
+
+Applied at VM boot by systemd-sysctl; with it, the full offline lane is
+green on Linux.
+
+### Verification results on Linux (2026-11-06)
+
+- Antibot suites (engine/cookies/transport/ghost/routing/integration): **green**.
+- Fixture parity (chrome_fingerprint_reference.json): **green**.
+- LIVE parity vs tls.peet.ws (`-m antibot_live`): **3 passed** — JA4/JA3
+  carry over byte-for-byte.
+- Full offline lane (`-m "not antibot_live and not allow_network and not
+  live_fetch"`): **exit 0** — same lane as the Windows gate.
+
 ## Verification
 
 ```powershell

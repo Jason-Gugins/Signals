@@ -379,3 +379,18 @@ Two new demo queries (vp-sales-chicago people shape; recently-funded-compliance 
 - **Variant B (dehydrated)**: same jar, same fetcher — 10 rendered h3 tiles with encrypted `/goto?url=CAES…` hrefs (protobuf-framed but HIGH-ENTROPY payload — Task 1's "not plaintext-decodable" confirmed via decode attempt), ZERO "2003" records, no AF_initDataCallback. Titles + `VuuXrf` site-attribution lines extract fine.
 - **The flip is TIME-based, not query- or session-based**: the head-of-growth query carried 12 records at 21:07 and was dehydrated at ~21:25 (same jar, same everything). Browser-search-then-replay does NOT force variant A. Retries (3x consecutive) do not either.
 - Consequence for the engine: variant A windows produce full pipeline results; variant B windows produce explicit `empty` ledger rows after attempts (never fake results — the record-gated parser refuses). ddg_lite remains the fallback engine. Future option: a variant-B extraction mode (title + VuuXrf site-attribution pairs — domain names extracted cleanly for the funding query: checkmarble.com, Dealroom, Axios…), possibly paired with the identity waterfall for name→domain. Raw dumps: tmp/xray_demo_*.html.
+
+## Brave Search API canary (improvement plan Task 5 Step 0, 2026-11-06)
+
+Script: `tmp/probe_brave_api_canary.py` (throwaway, gitignored; key loaded from `.env` via dotenv, masked in output, never saved). Transport: `CurlCffiFetcher` chrome-TLS + `X-Subscription-Token` header — the exact Task 5 adapter posture. Budget: **6 of 6 requests** (5 probe-record operator queries + 1 plain control), 8 s pacing, zero retries, every cell classified from the JSON payload.
+
+| # | Query | Status | Results | Operator fidelity |
+|---|---|---|---|---|
+| q1 | `site:linkedin.com/in "head of growth" "Austin"` | 200 | 10 | **HONORED** — 10/10 on linkedin.com, 10 distinct /in/ slugs, 7/10 carry both exact phrases (rest loose-but-on-topic ranking) |
+| q2 | `site:linkedin.com/in "we only hire senior"` | 200 | 10 | **HONORED** — 10/10 linkedin.com, 10 slugs, 10/10 exact phrase |
+| q3 | `"we're hiring" "head of sales"` | 200 | 10 | **HONORED** — all 10 on-topic hiring/Head-of-Sales pages (job boards); mechanical exact-misses are apostrophe-encoding variance (`WeÆre` / `&#x27;re` / `?re`) in descriptions, not operator-mangling |
+| q4 | `"recently funded" "compliance software"` | 200 | 2 | **HONORED** — both results on-target funding-directory pages (vcbacked.co compliance); Brave honestly returned 2 rather than padding with de-operatored garbage (Bing's failure mode) |
+| q5 | `intitle:"head of growth" site:linkedin.com/in` | 200 | 5 | **HONORED** — 5/5 linkedin.com slugs, 5/5 titles carry the intitle: phrase |
+| ctrl | `stripe official website` (plain) | 200 | 10 | normal organic shape |
+
+**VERDICT: GO.** Meets the probe-record engine bar (≥5 organic results on ≥3 of 5 queries: q1/q2/q3/q5; operators honored on every class). Deterministic 200-JSON per query — vs ddg_lite's stochastic 202/403 gate and ~1 result/query, and vs Bing's silently-dropped operators. Snippets present on every result (restores the google_state gap). Parser note: descriptions carry `<strong>` tags + HTML entities (`&#x27;`) — Task 5's `_parse_brave_api` routes descriptions through `_text()` (tag-strip + unescape), so they arrive clean. Bodies: `tmp/probe_brave_api_*.json` (gitignored). Budget disclosure: 6 requests to api.search.brave.com total.

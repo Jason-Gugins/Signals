@@ -120,18 +120,25 @@ def run_arm(arm: str, model: str, docs: list[dict], decider, *,
     rows: list[dict] = []
 
     for spec in docs:
-        raw = llm_implement.call_implementer(
-            llm_implement.build_extraction_messages(spec["doc_id"], spec["text"]),
-            model=model, base_url=bulk_base_url, api_key=api_key,
-            timeout_s=timeout_s,
-        )
-        claims = llm_implement.parse_claims(raw, batch_doc_id=spec["doc_id"])
-        pairs = llm_implement.screen_and_gate_claims(
-            claims, batch_doc_id=spec["doc_id"], doc_text=spec["text"],
-            decider=decider, gates_cfg=citation_cfg, ledger=ledger,
-            run_id=run_id, mode="enforce", screen_cfg=screen_cfg,
-            persist_claims=False,
-        )
+        try:
+            raw = llm_implement.call_implementer(
+                llm_implement.build_extraction_messages(spec["doc_id"], spec["text"]),
+                model=model, base_url=bulk_base_url, api_key=api_key,
+                timeout_s=timeout_s,
+            )
+            claims = llm_implement.parse_claims(raw, batch_doc_id=spec["doc_id"])
+            pairs = llm_implement.screen_and_gate_claims(
+                claims, batch_doc_id=spec["doc_id"], doc_text=spec["text"],
+                decider=decider, gates_cfg=citation_cfg, ledger=ledger,
+                run_id=run_id, mode="enforce", screen_cfg=screen_cfg,
+                persist_claims=False,
+            )
+        except Exception as exc:
+            # one doc's failure (rate limit, 402 credits, timeout) must not
+            # lose the arm's other rows — skip and continue, counted.
+            print(f"  [{arm}] doc {spec['doc_id'][:12]}… failed: "
+                  f"{type(exc).__name__}: {exc}")
+            continue
         accepted = [c for c, _d in pairs]
         for claim in accepted:
             excerpt = claim_excerpt(spec["text"], claim)
@@ -184,7 +191,8 @@ def compare_arms(a: dict, b: dict) -> dict:
 
 
 MODEL_A = "deepseek/deepseek-v4.1-flash"
-MODEL_B = "deepseek/deepseek-v4.1"
+MODEL_B = "z-ai/glm-5.3"
+MODEL_C = "anthropic/claude-sonnet-5.5"
 COST_PER_DOMAIN_USD = 0.33
 
 
@@ -225,6 +233,8 @@ def probe_main(argv: list[str] | None = None) -> int:
     ap.add_argument("--vendor", type=int, default=2)
     ap.add_argument("--dtc", type=int, default=6)
     ap.add_argument("--model-b", default=MODEL_B)
+    ap.add_argument("--model-c", default=MODEL_C,
+                    help="a third (frontier) arm; empty string skips it")
     ap.add_argument("--budget-usd", type=float, default=6.0)
     ap.add_argument("--force", action="store_true",
                     help="run even when the estimate exceeds --budget-usd")
@@ -235,13 +245,21 @@ def probe_main(argv: list[str] | None = None) -> int:
     # 1) frozen corpus
     rows = extract_rows(Path(args.db), Path(args.dossiers), raw_dir=args.raw_dir)
     domains_all = sorted({str(r.get("domain")) for r in rows if r.get("domain")})
-    domains = stratify_domains(domains_all, n_vendor=args.vendor, n_dtc=args.dtc)
+    # stratify over domains that ACTUALLY have eligible docs — a selected
+    # domain with zero joined docs is a wasted budget slot (2026-11-06:
+    # 3 of 6 chosen DTC domains had none)
+    eligible = [d for d, n in Counter(
+        d["domain"] for d in collect_docs(rows, domains_all,
+                                          per_domain=args.per_domain)).items()
+        if n >= 5]
+    domains = stratify_domains(eligible, n_vendor=args.vendor, n_dtc=args.dtc)
     docs = collect_docs(rows, domains, per_domain=args.per_domain)
     per_dom = Counter(d["domain"] for d in docs)
     est = estimate_cost(len(domains), arms=2, cost_per_domain_usd=COST_PER_DOMAIN_USD)
     print(f"corpus: {len(rows)} rows | domains selected ({len(domains)}): {', '.join(domains)}")
     print(f"docs: {len(docs)} ({dict(per_dom)}) | per-domain cap {args.per_domain}")
-    print(f"arms: A={MODEL_A} (shipped) | B={args.model_b} (family upgrade)")
+    print(f"arms: A={MODEL_A} (shipped) | B={args.model_b} (family upgrade)"
+          + (f" | C={args.model_c} (frontier)" if args.model_c else ""))
     print(f"cost estimate: ${est:.2f} implementer (observed ${COST_PER_DOMAIN_USD:.2f}/domain/arm)"
           f" | budget cap ${args.budget_usd:.2f}")
     if args.dry_run:
@@ -268,15 +286,20 @@ def probe_main(argv: list[str] | None = None) -> int:
         return 2
 
     # 3) verify arm B's model id exists BEFORE spending (1-token call)
-    err = verify_model_id(args.model_b, api_key)
-    if err:
-        print(f"ABORT: arm-B model id failed verification: {err}", file=sys.stderr)
-        return 2
+    for mid in (args.model_b, args.model_c):
+        if mid:
+            err = verify_model_id(mid, api_key)
+            if err:
+                print(f"ABORT: arm model id failed verification ({mid}): {err}",
+                      file=sys.stderr)
+                return 2
 
     # 4) both arms over the same docs
     gates_cfg = (decide_cfg.get("decider") or {}).get("gates") or {}
     out_dir = Path(args.out_dir) / f"tierprobe-{_ts()}"
     arms = [("arm-a", MODEL_A), ("arm-b", args.model_b)]
+    if args.model_c:
+        arms.append(("arm-c", args.model_c))
     summaries = {}
     for arm, model in arms:
         print(f"--- {arm}: {model} over {len(docs)} docs ---")
@@ -288,7 +311,11 @@ def probe_main(argv: list[str] | None = None) -> int:
         print(f"{arm}: {len(rows_out)} accepted claims | {summaries[arm]}")
 
     # 5) verdict + summary
-    comparison = compare_arms(summaries["arm-a"], summaries["arm-b"])
+    # the verdict compares arm A against the STRONGEST challenger (best p90)
+    challengers = {k: v for k, v in summaries.items() if k != "arm-a"}
+    best = max(challengers, key=lambda k: challengers[k].get("p90") or 0)
+    comparison = compare_arms(summaries["arm-a"], summaries[best])
+    comparison["best_arm"] = best
     summary = _render_summary(docs, domains, summaries, comparison)
     summary_path = out_dir / "summary.md"
     summary_path.write_text(summary, encoding="utf-8", newline="\n")

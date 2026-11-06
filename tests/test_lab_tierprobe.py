@@ -157,7 +157,8 @@ def test_cli_dry_run_prints_plan_and_spends_nothing(tmp_path, monkeypatch, capsy
     assert rc == 0
     out = capsys.readouterr().out
     assert "DRY-RUN" in out and "estimate" in out.lower()
-    assert "deepseek/deepseek-v4.1-flash" in out and "deepseek/deepseek-v4.1" in out
+    assert "deepseek/deepseek-v4.1-flash" in out and "z-ai/glm-5.3" in out
+    assert "anthropic/claude-sonnet-5.5" in out
     out_dir = tmp_path / "out"
     assert not out_dir.exists() or not list(out_dir.glob("*claims*.jsonl"))
 

@@ -917,28 +917,39 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   incumbent anchor replays recorded choice answers SCREENLESS (the ledger
   never persisted screen nouls). Rung-vs-rung comparisons stay
   threshold-clean; rung-vs-incumbent does not.
-- [ ] **DECIDE: output_screen.review_threshold 0.45 — apply, keep incumbent,
-  or per-domain screen** — **ON HOLD pending the missing comparator** (the
-  `screen_shipped` anchor box below): every rung-vs-incumbent delta in all
-  three runs mixes threshold effect + fresh-call variance + prompt
-  interaction, so no config decision is supportable from them yet. What
-  stands: 0.25 refuted (threshold-driven holding, consistent across runs);
-  tight beats loose everywhere tested (5 vs 102 accepted on bubbleskincare).
-  FOR 0.45 when re-measured: precision rises sharply on ICP domains;
-  reviewed ≠ dropped, so recall cost is recoverable IF the review queue is
-  worked (solo-operator workload is the real price).
-- [ ] **Lab registry: `screen_shipped` anchor variant + persist screen
-  nouls** — two gaps the dissection exposed: (1) the registry has NO
-  empty-delta output_screen variant (ask=True at shipped 0.35/0.70), so
-  screen rungs have no same-prompt-shape comparator — add it
-  (`variants.py`, one entry, zero new code in replay); (2) the pipeline's
-  citation ledger rows persist claim choices but NOT the screen nouls
-  (out_of_excerpt/wrong_entity answers) — persist them (the
-  `lab.persist_claims` pattern) so zero-call anchors can replay the shipped
-  screen honestly. Also worth a ~20-claim manual audit of the 214
-  recorded-accepted → fresh-says_nothing flips: are the fresh answers
-  BETTER judgments (marketing fluff correctly dismissed) or variance noise?
-  That decides whether fresh-floor conservatism is a feature.
+- [x] **DECIDE: output_screen.review_threshold 0.45** — RESOLVED
+  2026-11-06 by the unconfounded fourth run (addendum 8, `report-20261106T
+  203732Z.md`): vs the `screen_shipped` anchor (same prompt shape,
+  fresh-vs-fresh), the [0.35, 0.45) band holds almost exclusively recorded
+  survivors at flat precision — brooklinen 35→78 accepted (1.000/0.255 →
+  1.000/0.569), brumate 48→60 (0.917/0.512 → 0.933/0.651), bubbleskincare
+  34→53 (1.000/0.201 → 1.000/0.314); rillet identical (hazards above every
+  tested threshold); databricks unsampled positives. **The shipped screen
+  over-holds; applying `review_threshold: 0.45` raises recall, keeps
+  precision, and SHRINKS the review queue.** The "bubbleskincare regression"
+  of addendum 6 was the screenless-anchor artifact. Applying is the human
+  step: one-line change to the `output_screen` block in `config/decide.yaml`.
+  Residual caveat: one run's data; the abnormal fresh-vs-at-collection
+  divergence is an open question (addendum 8a).
+- [x] **Lab registry: `screen_shipped` anchor variant + recorded-noul
+  override** — DONE 2026-11-06 (`4ec60c1`): the empty-delta output_screen
+  comparator (ask=True at shipped 0.35/0.70) is registered and rides
+  `--block output_screen`; the zero-call g4 anchor now applies recorded
+  screen nouls where they exist — and they were ALREADY persisted by the
+  pipeline (gates.py:1125-1127 records both hazard answers per batch row;
+  older corpus packages simply predate the screen, so there was no
+  persistence gap to close). Anchor verified in the fourth run: it
+  reproduces recorded outcomes exactly (0.685, precision/recall 1.000).
+- [ ] **Lab calibration criterion: replace circular agreement-with-recorded**
+  — with the faithful anchor, the weighted score now measures fidelity to
+  recorded outcomes (the anchor IS the target), so fresh-call variants can
+  never beat it and proposals come back EMPTY forever (the fourth run's
+  did — correctly). The lab needs non-circular ground truth to certify
+  improvements: the ~20-claim audit of the 214 recorded-accepted →
+  fresh-says_nothing flips is the cheapest first step (are the fresh
+  judgments BETTER — marketing fluff correctly dismissed — or variance
+  noise?), and any future promotion calibration needs human labels (the
+  worksheet pattern) beyond the current 9.
 - [ ] **Screen question design: calibrate hazards across domain types** —
   the screen's wrong_entity/out_of_excerpt nouls behave differently on
   vendor-marketing prose (rillet/abnormal: hot, 0.27–0.43 mean) vs some DTC

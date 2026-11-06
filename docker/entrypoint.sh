@@ -6,7 +6,7 @@
 # general-purpose runner for verification steps like Task 8's.
 set -e
 case "$1" in
-  ""|doctor|init|status|accounts|seed|resolve|collect|score|brief|export|intel|run|watch|index|prune|digest)
+  ""|doctor|init|status|accounts|seed|resolve|collect|score|brief|export|intel|run|watch|index|prune|digest|-*)
     if [ "$SIGNALS_XVFB" = "1" ] && [ -z "$DISPLAY" ] && command -v xvfb-run >/dev/null 2>&1; then
       exec xvfb-run -a signals "$@"
     fi

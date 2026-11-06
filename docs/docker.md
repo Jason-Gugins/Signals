@@ -13,7 +13,36 @@ additional deployment option that packages the same CLI.
   **3.34 GB** (chromium + patchright browsers + Xvfb libs dominate).
   One build fix vs the plan sketch: the bookworm-pin rationale comment had
   to move off the `FROM` line (inline comments are not Dockerfile syntax).
-- In-container verification + first intel run: **pending** — Tasks 8–9 of
+- **In-container verification (2026-11-05/06): GREEN.** Four suite runs,
+  88 → 56 → 1 → 0 failures — each red run root-caused to a concrete image
+  defect, all fixed and committed:
+  1. `xauth` missing → xvfb-run wrapper died before any CMD (entrypoint fix:
+     apt list + xauth).
+  2. `/app/data` missing → uid 10001 can't mkdir under root-owned /app;
+     88 tests PermissionError (Dockerfile: mkdir + chown /app/data).
+  3. Stale Windows-bytecode `__pycache__` shipped in the image → tracebacks
+     carried `C:\...` co_filenames → conftest's `inspect.getsource`
+     network-escape sniffing failed → guard patched respx-mocked requests.
+     56 tests red. Fix: `.dockerignore` patterns are ROOT-ANCHORED — bare
+     `__pycache__` only excluded the root dir; `**/__pycache__` + `*.pyc`
+     exclude nested ones.
+  4. `test_resolve_wiring._fake_scraper_checkout` built only the Windows
+     venv layout (the plan's T2 fixture sweep missed this third copy) →
+     POSIX guard no-ops. Fix: both layouts, mirroring `scraper_env`.
+  Final: `pytest -m "not antibot_live and not allow_network and not
+  live_fetch" -q` in-container (`-w /app`): **0 failed**, exit 0 — same
+  lane as the host gate. Tip: add `-p no:cacheprovider` to silence the
+  pytest cache warning (uid 10001 can't write `/app/.pytest_cache`).
+- **Smokes:** fresh-volume `init` (exit 0, clean tree) → `status` (exit 0);
+  `--dry-run collect` on an empty volume: exit 0, `fetched=0 signals_new=0
+  failed=0`. This exposed a fourth entrypoint defect — leading `-` flags
+  (`--dry-run`) fell through to `exec` verbatim (127); the case pattern now
+  routes `-*` to `signals` too.
+- **doctor exit semantics (recorded, not assumed):** `doctor --no-network`
+  exits **0 even with a FAIL line present** (observed: `FAIL contact_email
+  SIGNALS_CONTACT_EMAIL unset` when run without `--env-file`). WARN/FAIL do
+  not fail the command; compose's default `command` stays doctor regardless.
+- First intel run: **pending** — Task 9 of
   `docs/plans/2026-10-31-phase0-containerization.md`.
 
 ## Build

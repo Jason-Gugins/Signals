@@ -2,7 +2,10 @@
 
 **From single-box CLI to SaaS: private deployment, Docker, Kubernetes, and AWS pathways**
 
-Document version 1.0 · 2026-10-30 · Prepared for internal architecture review
+Document version 1.1 · 2026-10-30 · Prepared for internal architecture review
+**Verified 2026-11-06** (two-agent review: code claims re-checked at HEAD; strategic verdicts confirmed; punch-list P1–P8/P10 and Phase 0 delivered since the snapshot — see the status banner below and the updated Appendix A/B stamps).
+
+> **Status banner (2026-11-06).** This document was prepared 2026-10-30 against repo state `f6a8e62`. Since then, **Phase 0 containerization landed in full** (root `Dockerfile` with base/browser/engine targets, `docker-compose.yml`, `scripts/prefetch_models.py`, in-container suite green — TODO "Phase 0 containerization — DELIVERED (2026-11-06)") and the **antibot engine Linux port delivered** (`tools/build_antibot.py` cross-platform, Linux build recipe in `src/antibot/README.md`, `signals:engine` image with `doctor` reporting `OK antibot_engine`, TODO "Antibot engine Linux port — DELIVERED (2026-11-06)"). Punch-list items P1, P4, P5, P6, P8, P10 are FIXED; the deployment source of truth is now `Dockerfile` + `docker-compose.yml` + `docs/docker.md` — **Appendices A/B below are historical sketches, superseded**. The strategic verdicts (Docker-first, defer K8s, AWS-from-the-edges, private-now) were confirmed unchanged by the review.
 
 ---
 
@@ -32,7 +35,7 @@ That fact reframes the whole question. "Deploying the backend" does not mean shi
 - **AWS is best adopted from the edges inward.** Secrets Manager, ECR, S3 backups, and EventBridge scheduling are low-risk, high-value first steps. RDS Postgres is the gate that unlocks real horizontal scale — and it is also the gate that makes SaaS credible.
 - **Private deployment is the right 2026–2027 posture.** The SaaS control plane (API server, tenancy, billing) is net-new build work with real scraping-posture implications (§6.3). The staged path in §6.8 gets there without a rewrite.
 
-Indicative monthly costs (planning-grade, USD, verify current pricing before committing): private VPS **$5–20**, AWS lift-and-shift **$15–40**, AWS with managed data plane **$80–200**, EKS floor **~$100+ before any workload**, SaaS seed **$200–500** plus per-tenant COGS of roughly **$10–30**.
+Indicative monthly costs (planning-grade, USD, verify current pricing before committing): private VPS **$5–20**, AWS lift-and-shift **$15–40**, AWS with managed data plane **$55–95** (§5.7 Level 3), EKS floor **~$73+ before any workload**, SaaS seed **$200–500** plus per-tenant COGS of roughly **$10–30**.
 
 ---
 
@@ -62,7 +65,7 @@ Two command families matter for deployment:
 | HTTP servers | **None.** No ASGI/WSGI/framework/raw-socket listener in the repo | full grep across `src/ tests/ scripts/ tools/` |
 | Unit of work | CLI invocation (`python -m src.cli <command>`) | `pyproject.toml:45-46` |
 | Only long-running shape | `watch` — in-process loop, `time.sleep(interval)` between ticks, CLI default 60 min | `src/pipeline/watch.py:56-135` |
-| Recommended production driver | OS cron, per the module's own docstring | `watch.py:9-10`, `scheduler.py:1-11` |
+| Recommended production driver | OS cron, per the module's own docstring | `watch.py:9-10`, `scheduler.py:15-19` |
 | Concurrency | One `ThreadPoolExecutor`, `max_workers = config.http.max_workers` (default 6); browser-tier and network-capture tasks always serial | `runner.py:1143-1172`, `config/default.yaml:15` |
 | Async | **None.** All HTTP is sync (`httpx.Client`, `curl_cffi`, sync Playwright/Patchright); `src/llm/implement.py` documents "plain loop, no threads, no asyncio" | `implement.py:10,711` |
 | Cross-process exclusion | Single-flight lockfile `data/state/collect.lock` with PID-liveness checks | `watch.py:72-87`, `src/core/filelock.py` |
@@ -107,7 +110,7 @@ The system is egress-heavy by design — ~30 sources, all self-built, zero-cost.
 | Regulatory | `data.sec.gov`, `federalregister.gov`, `usaspending.gov`, DOL WARN, `crt.sh`, `web.archive.org` | SEC requires a real contact email in the User-Agent or it 403s |
 | ATS vendors | `boards-api.greenhouse.io`, lever, ashby, smartrecruiters, workable, recruitee, workday (0.5 rps), rippling, jobvite, breezy, teamtailor, generic careers sitemaps | Newest arm: server-rendered detail pages, 903/903 jobs with content in the sourcing spike |
 | News/RSS | `news.google.com` RSS, company blog feeds | 2 rps |
-| Community | HN Algolia, GitHub API (60/hr anonymous, 5,000/hr with free `GITHUB_TOKEN`), Reddit (disabled) | |
+| Community | HN Algolia, GitHub API (60/hr anonymous, 5,000/hr with free `GITHUB_TOKEN`), Reddit (live), npm registry (`community_npm`, keyless) | Reddit live via the scoped `/search.rss` robots override (operator-approved 2026-10-30) |
 | Marketplaces (opt-in) | g2.com (browser tier + DataDome), capterra.com (curl_cffi + Cloudflare), trustradius, softwareadvice, getapp | `enabled: false` by default; browser tier stays off until configured |
 | Identity | Wikidata/Wikipedia APIs, Google Knowledge Graph (service-account auth), DuckDuckGo HTML SERP (probe-gated, documented robots exception) | |
 | X-ray (manual only) | `lite.duckduckgo.com` or Google SERP via browser-harvested cookies | Never scheduled; 20 s pacing between fetches |
@@ -116,14 +119,14 @@ The system is egress-heavy by design — ~30 sources, all self-built, zero-cost.
 | Delivery | SMTP host, alert webhook URLs | STARTTLS on 587; HMAC-signed webhook payloads (legacy/hub/stripe schemes) |
 | Captcha solvers (opt-in) | `api.2captcha.com`, `api.capsolver.com` | Only when CF/DataDome bypass configured; DataDome path also requires a residential proxy |
 
-Everything is polite by construction: robots.txt honored by default (two documented, probe-gated exceptions), rate limits are floors not targets, real contact address in the UA. This posture matters enormously when we get to SaaS (§6.3).
+Everything is polite by construction: robots.txt honored by default (three documented, operator-approved exceptions: DDG HTML, xray SERP, Reddit `/search.rss`), rate limits are floors not targets, real contact address in the UA. This posture matters enormously when we get to SaaS (§6.3).
 
 ### 1.6 Browser and antibot footprint
 
 - **Stock Playwright** (`src/core/browser.py`) and **Patchright** (patched Chromium, `--disable-blink-features=AutomationControlled --no-sandbox`, behavioral warm-up) drive the browser tier. Headless by default (`browser.enabled: false` gates the whole tier off until enabled).
 - **Headed mode is a real requirement on some paths**: `PatchrightGhost` forces `headless=False` ("Headed mode is what clears DataDome", `src/antibot/python/ghost.py:62-88`), `g2-selfcheck` forces headed, and the Cloudflare tier-4 solver can flip headed via `CLOUDFLARE_HEADED_FALLBACK`. On Linux containers this implies **Xvfb** whenever those paths are enabled.
 - **curl_cffi** (`impersonate="chrome"`) is the TLS-fingerprint tier between the plain fetcher and the browser — used by the DDG identity resolver, xray fetches, and Capterra.
-- **The native engine** (`src/antibot/`, Rust PyO3 with vendored BoringSSL) is optional at runtime: without it, `SignalsTransport` degrades to curl_cffi and `doctor` reports a WARN, not a FAIL. The build tree is 566 MB and its documented build procedure is Windows-only (MSVC/vcvars64/NASM/Go). CI never builds it. **A Linux build recipe does not exist in-repo** — the container options below assume the curl_cffi fallback unless/until that recipe is written.
+- **The native engine** (`src/antibot/`, Rust PyO3 with vendored BoringSSL) is optional at runtime: without it, `SignalsTransport` degrades to curl_cffi and `doctor` reports a WARN, not a FAIL. The build tree is 566 MB. **A Linux build recipe now exists in-repo** (`src/antibot/README.md` "Build (Linux/Ubuntu)", 2026-11-06): the helper `tools/build_antibot.py` is cross-platform (auto-applies the ALPS codepoint patch), the engine compiled and passed live fingerprint parity on Ubuntu 24.04/WSL2, and the Docker image ships an `engine` target where `doctor` reports `OK antibot_engine native engine available`. The base-target images still default to the curl_cffi fallback; CI does not yet build the engine (nightly Linux build lane is the named follow-up).
 
 ### 1.7 Portability findings (the punch list)
 
@@ -135,12 +138,12 @@ These are the concrete facts any packaging decision must handle. Each is citable
 | P2 | SQLite WAL + `O_EXCL`/PID lockfiles assume coherent local filesystem | The DB cannot live on NFS/EFS; single-writer constraint is structural, not incidental | Structural (drives Part IV/V decisions) |
 | P3 | Rate limits are in-process token buckets; single-flight is per-filesystem | Two replicas would double-hit sources and violate the politeness posture — horizontal scaling needs external coordination | Medium |
 | P4 | Headed-browser paths (ghost, g2-selfcheck, CF headed fallback) need a display | Xvfb in Linux containers if marketplace sources or headed fallback are enabled | Easy |
-| P5 | Sibling-repo coupling: reads `../Linkedin/data/linkedin.db` and `../repvue-scraper/data/repvue.db`; `deepen` shells out to `../Linkedin` with a **hardcoded Windows venv path** (`.venv/Scripts/python.exe`, `collector.py:91`) | Breaks on Linux without edits; silently no-ops when checkouts are absent | Easy–Medium |
+| P5 | Sibling-repo coupling: reads `../Linkedin/data/linkedin.db` and `../repvue-scraper/data/repvue.db`; `deepen` shells out to `../Linkedin` with a **hardcoded Windows venv path** (`.venv/Scripts/python.exe` — was `collector.py:82` / `linkedin_ids.py:49` at the snapshot) | Breaks on Linux without edits; silently no-ops when checkouts are absent. **FIXED 2026-11-06**: portable `scraper_python()` helper (env override wins, POSIX layout) in both call sites — `e2d7c9f`, `ee90365` | Fixed |
 | P6 | Model downloads from huggingface.co at first use, cached in user home | Needs egress at runtime or a pre-baked cache volume/layer | Easy |
 | P7 | pytest 8.3.4 and respx are core (non-optional) dependencies | Production image installs test tooling unless a prod target strips them | Trivial |
 | P8 | Browsers are not auto-installed by any script/CI (`playwright install chromium` is a manual step) | Image build must install chromium + patchright chromium explicitly | Trivial |
 | P9 | No `/healthz` or metrics endpoint exists (there is no server to expose one) | Observability in deployment = logs + `runs` table + `status`/`doctor` commands, until a control plane exists | Medium (net-new) |
-| P10 | Windows-only native-engine build docs; Linux build recipe absent | Container images use the curl_cffi fallback (fully functional; `doctor` WARN) | Deferred |
+| P10 | Windows-only native-engine build docs; Linux build recipe absent | Container images use the curl_cffi fallback (fully functional; `doctor` WARN). **DELIVERED 2026-11-06**: Linux recipe in `src/antibot/README.md`, live parity verified on Ubuntu, Docker `engine` target (`1226b27`) — `signals:engine` bakes tier-1 TLS parity and clears the doctor WARN | Delivered |
 | P11 | PID-liveness check uses kernel32 via ctypes when `os.name == "nt"` (`filelock.py:42-52`) | Already has a non-Windows branch; CI matrix proves it | None |
 
 ### 1.8 What "deployment" therefore means
@@ -208,14 +211,14 @@ Just as important — these rule out entire categories of ceremony:
 
 A multi-stage build with two targets:
 
-- **`signals-base`** — `python:3.12-slim`; system deps: `ca-certificates`, `curl`/`wget`, `tini` as PID 1; `pip install -e .` plus extras (`[rerank]` for the retrieval leg; optionally `[gkg]`); strip pytest/respx in the prod target (P7) by installing from an explicitly split dependency set, or accept them and keep the image honest.
+- **`signals-base`** — `python:3.12-slim-bookworm` (the shipped build proved trixie — the bare `3.12-slim` alias — breaks the browser apt list on t64 lib renames); system deps: `ca-certificates`, `curl`/`wget`, `tini` as PID 1; `pip install -e .` plus extras (`[rerank]` for the retrieval leg; optionally `[gkg]`); strip pytest/respx in the prod target (P7) by installing from an explicitly split dependency set, or accept them and keep the image honest.
 - **`signals-browser`** — adds chromium system libraries, `playwright install chromium`, `patchright install chromium` (P8), and (optional variant) `xvfb` for the headed tier (P4). Browser tier stays off by config default; the capability ships disabled.
 
 Practical points:
 
 - **Models**: pre-bake the two pinned MiniLM files into an image layer (or an init container/job that runs the embedder once against a volume) so runtime never needs huggingface.co (P6).
-- **Antibot engine**: excluded — curl_cffi fallback is the documented degradation and `doctor` treats its absence as WARN (P10). A Linux build recipe is future work, gated on whether the fallback's coverage is exceeded in practice.
-- **Sibling repos** (P5): containerize by *absence* — the Linkedin/repvue integrations silently no-op when their checkouts are missing. If they are wanted, mount them read-only and fix the hardcoded `.venv/Scripts/python.exe` to respect `sys.executable` or an env var (a five-line change in `src/sources/linkedin_db/collector.py`).
+- **Antibot engine**: now available as a third image target — the landed `Dockerfile` has `engine-builder`/`engine` stages (`1226b27`), and `signals:engine` reports `doctor ... OK antibot_engine native engine available`. The base/browser targets keep the curl_cffi fallback (documented WARN degradation); the builder stage's lessons (cargo-fetch before the ALPS patch, `git` in the builder apt list — boring-sys shells out to it, wheel filename preservation) are recorded in `docs/docker.md`.
+- **Sibling repos** (P5): containerize by *absence* — the Linkedin/repvue integrations silently no-op when their checkouts are missing. If they are wanted, mount them read-only; the venv resolution is already portable (`scraper_python()`, `SIGNALS_SCRAPER_PYTHON` override — landed 2026-11-06).
 - **Non-root user**, read-only rootfs, `tini` for signal handling, `SIGNALS_CONTACT_EMAIL` and tokens injected via env only (R5).
 
 A complete reference Dockerfile is Appendix A.
@@ -253,7 +256,7 @@ Three implementation choices, in order of preference:
 
 ### 3.5 Costs and limits
 
-- **Cost**: effectively $0 on existing hardware; $5–20/month on a small VPS (Hetzner CX22/OVH/DigitalOcean class, 2 GB RAM) — enough for 6 workers + occasional headless Chromium (headed G2 solos want 4 GB).
+- **Cost**: effectively $0 on existing hardware; $5–20/month on a small VPS (Hetzner CX22-class 4 GB / OVH / DigitalOcean — enough for 6 workers + occasional headless Chromium; headed G2 solos also fit in 4 GB). Note: exact SKUs rotate in and out of stock (CX22 was unprocurable at the 2026-11 review — OVH VPS-2 2027, 4 vCPU/8 GB, was the fielded substitute at $13.70/mo).
 - **Limits, accepted**: single host, no HA, manual rollouts, backups replace failover. For a personal/sales-team tool with recoverable ticks, these are *the right tradeoffs today*, and every one of them has a defined escalation path in later parts.
 
 ### 3.6 When this option wins outright
@@ -286,7 +289,7 @@ Kubernetes schedules *containers*; Signals' constraint is *state*.
 ### 4.3 If/when we adopt it: the correct shapes
 
 - **Jobs, not daemons**: one CronJob per source cadence tier (hourly/daily/weekly), `concurrencyPolicy: Forbid`, `activeDeadlineSeconds` sized from documented run durations (~30 min worst-case intel).
-- **Single-writer discipline** until Postgres: anything touching `data/` pins to `replicas: 1` + `ReadWriteOnce` PVC; read-only commands (accounts, signals, plays-report, status) can scale freely against a `ReadOnlyMany` mount — or simply read via the control-plane API once it exists.
+- **Single-writer discipline** until Postgres: anything touching `data/` pins to `replicas: 1` + `ReadWriteOnce` PVC. Read-only commands (accounts, signals, plays-report, status) must NOT scale against a `ReadOnlyMany` mount — that storage is NFS-class, which P2 forbids for this repo (and a WAL database cannot even be opened read-only without `-shm` access or `immutable=1`). Scale reads through the control-plane API (post-Stage-3) or per-tenant DB copies instead.
 - **Managed vs. self-hosted**: EKS carries a ~$73/month control-plane floor plus node costs — indefensible for one tenant; GKE Autopilot and AKS are similar. For private scale, **K3s** (or k0s) on a single VPS gives the API surface without the bill, and is a legitimate staging environment for the SaaS phase.
 - A manifest sketch is Appendix C.
 
@@ -305,7 +308,7 @@ AWS is not one decision; it is a ladder. Each rung is independently reversible a
 The Part III stack on a managed Linux box: EC2 (t4g.small/medium, ~$12–25/mo), EBS gp3 volume for `signals-data`, plain cron in-system. Amazon Linux 2023 or Ubuntu 24.04; Docker if desired.
 
 - **Gains**: no 3 a.m. hardware worries; snapshots of EBS are one API call; the box is disposable, the volume is not.
-- **Costs**: ~$15–40/mo all-in; plus either a public IP (free in the default v2 model) or a NAT decision (§5.6).
+- **Costs**: ~$15–40/mo all-in; plus either a public IP (~$3.66/mo — AWS charges $0.005/hr for public IPv4, default-v2 included, since Feb 2024) or a NAT decision (§5.6).
 - **Honest comparison**: a $5–20 VPS does the same job. Pay the AWS premium only when the adjacency to other AWS services (below) is worth it.
 
 ### 5.2 Level 2 — Managed surroundings (the sweet spot)
@@ -371,7 +374,7 @@ Level 3 is precisely the storage refactor SaaS needs (§6.2). Building it once s
 | --- | --- | --- |
 | Private VPS (baseline) | 2 GB VPS + offsite object backup | **$5–20** |
 | AWS Level 1 | t4g.small EC2 + EBS + snapshots | **$15–40** |
-| AWS Level 2 (Fargate batch) | Fargate spot tasks (~60 vCPU-hr) + ECR + Secrets + S3 + EventBridge + CloudWatch | **$25–70** |
+| AWS Level 2 (Fargate batch) | Fargate spot tasks (~40–60 vCPU-hr) + ECR + Secrets + S3 + EventBridge + CloudWatch | **$25–70** |
 | AWS Level 3 (+ RDS) | Above + db.t4g.small single-AZ + pgvector | **$55–95** |
 | EKS anything | Control plane before a single job runs | **~$73+** |
 | SaaS seed (10 pilot tenants) | Level 3 + control-plane ECS service + SQS + SES | **$200–500** |
@@ -465,7 +468,7 @@ The README's stated thesis: commercial signal platforms are priced per seat and 
 
 ### 6.8 The staged path (no rewrite, no cliff)
 
-1. **Stage 0 — private (now):** Docker image + compose + backups. All punch-list items fixed.
+1. **Stage 0 — private (now):** Docker image + compose + backups. All punch-list items fixed. *(DELIVERED 2026-11-06 — Phase 0 + engine port.)*
 2. **Stage 1 — private, hardened:** offsite backups, monitoring digest, documented restore drill.
 3. **Stage 2 — pilot:** second/third `data/` tree for trusted users on the same host; per-tree rate budgets exercised; sibling-repo fixes land upstream.
 4. **Stage 3 — SaaS seed:** Postgres migration (§8.1) + minimal FastAPI control plane (auth, trigger, read) + SQS between scheduler and workers; deploy on ECS Fargate; waitlist onboarding.
@@ -483,7 +486,7 @@ Each stage consumes the previous stage's artifacts unchanged; no stage is throwa
 | --- | --- | --- | --- | --- | --- |
 | Time to first deploy | Hours | Days | Weeks | Weeks+ | Days–weeks |
 | Ops burden (steady state) | Medium (box drift) | **Low** | High | Highest | Low-medium |
-| Cost floor, private scale | $0–5 | $5–20 | $10–25 | ~$100+ | $25–70 |
+| Cost floor, private scale | $0–5 | $5–20 | $10–25 | ~$73+ | $25–70 |
 | Fits SQLite single-writer model | Yes | Yes | Awkward, but possible | Awkward, but possible | Yes (snapshot/restore) |
 | Horizontal scale path | Manual | Manual (Postgres trigger) | Good, post-Postgres | Good, post-Postgres | Good, post-Postgres |
 | Multi-tenant readiness | Low | Medium (per-tree) | High (namespaces) | High | Medium-high |
@@ -505,7 +508,7 @@ Each stage consumes the previous stage's artifacts unchanged; no stage is throwa
 
 ### 7.3 Recommendation
 
-1. **Do now:** the Docker image + compose stack (Part III), fixing punch-list items P1–P8 (P9–P11 as flagged). Deploy privately on the cheapest capable host.
+1. **Do now:** the Docker image + compose stack (Part III), fixing punch-list items P1–P8 (P9–P11 as flagged). Deploy privately on the cheapest capable host. *(Done 2026-11-06: P1–P8 fixed, image built and verified in-container, engine target added.)*
 2. **Adopt selectively:** AWS Level 2's edges that cost cents — ECR, SSM Parameter Store, S3 backups — even while compute stays on the VPS. Skip the NAT gateway for private scale.
 3. **Defer, with triggers:** Kubernetes until §4.4's trigger (stateless workers + real fleet). RDS Postgres until Stage 3. Step Functions until per-stage tenant visibility is a requirement.
 4. **Decide as a product question, not a technical one:** SaaS (Part VI) — when the answer is yes, Stages 3–4 are already mapped and every prior artifact is reused.
@@ -525,7 +528,7 @@ The good news: every read/write already flows through the `Database` class (`src
 5. **Single-flight → queue semantics**: `data/state/collect.lock` and scheduler cursors move to `SELECT ... FOR UPDATE SKIP LOCKED` or SQS visibility timeouts (P3 resolved structurally).
 6. **Retention**: `prune` becomes a scheduled job against SQL partitions/cutoffs; WAL checkpoint/vacuum steps removed.
 7. **Raw store**: `rawstore.py` → S3 keys (`s3://.../<xx>/<sha>.gz`); `documents.path` semantics updated; retrieval chunk reads follow.
-8. **Verification**: the offline test lane (295 test files, network-blocked conftest) runs against Postgres in CI via a service container — the suite is the migration's safety net.
+8. **Verification**: the offline test lane (~300 test files, network-blocked conftest) runs against Postgres in CI via a service container — the suite is the migration's safety net.
 
 ### 8.2 Config and secrets in deployment
 
@@ -541,7 +544,7 @@ Today: loguru to stderr + rotating files, per-run sinks, `runs` table, `status`/
 
 - Containers log to **stdout** (Docker/K8s/CloudWatch-native); keep the file sinks only when running bare.
 - `runs` table is the real telemetry — expose it via a weekly digest or (post-control-plane) a `/runs` API; add `doctor`-as-CronJob with webhook alerts on FAIL.
-- Health checks: none exist (P9). For compose, a `doctor --no-network` healthcheck is honest and cheap. A `/healthz` appears naturally with the FastAPI control plane.
+- Health checks: none exist (P9). For compose, a `doctor --no-network` healthcheck is honest and cheap **as a crash-only check — it exits 0 even with FAIL lines present** (observed: unset `SIGNALS_CONTACT_EMAIL` FAILs but exits 0); to gate on config health, parse the output or assert specific checks. The shipped compose omits the healthcheck for exactly this reason. A `/healthz` appears naturally with the FastAPI control plane.
 
 ### 8.4 CI/CD
 
@@ -568,17 +571,19 @@ Non-root UID, read-only rootfs with `data/` the only writable mount, `tini` init
 
 | Phase | Scope | Effort | Exit criteria |
 | --- | --- | --- | --- |
-| **0 — Containerize** | Punch-list fixes (P1–P8); multi-stage Dockerfile (base + browser variants); compose file; model pre-bake; `deepen` portability fix upstreamed | 2–4 days | `docker run signals doctor --no-network` green; offline suite green in-container; `intel` run completes against a volume |
+| **0 — Containerize** | Punch-list fixes (P1–P8); multi-stage Dockerfile (base + browser variants); compose file; model pre-bake; `deepen` portability fix upstreamed | 2–4 days | `docker run signals doctor --no-network` green (NOTE: doctor **exits 0 even with FAIL lines present** — assert on specific checks, not the exit code); offline suite green in-container; `intel` run completes against a volume. **DELIVERED 2026-11-06** (all three criteria met and recorded in `docs/docker.md`) |
 | **1 — Private deploy** | VPS or home box; cron (or `watch` service); nightly `.backup` + restic offsite; weekly `digest` email as heartbeat | 1–2 days | Restore drill passes; two weeks of ticks with zero manual intervention |
-| **2 — Cloud edges (optional)** | ECR mirror of the image; SSM Parameter Store for secrets; S3 backup target; CloudWatch alarm on failed ticks | 1 day | Secrets out of the VPS; backups off-premises |
+| **2 — Cloud edges (optional)** | ECR mirror of the image; SSM Parameter Store for secrets; S3 backup target; CloudWatch alarm on failed ticks | 1 day | Secrets out of the VPS; backups off-premises. Non-AWS mapping for the alarm: cron exit-code ping (healthchecks.io-style dead-man's switch or SMTP-on-nonzero) — CloudWatch cannot see VPS ticks natively |
 | **3 — SaaS seed (gated on the §6.7 product decision)** | Postgres migration per §8.1; FastAPI control plane (auth, tenant CRUD, trigger, read); SQS scheduler→worker; ECS Fargate deploy | 3–6 weeks | Two pilot tenants isolated end-to-end; per-tenant rate budgets enforced |
 | **4 — Product** | Billing + metering; onboarding; compliance register; K8s decision per §4.4 trigger | Ongoing | First paying tenant; fleet-shape complexity measured, not assumed |
 
-**Explicit deferrals (with triggers):** Kubernetes (§4.4), Step Functions (§5.5), managed OpenSearch (§5.3), Linux native-engine build (P10 — only if the curl_cffi fallback's coverage is exceeded), multi-writer SQLite on network storage (never).
+**Explicit deferrals (with triggers):** Kubernetes (§4.4), Step Functions (§5.5), managed OpenSearch (§5.3), Linux native-engine build (P10 — **DELIVERED 2026-11-06, ahead of its trigger**: recipe + Docker `engine` target + live parity; the nightly CI build lane is the remaining follow-up), multi-writer SQLite on network storage (never).
 
 ---
 
 ## Appendix A — Reference Dockerfile (multi-stage, prod target)
+
+> **SUPERSEDED (2026-11-06).** The landed root `Dockerfile` is the source of truth: bookworm pin, `scripts/prefetch_models.py` model bake, `HF_HOME=/opt/signals-hf` (outside the volume mount), base/browser/**engine** targets, non-root+tini entrypoint. This sketch is kept for the record; its known defects: (1) the bake snippet imports a nonexistent `get_reranker` — fixed below to `get_scorer` + an actual `score_pairs()` call (the HF fetch is lazy; a type-only check silently skips the reranker); (2) `python:3.12-slim` resolves to trixie, whose t64 lib renames break the browser apt list (shipped build pins bookworm); (3) `HF_HOME=/work/data/hf` is shadowed by the compose volume mount at `/work/data`, so the "pre-bake" would be invisible at runtime. See `docs/docker.md` for the build/verification record.
 
 ```dockerfile
 # syntax=docker/dockerfile:1
@@ -594,9 +599,14 @@ COPY . /app
 RUN cd /app && pip install -e ".[rerank]"
 # pre-bake the pinned MiniLM embedder + reranker (P6: no runtime HF fetch)
 RUN python - <<'PY'
-from src.retrieval.embedder import get_embedder
-from src.signals.rerank import get_reranker
-get_embedder(); get_reranker()
+from src.retrieval.embedder import get_embedder, NullEmbedder
+from src.signals.rerank import get_scorer, NullScorer
+emb = get_embedder()
+assert not isinstance(emb, NullEmbedder), "install signals[rerank]"
+emb.embed(["prefetch probe"])  # triggers the HF fetch
+rr = get_scorer()
+assert not isinstance(rr, NullScorer), "install signals[rerank]"
+rr.score_pairs("prefetch probe", [("prefetch probe", "probe summary")])  # lazy load IS here
 PY
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && useradd -m -u 10001 signals \
@@ -617,6 +627,8 @@ USER signals
 Notes: pytest/respx stay (they are core deps; splitting them is an upstream packaging change — P7); `HF_HOME` redirects the model cache into the data volume; `WORKDIR /work` fixes all CWD-relative state (P1); the antibot engine is intentionally absent (curl_cffi fallback, P10).
 
 ## Appendix B — Reference docker-compose.yml
+
+> **SUPERSEDED (2026-11-06).** The landed `docker-compose.yml` is the source of truth: single `signals` service driven by host cron (no `scheduler` daemon — matches §3.3's preference #1 and watch.py's docstring), named volume only, no healthcheck (`doctor` exits 0 even with FAIL lines — see §8.3), and curated lists handled by `.dockerignore` hygiene rather than a mount (the `/work/config-lists` path below is read by nothing).
 
 ```yaml
 services:
@@ -693,11 +705,11 @@ Compute note: for the single-tenant private case, one small EC2 + EBS with this 
 
 ## Appendix E — Source egress summary (deployment allowlist seed)
 
-Regulatory: `data.sec.gov`, `federalregister.gov`, `usaspending.gov`, DOL WARN, `crt.sh`, `web.archive.org`. ATS: greenhouse, lever, ashby, smartrecruiters, workable, recruitee, workday, rippling, jobvite, breezy, teamtailor + generic careers sitemaps. News: `news.google.com` RSS, blog feeds. Community: HN Algolia, GitHub API, Reddit (off). Marketplaces (opt-in): g2.com, capterra.com, trustradius, softwareadvice, getapp. Identity: wikidata/wikipedia, Google EKG/kgsearch, DDG HTML. X-ray (manual): `lite.duckduckgo.com`/Google. LLM: `openrouter.ai`, `api.typesafe.ai`. CDN: `huggingface.co`. Delivery: SMTP host, webhook URLs. Solvers: `api.2captcha.com`, `api.capsolver.com`.
+Regulatory: `data.sec.gov`, `federalregister.gov`, `usaspending.gov`, DOL WARN, `crt.sh`, `web.archive.org`. ATS: greenhouse, lever, ashby, smartrecruiters, workable, recruitee, workday, rippling, jobvite, breezy, teamtailor + generic careers sitemaps. News: `news.google.com` RSS, blog feeds. Community: HN Algolia, GitHub API, Reddit (live — scoped override), npm registry (`community_npm`). Marketplaces (opt-in): g2.com, capterra.com, trustradius, softwareadvice, getapp. Identity: wikidata/wikipedia, Google EKG/kgsearch, DDG HTML. X-ray (manual): `lite.duckduckgo.com`/Google. LLM: `openrouter.ai`, `api.typesafe.ai`. CDN: `huggingface.co`. Delivery: SMTP host, webhook URLs. Solvers: `api.2captcha.com`, `api.capsolver.com`.
 
 ## Appendix F — Assumptions behind the cost figures
 
-All dollar figures are indicative planning ranges (USD, late-2026 knowledge, us-east-1 class) intended for relative comparison, not budgeting; re-verify against current pricing before commitment. Workload assumptions: ~40 vCPU-hours/month of batch tasks; < 1 GB data tree; < 10 GB/month transfer; 1 operator; solver/proxy/LLM metered paths excluded from private scenarios (they are opt-in). VPS prices reflect Hetzner/OVH/DigitalOcean class providers. EKS floor reflects the control-plane fee alone.
+All dollar figures are indicative planning ranges (USD, late-2026 knowledge, us-east-1 class) intended for relative comparison, not budgeting; re-verify against current pricing before commitment. Workload assumptions: ~40–60 vCPU-hours/month of batch tasks; < 1 GB data tree; < 10 GB/month transfer; 1 operator; solver/proxy/LLM metered paths excluded from private scenarios (they are opt-in). VPS prices reflect Hetzner/OVH/DigitalOcean class providers (SKU availability varies — verify the specific plan is orderable in your region before committing). EKS floor reflects the control-plane fee alone.
 
 ## Appendix G — Punch list traceability
 
@@ -707,14 +719,14 @@ All dollar figures are indicative planning ranges (USD, late-2026 knowledge, us-
 | P2 WAL/local-FS | `src/core/db.py:577`, `src/core/filelock.py` | NFS/EFS hazard is structural |
 | P3 in-process rate limits + per-FS single-flight | `src/core/ratelimit.py`, `src/pipeline/watch.py:72-87` | blocks horizontal scale |
 | P4 headed browser paths | `src/antibot/python/ghost.py:62-88`, `src/cli.py:689-692`, `cf_bypass.py:115-216` | Xvfb needed when enabled |
-| P5 sibling repos + Windows venv path | `src/sources/linkedin_db/collector.py:70-110` (path hardcoded at :91), `src/identity/linkedin_ids.py:80-120` | silent no-op if absent |
+| P5 sibling repos + Windows venv path | `src/sources/linkedin_db/collector.py` (hardcode was at :82 at the snapshot; now the portable `scraper_python()` helper, :69), `src/identity/linkedin_ids.py` (same helper) | **FIXED 2026-11-06** (`e2d7c9f`/`ee90365`); silent no-op if absent |
 | P6 HF runtime fetch | `src/retrieval/embedder.py`, `src/signals/rerank.py` (revision-pinned) | pre-bake into image |
 | P7 pytest/respx in core deps | `pyproject.toml:23-24` | split upstream if slimming matters |
 | P8 browsers not auto-installed | no `playwright install` in CI/scripts | Dockerfile must install |
 | P9 no health endpoint | repo-wide grep | net-new with control plane |
-| P10 Windows-only engine build | `src/antibot/README.md`, `BUILD_NOTES.md` | fallback documented, doctor WARN |
+| P10 Windows-only engine build | `src/antibot/README.md` ("Build (Linux/Ubuntu)" — landed 2026-11-06), `BUILD_NOTES.md` | **DELIVERED**: Linux recipe + live parity + Docker `engine` target; doctor reports OK in `signals:engine` |
 | P11 Windows pid-liveness branch | `src/core/filelock.py:42-52` | POSIX branch exists; CI matrix proves it |
 
 ---
 
-*End of document. Prepared 2026-10-30 against repo state `f6a8e62`; file/line references reflect that snapshot.*
+*End of document. Prepared 2026-10-30 against repo state `f6a8e62`; file/line references reflect that snapshot (a few were corrected to their true snapshot values during the 2026-11-06 verification pass). **Verified 2026-11-06** by a two-agent review (code-claim accuracy + ops/economics soundness): 45+12 claims confirmed, 24 findings reconciled and applied — strategic verdicts (Docker-first, defer K8s, AWS-from-the-edges, private-now) unchanged; Appendices A/B superseded by the landed `Dockerfile`/`docker-compose.yml`/`docs/docker.md`; punch-list P1–P8 and P10 delivered.*

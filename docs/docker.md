@@ -52,12 +52,30 @@ additional deployment option that packages the same CLI.
   proven; a decide-attached variant (`--env-file .env`, LiveDecider) WOULD
   spend LLM budget and was deliberately **not** run under the plan's $0.00
   ceiling — run it manually when LLM spend is acceptable.
+- **`engine` target built (2026-11-06):** `signals:engine` **3.31 GB** —
+  the browser target plus the native `signals_antibot` wheel (compiled
+  in-container from a cold cargo cache; the whole build is reproducible
+  from source). Build fixes vs the port plan's sketch, all root-caused:
+  `cargo fetch` before the ALPS patch (cold-cache ordering — the patch
+  needs boring-sys vendored), `PYTHONPATH=/app` for the patch call (the
+  RUN cds into the engine dir first), **`git` in the builder apt list**
+  (boring-sys's `ensure_patches_applied` shells out to `git init`/`git
+  apply`; the plan's prereq list missed it — WSL only worked because
+  Ubuntu's image ships git), and the wheel keeps its real filename via a
+  `/wheels/` dir (pip rejects a renamed `engine.whl`).
+  **Verification:** `import signals_antibot` → `0.1.0 OpenSSL 1.1.1
+  (compatible; BoringSSL)`; `doctor --no-network` now reports
+  **`OK antibot_engine native engine available`** (the WARN is gone).
+  In-container antibot suites: everything green except the three
+  live-connect tests that need an IPv6 route (reuse/resumption/eyeballs —
+  the documented WSL2 environment class; fixture parity passes).
 
 ## Build
 
 ```sh
 docker build --target base   -t signals:base   .
 docker build --target browser -t signals:browser .
+docker build --target engine  -t signals:engine  .   # browser + native antibot engine
 ```
 
 `base` is the offline job runner (no browsers); `browser` adds chromium +

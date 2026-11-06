@@ -1,11 +1,61 @@
 # TODO — Project Roadmap
 
-Last reviewed: 2026-10-31. Baseline: **~3,100 tests collected, offline lane
-green** (measured 2026-10-30, 8m19s). P1 fully delivered (2026-08-31); **P2
+Last reviewed: 2026-11-06. Baseline: **~3,100 tests collected, offline lane
+green** (measured 2026-10-30, 8m19s; re-verified green at every Phase 0
+batch gate). P1 fully delivered (2026-08-31); **P2
 fully delivered (2026-09-01)**; **P3 fully delivered (2026-09-02)** — see
 below. Keyless Clay/Exa clones roadmap delivered (2026-09-05). Community
 signals + techstack insight wave delivered (2026-10-31) — record below.
 Legacy Cloudflare-bypass checklist archived at the bottom.
+
+## Phase 0 containerization — DELIVERED (2026-11-06)
+
+**Status: DELIVERED (2026-11-06)** — 12 commits across 10 tasks
+(interactive session executing
+`docs/plans/2026-10-31-phase0-containerization.md`; offline suite green at
+every batch gate; Docker live in WSL2, installed this session).
+
+- [x] **Plan + prereqs landed** (`55532a8`) — plan file committed; decide-lab
+  session's dirty files landed first (`5d76ac5` BUILD_NOTES refresh,
+  `eb7e832` darktrace_sec market profile); architecture doc tracked
+  (`9caf56b`); WSL2 Ubuntu 24.04 + docker-ce 29.9.3 installed.
+- [x] **P5 portable scraper-venv python** (`e2d7c9f`) — `scraper_python()`
+  helper (env override wins, Windows default byte-identical, POSIX layout);
+  fixtures in test_linkedin_db/test_linkedin_ids updated to both-layout.
+- [x] **Slug resolver shares the helper** (`ee90365`) — LinkedinSlugResolver
+  on `scraper_python`; import-cycle check clean.
+- [x] **Model prefetch script** (`51657fe`) — embedder+reranker warm
+  (LIVE run green, revision-pinned); Dockerfile bakes it.
+- [x] **Dockerfile/.dockerignore/entrypoint** (`2758b81`) — base + browser
+  targets, bookworm pin, non-root, tini, named HF cache; engine target dir
+  excluded from build context (565 MB). Fixes en route: inline-comment off
+  the FROM line (`08c3f7b`), xauth for xvfb-run (`cf49b72`), /app/data
+  chown + recursive `**/__pycache__` exclude (`a515efa`), `-*` flag routing
+  in the entrypoint (with `35ed0b7`).
+- [x] **Compose stack + operator runbook** (`8115623`) — named volume only,
+  cron-driven one-shots, .env caveats, watchlist hygiene.
+- [x] **Both image targets built** (`adc5570`) — from commit `d24854a`:
+  `signals:base` 1.05 GB, `signals:browser` 3.34 GB.
+- [x] **In-container verification GREEN** (`35ed0b7`) — suite 88→56→1→0
+  across four runs, every red run root-caused to a fixed image defect
+  (xauth; /app/data perms; stale Windows-bytecode `__pycache__` vs
+  root-anchored dockerignore; a third Windows-only fixture copy in
+  test_resolve_wiring, fixed `17eb861`). init/status/`--dry-run collect`
+  smokes green. doctor exit semantics recorded (0 even with a FAIL line).
+- [x] **First in-container intel run** (`46a24be`) — briefcatch.com on the
+  named volume, exit 0, ~5 min: account auto-created, dossier written,
+  honest zeros (no `--env-file` ⇒ keyed sources fail-fast, NullDecider —
+  $0.00 posture; decide-attached variant deliberately not run under the
+  plan ceiling).
+- [x] **Bookkeeping** — this entry + plan Run Record.
+
+Suite at HEAD: offline lane green (host and in-container). No deferrals —
+Docker was installed before the Docker-gated tail ran.
+
+Remaining fresh-decision territory: deploy the image on the target VPS
+(Phase 1: cron + nightly `.backup` + restore drill + two-week zero-touch
+soak per architecture doc §9), and/or run a decide-attached in-container
+intel run (LLM budget) to verify the LiveDecider path under Docker.
 
 ## Community signals + techstack insight wave — DELIVERED (2026-10-31)
 

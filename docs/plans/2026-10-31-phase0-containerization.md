@@ -428,16 +428,20 @@ volumes:
 
 | Task | Outcome | Commit | Notes |
 | --- | --- | --- | --- |
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
-| 4 | | | |
-| 5 | | | |
-| 6 | | | |
-| 7 | | | docker absent? → defer 8–9 |
-| 8 | | | |
-| 9 | | | |
-| 10 | | | |
+| 1 | DELIVERED | 55532a8 | prereqs first: dirty decide-lab files landed (5d76ac5, eb7e832); arch doc 9caf56b; WSL2+docker installed |
+| 2 | DELIVERED | e2d7c9f | scraper_python helper; RED verified via HEAD-swap; fixtures both-layout |
+| 3 | DELIVERED | ee90365 | slug resolver on shared helper; cycle check clean |
+| 4 | DELIVERED | 51657fe | LIVE prefetch green: embedder ok + scorer ok (OnnxScorer), models warm |
+| 5 | DELIVERED | 2758b81 | + fixes 08c3f7b (inline comment off FROM), cf49b72 (xauth), a515efa (/app/data, **/__pycache__) |
+| 6 | DELIVERED | 8115623 | compose + runbook; YAML sanity green |
+| 7 | DELIVERED | adc5570 | built from d24854a; base 1.05 GB, browser 3.34 GB (docker in WSL2, not DOCKER_ABSENT) |
+| 8 | DELIVERED | 35ed0b7 | suite 88→56→1→0 (4 runs; root causes: xauth, /app/data, stale __pycache__ bytecode, 3rd Windows-only fixture 17eb861); smokes green; entrypoint -\* routing |
+| 9 | DELIVERED | 46a24be | briefcatch.com, exit 0, ~5 min; honest zeros ($0 posture, no --env-file); decide-attached variant deliberately skipped per ceiling |
+| 10 | DELIVERED | (this commit) | TODO entry + record; suite green host+container at HEAD |
+
+Environment note: docker-ce 29.9.3 runs INSIDE WSL2 Ubuntu 24.04 (installed
+2026-11-05, after the plan drafted DOCKER_ABSENT as likely); docker
+commands execute via `wsl -e bash -lc`.
 
 ## Risks / open questions
 

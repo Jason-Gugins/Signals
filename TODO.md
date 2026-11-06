@@ -57,6 +57,48 @@ Remaining fresh-decision territory: deploy the image on the target VPS
 soak per architecture doc §9), and/or run a decide-attached in-container
 intel run (LLM budget) to verify the LiveDecider path under Docker.
 
+## Antibot engine Linux port — DELIVERED (2026-11-06)
+
+**Status: DELIVERED (2026-11-06)** — 5 commits across 7 tasks (same
+interactive session, executing
+`docs/plans/2026-10-31-antibot-engine-linux-port.md` after Phase 0; offline
+suite green at every batch gate). P10 closed: the last Windows-only artifact
+is gone.
+
+- [x] **Platform-aware build helper** (`b197c56`) — `apply_registry_patches`
+  injectable + cross-platform glob, per-OS `venv_paths`, Windows behavior
+  byte-identical; 3 tests TDD (plan-sketch/test mismatches fixed: registry
+  root semantics, zero-match print).
+- [x] **Linux build proven** — WSL2 Ubuntu 24.04 sandbox: `BUILD=0`,
+  `engine_version 0.1.0`, ALPS patched on the wire (`cargo fetch` before
+  patch — cold-cache ordering the plan missed), <5 min compile.
+- [x] **Linux verification matrix** (`1fe4ee5`) — fixture parity green;
+  **LIVE parity vs tls.peet.ws: 3 passed** (JA4/JA3 byte-for-byte — the
+  port's headline); full offline lane exit 0 in the sandbox. Sandbox
+  recipes recorded in `src/antibot/README.md` "Build (Linux/Ubuntu)":
+  rsync `--exclude '__pycache__'` is load-bearing (stale Windows-bytecode
+  defeats conftest's guard escape — same class as the Docker defect), and
+  WSL2 needs a v6-off sysctl (no IPv6 egress).
+- [x] **Docker `engine` target** (`1226b27`, `916d851`) — `signals:engine`
+  3.31 GB, wheel compiled in-container; **doctor WARN cleared**
+  (`OK antibot_engine native engine available`). Four build fixes
+  root-caused and recorded: cargo-fetch-before-patch, PYTHONPATH for the
+  patch call, `git` in the builder apt list (boring-sys needs it — plan
+  prereq gap), wheel filename preserved via /wheels/ dir.
+- [x] **Bookkeeping** — this entry + plan Run Record.
+
+Known environment-sensitivity (recorded, not patched — `src/` out of spike
+scope): 3 live-connect engine tests (reuse/resumption×2/eyeballs-timing)
+fail wherever AAAA resolves without an IPv6 route (WSL2 default, docker
+bridge); the engine's own resolver doesn't fall back to the v4 winner.
+Green on dual-stack hosts and in the v6-off sandbox.
+
+Remaining fresh-decision territory: nightly Linux engine-build lane in CI
+(the natural follow-up the plan named — needs a working `engine` target,
+which now exists), engine eyeballs v6-fallback (or resolver-level AAAA
+filtering) for AAAA-without-route environments, and Phase 1 VPS deploy
+(cron + backups + restore drill).
+
 ## Community signals + techstack insight wave — DELIVERED (2026-10-31)
 
 **Status: DELIVERED (2026-10-31)** — 15 code commits across 8 gated batches

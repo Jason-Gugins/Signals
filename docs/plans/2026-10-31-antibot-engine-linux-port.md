@@ -369,13 +369,21 @@ Design notes: builder reuses the **same base** as the runtime targets (glibc-mat
 
 | Task | Outcome | Commit | Notes |
 | --- | --- | --- | --- |
-| 1 | | | |
-| 2 | | | envs present: WSL2? Docker? |
-| 3 | | | |
-| 4 | | | WSL2-gated |
-| 5 | | | parity result: fixture / live |
-| 6 | | | Docker+Phase-0-gated |
-| 7 | | | |
+| 1 | DELIVERED | 18fe459 | plan committed during prereq sweep (2026-11-05) |
+| 2 | DELIVERED | (prereqs + 2758b81) | envs present: WSL2 Ubuntu 24.04 (Python 3.12.3) + docker-ce 29.9.3 — both installed 2026-11-05; `.dockerignore` engine-target line landed in 2758b81 |
+| 3 | DELIVERED | b197c56 | helper rewritten; plan-sketch/test mismatches fixed (registry-root semantics + zero-match print); 3 tests RED→GREEN |
+| 4 | DELIVERED | — | sandbox build BUILD=0: ALPS patched (after `cargo fetch` — cold-cache ordering lesson), engine_version 0.1.0, tls BoringSSL, <5 min compile |
+| 5 | DELIVERED | 1fe4ee5 | fixture parity green; LIVE parity vs tls.peet.ws **3 passed**; sandbox full gate exit 0 after: (a) `--exclude '__pycache__'` in rsync (stale Windows-bytecode — same class as Docker T8), (b) v6-off sysctl for 3 live-connect tests (WSL2 has no IPv6 egress; engine's own resolver doesn't fall back — recorded in README + TODO) |
+| 6 | DELIVERED | 1226b27 + 916d851 | `signals:engine` 3.31 GB; doctor WARN → `OK antibot_engine native engine available`; build fixes: cargo-fetch-before-patch, PYTHONPATH=/app, **git** in builder apt list (boring-sys ensure_patches_applied needs it), wheel kept real filename |
+| 7 | DELIVERED | (this commit) | TODO entry + record; host gate green |
+
+Stop-gate notes: the 3 live-connect engine tests (reuse/resumption ×2/
+eyeballs-timing) fail wherever the host advertises AAAA without an IPv6
+route (WSL2 default; docker bridge) — recorded as a fresh-decision box
+(engine eyeballs v6 fallback), NOT patched: `src/` changes are out of
+scope for this spike. Sandbox-only mitigations: v6-off sysctl (sandbox),
+fixture exclusions NOT added (tests stay honest; they pass on dual-stack
+hosts and in the sysctl'd sandbox).
 
 ## Risks / open questions
 

@@ -802,17 +802,15 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   Command shape: `python -m src.lab run --rounds 1 --budget-calls 300
   --target claim_survival --block output_screen`. A human go spends real
   budget (precedent ≤$5).
-- [ ] **Human review pass on the 9 in-band claims** — the 0.30–0.34-noul
-  claims from rillet's Ashby harvest are already routed to `reviewed`; a
-  manual disposition pass makes them the ground-truth promotion labels the
-  lab's precision proxy currently cannot provide (no G5↔G4 join key exists).
-  2026-11-05: all 9 trace to ONE source — an archive capture of rillet.com's
-  homepage (see `data/probe/G5_INBAND_REVIEW_WORKSHEET.md`), and the
-  need-density probe (`data/probe/G5_NEED_DENSITY_20261105.md`) measured this
-  claim type as the corpus-dominant output (~1.4% of 3,531 persisted claims
-  carry any buyer-need language). Expect REJECT-dominant dispositions —
-  `not-a-need (self-description)` was added to the worksheet rubric; the
-  pass's value is the first ground-truth labels, not a first promotion.
+- [x] **Human review pass on the 9 in-band claims** — DONE 2026-11-05
+  (`data/probe/G5_INBAND_REVIEW_WORKSHEET.md`): **9/9 REJECT, every one
+  `not-a-need (self-description)`, 0 KEEP.** The first-ever ground-truth
+  promotion labels: band bottom [0.30, 0.34] is 0% precision on human
+  judgment — the incumbent floor 0.70 / band_low 0.30 stands confirmed by
+  real outcomes, not the proxy. Caveat recorded in the worksheet: one domain,
+  one source type — the estimate generalizes only after more `persist_claims`
+  batches. The G5 wall remains a material/source-prose wall (see the
+  need-density box below), not a thresholds wall.
 - [ ] **Separate "states its own need" from "describes its product" in the
   implementer/noul path** — vendor problem-framing ("teams face X, a pain
   point \<vendor\> addresses") matches need language but the need-holder is

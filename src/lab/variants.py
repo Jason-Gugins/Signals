@@ -432,6 +432,33 @@ def default_variants() -> list[dict]:
     return [copy.deepcopy(variant) for variant in _REGISTRY]
 
 
+#: The zero-call incumbent anchors (empty deltas) — they ride every
+#: ``variants_for_block`` selection as the A-side comparators and cost no
+#: calls under any engine.
+_ANCHOR_IDS = ("doc_incumbent", "g4_incumbent", "g5_incumbent")
+
+
+def variants_for_block(block: str) -> list[dict]:
+    """One block's variants plus the zero-call incumbent anchors (fresh
+    copies, registry order preserved).
+
+    The dedicated-run seam behind ``--block``: an output_screen calibration
+    run replays the screen ladder (3 jev variants) + the 3 anchors instead of
+    the full registry, so the same budget divides across ~2x fewer call
+    variants. A typo'd block raises loudly rather than silently producing an
+    anchor-only run."""
+    selected = [v for v in _REGISTRY if v.get("block") == block]
+    if not selected:
+        known = sorted({str(v.get("block")) for v in _REGISTRY})
+        raise ValueError(
+            f"unknown block {block!r} — registry blocks: {', '.join(known)}"
+        )
+    keep_ids = {v["id"] for v in selected} | set(_ANCHOR_IDS)
+    return [
+        copy.deepcopy(v) for v in _REGISTRY if v["id"] in keep_ids
+    ]
+
+
 def apply_variant(base_cfg: dict | None, variant: dict) -> dict:
     """Pure SHALLOW merge of the variant's ``config_delta`` over ``base_cfg``
     (the shipped decide.yaml gate block, or None for "all defaults").

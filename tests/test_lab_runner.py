@@ -474,6 +474,65 @@ def test_variant_floor_flag_guarantees_a_minimum_per_variant(
     assert all(c >= 40 for c in jev_caps), f"floor not honored: {jev_caps}"
 
 
+def test_block_flag_restricts_the_round_to_one_axis(tmp_path, offline_seams):
+    """--block output_screen replays the screen ladder + the zero-call
+    anchors ONLY — the dedicated-run seam that turns 300 calls into ~100 per
+    screen rung instead of ~20 across the full registry."""
+    world = make_world(tmp_path)
+    seen: list[tuple[str, int]] = []
+
+    def recording_replay(variant, rows, decider, *, budget_calls, out_dir, base_cfgs):
+        seen.append((variant["id"], int(budget_calls)))
+        return {
+            "variant_id": variant["id"],
+            "stage": variant.get("stage"),
+            "score": None,
+            "components": {},
+            "calls": 0,
+            "status": "complete",
+        }
+
+    offline_seams  # fixture wired
+    import src.lab.replay as replay_mod
+
+    original = replay_mod.replay_variant
+    replay_mod.replay_variant = recording_replay
+    try:
+        rc = lab_main.main(
+            run_args(world, "--rounds", "1", "--budget-calls", "300",
+                     "--block", "output_screen")
+        )
+    finally:
+        replay_mod.replay_variant = original
+    assert rc == 0
+    ids = [vid for vid, _cap in seen]
+    assert {"g4_screen_review_loose", "g4_screen_review_tight",
+            "g4_screen_action_loose"} <= set(ids)
+    assert {"doc_incumbent", "g4_incumbent", "g5_incumbent"} <= set(ids)
+    assert "doc_relevant_min_loose" not in ids
+    assert "g5_floor_loose" not in ids
+    # the point of the flag: screen rungs are WELL-fed. The round's
+    # discovered variants join the division (pending 6 -> 4 across the
+    # rungs), so each rung's share is >= pot/6 with roll-forward — vs ~20
+    # unfiltered where ~15 call variants divide the same pot.
+    caps = [cap for vid, cap in seen if vid.startswith("g4_screen")]
+    assert caps and all(cap >= 45 for cap in caps), f"thin shares: {caps}"
+    assert caps == sorted(caps), f"roll-forward broke: {caps}"
+
+
+def test_block_unknown_name_fails_fast_without_writes(tmp_path, capsys):
+    world = make_world(tmp_path)
+    rc = lab_main.main(
+        run_args(world, "--rounds", "1", "--budget-calls", "300",
+                 "--block", "output_scren")
+    )
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "output_scren" in err and "output_screen" in err
+    # no artifacts: validation happens before any round runs
+    assert not world["out_dir"].exists()
+
+
 def test_run_skips_network_steps_honestly_without_key_or_consent(
     tmp_path, capsys, monkeypatch
 ):

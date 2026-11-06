@@ -796,8 +796,12 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
 - [ ] **Output-screen calibration run** — the output screen routed 3,760 of
   11,589 citation rows (32%) to review and its variants were budget-starved
   before scoring. Dedicated budget run; the biggest untested lever in the
-  decide layer. **Unblocked 2026-11-05** — the per-variant cap landed; a run
-  dedicated to the `output_screen` axis is a human go (spends real calls).
+  decide layer. **Unblocked 2026-11-05** — per-variant caps landed AND the
+  `--block output_screen` dedicated-run seam (registry restricted to the
+  screen ladder + zero-call anchors; 6 variants vs 23; dry-run verified).
+  Command shape: `python -m src.lab run --rounds 1 --budget-calls 300
+  --target claim_survival --block output_screen`. A human go spends real
+  budget (precedent ≤$5).
 - [ ] **Human review pass on the 9 in-band claims** — the 0.30–0.34-noul
   claims from rillet's Ashby harvest are already routed to `reviewed`; a
   manual disposition pass makes them the ground-truth promotion labels the

@@ -128,6 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
                             help="minimum calls granted to each jev variant per round "
                                  "(the pot is divided budget/variants with this floor; "
                                  "guards against one greedy variant starving the rest)")
+            sp.add_argument("--block", default=None,
+                            help="restrict the registry to ONE gate block (e.g. "
+                                 "output_screen) plus the zero-call incumbent anchors — "
+                                 "the dedicated-run seam; the same budget then divides "
+                                 "across far fewer call variants")
             sp.add_argument("--target", choices=list(TARGETS), default=DEFAULT_TARGET,
                             help="supervised target (see src/lab/targets.py)")
             sp.add_argument("--domains", nargs="*", default=None,
@@ -522,6 +527,7 @@ def _one_round(
     out_dir: Path,
     questions: list[dict],
     variant_floor: int = 2,
+    base_variants: list[dict] | None = None,
 ) -> tuple[dict, list[dict]]:
     """One autoresearch round. Returns (round_dict, next_round_questions);
     raises only to the runner's per-round belt (recorded, never past)."""
@@ -624,7 +630,10 @@ def _one_round(
     discovered = [
         _discovered_variant(s, i, index) for i, s in enumerate(survivors)
     ]
-    all_variants = variants_mod.default_variants() + discovered
+    all_variants = (
+        base_variants if base_variants is not None
+        else variants_mod.default_variants()
+    ) + discovered
     # Per-variant budget caps (the 2026-10-31 defect: one greedy variant ate
     # 282/300 calls and 22 of 23 variants finished partial). The pot is
     # divided across the round's jev variants — cap = max(variant_floor,
@@ -746,7 +755,9 @@ def _one_round(
 # ---------------------------------------------------------------- commands
 
 
-def _print_dry_run(args, rows: list[dict], decide_cfg: dict) -> None:
+def _print_dry_run(
+    args, rows: list[dict], decide_cfg: dict, base_variants: list[dict] | None = None
+) -> None:
     from src.decide.jev import DATA_EXIT_CONSENT
     from src.lab import targets as targets_mod
     from src.lab import variants as variants_mod
@@ -758,7 +769,10 @@ def _print_dry_run(args, rows: list[dict], decide_cfg: dict) -> None:
     )
     labeled, stats = target_fn(rows)
     overall = stats.get("overall") or {}
-    variants = variants_mod.default_variants()
+    variants = (
+        base_variants if base_variants is not None
+        else variants_mod.default_variants()
+    )
     counts = Counter(v.get("stage") for v in variants)
     families = proposer_families(decide_cfg)
     domains = sorted({str(r.get("domain")) for r in rows if r.get("domain")})
@@ -848,8 +862,20 @@ def _cmd_run(args) -> int:
 
     decide_cfg = _load_decide_cfg()
     rows = _extract_rows(args)
+    # resolve the registry selection BEFORE anything expensive: a typo'd
+    # --block fails fast (exit 2, no artifacts) instead of mid-round.
+    from src.lab import variants as variants_mod
+
+    if args.block:
+        try:
+            base_variants = variants_mod.variants_for_block(args.block)
+        except ValueError as exc:
+            print(f"src.lab run: {exc}", file=sys.stderr)
+            return 2
+    else:
+        base_variants = None
     if args.dry_run:
-        _print_dry_run(args, rows, decide_cfg)
+        _print_dry_run(args, rows, decide_cfg, base_variants)
         return 0
 
     target_fn = (
@@ -918,6 +944,7 @@ def _cmd_run(args) -> int:
                 out_dir=Path(args.out_dir),
                 questions=questions,
                 variant_floor=args.variant_floor,
+                base_variants=base_variants,
             )
         except Exception as exc:  # NEVER raises past a round
             logger.error("lab: round {} crashed (recorded): {}: {}", index, type(exc).__name__, exc)

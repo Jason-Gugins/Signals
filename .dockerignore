@@ -1,0 +1,21 @@
+.git
+.venv
+data
+tmp
+PDFS
+.zcode
+.zcodeignore
+.hermes
+.pytest_cache
+.ruff_cache
+signals.egg-info
+__pycache__
+docs
+*.pdf
+rfc7541_plain.txt
+.env
+BUILD_NOTES.md
+"sample companies.txt"
+config/lists/brands.csv
+config/lists/champions.csv
+src/antibot/engine/target

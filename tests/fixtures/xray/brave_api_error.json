@@ -1,0 +1,2 @@
+{"error": {"id": "RATE_LIMITED", "status": 429, "title": "Too Many Requests",
+           "type": "E021", "detail": "Rate limit exceeded"}}

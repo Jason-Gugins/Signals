@@ -406,3 +406,48 @@ def test_unwrap_leaves_clean_target_untouched():
         engine="ddg_lite",
     )
     assert results[0]["url"] == "https://example.com/page"
+
+
+# --- brave_api engine (improvement plan Task 5; GATED build) ----------------
+
+BRAVE_RESULTS_FIXTURE = (FIX / "brave_api_results.json").read_text(encoding="utf-8")
+BRAVE_ERROR_FIXTURE = (FIX / "brave_api_error.json").read_text(encoding="utf-8")
+
+
+def test_parse_brave_api_results():
+    results = parse_results(BRAVE_RESULTS_FIXTURE, engine="brave_api")
+    assert len(results) == 3
+    assert results[0]["url"] == "https://example.com/funded"
+    assert results[0]["title"] == "Example raised seed funding"
+    assert results[0]["snippet"] == "Example announced its seed round yesterday."  # snippets RESTORED
+    assert len({r["url"] for r in results}) == len(results)
+
+
+def test_parse_brave_api_zero_results_raises():
+    body = '{"query": {"original": "zzqxv"}, "type": "search"}'
+    with pytest.raises(ParseError) as excinfo:
+        parse_results(body, engine="brave_api")
+    assert "no organic results" in str(excinfo.value)
+
+
+def test_parse_brave_api_error_payload_raises():
+    with pytest.raises(ParseError) as excinfo:
+        parse_results(BRAVE_ERROR_FIXTURE, engine="brave_api")
+    assert "API error" in str(excinfo.value)
+
+
+def test_is_challenge_never_fires_on_brave_api_json():
+    assert is_challenge(BRAVE_ERROR_FIXTURE, "brave_api") is None
+
+
+def test_brave_api_url_shape_carries_no_token():
+    from src.sources.xray.strings import encode_query
+    url = encode_query('"we\'re hiring"', "brave_api")
+    assert url.startswith("https://api.search.brave.com/res/v1/web/search?q=")
+    assert "token" not in url.lower() and "key=" not in url  # auth rides the header
+
+
+def test_brave_api_non_json_body_raises():
+    # A misplaced keyless-wall body (or any HTML) can never parse as results.
+    with pytest.raises(ParseError):
+        parse_results("<html>captcha wall</html>", engine="brave_api")

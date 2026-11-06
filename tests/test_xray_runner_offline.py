@@ -673,3 +673,22 @@ def test_error_row_carries_no_body_bytes(tmp_path):
     assert events[0]["status"] == "error"
     assert "body_bytes" not in events[0]
     assert "boom" in events[0]["error"]
+
+
+# --- 16. brave_api engine (improvement plan Task 5; GATED build) ------------
+
+def test_run_brave_api_end_to_end(tmp_path):
+    import json as _json
+    brave_body = _json.dumps({
+        "type": "search",
+        "web": {"results": [
+            {"title": "Newco - About", "url": "https://newco.com/about",
+             "description": "Newco raised a seed round."},
+        ]},
+    })
+    # _run returns (report, db, events, urls, sleeps) — events already loaded.
+    report, db, events, _urls, _sleeps = _run(
+        tmp_path, [SPEC_A], [(200, brave_body)], engine="brave_api",
+    )
+    assert events[0]["status"] == "ok" and events[0]["results"] == 1
+    assert report["company_candidates"] == 1

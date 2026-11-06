@@ -133,8 +133,10 @@ retrieval:
 gkg_backend: ekg
 
 # X-ray SERP prospecting (`signals xray`, src/sources/xray). default_engine
-# picks the SERP engine: "ddg_lite" (default; keyless, stochastic) or
+# picks the SERP engine: "ddg_lite" (default; keyless, stochastic),
 # "google_state" (browser-cookie gated — run scripts/google_cookie_refresh.py
-# before the session; see README "X-ray SERP prospecting").
+# before the session; see README "X-ray SERP prospecting") or "brave_api"
+# (keyed Brave Search JSON API — valid here but requires BRAVE_SEARCH_API_KEY
+# in the environment; $5/1k requests, $5/mo free credits).
 xray:
   default_engine: ddg_lite

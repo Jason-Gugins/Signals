@@ -140,7 +140,8 @@ def run_xray(
     if engine not in SUPPORTED_ENGINES:
         raise ValueError(
             f"unsupported engine {engine!r}: built engines are {SUPPORTED_ENGINES} "
-            "(bing/brave/mojeek probed NO-GO per data/probe/XRAY_SERP_2026_10.md)"
+            "(keyless bing/brave/mojeek probed NO-GO per data/probe/XRAY_SERP_2026_10.md; "
+            "brave_api is the keyed Brave JSON API, not the keyless 'brave' web surface)"
         )
     slots = slots or {}
     known, name_index, root_index = _cohort(db)

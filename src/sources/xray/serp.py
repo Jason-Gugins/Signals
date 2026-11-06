@@ -1,7 +1,7 @@
 # src/sources/xray/serp.py
 """PURE SERP-body parsers + challenge detection for the X-ray runner.
 
-Two built engines (Google bypass ladder Task 6, verdicts in
+Three built engines (Google bypass ladder Task 6, verdicts in
 data/probe/XRAY_SERP_2026_10.md):
 
 - ``ddg_lite`` (DEFAULT) — GET ``https://lite.duckduckgo.com/lite/?q=<encoded>``
@@ -21,6 +21,14 @@ data/probe/XRAY_SERP_2026_10.md):
   extraction is unaffected). Fetching this engine REQUIRES a fresh
   browser-harvested cookie jar (per-session — cookies do NOT amortize ≥1
   day; the fetch layer owns that, see cli._xray_google_state_fetch).
+- ``brave_api`` — the keyed Brave Search API (improvement plan Task 5;
+  gated on BRAVE_SEARCH_API_KEY): GET
+  ``https://api.search.brave.com/res/v1/web/search?q=...&count=10`` returns
+  structured JSON (immune to SERP markup drift) and RESTORES snippets
+  (``description`` — the D4 gap google_state cannot fill). Auth rides the
+  fetch adapter's ``X-Subscription-Token`` header (cli._xray_brave_api_fetch)
+  — the token never enters this module. JSON bodies carry no HTML challenge
+  markers; API error payloads classify inside ``_parse_brave_api``.
 
 Real lite markup (recorded from tmp/probe_xray_ddg_lite_q1.html, the only
 organic operator-query body captured; the lite endpoint differs from the
@@ -46,11 +54,12 @@ list — silent empties look like "no leads" and poison the ledger.
 """
 from __future__ import annotations
 
+import json as _json
 import re
 from html import unescape
 from urllib.parse import parse_qs, unquote, urlsplit
 
-SUPPORTED_ENGINES = ("ddg_lite", "google_state")
+SUPPORTED_ENGINES = ("ddg_lite", "google_state", "brave_api")
 
 # Challenge/block markers, case-insensitive, most specific first (the first
 # hit is the recorded marker).
@@ -109,6 +118,10 @@ def _challenge_markers(engine: str | None) -> tuple[str, ...]:
         return _DDG_CHALLENGE_MARKERS
     if engine == "google_state":
         return _GOOGLE_CHALLENGE_MARKERS
+    if engine == "brave_api":
+        # JSON payloads carry no HTML challenge markers; API errors classify
+        # inside _parse_brave_api (never a marker scan).
+        return ()
     return CHALLENGE_MARKERS
 
 
@@ -235,8 +248,9 @@ def parse_results(body: str, *, engine: str = "ddg_lite") -> list[dict]:
 
     Dispatches per engine: ``ddg_lite`` extracts ``result-link`` anchors from
     the lite markup; ``google_state`` extracts the ``window.W_jd`` "2003"
-    url+title records (snippet always ""). Deduped by final URL, in document
-    order. Internal engine links and ad hrefs are dropped. Raises
+    url+title records (snippet always ""); ``brave_api`` parses the keyed
+    Brave Search API JSON payload (snippets restored). Deduped by final URL,
+    in document order. Internal engine links and ad hrefs are dropped. Raises
     ``ParseError`` on a challenge body (marker carried in the message) and on
     a clean body with zero extractable results — never returns a silent empty
     list.
@@ -244,11 +258,14 @@ def parse_results(body: str, *, engine: str = "ddg_lite") -> list[dict]:
     if engine not in SUPPORTED_ENGINES:
         raise ValueError(
             f"unsupported engine {engine!r}: built engines are {SUPPORTED_ENGINES} "
-            "(bing/brave/mojeek probed NO-GO per data/probe/XRAY_SERP_2026_10.md)"
+            "(keyless bing/brave/mojeek probed NO-GO per data/probe/XRAY_SERP_2026_10.md; "
+            "brave_api is the keyed Brave JSON API, not the keyless 'brave' web surface)"
         )
     marker = is_challenge(body, engine)
     if marker is not None and not _enablejs_is_soft(engine, body, marker):
         raise ParseError(f"{engine}: challenge page served ({marker!r} in body)")
+    if engine == "brave_api":
+        return _parse_brave_api(body)
     if engine == "google_state":
         return _parse_google_state(body)
 
@@ -296,6 +313,51 @@ def parse_results(body: str, *, engine: str = "ddg_lite") -> list[dict]:
         )
     if not results:
         raise ParseError(f"{engine}: no organic anchors parsed from body")
+    return results
+
+
+# --- brave_api: the keyed Brave Search API JSON parser (improvement plan ----
+# --- Task 5; GATED build) ---------------------------------------------------
+
+def _parse_brave_api(body: str) -> list[dict]:
+    """Brave Search API JSON payload -> ``[{"url", "title", "snippet"}]`` (pure).
+
+    The keyed API returns structured JSON (immune to SERP markup drift) and
+    RESTORES snippets (W_jd records carry url+title only). Auth rides the
+    fetch adapter's X-Subscription-Token header — never the URL. An error
+    payload raises ParseError with the API reason; a non-JSON body (e.g. a
+    misplaced keyless wall) also raises — never parse as silent empties.
+    """
+    try:
+        payload = _json.loads(body or "")
+    except _json.JSONDecodeError as exc:
+        raise ParseError(f"brave_api: body is not JSON ({exc})") from exc
+    if not isinstance(payload, dict):
+        raise ParseError("brave_api: unexpected payload shape")
+    if "error" in payload:
+        err = payload.get("error")
+        raise ParseError(f"brave_api: API error ({_json.dumps(err)[:200]})")
+    # isinstance guard: a non-dict "web" (payload drift) must fall out as a
+    # clean ParseError-empty, never an AttributeError crash past the runner's
+    # except-ParseError net (serp.py:44-45 posture).
+    web = payload.get("web")
+    items = (web.get("results") or []) if isinstance(web, dict) else []
+    results: list[dict] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if not url.casefold().startswith(("http://", "https://")) or url in seen:
+            continue
+        seen.add(url)
+        results.append({
+            "url": url,
+            "title": _text(str(item.get("title") or ""))[:_TITLE_MAX],
+            "snippet": _text(str(item.get("description") or ""))[:_SNIPPET_MAX],
+        })
+    if not results:
+        raise ParseError("brave_api: no organic results parsed from payload")
     return results
 
 

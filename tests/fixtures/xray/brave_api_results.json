@@ -1,0 +1,18 @@
+{
+  "type": "search",
+  "query": {"original": "\"recently funded\"", "result_count": 3},
+  "web": {
+    "results": [
+      {"title": "Example raised seed funding",
+       "url": "https://example.com/funded",
+       "description": "Example announced its seed round yesterday.",
+       "age": "2 days ago"},
+      {"title": "AnotherCo raises seed round",
+       "url": "https://anotherco.io/news/seed",
+       "description": "AnotherCo closed a $2M seed round.", "age": "1 week ago"},
+      {"title": "Third example funding note",
+       "url": "https://third.example.com/funding",
+       "description": "Third Example is also recently funded.", "age": "3 weeks ago"}
+    ]
+  }
+}

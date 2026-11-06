@@ -83,4 +83,14 @@ def encode_query(query: str, engine: str) -> str:
         return f"https://lite.duckduckgo.com/lite/?q={quote_plus(query)}"
     if engine == "ddg":
         return f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+    if engine == "brave_api":
+        # Keyed JSON API (improvement plan Task 5; $5/1k requests, $5/mo free
+        # credits). The URL carries NO credentials — auth rides the fetch
+        # adapter's X-Subscription-Token header (cli._xray_brave_api_fetch),
+        # so the ledger never records a secret. Free-tier rate is 1 qps; the
+        # runner's 20 s pace budget is far above it.
+        return (
+            "https://api.search.brave.com/res/v1/web/search"
+            f"?q={quote_plus(query)}&count=10"
+        )
     raise ValueError(f"unknown engine: {engine}")

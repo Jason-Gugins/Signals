@@ -1183,6 +1183,46 @@ def _xray_google_state_fetch():
     return fetch
 
 
+def _xray_brave_api_fetch():
+    """Keyed fetch adapter for the brave_api engine: url -> (status, body).
+
+    Reads BRAVE_SEARCH_API_KEY from the environment and sends it as the
+    X-Subscription-Token request header (Brave's documented auth posture) —
+    the token never enters strings.py, the runner, or the ledger. Missing or
+    empty token is a hard usage error with guidance (same posture as the
+    google_state cookie-jar gate). Free-tier rate is 1 qps; the runner's
+    pace budget already exceeds it.
+    """
+    # os is already imported at src/cli.py module level (line 6).
+    token = os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()
+    if not token:
+        click.echo(
+            "brave_api needs BRAVE_SEARCH_API_KEY in the environment "
+            "(api-dashboard.search.brave.com; $5/1k requests, $5/mo free "
+            "credits — watch billing: a saved card is charged beyond credits)",
+            err=True,
+        )
+        raise click.exceptions.Exit(1)
+
+    from src.core.curl_fetcher import CurlCffiFetcher
+
+    f = CurlCffiFetcher(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+    )
+
+    def fetch(url: str) -> tuple[int, str]:
+        resp = f.get(url, headers={
+            "Accept": "application/json",
+            "X-Subscription-Token": token,
+        })
+        body = resp.body
+        text = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else str(body)
+        return resp.status, text
+
+    return fetch
+
+
 def _xray_default_engine(cfg: Config) -> str:
     """``xray.default_engine`` from config/default.yaml; "ddg_lite" fallback."""
     try:
@@ -1214,7 +1254,7 @@ def _xray_default_engine(cfg: Config) -> str:
 @click.option("--stats", is_flag=True, help="Print per-string ledger stats and exit.")
 @click.option("--rollup", is_flag=True,
               help="With --stats: engine x status counts (the pass-rate instrument).")
-@click.option("--engine", type=click.Choice(["ddg_lite", "google_state"]), default=None,
+@click.option("--engine", type=click.Choice(["ddg_lite", "google_state", "brave_api"]), default=None,
               help="Default from config xray.default_engine (ddg_lite).")
 @click.pass_context
 def xray(ctx, kinds, title, location, niche, role, problem_phrase,
@@ -1223,10 +1263,13 @@ def xray(ctx, kinds, title, location, niche, role, problem_phrase,
 
     Robots-exception source — NEVER scheduled, never a cadence fanout.
     Engines: ddg_lite (default; keyless lite.duckduckgo.com via the
-    chrome-TLS tier) and google_state (Google results embedded as W_jd
+    chrome-TLS tier), google_state (Google results embedded as W_jd
     state; REQUIRES the fresh cookie jar from scripts/google_cookie_refresh.py
     — per-session cookies, intermittent IP walls surface as explicit
-    challenge rows). Verdicts: data/probe/XRAY_SERP_2026_10.md. Company hits
+    challenge rows) and brave_api (keyed Brave Search JSON API; snippets
+    restored; REQUIRES BRAVE_SEARCH_API_KEY in the environment — the token
+    rides the X-Subscription-Token header, never the URL). Verdicts:
+    data/probe/XRAY_SERP_2026_10.md. Company hits
     queue in identity_candidates for human review; people hits matching a
     cohort account become contacts. Every query lands in
     data/xray/ledger.jsonl.
@@ -1279,7 +1322,10 @@ def xray(ctx, kinds, title, location, niche, role, problem_phrase,
         if val is not None
     }
 
-    fetch_factory = _xray_google_state_fetch if engine == "google_state" else _xray_fetch
+    fetch_factory = {
+        "google_state": _xray_google_state_fetch,
+        "brave_api": _xray_brave_api_fetch,
+    }.get(engine, _xray_fetch)
     report = run_xray(
         strings=strings,
         fetch=fetch_factory(),

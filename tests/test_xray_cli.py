@@ -388,3 +388,19 @@ def test_xray_stats_rollup_empty_ledger_header_only(fake_orch):
     assert result.exit_code == 0
     assert "engine\tstatus\tcount" in result.output
     assert "ddg_lite" not in result.output
+
+
+# --- 8. brave_api engine env gate (improvement plan Task 5) ------------------
+
+def test_xray_brave_api_requires_env_token(monkeypatch, fake_orch):
+    # Config.load() runs load_dotenv() on EVERY cli.main invoke (the main
+    # group callback), which would re-inject the user's REAL .env key into
+    # os.environ after the delenv below — the house rule says tests never
+    # read the user's real key, so the loader is stubbed for this invoke.
+    # delenv still covers the exported-shell-variable case.
+    monkeypatch.setattr("src.core.config.load_dotenv", lambda *a, **k: None)
+    monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["xray", "--engine", "brave_api", "--limit", "1"])
+    assert result.exit_code == 1
+    assert "BRAVE_SEARCH_API_KEY" in result.output

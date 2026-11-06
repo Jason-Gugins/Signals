@@ -9,7 +9,8 @@ PDFS
 .pytest_cache
 .ruff_cache
 signals.egg-info
-__pycache__
+**/__pycache__
+*.pyc
 docs
 *.pdf
 rfc7541_plain.txt

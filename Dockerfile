@@ -14,8 +14,8 @@ RUN sed -i 's/\r$//' docker/entrypoint.sh && chmod +x docker/entrypoint.sh \
     && pip install --no-cache-dir -e ".[rerank]" \
     && python scripts/prefetch_models.py \
     && useradd -m -u 10001 signals \
-    && mkdir -p /work/data /opt/signals-hf \
-    && chown -R signals:signals /work /opt/signals-hf /app/src /app/tests
+    && mkdir -p /work/data /opt/signals-hf /app/data \
+    && chown -R signals:signals /work /opt/signals-hf /app/src /app/tests /app/data
 USER signals
 WORKDIR /work
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker/entrypoint.sh"]

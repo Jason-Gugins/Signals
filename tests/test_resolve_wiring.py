@@ -96,9 +96,13 @@ def test_resolve_bbb_default_off(tmp_path):
 # ---------------------------------------------------------------- linkedin ---
 def _fake_scraper_checkout(tmp_path: Path) -> Path:
     cwd = tmp_path / "Linkedin"
-    venv = cwd / ".venv" / "Scripts"
-    venv.mkdir(parents=True)
-    (venv / "python.exe").write_text("", encoding="utf-8")
+    # Both venv layouts: scraper_python resolves per-platform (Scripts on
+    # Windows, bin on POSIX/in-container), same contract as the scraper_env
+    # fixture in test_linkedin_ids.py.
+    (cwd / ".venv" / "Scripts").mkdir(parents=True)
+    (cwd / ".venv" / "Scripts" / "python.exe").write_text("", encoding="utf-8")
+    (cwd / ".venv" / "bin").mkdir(parents=True)
+    (cwd / ".venv" / "bin" / "python").write_text("", encoding="utf-8")
     return cwd
 
 

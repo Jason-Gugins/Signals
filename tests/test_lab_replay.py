@@ -611,6 +611,51 @@ def test_round_robin_skips_non_engine_rows_in_the_rotation():
     )
 
 
+def test_zero_call_anchor_applies_recorded_screen_nouls():
+    """The shipped pipeline asks the screen rider on every batch and records
+    both hazard nouls on EVERY row of the batch (gates.py:1125-1127) — but
+    only for collections made after the screen shipped; older packages carry
+    choice keys only. The zero-call g4 anchor must therefore apply the
+    recorded screen override where nouls EXIST (reproducing the shipped
+    screen's batch holding) and stay floor-only where they don't (honest
+    degradation). 2026-11-06: without this, the anchor accepted screen-held
+    claims — the bubbleskincare 'incumbent 0.977 recall' was a screenless
+    fiction."""
+    held = claim_rows(
+        {0: ("reviewed", g4_answer("supports", 0.92)),
+         1: ("reviewed", g4_answer("supports", 0.92))},
+        doc_id="doc-g4",
+        batch="batch-held",
+    )
+    # the batch's RECORDED outcome was screen-driven: supports@0.92 would
+    # floor-route to accepted — only the screen explains the recorded review.
+    # The nouls ride every row of the batch (one decision, batch-level verdict).
+    for r in held:
+        r["answers"]["out_of_excerpt"] = {"type": "noul", "noul": 0.50}
+        r["answers"]["wrong_entity"] = {"type": "noul", "noul": 0.10}
+    pre_screen = claim_rows(
+        {0: ("accepted", g4_answer("supports", 0.92))},
+        doc_id="doc-g4-old",
+        batch="batch-prescreen",
+    )
+    rows = held + pre_screen
+    rows.append(doc_row("doc-g4", G4_DOC, "included"))
+
+    result = replay_variant(variant_by_id("g4_incumbent"), rows, NullDecider())
+    assert result["calls"] == 0
+    by_doc: dict[str, list] = {}
+    for r in _rows_of(result):
+        by_doc.setdefault(r["doc_id"], []).append(r)
+    # the held batch: recorded nouls >= review 0.35 -> the shipped screen
+    # holds BOTH claims, even though their floor routing would accept
+    held_out = by_doc["doc-g4"]
+    assert {r["outcome"] for r in held_out} == {"reviewed"}
+    assert {r.get("reason") for r in held_out} == {"output_review"}
+    # the pre-screen batch: no nouls recorded -> honest floor-only routing
+    pre_out = by_doc["doc-g4-old"]
+    assert [(r["outcome"], r.get("reason")) for r in pre_out] == [("accepted", None)]
+
+
 # ------------------------------------------------------- weighted-score math
 
 

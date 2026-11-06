@@ -914,7 +914,19 @@ def _replay_g4(
                 emit(i, OUTCOME_DROPPED, error, None, error)
             continue
 
-        override = _screen_override(decision.answers, screen_cfg) if screen_axis else None
+        # Screen override: screen-axis variants compute it from FRESH nouls;
+        # zero-call re-routes apply it from RECORDED nouls (persisted on the
+        # rows wherever the screen was enabled at collection — gates.py
+        # records both hazard answers on every judged row). Ask=True
+        # non-screen variants never receive nouls and route floor-only.
+        # 2026-11-06: without the recorded-noul arm, the zero-call incumbent
+        # accepted claims the shipped screen had held — the "incumbent"
+        # comparator was screenless fiction on post-screen collections.
+        override = (
+            _screen_override(decision.answers, screen_cfg)
+            if (screen_axis or not ask)
+            else None
+        )
         for i in judged:
             qid = f"claim_{i}"
             if override in ("wrong_entity", "unfounded_claims"):

@@ -286,6 +286,24 @@ _REGISTRY: tuple[dict, ...] = (
         "requires_replay": REPLAY_JEV,
         "expected_direction": DIRECTION_DOWN,
     },
+    {
+        "id": "screen_shipped",
+        "stage": STAGE_G4,
+        "block": "output_screen",
+        "description": (
+            "The shipped output screen under the SAME replay as the rungs "
+            "(empty delta: review 0.35 / action 0.70, ask=True) — the "
+            "same-prompt-shape comparator: rung-vs-screen_shipped isolates "
+            "the pure threshold effect, while rung-vs-g4_incumbent mixes in "
+            "fresh-call variance and prompt interaction (2026-11-06 "
+            "addendum 7: screen rungs re-ask the batch WITH the screen "
+            "questions; the zero-call incumbent replays recorded answers "
+            "screenless)."
+        ),
+        "config_delta": {},
+        "requires_replay": REPLAY_JEV,
+        "expected_direction": None,
+    },
     # ------------------------------------------------ g5: need_promotion
     # incumbent + floor/band ladders + one cross rung — ALL zero-call: the
     # promotion nouls are recorded on the rows, so every rung re-routes them

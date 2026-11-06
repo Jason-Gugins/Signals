@@ -512,12 +512,14 @@ def test_block_flag_restricts_the_round_to_one_axis(tmp_path, offline_seams):
     assert "doc_relevant_min_loose" not in ids
     assert "g5_floor_loose" not in ids
     # the point of the flag: screen rungs are WELL-fed. The round's
-    # discovered variants join the division (pending 6 -> 4 across the
-    # rungs), so each rung's share is >= pot/6 with roll-forward — vs ~20
-    # unfiltered where ~15 call variants divide the same pot.
+    # discovered variants AND screen_shipped join the division (pending
+    # 7 -> 5 across the rungs), so each rung's share is >= pot/7 with
+    # roll-forward — vs ~20 unfiltered where ~15 call variants divide it.
     caps = [cap for vid, cap in seen if vid.startswith("g4_screen")]
-    assert caps and all(cap >= 45 for cap in caps), f"thin shares: {caps}"
+    assert caps and all(cap >= 40 for cap in caps), f"thin shares: {caps}"
     assert caps == sorted(caps), f"roll-forward broke: {caps}"
+    # the shipped-threshold comparator rides the same block filter
+    assert any(vid == "screen_shipped" for vid, _c in seen)
 
 
 def test_block_unknown_name_fails_fast_without_writes(tmp_path, capsys):

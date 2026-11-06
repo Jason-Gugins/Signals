@@ -1021,29 +1021,65 @@ def _replay_g5(
 # ------------------------------------------------------------------- the API
 
 
+def _rotation_eligible(row: dict) -> bool:
+    """Whether a corpus row can produce SCORED work for some engine.
+
+    Mirrors each engine's own eligibility conditions (doc-gate's joined +
+    verdict-bearing check; _judged_batches' claims-payload check) — the
+    rotation must cover exactly the rows the engines can score, because the
+    ineligible ones (no-claims citation history, unjoined doc heads, other
+    gates) otherwise occupy queue slots AHEAD of eligible rows in package
+    order and push a domain's first scorable unit past the budget cap
+    (databricks: ~4,400 no-claims rows ahead of its 873 claim batches).
+    Ineligible rows still reach the engines (tail of the rotation) so every
+    skip COUNT is preserved — only their ORDER changes."""
+    gate = row.get("gate")
+    if gate == "citation_soundness":
+        return isinstance(row.get("claims"), list) and bool(row["claims"])
+    if gate == "document_gate":
+        return bool(
+            row.get("doc_joined")
+            and row.get("doc_id")
+            and isinstance(row.get("text"), str)
+            and row.get("text")
+            and row.get("outcome") in (_DOC_POSITIVE, _DOC_NEGATIVE)
+        )
+    if gate == "need_promotion":
+        return True
+    return False
+
+
 def _round_robin_by_domain(rows: list[dict]) -> list[dict]:
     """Reorder rows domain-round-robin (sorted domain names, stable within
-    each domain).
+    each domain) over the SCORE-ELIGIBLE rows only; every ineligible row
+    rides AFTER them in original order.
 
-    The 2026-11-06 finding: budget-capped variants iterated in package
-    order, so the screen rungs spent their ENTIRE caps on the first domain's
-    batches and never sampled the other five (subset comparisons silently
-    became single-domain comparisons). Round-robinning at the dispatch point
-    means every capped variant samples each domain before exhausting any —
-    and because the g4 batcher groups by (package, state_hash) rather than
-    adjacency, batches stay intact. Zero-call engines are unaffected in
-    aggregate (order changes only the output row order)."""
-    by_domain: dict[str, list[dict]] = {}
+    The 2026-11-06 finding (two layers): budget-capped variants iterated in
+    package order, so the screen rungs spent their ENTIRE caps on the first
+    domain's batches and never sampled the other five (subset comparisons
+    silently became single-domain comparisons) — and a naive all-rows
+    rotation doesn't fix it either, because ineligible rows (no-claims
+    citation history, other gates) occupy queue slots ahead of eligible ones
+    in package order. Rotating the score-eligible rows means every capped
+    variant samples each domain before exhausting any — and because the g4
+    batcher groups by (package, state_hash) rather than adjacency, batches
+    stay intact. Zero-call engines are unaffected in aggregate (order
+    changes only the output row order)."""
+    rotate: dict[str, list[dict]] = {}
+    tail: list[dict] = []
     for row in rows:
-        by_domain.setdefault(str(row.get("domain") or "unknown"), []).append(row)
-    queues = [by_domain[d] for d in sorted(by_domain)]
+        if _rotation_eligible(row):
+            rotate.setdefault(str(row.get("domain") or "unknown"), []).append(row)
+        else:
+            tail.append(row)
+    queues = [rotate[d] for d in sorted(rotate)]
     out: list[dict] = []
     while queues:
         for queue in list(queues):
             out.append(queue.pop(0))
             if not queue:
                 queues.remove(queue)
-    return out
+    return out + tail
 
 
 def replay_variant(

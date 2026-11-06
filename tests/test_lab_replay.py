@@ -569,6 +569,48 @@ def test_capped_doc_variant_round_robins_across_domains():
     assert scored_domains == domains, f"not round-robin order: {scored_domains}"
 
 
+def test_round_robin_skips_non_engine_rows_in_the_rotation():
+    """Real-corpus shape: domain queues carry ~11 gate types (taxonomy,
+    routing, need_promotion, unlabeled ledger rows...), and a domain whose
+    claim-bearing citation rows sit THOUSANDS of queue positions deep
+    (rillet: extract index 34,805) must still be sampled by a capped variant.
+    The rotation therefore covers ONLY the engines' rows; other gates ride
+    after them (engines skip them; skip COUNTS are order-independent)."""
+    rows: list[dict] = []
+    decision = ok({"claim_0": g4_answer("supports", 0.92)})
+    for domain, decoys in (("aaa.com", 0), ("bbb.com", 500), ("ccc.com", 0)):
+        # bbb mimics databricks/rillet: UNEQUAL depth of UNELIGIBLE rows —
+        # no-claims citation rows (pre-persist_claims history) and other
+        # gates sit AHEAD of the claim-bearing rows in package order
+        for d in range(decoys):
+            rows.append({"gate": "citation_soundness", "domain": domain,
+                         "state_hash": f"nc-{domain}-{d}", "outcome": "dropped",
+                         "claims": []})
+        for d in range(decoys):
+            rows.append({"gate": "taxonomy_typing", "domain": domain,
+                         "state_hash": f"tax-{domain}-{d}", "outcome": "typed"})
+        for b in range(4):
+            batch = claim_rows(
+                {0: ("accepted", g4_answer("supports", 0.92))},
+                doc_id=f"{domain}-doc-{b}",
+                package=f"{domain}-20261011T000000Z-run-1",
+                batch=f"batch-{domain}-{b}",
+            )
+            for r in batch:
+                r["domain"] = domain
+            rows.extend(batch)
+
+    spy = SpyDecider(lambda state, questions: decision)
+    result = replay_variant(
+        variant_by_id("g4_floor_loose"), rows, spy, budget_calls=3
+    )
+    scored = _rows_of(result)
+    scored_domains = {r["domain"] for r in scored}
+    assert scored_domains == {"aaa.com", "bbb.com", "ccc.com"}, (
+        f"decoy rows starved a domain: {sorted(scored_domains)}"
+    )
+
+
 # ------------------------------------------------------- weighted-score math
 
 

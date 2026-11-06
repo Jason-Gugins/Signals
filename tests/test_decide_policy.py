@@ -303,7 +303,7 @@ def test_decide_yaml_wave23_keys():
     }
     assert gates["output_screen"] == {
         "enabled": True,
-        "review_threshold": 0.35,
+        "review_threshold": 0.45,  # 0.35 -> 0.45 APPLIED 2026-11-06 (decide-lab addendum 8)
         "action_threshold": 0.70,
         "on_error": "use_deterministic",
     }

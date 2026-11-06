@@ -925,12 +925,16 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   1.000/0.569), brumate 48→60 (0.917/0.512 → 0.933/0.651), bubbleskincare
   34→53 (1.000/0.201 → 1.000/0.314); rillet identical (hazards above every
   tested threshold); databricks unsampled positives. **The shipped screen
-  over-holds; applying `review_threshold: 0.45` raises recall, keeps
-  precision, and SHRINKS the review queue.** The "bubbleskincare regression"
-  of addendum 6 was the screenless-anchor artifact. Applying is the human
-  step: one-line change to the `output_screen` block in `config/decide.yaml`.
-  Residual caveat: one run's data; the abnormal fresh-vs-at-collection
-  divergence is an open question (addendum 8a).
+  over-holds; raising the threshold raises recall, keeps precision, and
+  SHRINKS the review queue.** The "bubbleskincare regression" of addendum 6
+  was the screenless-anchor artifact. **APPLIED 2026-11-06**
+  (`config/decide.yaml` `output_screen.review_threshold: 0.45`, comment
+  cites the evidence; both config-contract pins updated; revert = one
+  line). Residual caveats recorded: one run's data; the abnormal
+  fresh-vs-at-collection divergence is an open question (addendum 8a).
+  Post-apply watch: next intel run's ledger should show `output_review`
+  volume down and accepted volume up — spot-check a few newly-accepted
+  claims on the ICP domains.
 - [x] **Lab registry: `screen_shipped` anchor variant + recorded-noul
   override** — DONE 2026-11-06 (`4ec60c1`): the empty-delta output_screen
   comparator (ask=True at shipped 0.35/0.70) is registered and rides

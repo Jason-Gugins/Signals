@@ -32,7 +32,7 @@ decider:
     citation_soundness: {enabled: true, floor: 0.70, band_low: 0.30, on_error: drop_llm}      # Choice rule = top-prob-or-abstain: prob < floor => review; band_low here is informational (the band applies to the NOUL gate, need_promotion)
     need_promotion:     {enabled: true, floor: 0.70, band_low: 0.30, on_error: drop_llm}      # band_low NEW
     document_gate:      {enabled: true, relevant_min: 0.45, evidence_min: 0.55, injection_max: 0.70, on_error: use_deterministic}   # NEW
-    output_screen:      {enabled: true, review_threshold: 0.35, action_threshold: 0.70, on_error: use_deterministic}                # NEW (rider)
+    output_screen:      {enabled: true, review_threshold: 0.45, action_threshold: 0.70, on_error: use_deterministic}   # review 0.35->0.45 APPLIED 2026-11-06: the [0.35,0.45) band held almost exclusively recorded survivors at flat precision (unconfounded rung-vs-screen_shipped comparison, decide-lab addendum 8 / report-20261106T203732Z) — the shipped screen over-held; recall up, review queue down. Revert to 0.35 to restore.
     completeness_verify: {enabled: true, fire_threshold: 0.70, max_escalations: 20, on_error: skip}
     taxonomy_typing:     {enabled: true, confident: 0.90, ambiguous: 0.60, on_error: skip}
     event_dates:         {enabled: true, review_below: 0.60, on_error: skip}

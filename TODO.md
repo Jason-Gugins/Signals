@@ -885,20 +885,28 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   TDD'd with a reproduction of the starvation (before: first variant took
   291/300 and 14 got zero → after: all 15 get a share;
   `tests/test_lab_runner.py`).
-- [x] **Output-screen calibration run** — DONE 2026-11-06
-  (`data/lab/report-20261106T015835Z.md`, 300/300 calls, `--block
-  output_screen`): the **lab's first-ever non-empty proposal** —
-  `output_screen.review_threshold 0.35 -> 0.25`, i.e. review MORE. On the
-  three rungs' identical 1,351-row abnormal.ai subset: incumbent accepts
-  1,341 rows at precision 0.045; review_loose accepts 16 at precision 1.000
-  (recall 0.262); tightening (0.45) and dropping sooner (action 0.60, 44% of
-  rows killed) both scored worse — refuted. The 32%-review-volume question
-  is answered: the screen was UNDER-reviewing, not over-reviewing. Caveats
-  recorded: single-domain coverage (caps exhausted abnormal.ai first —
-  per-domain round-robin is the runner fix, open below); recall 0.262 means
-  the review queue grows to ~77% of batches. **Applying
-  `review_threshold: 0.25` to `config/decide.yaml` is a human step** (the
-  proposal YAML names it; never auto-applied).
+- [x] **Output-screen calibration run** — DONE 2026-11-05/06 across two runs
+  (`report-20261106T015835Z.md` + confirmation `report-20261106T165725Z.md`,
+  300 calls each): the lab produced its **first-ever non-empty proposal**
+  (`review_threshold 0.35 -> 0.25`) and the confirmation rerun then
+  **refuted it cross-domain** — 0.25 is precision theater: 1.000 precision
+  everywhere but 1.6–12.8% recall on the DTC domains where 528/589 true
+  survivors live; applying it would near-empty the evidence base (the
+  aggregate weighted metric hides this — per-domain analysis in the
+  decide-lab record addendum 5). The evidence-based outcome instead: the
+  screen's real finding is **0.45 as the interesting rung** (94–99%
+  precision at 62–70% recall on DTC — a precision upgrade over incumbent's
+  0.54–0.80-at-recall-1.000), UNTESTED on databricks/rillet (both runs
+  predate the rotation fix; see the box below). No threshold move is
+  justified yet — incumbent stands.
+- [ ] **Third output_screen run post-rotation-fix (one $5 go)** — complete
+  the 6-domain picture before any threshold decision: `python -m src.lab
+  run --rounds 1 --budget-calls 300 --target claim_survival --block
+  output_screen` now samples all 6 domains (verified on the real corpus:
+  first-94 batches span 6 domains, databricks 4 + rillet 7 included). It
+  re-tests 0.45 (the DTC-favorable rung) with vendor-domain coverage.
+  Decision after it: apply 0.45 / keep incumbent / design a per-domain-type
+  screen.
 - [x] **Lab replay: per-domain round-robin under per-variant caps** — DONE
   2026-11-06: `_round_robin_by_domain` at the `replay_variant` dispatch point
   (sorted domains, stable within each; the g4 batcher groups by

@@ -7,9 +7,14 @@ additional deployment option that packages the same CLI.
 ## Status
 
 - Image definitions: **landed** (multi-stage `base` + `browser` targets).
-- Build/verification records: **pending** — filled by Tasks 7–9 of
-  `docs/plans/2026-10-31-phase0-containerization.md` (source commit hash,
-  image sizes, in-container verification, first intel run).
+- **Build record (2026-11-05):** both targets built successfully from the
+  working tree at source commit `d24854a` (docker-ce 29.9.3 inside WSL2
+  Ubuntu 24.04). Sizes: `signals:base` **1.05 GB**, `signals:browser`
+  **3.34 GB** (chromium + patchright browsers + Xvfb libs dominate).
+  One build fix vs the plan sketch: the bookworm-pin rationale comment had
+  to move off the `FROM` line (inline comments are not Dockerfile syntax).
+- In-container verification + first intel run: **pending** — Tasks 8–9 of
+  `docs/plans/2026-10-31-phase0-containerization.md`.
 
 ## Build
 

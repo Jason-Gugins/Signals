@@ -34,3 +34,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && python -m patchright install chromium \
     && chown -R signals:signals /opt/ms-playwright
 USER signals
+
+########## engine-builder: compiles the native signals_antibot wheel ##########
+FROM python:3.12-slim-bookworm AS engine-builder
+ENV PATH=/usr/local/go/bin:/root/.cargo/bin:${PATH}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential cmake ninja-build clang libclang-dev perl curl ca-certificates git \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://go.dev/dl/go1.24.5.linux-amd64.tar.gz | tar -C /usr/local -xz \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+WORKDIR /app
+COPY . /app
+# cargo fetch FIRST: the ALPS patch needs boring-sys vendored before it can run
+# (cold-cache ordering — same lesson as the WSL sandbox recipe in
+# src/antibot/README.md "Build (Linux/Ubuntu)").
+RUN pip install --no-cache-dir maturin \
+    && cd src/antibot/engine && cargo fetch \
+    && PYTHONPATH=/app python -c "from tools.build_antibot import apply_registry_patches; apply_registry_patches()" \
+    && maturin build --release \
+    && mkdir /wheels && mv target/wheels/signals_antibot-*.whl /wheels/
+
+########## engine: browser + native antibot engine (tier-1 TLS parity) ##########
+FROM browser AS engine
+USER root
+COPY --from=engine-builder /wheels/ /tmp/wheels/
+RUN pip install --no-cache-dir /tmp/wheels/signals_antibot-*.whl && rm -rf /tmp/wheels
+USER signals

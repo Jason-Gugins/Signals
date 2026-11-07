@@ -1,6 +1,6 @@
 # TODO — Project Roadmap
 
-Last reviewed: 2026-11-06. Baseline: **~3,100 tests collected, offline lane
+Last reviewed: 2026-11-07. Baseline: **~3,100 tests collected, offline lane
 green** (measured 2026-10-30, 8m19s; re-verified green at every Phase 0
 batch gate). P1 fully delivered (2026-08-31); **P2
 fully delivered (2026-09-01)**; **P3 fully delivered (2026-09-02)** — see
@@ -56,6 +56,62 @@ Remaining fresh-decision territory: deploy the image on the target VPS
 (Phase 1: cron + nightly `.backup` + restore drill + two-week zero-touch
 soak per architecture doc §9), and/or run a decide-attached in-container
 intel run (LLM budget) to verify the LiveDecider path under Docker.
+
+## mypy type gate — DELIVERED (2026-11-07)
+
+**Status: DELIVERED (2026-11-07)** — 12 commits across 13 tasks, executed
+via subagent-driven development (fresh subagent per task; two-stage review
+— spec-compliance then code-quality — on each parallel wave); offline
+suite green at every commit gate and both wave gates.
+
+- [x] **Config + warn-only lane** (`828acbf`) — `[tool.mypy]` (mypy==2.4.1,
+  ignore_missing_imports, warn_unused_ignores, files=["src"], finish-line
+  comment: check_untyped_defs is the LAST ratchet, no strict mode —
+  scraper glue is Any-shaped on purpose); separate `typecheck` CI job
+  (ubuntu-only, same deps install as the offline lane), warn-only
+  mirroring the ruff warm-up; `.mypy_cache/` gitignored.
+- [x] **The one real crash** (`6c1059a`) — itunes `company not in blob_n`
+  TypeError on truthy-but-unnormalizable account names ("LLC");
+  red→green regression test in test_content.py; None now maps onto the
+  existing "" = no-filter convention.
+- [x] **Four mypy blind spots narrowed** (`9eb104b`) — fingerprint
+  key/spec coupling, github bytes coercion, backoff bool() guard,
+  textutil cross-pattern pin. All behavior-identical; fixed in code,
+  not suppressed.
+- [x] **Per-package triage** (`053ec1f` core 27, `fba4dda` pipeline 38,
+  `d208002` decide+lab 34, `58ab08f` signals+retrieval 24, `31ce940`
+  identity/export/antibot/intel/cli 25, `724c5f9` sources 30,
+  `1e60131` marketplace remainder 2) — narrowing guards per the
+  retype-field-vs-guard decision rule; gates.py touched with guards
+  only (no invariant restructuring); waves ran as parallel subagents
+  on disjoint packages (commit order T11→T8→T10→T9), per-commit counts
+  reconciled exactly by the spec reviewer (81→79→55→25→0). Triage
+  BONUS — three latent crashes fixed en route: cli.py:381 missing
+  `today` kwarg (TypeError on every digest run, test-masked by a
+  **kw fake), registry.upsert read-back fallback (formd got.domain
+  AttributeError), cf_bypass doc.body guards (re.search(None) crash →
+  designed b"" degrade).
+- [x] **Marketplace exemption** — bs4 partial-typing noise: arg-type+
+  union-attr disabled on `src.sources.marketplace.*` (27 of 29); the 2
+  non-noise errors fixed (`1e60131`). Revisit if bs4 ships stricter stubs.
+- [x] **Blocking** (`3da8de3`) — continue-on-error removed.
+- [x] **Bookkeeping** — this entry.
+
+Baseline before: 211 errors / 64 files (mypy 2.4.1, 2026-11-06; measured
+at `4bb60fe`, re-verified at `bdae79e`); 213 re-anchored under the pinned
+`python_version = "3.12"`; 261 files checked at HEAD (careers-harvest
+commits added one clean file). After: **0 — `Success: no issues found in
+261 source files`**. Scope pinned `mypy src` — tests/ never widened.
+Two-stage review verdicts: PASS on both waves; every behavior-identical
+claim verified at consumer level by the quality reviewer. Known
+ratchet-#2 leftovers (annotation-only, none behavioral): transport
+`_native: Any` → `SignalsEngine | Literal[False] | None`; federal
+`observed: Any` → `str | None`; two bare `dict` annotations;
+coverage→registry type[SourceAdapter] mismatch masked by runner's
+pre-existing untyped passthrough. [gkg] tightening path: add the extra
+to the type job or override `src.identity.gkg_ids` when
+ignore_missing_imports is retired. Next ratchet (deliberately
+deferred): `check_untyped_defs = true`.
 
 ## Antibot engine Linux port — DELIVERED (2026-11-06)
 

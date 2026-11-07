@@ -45,7 +45,11 @@ def newest_primary(signals: list[Signal], *, taxonomy: Taxonomy) -> Signal | Non
     cands = [s for s in signals if s.signal_type in primary]
     if not cands:
         return None
-    known = [(s, _age(s, date.max)) for s in cands if _age(s, date.max) is not None]
+    known: list[tuple[Signal, int]] = []
+    for s in cands:
+        age = _age(s, date.max)
+        if age is not None:
+            known.append((s, age))
     if known:
         known.sort(key=lambda pair: pair[1])
         return known[0][0]

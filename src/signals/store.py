@@ -146,7 +146,10 @@ class SignalStore:
         return signals
 
     def purge_domain(self, domain: str) -> int:
-        n = self.db.one("SELECT COUNT(*) AS n FROM signals WHERE domain = ?", (domain,))["n"]
+        row = self.db.one("SELECT COUNT(*) AS n FROM signals WHERE domain = ?", (domain,))
+        if row is None:  # COUNT(*) always yields exactly one row; pins the invariant
+            return 0
+        n = int(row["n"])
         self.db.execute("DELETE FROM signals WHERE domain = ?", (domain,))
         self.db.execute("DELETE FROM play_assignments WHERE domain = ?", (domain,))
-        return int(n)
+        return n

@@ -10,7 +10,11 @@ from __future__ import annotations
 import copy
 import logging
 import math
-from typing import Optional, Protocol
+from typing import TYPE_CHECKING, Optional, Protocol
+
+if TYPE_CHECKING:  # ML deps stay lazy at runtime (import-safe without [rerank])
+    import onnxruntime as ort
+    from tokenizers import Tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +46,8 @@ class OnnxScorer:
     """ms-marco-MiniLM-L-6-v2 cross-encoder via onnxruntime (lazy singleton)."""
 
     def __init__(self, model_repo: str = MODEL_REPO) -> None:
-        self._session = None
-        self._tokenizer = None
+        self._session: Optional["ort.InferenceSession"] = None
+        self._tokenizer: Optional["Tokenizer"] = None
         self._model_repo = model_repo
 
     def _ensure_loaded(self) -> bool:
@@ -54,11 +58,12 @@ class OnnxScorer:
             from huggingface_hub import hf_hub_download
             from tokenizers import Tokenizer
 
-            kwargs = {} if MODEL_REVISION is None else {"revision": MODEL_REVISION}
             tok_path = hf_hub_download(
-                self._model_repo, TOKENIZER_FILE, **kwargs
+                self._model_repo, TOKENIZER_FILE, revision=MODEL_REVISION
             )
-            onnx_path = hf_hub_download(self._model_repo, MODEL_FILE, **kwargs)
+            onnx_path = hf_hub_download(
+                self._model_repo, MODEL_FILE, revision=MODEL_REVISION
+            )
             tok = Tokenizer.from_file(tok_path)
             tok.enable_truncation(max_length=MAX_SEQ_LEN)
             tok.enable_padding(direction="right")
@@ -77,6 +82,10 @@ class OnnxScorer:
         self, query: str, docs: list[tuple[str, str]]
     ) -> Optional[list[float]]:
         if not self._ensure_loaded():
+            return None
+        # _ensure_loaded True implies both are set; the explicit guard keeps
+        # that proof local for the checker.
+        if self._session is None or self._tokenizer is None:
             return None
         if not docs:
             return []

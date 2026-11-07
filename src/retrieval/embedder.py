@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Optional, Protocol
+from typing import TYPE_CHECKING, Optional, Protocol
+
+if TYPE_CHECKING:  # ML deps stay lazy at runtime (import-safe without [rerank])
+    import onnxruntime as ort
+    from tokenizers import Tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +55,8 @@ class OnnxEmbedder:
         model_repo: str = MODEL_REPO,
         revision: Optional[str] = MODEL_REVISION,
     ) -> None:
-        self._session = None
-        self._tokenizer = None
+        self._session: Optional["ort.InferenceSession"] = None
+        self._tokenizer: Optional["Tokenizer"] = None
         self._model_repo = model_repo
         self._revision = revision
 
@@ -72,11 +76,12 @@ class OnnxEmbedder:
             from huggingface_hub import hf_hub_download
             from tokenizers import Tokenizer
 
-            kwargs = {} if self._revision is None else {"revision": self._revision}
             tok_path = hf_hub_download(
-                self._model_repo, TOKENIZER_FILE, **kwargs
+                self._model_repo, TOKENIZER_FILE, revision=self._revision
             )
-            onnx_path = hf_hub_download(self._model_repo, MODEL_FILE, **kwargs)
+            onnx_path = hf_hub_download(
+                self._model_repo, MODEL_FILE, revision=self._revision
+            )
             tok = Tokenizer.from_file(tok_path)
             tok.enable_truncation(max_length=MAX_SEQ_LEN)
             tok.enable_padding(direction="right")
@@ -95,6 +100,10 @@ class OnnxEmbedder:
         if not texts:
             return []
         if not self._ensure_loaded():
+            return None
+        # _ensure_loaded True implies both are set; the explicit guard keeps
+        # that proof local for the checker (test doubles may inject these).
+        if self._session is None or self._tokenizer is None:
             return None
         try:
             # numpy is imported lazily (onnxruntime depends on it), NOT stashed

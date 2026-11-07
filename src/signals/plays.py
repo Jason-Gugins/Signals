@@ -181,7 +181,7 @@ def assign_plays(
             chosen.append(item)
 
     for combo in score.combos:
-        play_id = COMBO_PLAY.get(combo.get("id"), "")
+        play_id = COMBO_PLAY.get(str(combo.get("id") or ""), "")
         sid = (combo.get("matched_signal_ids") or [None])[0]
         add(play_id, by_id.get(sid) if sid else None, int(combo.get("urgency") or 0))
 

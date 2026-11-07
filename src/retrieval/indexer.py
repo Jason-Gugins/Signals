@@ -25,6 +25,7 @@ from src.core.db import Database
 from src.core.rawstore import RawStore
 from src.core.textutil import html_to_text, stable_id
 from src.retrieval.chunker import chunk_text
+from src.retrieval.embedder import Embedder
 
 #: Extracted text shorter than this is not indexed (nothing citable left).
 #: The plan sketch pinned 200, but its own contract tests (Step 1) index
@@ -91,7 +92,7 @@ def index_domain(
     raw_store: RawStore,
     domain: str,
     *,
-    embedder: Optional[object] = None,
+    embedder: Optional[Embedder] = None,
     chunk_tokens: int = 500,
     overlap_tokens: int = 60,
     limit: Optional[int] = None,
@@ -120,7 +121,7 @@ def index_domain(
     if limit:
         docs = docs[: int(limit)]
     stats["docs_seen"] = len(docs)
-    if model is None:
+    if embedder is None or model is None:
         logger.warning(
             "index: embedder has no model identity; nothing indexed for {}", domain
         )

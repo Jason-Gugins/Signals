@@ -8,6 +8,11 @@ k=60 is the literature default.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # numpy stays lazy at runtime (import-safe without the extra)
+    import numpy as np
+
 DEFAULT_RRF_K = 60
 
 
@@ -24,7 +29,7 @@ def rrf_fuse(
 
 def mmr_select(
     ranked: list[tuple[str, float]],
-    vecs: dict[str, "object"],           # id -> L2-normalised vector (numpy row)
+    vecs: dict[str, "np.ndarray"],       # id -> L2-normalised vector (numpy row)
     *,
     lam: float = 0.7,
     k: int = 10,
@@ -59,6 +64,8 @@ def mmr_select(
             score = lam * rel[cid] - (1 - lam) * div_penalty
             if best_score is None or score > best_score:
                 best, best_score = cid, score
+        if best is None:  # pool is non-empty: the scan above always picks one
+            break
         out.append((best, rel[best]))
         selected.append(best)
         pool.remove(best)

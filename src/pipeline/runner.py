@@ -6,17 +6,21 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
 from src.core.errors import BACKOFF_MULTIPLIER, FetchErrorClass, classify_fetch_error
 from src.core.filelock import exclusive_lock
+from src.core.http import FetchResult
 from src.core.models import Account, Document
 from src.core.runlog import RunContext
 from src.core.textutil import to_iso_date
 from src.signals.normalize import normalize_batch
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
+
+if TYPE_CHECKING:
+    from src.sources.marketplace.empty_log import EmptyLog
 
 
 @dataclass
@@ -96,7 +100,7 @@ class CollectorRunner:
         self.datadome_bypass = datadome_bypass
         self.routing = routing
         self.stealth_browser = stealth_browser
-        self._empty_log = None  # lazy: EmptyLog(data/antibot/empty_slugs.json)
+        self._empty_log: EmptyLog | None = None  # lazy: EmptyLog(data/antibot/empty_slugs.json)
 
     @property
     def empty_log(self):
@@ -519,7 +523,7 @@ class CollectorRunner:
                     # emits nothing.
                     try:
                         meta["prev_pricing_html"] = self._prev_pricing_html(
-                            task.domain, exclude_doc_id=result.doc.doc_id
+                            (task.domain or ""), exclude_doc_id=result.doc.doc_id
                         )
                     except Exception:
                         logger.exception("prev pricing lookup failed for {}", task.domain)
@@ -532,7 +536,7 @@ class CollectorRunner:
                     # emits nothing.
                     try:
                         meta["prev_homepage_html"] = self._prev_homepage_html(
-                            task.domain, exclude_doc_id=result.doc.doc_id
+                            (task.domain or ""), exclude_doc_id=result.doc.doc_id
                         )
                     except Exception:
                         logger.exception("prev homepage lookup failed for {}", task.domain)
@@ -545,7 +549,7 @@ class CollectorRunner:
                     # (first run never guesses).
                     try:
                         meta["prev_crtsh_names"] = self._prev_crtsh_names(
-                            task.domain, exclude_doc_id=result.doc.doc_id
+                            (task.domain or ""), exclude_doc_id=result.doc.doc_id
                         )
                     except Exception:
                         logger.exception("prev crtsh lookup failed for {}", task.domain)
@@ -814,11 +818,11 @@ class CollectorRunner:
             if job_harvests and not follow:
                 from src.sources.jobsignals.trend import (
                     DEFAULT_STATS_PATH as JOBSIGNALS_STATS_PATH,
-                    compute_stats,
+                    compute_stats as jobs_compute_stats,
                     hiring_trend_signal,
                     load_stats,
                     save_stats,
-                    stats_key,
+                    stats_key as jobs_stats_key,
                 )
 
                 try:
@@ -834,8 +838,8 @@ class CollectorRunner:
                     stats_state = load_stats()
                     for domain, bucket in job_harvests.items():
                         jobs = list(bucket.values())
-                        curr = compute_stats(jobs)
-                        key = stats_key(domain)
+                        curr = jobs_compute_stats(jobs)
+                        key = jobs_stats_key(domain)
                         cand = hiring_trend_signal(
                             domain,
                             stats_state.get(key),
@@ -1251,14 +1255,14 @@ class CollectorRunner:
         }
         for extra_key, extra_value in (local_context or {}).items():
             meta.setdefault(extra_key, extra_value)
-        extra = adapter.local_harvest(
+        harvested = adapter.local_harvest(
             db=self.db, account=account, today=now.date(), task_meta=meta,
         ) or []
-        if extra:
-            added = self._persist(account, adapter.key, extra, None)
+        if harvested:
+            added = self._persist(account, adapter.key, harvested, None)
             stats.signals_new += added
             stats._src(adapter.key)["signals_new"] += added
-            stats.candidates += len(extra)
+            stats.candidates += len(harvested)
         # Ledger: terminal outcome for this (source, key) pair. A source that
         # planned zero HTTP tasks and emitted nothing is still a SUCCESS --
         # _record_success already ran above -- so it reads "ran_empty", never
@@ -1323,12 +1327,12 @@ class CollectorRunner:
         if last_doc is not None:
             self._record_success(adapter, "global", adapter.next_cursor(last_doc, []), last_doc, now)
 
-    def _execute_tasks(self, adapter, tasks, cursor_row, stats) -> list[tuple[FetchTask, object]]:
+    def _execute_tasks(self, adapter, tasks, cursor_row, stats) -> list[tuple[FetchTask, "FetchResult | None"]]:
         stats.tasks += len(tasks)
         stats._src(adapter.key)["tasks"] += len(tasks)
         etag = cursor_row.get("etag")
         last_mod = cursor_row.get("last_modified")
-        out: list[tuple[FetchTask, object]] = []
+        out: list[tuple[FetchTask, FetchResult | None]] = []
         if adapter.tier == "browser" or any((t.meta or {}).get("capture") == "network" for t in tasks):
             for task in tasks:
                 out.append((task, self._fetch_one(task, etag, last_mod)))

@@ -52,6 +52,10 @@ class FetchResult:
     # Documents are not extended and nothing is persisted. Other construction
     # sites (errors, 304, browser shims) default to empty.
     headers: dict = field(default_factory=dict)
+    # Cloudflare-bypass outcome flag, set dynamically by the runner's bypass
+    # path; in-memory only, never persisted. Defaults False so every
+    # construction site is unaffected.
+    _cloudflare_unsolved: bool = False
 
 
 class RobotsCache:

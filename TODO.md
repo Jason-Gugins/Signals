@@ -122,6 +122,72 @@ to the type job or override `src.identity.gkg_ids` when
 ignore_missing_imports is retired. Next ratchet (deliberately
 deferred): `check_untyped_defs = true`.
 
+## mypy type gate ratchet #2 — DELIVERED (2026-11-07)
+
+**Status: DELIVERED (2026-11-07)** — 7 commits across 7 tasks, executed via
+subagent-driven development (parallel disjoint-file wave; two-stage review
+— spec-compliance then code-quality — on the wave); offline suite green at
+every gate.
+
+- [x] **win32 stub lane** (`2741cd5`) — second step in the typecheck job
+  (`mypy src --platform win32`): the ubuntu gate never sees win32 branches
+  (run 42398629131 lesson); the coverage union is now CI-enforced instead
+  of desktop-dependent.
+- [x] **runner.py — the 57** (`af47468`) — root cause:
+  `_execute_tasks -> list[tuple[FetchTask, object]]` (the `object` poisoned
+  both result loops). Retyped `FetchResult | None` (+ the missing
+  FetchResult import — audit catch: NameError as first drafted) → 48
+  cleared; 9 stragglers: `_cloudflare_unsolved` declared on the dataclass
+  (appended last — field-ordering constraint), `(task.domain or "")` ×3
+  (audit re-diagnosis: the error was Optional domain into str helpers, not
+  result.doc), `extra`→`harvested` rename, `_empty_log` TYPE_CHECKING
+  annotation, jobsignals import aliases (2-arg vs 1-arg `stats_key`
+  collision).
+- [x] **patchright_browser — the 10** (`a3984f7`) — audit premise corrected:
+  patchright ships py.typed; fields now typed `Playwright/Browser/
+  BrowserContext/Page | None` + bind-and-guard in fetch() (guards RETURN
+  the failure contract, never raise). Typing surfaced an 11th audit-missed
+  error: `cookies: list[dict]` → `list[SetCookieParam]` (annotation-only;
+  runtime inert; sole caller datadome_bypass.py:113 passes Any-typed
+  cookies — zero delta). Import from `patchright.sync_api._generated` is
+  the only path (public sync_api does not re-export SetCookieParam) —
+  upgrade-sensitive, runtime unaffected (future annotations).
+- [x] **tail — the 15** (`b3a177f`) — wayback or-fallbacks matching each
+  site's next() default (BEHAVIOR NOTE: a CDX row lacking "original" now
+  fetches the real domain URL instead of the garbage `.../id_/None` —
+  improvement, no test pinned the old behavior; note recorded here because
+  the commit body was subject-only); owned SignalCandidate annotation;
+  jobsignals walrus comprehensions (sets were already None-free at
+  runtime); **`JobPost.title: str | None` — the wave's one contract
+  change** (single reader → coalesce-default upsert, nullable column;
+  deliberate None from the workday detail pass); WARN_JURISDICTIONS
+  annotated with the existing WarnJurisdiction Protocol; techstack ev
+  union + lazy imports; cli `_n()` helper over four raw COUNT indexes.
+- [x] **nits sweep** (`fd3e8f0`) — `_NativeEngine` Protocol (both import
+  and class inside TYPE_CHECKING — a module-level class statement would
+  NameError) retires transport's `_native: Any`; registry `_ats_vendor_ok`
+  widened to `SourceAdapter | type[SourceAdapter]` (SOURCES holds classes);
+  ats_discovery `dict[str, str]`; coverage `row: dict[str, str | int |
+  None]` at :34. federal `observed: Any` RETIRED as a nit — a str | None
+  collides with `SignalCandidate.observed_at: str` (test-pinned None at
+  test_usaspending.py:255); retiring it needs a deliberate observed_at
+  retype (finish-line item).
+- [x] **flip** (`6d2d0ea`) — `check_untyped_defs = true` in [tool.mypy];
+  clean under the flipped config on BOTH platforms (linux + win32);
+  finish-line comment updated.
+- [x] **Bookkeeping** — this entry.
+
+Baseline: 82 errors / 9 files (`--check-untyped-defs`, 2026-11-07, HEAD
+`0cfa634`): runner 57, patchright 10, cli 4, techstack 3, wayback 2,
+jobsignals 2, warn 2, owned 1, ats 1 (57+10+15+0 = 82 per task). After:
+**0 — Success on 261 files, flag ON, both platforms**. Two-stage review
+verdicts: PASS (both), zero blockers/majors. Known inert deltas
+(quality-review findings, recorded): `_cloudflare_unsolved`'s declared
+False default now writes `meta["cloudflare_unsolved"]=False` where the key
+was previously absent (consumers use truthiness; meta is not persisted).
+Next finish line: per-module strictness for NEW modules only — no strict
+mode, no disallow-any, never tests/.
+
 ## Antibot engine Linux port — DELIVERED (2026-11-06)
 
 **Status: DELIVERED (2026-11-06)** — 5 commits across 7 tasks (same

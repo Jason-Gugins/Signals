@@ -94,7 +94,16 @@ suite green at every commit gate and both wave gates.
 - [x] **Marketplace exemption** — bs4 partial-typing noise: arg-type+
   union-attr disabled on `src.sources.marketplace.*` (27 of 29); the 2
   non-noise errors fixed (`1e60131`). Revisit if bs4 ships stricter stubs.
-- [x] **Blocking** (`3da8de3`) — continue-on-error removed.
+- [x] **Blocking** (`3da8de3`) — continue-on-error removed. HONESTY NOTE:
+  the first blocking CI run (42398629131) FAILED on platform drift the
+  Windows-local gate could not see — `ctypes.windll` under
+  `if os.name == "nt":` in core/filelock.py:44 and pipeline/scheduler.py:167;
+  mypy narrows `sys.platform`, not `os.name`, and ubuntu stubs have no
+  `windll`. Fixed (`1de680b`): guards → `sys.platform == "win32"`
+  (behavior-identical on win32/posix/docker-bookworm), verified locally
+  under BOTH `--platform linux` and win32. Coverage model since: local
+  runs (win32) check Windows branches, CI (linux) checks POSIX branches.
+  CI green at run 42400002093, all jobs.
 - [x] **Bookkeeping** — this entry.
 
 Baseline before: 211 errors / 64 files (mypy 2.4.1, 2026-11-06; measured

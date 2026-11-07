@@ -23,7 +23,7 @@ from src.pipeline.scheduler import Scheduler, SingleFlight, cadences_from_config
 
 def due_sources(db, adapters, *, now: datetime) -> list[tuple]:
     iso = now.replace(microsecond=0).isoformat()
-    out = []
+    out: list[tuple] = []
     for adapter in adapters:
         rows = db.query(
             "SELECT key FROM source_cursors WHERE source=? AND (next_due_at IS NULL OR next_due_at <= ?)",

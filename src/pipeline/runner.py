@@ -1781,15 +1781,18 @@ def _attach_fetch_context(exc: BaseException, result) -> None:
     stored) a decoded body hint for classify_fetch_error.
     """
     try:
-        exc.fetch_status = result.status if getattr(result, "status", None) else None
-        exc.fetch_error = getattr(result, "error", None)
+        # dynamic attach: _record_fail reads these back via getattr(exc, ...)
+        setattr(exc, "fetch_status", result.status if getattr(result, "status", None) else None)
+        setattr(exc, "fetch_error", getattr(result, "error", None))
         doc = getattr(result, "doc", None)
         body = getattr(doc, "body", None) if doc is not None else None
         if body:
-            exc.fetch_body_hint = (
+            setattr(
+                exc,
+                "fetch_body_hint",
                 body.decode("utf-8", "replace")
                 if isinstance(body, (bytes, bytearray))
-                else str(body)
+                else str(body),
             )
     except Exception:  # pragma: no cover - defensive
         pass

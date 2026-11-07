@@ -377,7 +377,7 @@ def _implement_pass(
     bulk_model = str(bulk_cfg.get("model") or "")
     bulk_base_url = str(bulk_cfg.get("base_url") or "")
     fields_model = str(reasoning_cfg.get("model") or "")
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = os.environ.get("OPENROUTER_API_KEY") or ""
     try:
         bulk_timeout = float(bulk_cfg.get("timeout_s", 60.0))
     except (TypeError, ValueError):
@@ -740,9 +740,10 @@ def _implement_pass(
 
     doc_specs = [
         {
-            "doc_id": getattr(doc, "doc_id", ""),
+            "doc_id": str(getattr(doc, "doc_id", "") or ""),
             "text": text,
-            "fetched_at": getattr(doc, "fetched_at", None),
+            # stored docs always carry fetched_at (rawstore.put coalesces to now)
+            "fetched_at": str(getattr(doc, "fetched_at", None) or ""),
         }
         for doc, text in docs
     ]
@@ -1018,7 +1019,7 @@ def _implement_pass(
                 longest_text,
                 model=fields_model,
                 base_url=str(reasoning_cfg.get("base_url") or ""),
-                api_key=os.environ.get("OPENROUTER_API_KEY"),
+                api_key=os.environ.get("OPENROUTER_API_KEY") or "",
                 reasoning_effort=str(
                     reasoning_cfg.get("reasoning_effort", llm_implement.DEFAULT_REASONING_EFFORT)
                 ),
@@ -1054,8 +1055,10 @@ def _implement_pass(
                 )
             else:
                 # Citation gate disabled: the deterministic baseline (accept)
-                # stands — see _per_doc.
-                gated_field_pairs = [(claim, None) for claim in field_claims]
+                # stands — see _per_doc. {} is the no-meta convention (the
+                # consumers normalize falsy metas to {} and this loop's _meta
+                # is unused), and keeps the pairs type uniform with the gate's.
+                gated_field_pairs = [(claim, {}) for claim in field_claims]
             # (claim, meta) pairs — the meta carries the Choice verdict; the
             # wiring (filtering by verdict, quote provenance) lands in Task 4.
             filled: dict[str, dict] = {}
@@ -1543,7 +1546,7 @@ def run_intel(
             identity_state = _identity_state(domain, account, profile_id)
             identity_json = json.dumps(identity_state, sort_keys=True, default=str)
             snapshot_hash = hashlib.sha256(identity_json.encode("utf-8")).hexdigest()
-            icp_excerpt = truncate(identity_json, _ICP_EXCERPT_CHARS)
+            icp_excerpt = truncate(identity_json, _ICP_EXCERPT_CHARS) or ""
 
             llm_plan, plan_reason = llm_planner.generate_plan(
                 decide_cfg=decide_cfg,
@@ -1571,7 +1574,7 @@ def run_intel(
                 # enforce would do) yet nothing binds (invariant 5).
                 plan_gate_enabled = _gate_enabled(decide_cfg, "plan_qualification")
                 for step in llm_plan.steps:
-                    if not plan_gate_enabled:
+                    if not plan_gate_enabled or ledger is None:
                         break  # gate disabled by config: no verdict, nothing binds
                     action, decision = decide_gates.gate_plan_step(
                         step,
@@ -1705,6 +1708,7 @@ def run_intel(
     if (
         layer_active
         and decider is not None
+        and ledger is not None
         and _gate_cfg(decide_cfg, "posture_audit").get("enabled", True)
     ):
         try:

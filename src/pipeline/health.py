@@ -69,7 +69,7 @@ def finalize_stale_runs(db, *, now=None, max_age_hours: int = DEFAULT_STALE_RUN_
 
 def status_report(db, *, taxonomy, raw_quota_mb: float | None = None) -> dict:
     accounts = db.query("SELECT tier, disqualified FROM accounts")
-    by_tier = {}
+    by_tier: dict[str, int] = {}
     dq = 0
     for a in accounts:
         if a.get("disqualified"):
@@ -77,7 +77,7 @@ def status_report(db, *, taxonomy, raw_quota_mb: float | None = None) -> dict:
         t = a.get("tier")
         by_tier[str(t)] = by_tier.get(str(t), 0) + 1
     sigs = db.query("SELECT category, observed_at FROM signals ORDER BY observed_at DESC")
-    by_cat = {}
+    by_cat: dict[str, int] = {}
     newest = sigs[0]["observed_at"] if sigs else None
     for s in sigs:
         by_cat[s["category"]] = by_cat.get(s["category"], 0) + 1
@@ -284,9 +284,9 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
     else:
         add("playwright", "OK", "browser disabled")
     for d in (config.storage.raw_dir, config.storage.export_dir, config.storage.briefs_dir):
-        p = Path(d)
+        dir_path = Path(d)
         try:
-            p.mkdir(parents=True, exist_ok=True)
+            dir_path.mkdir(parents=True, exist_ok=True)
             add(f"write:{d}", "OK", "writable")
         except Exception as exc:
             add(f"write:{d}", "FAIL", str(exc))
@@ -400,7 +400,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
     try:
         retrieval = getattr(config, "retrieval", None)
         enabled = bool(getattr(retrieval, "enabled", False))
-        problems: list[str] = []
+        readiness_problems: list[str] = []
         try:
             import sqlite3
 
@@ -410,7 +410,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
             finally:
                 probe.close()
         except Exception:
-            problems.append("SQLite build lacks FTS5; BM25 leg unavailable")
+            readiness_problems.append("SQLite build lacks FTS5; BM25 leg unavailable")
         chunks = 0
         if enabled:
             try:
@@ -420,7 +420,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
             except Exception:
                 have_ort = False
             if not have_ort:
-                problems.append(
+                readiness_problems.append(
                     "retrieval enabled but the [rerank] extra is not installed; "
                     "vector leg disabled"
                 )
@@ -428,11 +428,11 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
                 (db.one("SELECT COUNT(*) AS n FROM document_chunks") or {"n": 0})["n"] or 0
             )
             if chunks == 0:
-                problems.append(
+                readiness_problems.append(
                     "retrieval enabled but the index is empty; run: python -m src.cli index"
                 )
-        if problems:
-            add("retrieval_readiness", "WARN", "; ".join(problems))
+        if readiness_problems:
+            add("retrieval_readiness", "WARN", "; ".join(readiness_problems))
         else:
             add(
                 "retrieval_readiness",

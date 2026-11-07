@@ -9,6 +9,7 @@ monthly-deduped candidate per account. Pure — ``today`` is injected.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -349,7 +350,7 @@ class FundingTracker:
             tasks = plan_funding(mode, today=today, q=q, cik=cik, days=days, offset=0, size=size, limit=limit)
             stats.hits = len(tasks)
             return stats
-        queries: list[str | None]
+        queries: Sequence[str | None]
         if peel_root and not cik:
             queries = peel_names or [q]
             if not queries or queries == [None]:

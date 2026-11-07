@@ -261,6 +261,5 @@ class SingleFlight:
     def __enter__(self) -> bool:
         return self.acquire()
 
-    def __exit__(self, *exc) -> bool:
+    def __exit__(self, *exc) -> None:
         self.release()
-        return False

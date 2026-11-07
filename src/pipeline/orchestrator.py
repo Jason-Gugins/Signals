@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import fields
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -232,8 +233,8 @@ class Orchestrator:
                 need = [a for a in accounts if not a.app_store_id]
                 if need:
                     try:
-                        resolver = AppStoreIdResolver(self.fetcher or self._http_fetcher(ctx), self.registry)
-                        found = resolver.resolve_all(need)
+                        appstore_resolver = AppStoreIdResolver(self.fetcher or self._http_fetcher(ctx), self.registry)
+                        found = appstore_resolver.resolve_all(need)
                         out["appstore"] = sum(1 for v in found.values() if v)
                     except Exception as exc:
                         logger.warning("appstore resolve failed: {}", exc)
@@ -243,8 +244,8 @@ class Orchestrator:
                 need = [a for a in accounts if not (a.extra_data or {}).get("bbb_url")]
                 if need:
                     try:
-                        resolver = BbbProfileResolver(self.fetcher or self._http_fetcher(ctx), self.registry)
-                        found = resolver.resolve_all(need)
+                        bbb_resolver = BbbProfileResolver(self.fetcher or self._http_fetcher(ctx), self.registry)
+                        found = bbb_resolver.resolve_all(need)
                         out["bbb"] = sum(1 for v in found.values() if v)
                     except Exception as exc:
                         logger.warning("bbb resolve failed: {}", exc)
@@ -254,8 +255,8 @@ class Orchestrator:
                 need = [a for a in accounts if not a.linkedin_slug]
                 if need:
                     try:
-                        resolver = LinkedinSlugResolver(self.config, self.registry)
-                        found = resolver.resolve_all(need)
+                        linkedin_resolver = LinkedinSlugResolver(self.config, self.registry)
+                        found = linkedin_resolver.resolve_all(need)
                         out["linkedin"] = sum(1 for v in found.values() if v)
                     except Exception as exc:
                         logger.warning("linkedin resolve failed: {}", exc)
@@ -771,7 +772,7 @@ class Orchestrator:
                     snapshots[acct.domain] = snapshot
                 n += 1
             ctx.bump(accounts=n)
-            out = {"scored": n}
+            out: dict[str, object] = {"scored": n}
             if return_snapshots:
                 out["snapshots"] = snapshots
             return out
@@ -856,7 +857,7 @@ class Orchestrator:
         skip_seed = kw.pop("skip_seed", False)
         skip_collect = kw.pop("skip_collect", False)
         out: dict = {"errors": {}}
-        stages = []
+        stages: list[tuple[str, Callable[[], Any]]] = []
         if not skip_seed:
             stages.append(("seed", lambda: self.seed(csv=kw.get("csv"), linkedin=kw.get("linkedin", False), repvue=kw.get("repvue", False), cohort=kw.get("cohort"))))
         stages.append(("resolve", lambda: self.resolve(cohort=kw.get("cohort"), limit=kw.get("limit"))))

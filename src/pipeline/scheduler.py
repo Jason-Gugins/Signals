@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import random
+import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -159,7 +160,7 @@ def _pid_alive(pid: int) -> bool:
         return False
     if pid == os.getpid():
         return True
-    if os.name == "nt":
+    if sys.platform == "win32":
         import ctypes
 
         SYNCHRONIZE = 0x00100000

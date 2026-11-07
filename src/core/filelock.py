@@ -15,6 +15,7 @@ unconditional last-writer-wins race, never a reason to skip an update.
 from __future__ import annotations
 
 import os
+import sys
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -36,7 +37,7 @@ def _pid_alive(pid: int) -> bool:
     """True when *pid* is a running process (scheduler.py semantics)."""
     if pid == os.getpid():
         return True
-    if os.name == "nt":
+    if sys.platform == "win32":
         import ctypes
 
         SYNCHRONIZE = 0x00100000

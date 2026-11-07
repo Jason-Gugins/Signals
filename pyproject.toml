@@ -82,3 +82,14 @@ check_untyped_defs = true   # ratchet #2, flipped 2026-11-07 (82→0)
 # (27 of 29 marketplace errors). Revisit if bs4 ships stricter stubs.
 module = ["src.sources.marketplace.*"]
 disable_error_code = ["arg-type", "union-attr"]
+
+[[tool.mypy.overrides]]
+# Strict set: modules born (or already) fully annotated stay that way.
+# Convention: new src/ modules join this set by default; exemptions carry
+# a reason comment. src.core.* graduated 2026-11-07 — 42 annotation
+# completions on linux (+1 win32-only: filelock's no-any-return) triaged
+# at seed time (see docs/todo strict-set record).
+module = ["src.core.*"]
+disallow_untyped_defs = true
+warn_return_any = true
+disallow_untyped_calls = true

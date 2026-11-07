@@ -196,7 +196,7 @@ def get_stealth_init_script() -> str:
     return STEALTH_INIT_SCRIPT
 
 
-def validate_stealth_script(script: str = None) -> dict:
+def validate_stealth_script(script: str | None = None) -> dict:
     """Sanity-check the stealth script for common issues.
 
     Checks:
@@ -215,7 +215,7 @@ def validate_stealth_script(script: str = None) -> dict:
         script = STEALTH_INIT_SCRIPT
 
     errors = []
-    warnings = []
+    warnings: list[str] = []
 
     # Check non-empty
     if not script or not script.strip():

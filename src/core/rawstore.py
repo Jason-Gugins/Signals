@@ -61,6 +61,8 @@ class RawStore:
                 (fetched_at, etag, last_modified, doc_id),
             )
             row = self.db.one("SELECT * FROM documents WHERE doc_id = ?", (doc_id,))
+            if row is None:  # the row just UPDATEd cannot vanish mid-put
+                row = existing
             doc = Document.from_db_row(row)
             doc.body = body
             return doc
@@ -192,4 +194,6 @@ class RawStore:
                 "SELECT source, COUNT(*) AS n FROM documents GROUP BY source ORDER BY source"
             )
         }
+        if not docs:  # COUNT(*) always returns exactly one row
+            return {"docs": 0, "bytes": 0, "by_source": by_source}
         return {"docs": docs["n"], "bytes": docs["b"], "by_source": by_source}

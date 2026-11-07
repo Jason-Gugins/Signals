@@ -587,15 +587,17 @@ class Database:
     def _corrupt_error(self, exc: Exception) -> RuntimeError:
         """Build a clear RuntimeError for unreadable/corrupt DB files."""
         detail = str(exc)
-        try:
-            rows = self._conn.execute("PRAGMA integrity_check").fetchall()
-            detail = "; ".join(str(r[0]) for r in rows)
-        except Exception:
-            pass
-        try:
-            self._conn.close()
-        except Exception:
-            pass
+        conn = self._conn
+        if conn is not None:
+            try:
+                rows = conn.execute("PRAGMA integrity_check").fetchall()
+                detail = "; ".join(str(r[0]) for r in rows)
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
         self._conn = None
         return RuntimeError(
             f"database file is corrupt or not a SQLite database: "

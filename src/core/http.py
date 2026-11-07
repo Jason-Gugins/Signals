@@ -238,7 +238,7 @@ class HttpFetcher:
                             self.cookie_jar.set_from_response(url, dict(response.headers))
                         except Exception:
                             pass
-                    doc = self.store.put(
+                    doc: Document | None = self.store.put(
                         source=getattr(task, "source", "http"),
                         url=url,
                         body=response.content,

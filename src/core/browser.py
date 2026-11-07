@@ -6,6 +6,7 @@ import json
 import random
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from loguru import logger
@@ -15,6 +16,9 @@ from src.core.http import FetchResult
 from src.core.rawstore import RawStore
 from src.core.runlog import RunContext
 from src.core.stealth import STEALTH_INIT_SCRIPT
+
+if TYPE_CHECKING:
+    from playwright.sync_api import Browser, BrowserContext, Page, Playwright
 
 
 class BrowserDisabled(RuntimeError):
@@ -131,10 +135,10 @@ class BrowserFetcher:
         self.store = store
         self.ctx = ctx
         self.cookie_jar = cookie_jar
-        self._playwright = None
-        self._browser = None
-        self._context = None
-        self._page = None
+        self._playwright: Playwright | None = None
+        self._browser: Browser | None = None
+        self._context: BrowserContext | None = None
+        self._page: Page | None = None
 
     @staticmethod
     def _build_context_args(config: Config, *, skip_storage_state: bool = False) -> dict:
@@ -177,6 +181,8 @@ class BrowserFetcher:
         Returns (context, page). The caller is responsible for closing the context
         when done. The stealth init script is applied automatically.
         """
+        if self._browser is None:
+            raise BrowserDisabled("browser tier is not started")
         ctx = self._browser.new_context(
             **self._build_context_args(self.config, skip_storage_state=True)
         )
@@ -221,6 +227,10 @@ class BrowserFetcher:
             raise BrowserDisabled("browser tier is disabled (config.browser.enabled=false)")
         if self._page is None:
             self.start()
+        page = self._page
+        # start() either initializes the page or raises — never None past here.
+        if page is None:
+            raise BrowserDisabled("browser tier failed to start")
         started = time.monotonic()
         reqs: list[dict] = []
 
@@ -241,16 +251,16 @@ class BrowserFetcher:
         if capture_network:
             if wait_ms is None:
                 wait_ms = 2500
-            self._page.on("request", on_req)
-        cf_cookies: list[dict] = []
+            page.on("request", on_req)
+        cf_cookies: list[Any] = []
         try:
-            self._page.goto(url, wait_until="domcontentloaded")
+            page.goto(url, wait_until="domcontentloaded")
             if wait_selector:
-                self._page.wait_for_selector(wait_selector)
+                page.wait_for_selector(wait_selector)
             if wait_ms:
-                self._page.wait_for_timeout(wait_ms)
+                page.wait_for_timeout(wait_ms)
             if scroll:
-                self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             if click_show_more:
                 try:
                     selectors = [
@@ -261,11 +271,11 @@ class BrowserFetcher:
                     ]
                     for sel in selectors:
                         try:
-                            elements = self._page.query_selector_all(sel)
+                            elements = page.query_selector_all(sel)
                             for el in elements:
                                 try:
                                     el.click(timeout=2000)
-                                    self._page.wait_for_timeout(300)
+                                    page.wait_for_timeout(300)
                                 except Exception:
                                     pass
                         except Exception:
@@ -274,7 +284,7 @@ class BrowserFetcher:
                     pass
             if inject_turnstile_token:
                 try:
-                    self._page.evaluate(f"""
+                    page.evaluate(f"""
                         () => {{
                             const input = document.querySelector('[name="cf-turnstile-response"]');
                             if (input) input.value = "{inject_turnstile_token}";
@@ -284,19 +294,19 @@ class BrowserFetcher:
                             }}
                         }}
                     """)
-                    self._page.wait_for_timeout(3000)
+                    page.wait_for_timeout(3000)
                 except Exception:
                     pass
             if capture_html:
                 # Use a fresh context (no stale storage_state) when a real
                 # browser is running. Fall back to stubs in test mode.
                 solve_ctx = None
-                solve_page = self._page
+                solve_page = page
                 solve_context = self._context
                 if self._browser is not None:
                     # Cookie-jar hook (Task 23): remember the URL so
                     # _new_solve_context can seed the fresh context from the jar.
-                    self._jar_seed_url = url
+                    self._jar_seed_url: str | None = url
                     solve_ctx, solve_page = self._new_solve_context()
                     self._jar_seed_url = None
                     solve_context = solve_ctx
@@ -323,7 +333,7 @@ class BrowserFetcher:
                     # Extract the full cookie jar from the solve context.
                     root = (domain or "").casefold().lstrip(".")
                     try:
-                        for c in solve_context.cookies():
+                        for c in (solve_context.cookies() if solve_context is not None else []):
                             cd = (c.get("domain", "") or "").casefold().lstrip(".")
                             if cd == root or cd.endswith("." + root) or root in (c.get("domain", "") or ""):
                                 cf_cookies.append(c)
@@ -356,11 +366,11 @@ class BrowserFetcher:
                 body = json.dumps(payload).encode("utf-8")
                 ctype = "application/json"
             else:
-                body = self._page.content().encode("utf-8")
+                body = page.content().encode("utf-8")
                 ctype = "text/html"
         finally:
             if capture_network:
-                self._page.remove_listener("request", on_req)
+                page.remove_listener("request", on_req)
         doc = self.store.put(
             source=source,
             url=url,

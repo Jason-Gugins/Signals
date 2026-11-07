@@ -212,7 +212,7 @@ def _unwrap_href(href: str) -> str | None:
             query = urlsplit(value).query
         except ValueError:
             return value
-        target = (parse_qs(query).get("uddg") or [None])[0]
+        target = (parse_qs(query).get("uddg") or [""])[0]
         if target:
             # The uddg param is percent-encoded TWICE in the wild (%2D dashes
             # survive one decode), so a second unquote is usually needed — but

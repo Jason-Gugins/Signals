@@ -13,6 +13,8 @@ runner's ``_persist`` (no prior-cycle state needed here).
 
 from __future__ import annotations
 
+from typing import Any
+
 from src.core.textutil import truncate
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.federal import usaspending
@@ -67,6 +69,10 @@ class FederalContractsSource(SourceAdapter):
         names = [row["recipient_name"] for row in rows if row.get("recipient_name")]
         needle = _search_term(account)
         out: list[SignalCandidate] = []
+        # task_meta is untyped JSON glue: on the no-clock path observed stays
+        # None ("parse never guesses", test-pinned) — normalize rejects falsy
+        # dates either way.
+        observed: Any = (meta.get("today") or (doc.fetched_at or ""))[:10] or None
         for row in rows:
             if usaspending.match_recipient(
                 row["recipient_name"], needle, others=names
@@ -76,7 +82,7 @@ class FederalContractsSource(SourceAdapter):
             out.append(
                 SignalCandidate(
                     signal_type="federal_contract_award",
-                    observed_at=(meta.get("today") or (doc.fetched_at or ""))[:10] or None,
+                    observed_at=observed,
                     natural_key=f"federal:{account.domain}:{row['award_id']}",
                     title=row["recipient_name"],
                     confidence=0.7,

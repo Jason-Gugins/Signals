@@ -87,9 +87,11 @@ def classify_8k(filing: Filing, body_text: str | None, *, today: date) -> list[S
     text = body_text or ""
     for item in filing.items:
         mapped = ITEM_MAP.get(item)
-        if not mapped or mapped[0] is None:
+        if not mapped:
             continue
         typ, conf = mapped
+        if typ is None:
+            continue
         if item == "5.02" and text:
             out.extend(_classify_502(filing, text, conf))
             continue

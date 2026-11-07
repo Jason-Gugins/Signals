@@ -325,12 +325,12 @@ def _relocation_delta(account, facts: dict, registry, today, *, doc_url=None):
     new_address = facts.get("address")
 
     cand = None
-    moved = (
+    if (
         prev_address is not None
         and new_address is not None
         and new_address != prev_address
-    )
-    if moved and today:
+        and today
+    ):
         cand = SignalCandidate(
             signal_type="relocation",
             observed_at=today,
@@ -433,7 +433,7 @@ class BbbProfileSource(SourceAdapter):
             out.append(
                 SignalCandidate(
                     signal_type="intent_3rd_topic",
-                    observed_at=(task_meta.get("today") or (doc.fetched_at or ""))[:10] or None,
+                    observed_at=(task_meta.get("today") or (doc.fetched_at or ""))[:10],
                     natural_key=f"bbba:{business_id}:{slugify(alt)}",
                     title=f"BBB profile of {facts.get('business_name')} lists alternate name {alt!r} (also tracked as {other_domain})",
                     summary=f"BBB alternate name {alt!r} resolves to tracked account {other_domain}",

@@ -60,6 +60,8 @@ class SecEdgarSource(SourceAdapter):
     FORM4_MAX_FOLLOWS = 10
 
     def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+        if not account.cik:
+            return []  # requires = ("cik",) — the orchestrator only routes CIK-bearing accounts here
         cik = pad_cik(account.cik)
         url = SUBMISSIONS_URL.format(cik10=cik)
         return [

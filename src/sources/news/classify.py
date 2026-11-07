@@ -290,7 +290,7 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
         # casing or domain mention. This prevents verb/adjective matches:
         #   "Watch Alex levitate" ≠ Levitate the company
         #   "Levitate Music Festival" ≠ Levitate the company (context check below)
-        if in_text and _is_common_word(account.name):
+        if in_text and account.name and _is_common_word(account.name):
             if not (_has_proper_mention(headline, account.name) or
                     _has_proper_mention(summary, account.name)):
                 return None

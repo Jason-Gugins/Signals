@@ -41,9 +41,9 @@ class CloudflareBypass:
         cached = self.cookies.get(domain, user_agent=user_agent, proxy=proxy)
         if cached:
             cached_cookies = json.loads(cached["cookies"])
-            result = self._replay_with_cookies(url, cookies=cached_cookies, user_agent=user_agent)
-            if result.ok and not self._is_challenge(result):
-                return BypassOutcome(True, "cookie_reuse", None, result, cached_cookies)
+            replay = self._replay_with_cookies(url, cookies=cached_cookies, user_agent=user_agent)
+            if replay.ok and not self._is_challenge(replay):
+                return BypassOutcome(True, "cookie_reuse", None, replay, cached_cookies)
             self.cookies.clear(domain)  # stale
 
         # Tier 1.5: SignalsShadow (real Chrome TLS tier-1, antibot module)
@@ -98,7 +98,7 @@ class CloudflareBypass:
         # Must re-enter the browser to inject the token → let CF set cf_clearance.
         if cf.solver_provider and cf.solver_api_key and cf.bypass_strategy != "browser_only":
             sitekey = self._extract_turnstile_sitekey(
-                result.doc.body if result and result.doc else b"")
+                result.doc.body if result and result.doc and result.doc.body else b"")
             token = solve_cloudflare(url=url, sitekey=sitekey,
                                      provider=cf.solver_provider, api_key=cf.solver_api_key,
                                      user_agent=user_agent)
@@ -128,7 +128,7 @@ class CloudflareBypass:
 
     def _is_challenge(self, result: FetchResult) -> bool:
         """True if the result body/status is still a Cloudflare challenge."""
-        body = result.doc.body if result.doc else b""
+        body = result.doc.body if result.doc and result.doc.body else b""
         return classify_cloudflare_challenge(status=result.status, body=body) is not None
 
     def _replay_with_cookies(self, url: str, *, cookies: list[dict], user_agent: str) -> FetchResult:

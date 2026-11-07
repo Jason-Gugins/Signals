@@ -88,7 +88,8 @@ def parse_teamtailor(body: bytes) -> list[JobPost]:
     for j in jobs:
         if not isinstance(j, dict):
             continue
-        attrs = j.get("attributes") if isinstance(j.get("attributes"), dict) else j
+        attrs_raw = j.get("attributes")
+        attrs = attrs_raw if isinstance(attrs_raw, dict) else j
         loc = _loc_str(attrs.get("location") or attrs.get("region"))
         city, region, country, remote = parse_location(loc)
         # dict location with explicit remote flag (or top-level attrs flag)

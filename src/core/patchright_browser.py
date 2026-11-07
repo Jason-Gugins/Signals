@@ -14,15 +14,29 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from loguru import logger
 
 from src.core.http import FetchResult
 from src.core.models import Document
 
 if TYPE_CHECKING:
+    from typing import Protocol
+
     from patchright.sync_api import Playwright, Browser, BrowserContext, Page
     from patchright.sync_api._generated import SetCookieParam
+
+    from src.core.config import Config
+
+    class _PutStoreLike(Protocol):
+        """Put-shaped raw store accepted by this fetcher.
+
+        Covers both ``RawStore`` and cli's no-op ``_RawShim`` (whose ``put``
+        returns None, so it cannot subclass RawStore) — callers only ever
+        hand the fetcher a store, this class never reads one back.
+        """
+
+        def put(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 class PatchrightBrowserFetcher:
@@ -32,7 +46,7 @@ class PatchrightBrowserFetcher:
     Additional warmup_url/warmup_ms params for behavioral warm-up.
     """
 
-    def __init__(self, config, store):
+    def __init__(self, config: Config, store: _PutStoreLike):
         self.config = config
         self.store = store
         self._playwright: Playwright | None = None
@@ -40,7 +54,7 @@ class PatchrightBrowserFetcher:
         self._context: BrowserContext | None = None
         self._page: Page | None = None
 
-    def start(self):
+    def start(self) -> None:
         """Launch Patchright browser."""
         from patchright.sync_api import sync_playwright
         self._playwright = sync_playwright().start()
@@ -59,9 +73,10 @@ class PatchrightBrowserFetcher:
             timezone_id=browser_cfg.timezone,
             user_agent=browser_cfg.user_agent,
         )
-        if getattr(browser_cfg, "proxy_server", None):
+        proxy_server = getattr(browser_cfg, "proxy_server", None)
+        if proxy_server:
             self._context = self._browser.new_context(
-                proxy={"server": browser_cfg.proxy_server},
+                proxy={"server": proxy_server},
                 viewport={"width": browser_cfg.viewport["width"], "height": browser_cfg.viewport["height"]},
                 locale=browser_cfg.locale,
                 timezone_id=browser_cfg.timezone,
@@ -171,7 +186,7 @@ class PatchrightBrowserFetcher:
             cloudflare_cookies=cookie_list,
         )
 
-    def close(self):
+    def close(self) -> None:
         """Close browser and playwright."""
         try:
             if self._context:

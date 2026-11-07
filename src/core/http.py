@@ -6,7 +6,7 @@ import json
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -18,6 +18,39 @@ from src.core.models import Document
 from src.core.ratelimit import RateLimiter
 from src.core.rawstore import RawStore
 from src.core.runlog import RunContext
+
+if TYPE_CHECKING:
+    from typing import Callable, Protocol
+
+    from src.core.cookiejar import PersistentCookieJar
+
+    class _FetchTaskLike(Protocol):
+        """Read-only view of the task members the fetch verbs touch.
+
+        FetchTask (src.sources.base) and the per-source ``_Task`` dataclasses
+        (edgar_ids & co.) both satisfy this structurally; everything beyond
+        these members is reached via ``getattr(task, ..., default)`` so no
+        caller is required to carry them.
+        """
+
+        @property
+        def url(self) -> str: ...
+
+        @property
+        def source(self) -> str: ...
+
+        @property
+        def domain(self) -> str | None: ...
+
+        @property
+        def method(self) -> str: ...
+
+        @property
+        def headers(self) -> dict | None: ...
+
+        @property
+        def json_body(self) -> dict | None: ...
+
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 
@@ -93,9 +126,9 @@ class HttpFetcher:
         limiter: RateLimiter,
         ctx: RunContext | None = None,
         client: httpx.Client | None = None,
-        sleep=time.sleep,
-        rng=random.uniform,
-        cookie_jar=None,
+        sleep: Callable[[float], None] = time.sleep,
+        rng: Callable[[float, float], float] = random.uniform,
+        cookie_jar: PersistentCookieJar | None = None,
     ):
         self.config = config
         self.store = store
@@ -137,7 +170,7 @@ class HttpFetcher:
 
     def get(
         self,
-        task,
+        task: _FetchTaskLike,
         *,
         etag: str | None = None,
         last_modified: str | None = None,
@@ -161,7 +194,7 @@ class HttpFetcher:
         )
         return self.get(task)
 
-    def get_json(self, task, **kw) -> tuple[FetchResult, Any]:
+    def get_json(self, task: _FetchTaskLike, **kw: Any) -> tuple[FetchResult, Any]:
         result = self.get(task, **kw)
         if not result.ok or result.doc is None or not result.doc.body:
             return result, None
@@ -170,10 +203,12 @@ class HttpFetcher:
         except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
             return result, None
 
-    def post_json(self, task, **kw) -> FetchResult:
+    def post_json(self, task: _FetchTaskLike, **kw: Any) -> FetchResult:
         return self._request(task, etag=None, last_modified=None)
 
-    def _request(self, task, *, etag: str | None, last_modified: str | None) -> FetchResult:
+    def _request(
+        self, task: _FetchTaskLike, *, etag: str | None, last_modified: str | None
+    ) -> FetchResult:
         url = task.url
         method = getattr(task, "method", "GET") or "GET"
         started = time.monotonic()
@@ -312,7 +347,7 @@ class HttpFetcher:
             delay = (self.config.http.backoff_base ** attempt) + self.rng(0, 0.5)
         self.sleep(delay)
 
-    def _log(self, task, result: FetchResult, *, attempts: int) -> None:
+    def _log(self, task: _FetchTaskLike, result: FetchResult, *, attempts: int) -> None:
         if self.ctx is None:
             return
         error = result.error

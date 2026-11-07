@@ -8,7 +8,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field, fields
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
+
+_T = TypeVar("_T", bound="DataclassInstance")
 
 
 def _json_dump(value: Any) -> Optional[str]:
@@ -18,10 +23,13 @@ def _json_dump(value: Any) -> Optional[str]:
         return None
     if isinstance(value, (list, dict)):
         return json.dumps(value)
-    return value
+    # Defensive: every current caller passes only list/dict (or None), so this
+    # fall-through is dead code today; the cast labels the declared contract
+    # without changing behavior for hypothetical scalar inputs.
+    return cast("str | None", value)
 
 
-def _json_load(value: Any, default):
+def _json_load(value: Any, default: Any) -> Any:
     if value is None or value == "":
         return default
     if isinstance(value, (list, dict)):
@@ -32,7 +40,7 @@ def _json_load(value: Any, default):
         return default
 
 
-def _row_to_dataclass(cls, row: dict):
+def _row_to_dataclass(cls: type[_T], row: dict) -> _T:
     data = dict(row)
     valid = {f.name for f in fields(cls)}
     data = {k: v for k, v in data.items() if k in valid}

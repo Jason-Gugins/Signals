@@ -18,7 +18,9 @@ from src.core.runlog import RunContext
 from src.core.stealth import STEALTH_INIT_SCRIPT
 
 if TYPE_CHECKING:
-    from playwright.sync_api import Browser, BrowserContext, Page, Playwright
+    from playwright.sync_api import Browser, BrowserContext, Page, Playwright, Request
+
+    from src.core.cookiejar import PersistentCookieJar
 
 
 class BrowserDisabled(RuntimeError):
@@ -44,7 +46,9 @@ def _select_har_requests(reqs: list[dict], *, domain: str | None, limit: int = 8
 _CHALLENGE_TITLES = ("just a moment", "checking your browser")
 
 
-def _challenge_cleared(page, context, *, domain: str, timeout_ms: int, poll_ms: int = 500) -> bool:
+def _challenge_cleared(
+    page: Page, context: BrowserContext | None, *, domain: str, timeout_ms: int, poll_ms: int = 500
+) -> bool:
     """Poll for Cloudflare challenge clearance.
 
     Primary signal: ``page.title()`` no longer a challenge title — this fires
@@ -68,7 +72,7 @@ def _challenge_cleared(page, context, *, domain: str, timeout_ms: int, poll_ms: 
     return False
 
 
-def _wait_for_real_content(page, *, timeout_ms: int = 10000, poll_ms: int = 500) -> None:
+def _wait_for_real_content(page: Page, *, timeout_ms: int = 10000, poll_ms: int = 500) -> None:
     """After cf_clearance is set, Cloudflare reloads the page. Wait for the
     title to stop being a challenge title and the body to gain real content."""
     import time
@@ -85,7 +89,9 @@ def _wait_for_real_content(page, *, timeout_ms: int = 10000, poll_ms: int = 500)
         page.wait_for_timeout(poll_ms)
 
 
-def inject_turnstile_token(browser, url, token, *, timeout_ms: int = 20000, poll_ms: int = 500) -> bool:
+def inject_turnstile_token(
+    browser: Any, url: str, token: str, *, timeout_ms: int = 20000, poll_ms: int = 500
+) -> bool:
     """Inject a solved Turnstile token as a cf_clearance cookie and verify
     challenge clearance.
 
@@ -129,7 +135,7 @@ class BrowserFetcher:
         config: Config,
         store: RawStore,
         ctx: RunContext | None = None,
-        cookie_jar=None,
+        cookie_jar: PersistentCookieJar | None = None,
     ):
         self.config = config
         self.store = store
@@ -175,7 +181,7 @@ class BrowserFetcher:
         self._page = self._context.new_page()
         return self
 
-    def _new_solve_context(self):
+    def _new_solve_context(self) -> "tuple[BrowserContext, Page]":
         """Create a fresh browser context WITHOUT storage_state for challenge solves.
 
         Returns (context, page). The caller is responsible for closing the context
@@ -188,9 +194,10 @@ class BrowserFetcher:
         )
         # Cookie-jar hook (Task 23): seed the fresh context with jar cookies
         # for this URL so challenge solves start from accumulated state.
-        if self.cookie_jar is not None and getattr(self, "_jar_seed_url", None):
+        seed_url = getattr(self, "_jar_seed_url", None)
+        if self.cookie_jar is not None and seed_url:
             try:
-                seed = self.cookie_jar.cookies_for(self._jar_seed_url)
+                seed = self.cookie_jar.cookies_for(seed_url)
                 if seed:
                     ctx.add_cookies(
                         [
@@ -234,7 +241,7 @@ class BrowserFetcher:
         started = time.monotonic()
         reqs: list[dict] = []
 
-        def on_req(r):
+        def on_req(r: Request) -> None:
             raw_url = getattr(r, "url", "") or ""
             parts = urlsplit(raw_url)
             if parts.scheme in {"data", "blob"}:
@@ -432,5 +439,5 @@ class BrowserFetcher:
     def __enter__(self) -> "BrowserFetcher":
         return self.start()
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()

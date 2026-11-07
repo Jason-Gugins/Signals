@@ -30,3 +30,15 @@ def test_blog_rules():
     assert "office_open" in types
     assert all(c.confidence <= 0.85 for c in cands)
     assert len(cands) == 3
+
+
+def test_itunes_unnormalizable_company_name_does_not_crash():
+    # "LLC" normalizes to None (legal-suffix strip empties it) — TypeError'd at
+    # `company not in blob_n` before the guard. Post-fix, None maps onto the
+    # existing "" convention, and "" means NO company filter (`"" in blob_n` is
+    # always True), so the candidate still flows through. Crash-freedom is the
+    # contract here, not emptiness.
+    account = Account(name="LLC", domain="example.com")
+    items = [{"trackName": "Some Product Launch", "trackViewUrl": "u", "releaseDate": "2026-01-02"}]
+    out = itunes_to_candidates(items, account, contacts=[], today=date(2026, 11, 6))
+    assert len(out) == 1

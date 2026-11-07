@@ -32,14 +32,15 @@ def parse_itunes(body: bytes) -> list[dict]:
 
 
 def itunes_to_candidates(items, account: Account, contacts, *, today: date) -> list[SignalCandidate]:
-    company = normalize_name(account.name) if account.name else ""
+    company = normalize_name(account.name) or ""
     out = []
     for it in items:
         blob = f"{it.get('trackName') or ''} {it.get('description') or ''}"
         blob_n = normalize_name(blob) or ""
         person = None
         for c in contacts:
-            if c.name and normalize_name(c.name) and normalize_name(c.name) in blob_n:
+            n = normalize_name(c.name)
+            if n and n in blob_n:
                 person = c
                 break
         if not person and company not in blob_n:

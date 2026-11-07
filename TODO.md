@@ -954,6 +954,26 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   judgments BETTER — marketing fluff correctly dismissed — or variance
   noise?), and any future promotion calibration needs human labels (the
   worksheet pattern) beyond the current 9.
+- [ ] **Question design: promotion gate mis-reads price-promotions as
+  buying intent** — the tier probe's ONLY floor-crossers (all 7 across
+  three arms) were one claim: "Bubble markets stocking stuffers under $16"
+  (noul 0.72–0.76). The promotion question ("Does this extracted need
+  represent genuine buying intent?") reads commercial phrasing
+  ("markets … under $16") as intent — it is a price PROMOTION, not a
+  buying need. Add a guard to the promotion question (distinguish the
+  SUBJECT's selling activity from a BUYER's intent) or a deterministic
+  price-promotion prefilter. Same design family as the screen-question box
+  below.
+- [x] **Implementer tier probe — ADJUDICATED: PROSE-BOUND** — DONE
+  2026-11-06 evening (`src/lab/tierprobe.py`, `scripts/ab/implementer_tier_
+  probe.py`; decide-lab addendum 9): three fresh arms over the same 72
+  frozen docs — shipped flash / glm-5.3 (family upgrade) /
+  claude-sonnet-5.5 (frontier) — land on the SAME promotion-noul
+  distribution (max 0.76/0.73/0.75, p90 0.36/0.34/0.36). The mechanical
+  MODEL-TIER verdict was overturned on adjudication: every floor-crosser
+  was one duplicated price-promotion mis-read. **No implementer upgrade is
+  warranted; the careers-prose harvest is THE fix on the G5 material
+  wall.** Spend ≈ $1.04.
 - [ ] **Screen question design: calibrate hazards across domain types** —
   the screen's wrong_entity/out_of_excerpt nouls behave differently on
   vendor-marketing prose (rillet/abnormal: hot, 0.27–0.43 mean) vs some DTC

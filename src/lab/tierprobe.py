@@ -362,7 +362,7 @@ def _render_summary(docs, domains, summaries: dict, comparison: dict) -> str:
         "| arm | n | max | p50 | p90 | >=0.70 | [0.45,0.70) | >=0.45 |",
         "|---|---|---|---|---|---|---|---|",
     ]
-    for arm in ("arm-a", "arm-b"):
+    for arm in sorted(summaries):
         s = summaries[arm]
         lines.append(
             f"| {arm} | {s['n']} | {s['max']} | {s['p50']} | {s['p90']} "

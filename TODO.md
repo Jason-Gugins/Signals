@@ -188,6 +188,64 @@ was previously absent (consumers use truthiness; meta is not persisted).
 Next finish line: per-module strictness for NEW modules only — no strict
 mode, no disallow-any, never tests/.
 
+## strict set — src.core.* graduated (2026-11-07)
+
+**Status: DELIVERED (2026-11-07)** — 4 commits across 4 tasks, executed via
+subagent-driven development (parallel disjoint-file wave; two-stage review
+on the wave); offline suite green at every gate.
+
+- [x] **Honest corrections carried from verification** — two measurement
+  accidents caught pre-execution: the "core is clean" complement bug
+  (sort-order), and this plan's first-draft 44 (a win32-default run +
+  `grep "core"` matching score.py). Real baseline: **42 errors / 13 files
+  on linux, 43 on win32** (filelock.py:50's no-any-return lives in a
+  sys.platform=="win32" branch linux mypy prunes — the platform-union
+  model caught the platform blindness in review).
+- [x] **models/http/browser/patchright — the 28** (`9a87ae3`) — root fix:
+  `_row_to_dataclass` bounded TypeVar (`_T = TypeVar("_T",
+  bound="DataclassInstance")` via TYPE_CHECKING `_typeshed` import — an
+  unbounded type[_T] fails fields()'s typeshed signature) clearing all
+  five from_db_row no-any-returns; `_json_dump` cast as defensive labeling
+  (fall-through is dead code — all callers pass list/dict);
+  `_FetchTaskLike` read-only Protocol on http.py's five task params (naive
+  FetchTask breaks flag-off: frozen dataclass + local _Task dataclasses in
+  edgar_ids/feed_discovery); `_PutStoreLike` Protocol on patchright
+  (keeps cli.py:689/:821 clean — `_RawShim.put` returns None); **kw: Any;
+  two sanctioned one-line anti-bot narrowings (proxy dict bind,
+  cookies_for seed_url bind) — timing byte-identical (quality review
+  diff-scanned: zero timing hunks).
+- [x] **filelock + the nine small files — the 15** (`1c3cb8b`) — filelock
+  bool() wrap (runtime-identity, live-probed on the win32 host); Callable
+  clocks (ratelimit/cookiejar); Database.__exit__ `*exc: object`;
+  prune_all raw_store via TYPE_CHECKING (runtime import cycles: rawstore
+  imports db); curl_cffi Response via TYPE_CHECKING (deferred import
+  preserved); full contextlib __exit__ forms. selfcheck `fetcher: Any` is
+  VERIFIED honest (a **kwargs Protocol breaks flag-off at cli.py:822 —
+  Patchright's fetch has explicit keyword-only params; live-simulated
+  independently by the agent and the quality reviewer).
+- [x] **Seed** (`7460a3d`) — `[[tool.mypy.overrides]] module =
+  ["src.core.*"]` with disallow_untyped_defs + warn_return_any +
+  disallow_untyped_calls (all three legal per-module options, verified
+  empirically); per-module ≡ global equivalence audit-verified
+  (byte-identical 42-error core set vs the global CLI run). Convention
+  written into the config comment: **new src/ modules join the strict set
+  by default; exemptions carry a reason comment.**
+- [x] **Bookkeeping** — this entry.
+
+Baseline: 42 (linux) / 43 (win32) across 13 core files. After: **0 —
+Success on 261 files, strict flags ON for src.core.*, both platforms**.
+Free side effect: three non-core no-untyped-call errors cleared
+(cli.py:689/:821, orchestrator.py:580 — calls into the newly-typed
+PatchrightBrowserFetcher); global strict count 776→731. Two-stage review
+verdicts: PASS (both), zero blockers/majors. Known MINORs (recorded, not
+churned): browser.py `inject_turnstile_token` browser: Any and textutil
+`to_iso_date` value: Any are derivable-but-defensible lazy types; commits
+landed Task-2-first (parallel wave order). Remaining finish line: more
+modules graduate as they're rewritten (decide+lab measured 76 strict
+errors — the next natural graduation target); federal observed: Any +
+SignalCandidate.observed_at retype still parked. No strict mode, no
+disallow-any, never tests/.
+
 ## Antibot engine Linux port — DELIVERED (2026-11-06)
 
 **Status: DELIVERED (2026-11-06)** — 5 commits across 7 tasks (same

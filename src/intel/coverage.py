@@ -31,7 +31,9 @@ _COUNTERS = ("tasks", "fetched", "cached", "failed", "candidates", "signals_new"
 
 
 def _row(source: str, key: str, status: str, reason: str | None) -> dict:
-    row: dict = {"source": source, "key": key, "status": status, "reason": reason}
+    row: dict[str, str | int | None] = {
+        "source": source, "key": key, "status": status, "reason": reason
+    }
     for counter in _COUNTERS:
         row[counter] = 0
     return row

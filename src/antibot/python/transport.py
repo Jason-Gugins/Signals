@@ -16,12 +16,18 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING
 
 from src.core.curl_fetcher import CurlCffiFetcher, CurlCffiResponse
 
 from .cookies import PersistentCookieJar
 from .temporal import RevalidationCache
+
+if TYPE_CHECKING:
+    from typing import Literal, Protocol
+
+    class _NativeEngine(Protocol):
+        def fetch(self, url: str, extra: list[tuple[str, str]]) -> bytes: ...
 
 # Chrome 151 posture — mirrors fingerprints.py CHROME_TARGET["major"] and the
 # user_agent in tests/fixtures/antibot/chrome_fingerprint_reference.json.
@@ -97,7 +103,8 @@ class SignalsTransport:
         self.conditional = conditional
         self.cookie_jar = cookie_jar
         self._engine = _engine()
-        self._native: Any = None  # persistent SignalsEngine (pool + session store)
+        # persistent SignalsEngine (pool + session store)
+        self._native: "_NativeEngine | Literal[False] | None" = None
         self._cache = RevalidationCache()
         self._fallback: CurlCffiFetcher | None = None  # lazily constructed CurlCffiFetcher
 

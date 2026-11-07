@@ -75,7 +75,7 @@ COLLECTED_VENDORS = {
 }
 
 
-def _ats_vendor_ok(adapter: SourceAdapter, account: Account) -> bool:
+def _ats_vendor_ok(adapter: SourceAdapter | type[SourceAdapter], account: Account) -> bool:
     if not adapter.key.startswith(ATS_PREFIX):
         return True
     if adapter.key == _CAREERS_FALLBACK_KEY:

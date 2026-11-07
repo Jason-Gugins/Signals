@@ -88,9 +88,9 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[rerank,lab]" mypy==2.4.1
 
-      # Blocking since 2026-11-07: baseline triaged to zero (see docs/todo
-      # type-gate record). check_untyped_defs is the next ratchet, deliberately
-      # deferred — finish line documented in pyproject [tool.mypy].
+      # Blocking since 2026-11-07: baseline triaged to zero; ratchet #2
+      # (check_untyped_defs) flipped 2026-11-07 — see docs/todo type-gate
+      # records. Finish line documented in pyproject [tool.mypy].
       - name: mypy (type gate)
         run: mypy src
 

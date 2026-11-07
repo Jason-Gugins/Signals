@@ -1223,19 +1223,22 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   The noul leg stays flat (max 0.66, p90 0.35 = baseline, 0
   floor-crossers) — the harvest moves the MATERIAL leg of the wall; the
   promotion question's intent bar is the remaining leg (box below).
-- [ ] **G5 wall, next lever: the promotion question's intent bar** — three
-  measurements now converge: model tier irrelevant (addendum 9), homepage
-  prose carries ~0 needs (need-density probe), careers prose carries 2.6×
-  but still thin (3.12%, mostly "is hiring X" proxies) and nouls flat
-  (max 0.59 across all arms). The unmeasured variable is the promotion
-  question itself: "genuine buying intent" doesn't recognize role-based
-  operational needs ("run the helpdesk, triage tickets" — a real
-  helpdesk-seller signal — scored 0.2-0.59), and it mis-reads price
-  promotions as intent (the stocking-stuffer artifact). Redesign the
-  promotion question (distinguish the SUBJECT's selling from a BUYER's
-  intent; recognize role-based operational needs) — THEN re-measure the
-  careers corpus against it. Evidence base: the 20-claim flip audit +
-  these records.
+- [ ] **G5 wall, next lever: the promotion question's intent bar — now
+  LABEL-JUSTIFIED** (2026-11-07): the user adjudicated the 24-claim
+  calibration worksheet (`data/probe/PROMO_CALIBRATION_20261107.md`) and
+  the shipped question's ranking is INVERTED — P[human-NEED noul >
+  human-NOT noul] = 0.36 (worse than coin flip); NOT median 0.28 > NEED
+  median 0.24; all 18 human-NEED claims score below 0.60 while 2 of the 6
+  human-NOTs score above 0.70. Duty-bearing descriptions score highest
+  among NEEDs (0.46-0.59) — the gate sees duty content but not enough;
+  the user's construct counts hiring announcements as NEED (scaling
+  signal). Execute the promo-A/B (plan
+  `.zcode/plans/2026-11-07_013000-promotion-question-redesign.md`,
+  label-refereed verdict, runs on the 24 labeled claims — ~48 decider
+  calls, pennies): rewrite the question to perspective-anchor
+  operational-burden semantics, suppress selling phrasing, count hiring
+  as a scaling signal. THEN re-measure the careers corpus against the
+  winner.
 - [x] **Robots override: APPLIED (operator-approved 2026-11-06 session
   sign-off)** — `config/default.yaml` http.robots_allow gained 4
   careers-family prefixes per host for the 7 blanket-disallow domains

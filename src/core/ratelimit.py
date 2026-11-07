@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Callable, Iterator
 from urllib.parse import urlparse
 
 
@@ -14,8 +14,8 @@ class TokenBucket:
         self,
         rate_per_sec: float,
         burst: int | None = None,
-        clock=time.monotonic,
-        sleep=time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self.rate_per_sec = float(rate_per_sec)
         self.burst = float(burst if burst is not None else 1.0)
@@ -55,8 +55,8 @@ class RateLimiter:
         per_host: dict[str, float] | None = None,
         per_source: dict[str, float] | None = None,
         max_concurrency: int = 6,
-        clock=time.monotonic,
-        sleep=time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self.default_rate = default_rate
         self.per_host = dict(per_host or {})

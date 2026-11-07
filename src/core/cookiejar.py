@@ -17,6 +17,7 @@ it from core adds no new package-level cycle.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from src.antibot.python.cookies import CookieEntry, PersistentCookieJar as _AntibotJar
 
@@ -33,7 +34,7 @@ class PersistentCookieJar(_AntibotJar):
         path: str | Path | None = None,
         scope: str = "http",
         root: str | Path = DEFAULT_COOKIE_ROOT,
-        clock=None,
+        clock: Callable[[], float] | None = None,
     ):
         import time
 

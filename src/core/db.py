@@ -7,9 +7,12 @@ import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from src.core.rawstore import RawStore
 
 
 SCHEMA_SQL = """
@@ -716,7 +719,7 @@ class Database:
     def __enter__(self) -> "Database":
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
 
@@ -907,7 +910,7 @@ class IdentityCandidateStore:
         return rows
 
 
-def prune_all(db: Database, *, keep_days: int, raw_store=None) -> dict:
+def prune_all(db: Database, *, keep_days: int, raw_store: RawStore | None = None) -> dict:
     """Delete retention-expired rows + raw files, then checkpoint WAL and ANALYZE.
 
     Timestamp columns per table (see SCHEMA_SQL):

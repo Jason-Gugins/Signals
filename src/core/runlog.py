@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from types import TracebackType
 
 from loguru import logger
 
@@ -71,7 +72,12 @@ class RunContext:
             self._sink_id = None
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         # Fail-safe: detach the run's file sink before recording the outcome.
         if self._sink_id is not None:
             try:

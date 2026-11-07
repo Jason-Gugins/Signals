@@ -47,7 +47,7 @@ def _pid_alive(pid: int) -> bool:
         if not handle:
             return False
         try:
-            return k32.WaitForSingleObject(handle, 0) == WAIT_TIMEOUT  # running
+            return bool(k32.WaitForSingleObject(handle, 0) == WAIT_TIMEOUT)  # running
         finally:
             k32.CloseHandle(handle)
     try:

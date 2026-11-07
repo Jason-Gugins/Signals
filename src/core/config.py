@@ -305,7 +305,7 @@ def _apply_dict_to_config(config: Config, data: dict) -> None:
                 setattr(config, key, value)
 
 
-def _is_dataclass_instance(obj) -> bool:
+def _is_dataclass_instance(obj: object) -> bool:
     return hasattr(obj, "__dataclass_fields__")
 
 

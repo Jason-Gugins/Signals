@@ -6,7 +6,7 @@ import hashlib
 import re
 from datetime import date, datetime, timedelta, timezone
 from html import unescape
-from typing import Optional
+from typing import Any, Optional
 
 
 _WS = re.compile(r"[\s\u00a0]+")
@@ -105,7 +105,7 @@ def _from_ymd(y: int, m: int, d: int) -> str | None:
         return None
 
 
-def to_iso_date(value, *, today: date | None = None) -> str | None:
+def to_iso_date(value: Any, *, today: date | None = None) -> str | None:
     """Normalize a date-ish value to an ISO ``YYYY-MM-DD`` string.
 
     Contract: returns ``None`` for anything unparseable — including empty

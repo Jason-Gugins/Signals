@@ -11,11 +11,16 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlsplit
 
+if TYPE_CHECKING:
+    from curl_cffi.requests import Response
 
-def curl_cffi_get(url: str, **kwargs):
+    from src.core.cookiejar import PersistentCookieJar
+
+
+def curl_cffi_get(url: str, **kwargs: Any) -> "Response":
     """Thin wrapper around curl_cffi.requests.get.
 
     The import is deferred to call-time so that this module can be imported
@@ -42,7 +47,7 @@ class CurlCffiFetcher:
         user_agent: str,
         impersonate: str = "chrome",
         proxy: str | None = None,
-        cookie_jar=None,
+        cookie_jar: "PersistentCookieJar | None" = None,
     ):
         self.user_agent = user_agent
         self.impersonate = impersonate

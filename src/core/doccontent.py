@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from html import unescape
+from typing import Any
 
 from src.core.textutil import html_to_text
 
@@ -75,7 +77,7 @@ def _result(
     }
 
 
-def _field(value) -> str:
+def _field(value: Any) -> str:
     """Coerce an envelope field to clean text (greenhouse `location` is a
     {"name": ...} dict in the wild; strings everywhere else)."""
     if isinstance(value, dict):
@@ -134,7 +136,7 @@ def sniff(content_type: str, body: str) -> str:
     return "text"
 
 
-def publisher_matches(publisher: str | None, hint: str | None, aliases=()) -> bool:
+def publisher_matches(publisher: str | None, hint: str | None, aliases: Iterable[str] = ()) -> bool:
     """Publisher-vs-account matching for the wrong-entity guard.
 
     Rule: casefold both sides; MATCH if either string contains the other as a

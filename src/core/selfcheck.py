@@ -11,7 +11,7 @@ parser still extracts items. States:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 
 @dataclass
@@ -23,7 +23,10 @@ class SelfcheckResult:
 
 
 def run_source_selfcheck(
-    fetcher,
+    # Duck-typed transport glue: .fetch(url, **kw) -> FetchResult-like with
+    # .ok/.status/.doc. The real shape is caller-defined (http/curl/browser
+    # transports and test doubles) and **fetch_kwargs passes through opaquely.
+    fetcher: Any,
     *,
     url: str,
     source: str,

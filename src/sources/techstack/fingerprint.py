@@ -424,7 +424,7 @@ def promote_or_observe(ev, rules: dict, *, domain: str) -> list[TechMatch]:
         # equals the promoted row for the same vendor).
         key = classify_dynamic_host(m.display, rules)
         spec = vendors.get(key) if key else None
-        if spec is None:
+        if key is None or spec is None:
             dyn.append(m)
             continue
         cat = spec.get("category") or []

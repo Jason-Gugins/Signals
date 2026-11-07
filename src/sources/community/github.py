@@ -157,7 +157,7 @@ def push_burst_count(events, *, today: date, window_days: int = 7) -> int:
     Tolerant: a raw JSON body (bytes) is parsed via :func:`parse_events`
     first, and anything unparseable counts 0."""
     if isinstance(events, (bytes, bytearray)):
-        events = parse_events(events)
+        events = parse_events(bytes(events))
     if not isinstance(events, list):
         return 0
     out = 0

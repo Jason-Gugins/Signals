@@ -163,7 +163,8 @@ def to_iso_date(value, *, today: date | None = None) -> str | None:
         return _from_ymd(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     if re.fullmatch(r"\d{8}", s):
         m = _YMD_COMPACT.match(s)
-        return _from_ymd(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        if m:  # always true while _YMD_COMPACT stays ^(\d{4})(\d{2})(\d{2})$; pins the invariant
+            return _from_ymd(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     if re.fullmatch(r"\d{9,12}", s):
         return datetime.fromtimestamp(int(s), tz=timezone.utc).date().isoformat()
 

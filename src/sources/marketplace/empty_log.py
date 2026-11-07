@@ -80,7 +80,9 @@ class EmptyLog:
     ) -> bool:
         """True after ``threshold_cycles`` consecutive empty harvests."""
         entry = self._entries.get(self._key(slug, source))
-        return bool(entry) and int(entry.get("cycles", 0)) >= threshold_cycles
+        if not entry:
+            return False
+        return int(entry.get("cycles", 0)) >= threshold_cycles
 
     def entry(self, slug: str, source: str) -> dict:
         """Raw state entry for the (source, slug) pair; {} when none."""

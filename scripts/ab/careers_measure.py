@@ -43,17 +43,23 @@ def need_density(claims: list[str]) -> dict:
 
 def _load_docs(db, cap: int) -> list[dict]:
     """Careers docs: source='careers' first (this harvest), then the
-    pre-existing career-URL docs on DTC domains, capped."""
-    dtc = [d for (d,) in db.conn.execute(
-        "SELECT DISTINCT domain FROM documents").fetchall()
-        if d and d not in ("databricks.com", "darktrace.com", "snowflake.com",
-                           "cority.com", "cyera.com", "cynomi.com", "decagon.ai",
-                           "deepinfra.com", "elevenlabs.io", "glow.security",
-                           "helcim.com", "opositiv.com", "ramp.com", "rillet.com",
-                           "riverside.com", "amigo.ai", "procore.com")]
+    pre-existing career-URL docs on DTC corpus domains, capped. The domain
+    set derives from the CORPUS (dossier packages) — the previous
+    denylist let non-corpus vendor domains leak (lightspeedhq,
+    boostsecurity, citylitics) and inflated the aggregate density."""
+    import re
+    from src.lab.tierprobe import VENDOR_DOMAINS
+
+    pkg_re = re.compile(r"^(?P<domain>.+?)-[0-9]{8}T[0-9]{6}")
+    corpus_domains = {m.group("domain")
+                      for m in (pkg_re.match(pp.name)
+                                for pp in Path("data/dossiers").iterdir())
+                      if m}
+    dtc = sorted(d for d in corpus_domains if d not in VENDOR_DOMAINS)
     picked: dict[str, dict] = {}
     for sql, params in (
-        ("SELECT doc_id, domain, url, path FROM documents WHERE source='careers' ORDER BY fetched_at", ()),
+        ("SELECT doc_id, domain, url, path FROM documents WHERE source='careers' "
+         "ORDER BY fetched_at", ()),
         ("SELECT doc_id, domain, url, path FROM documents WHERE (url LIKE '%career%' OR url LIKE '%jobs%') "
          "AND domain IN (" + ",".join("?" * len(dtc)) + ") ORDER BY fetched_at", tuple(dtc)),
     ):

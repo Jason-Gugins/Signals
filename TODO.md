@@ -1020,20 +1020,20 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   vectors, RRF fusion, ms-marco cross-encoder rerank, MMR dedup; opt-in behind
   `retrieval.enabled`). See **Intel hybrid retrieval (2026-10-10 — DELIVERED)**
   at the end of this file.
-- [x] **Careers harvest — Phase 1 + measurement DONE; verdict FLAT on the
-  ICP arm** (2026-11-06/07, `data/probe/CAREERS_HARVEST_20261106.md`,
-  decide-lab addendum 10): the ATS boards were ALREADY stored (ashby/
-  greenhouse 200s) but never rendered — `src/sources/ats/render.py` +
-  `scripts/ab/careers_fetch.py` now render + discover + persist careers
-  prose (`source="careers"`); coverage **10/23 DTC domains** (7
-  robots-disallowed — overrides need sign-off; 9 hubs behind JS widgets /
-  token-gated boards). Measurement (fresh flash, 348 claims): careers
-  need-density **3.12% vs homepage 1.21% (2.6× — under the pre-registered
-  3× bar)**; nouls unmoved (p90 0.36 = baseline, max 0.59, 0
-  floor-crossers). The mechanical HARVEST-WINS was overturned by the
-  DTC-only split (the mixed 8.91% was inflated by leaked vendor careers
-  docs at 25%). The harvest artifacts stay (docs + tooling), but the G5
-  wall is NOT broken by careers prose alone.
+- [x] **Careers harvest — Phase 1 + measurement DONE; RE-ASSESSED after
+  robots overrides: HARVEST WINS the material-density leg** (2026-11-06/07,
+  `data/probe/CAREERS_HARVEST_20261106.md`, decide-lab addendum 10): the
+  ATS boards were ALREADY stored (ashby/greenhouse 200s) but never
+  rendered — `src/sources/ats/render.py` + `scripts/ab/careers_fetch.py`
+  now render + discover + persist careers prose (`source="careers"`).
+  Coverage **12/23 DTC domains** (the other 11: JS-rendered widgets or
+  token-gated boards). Measurement after the robots overrides + leak fix
+  (40 corpus-DTC docs, 524 claims, fresh flash): careers need-density
+  **7.25% vs homepage 1.21% = 6× — the pre-registered 3× bar cleared**;
+  job DESCRIPTIONS (board-rendered) are the dense prose, hub pages thin.
+  The noul leg stays flat (max 0.66, p90 0.35 = baseline, 0
+  floor-crossers) — the harvest moves the MATERIAL leg of the wall; the
+  promotion question's intent bar is the remaining leg (box below).
 - [ ] **G5 wall, next lever: the promotion question's intent bar** — three
   measurements now converge: model tier irrelevant (addendum 9), homepage
   prose carries ~0 needs (need-density probe), careers prose carries 2.6×
@@ -1047,10 +1047,14 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   intent; recognize role-based operational needs) — THEN re-measure the
   careers corpus against it. Evidence base: the 20-claim flip audit +
   these records.
-- [ ] **Robots-override decision (user)**: 7 DTC domains blanket-disallow
-  the harvest UA (Cloudflare-style). Public careers pages; the repo has a
-  recorded scoped-override precedent (cf1c99). Overriding would raise
-  coverage 10→17/23 domains. User sign-off required; not done unilaterally.
+- [x] **Robots override: APPLIED (operator-approved 2026-11-06 session
+  sign-off)** — `config/default.yaml` http.robots_allow gained 4
+  careers-family prefixes per host for the 7 blanket-disallow domains
+  (scoped: /careers, /pages/careers, /about/careers, /jobs only — never
+  product/store paths; guard test `tests/test_careers_robots_guard.py`
+  pins the scope; the harvest honors the same list the production fetch
+  layer reads). Coverage 10→12/23 domains; the other 5 render careers via
+  JS widgets the raw HTML cannot see.
 - [ ] **Automatic alias / name-variant discovery from EDGAR/news strings** —
   the highest wrong-company attribution risk; deliberately not attempted.
 - [ ] **New scoring combos + re-pricing `need_statement` /

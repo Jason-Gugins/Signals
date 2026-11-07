@@ -23,6 +23,42 @@ http:
     # community_reddit.enabled to false if Reddit starts blocking.
     - host: www.reddit.com
       path_prefix: /search.rss
+    # SCOPED ROBOTS OVERRIDE (operator-approved 2026-11-06, session sign-off):
+    # careers-family paths on 7 DTC prospect domains whose robots.txt
+    # blanket-disallows unknown UAs (Cloudflare-style) — public careers
+    # pages, trickle volume (<= ~6 fetches/domain, careers harvest
+    # CAREERS_HARVEST_20261106.md). Scope: /careers, /pages/careers,
+    # /about/careers, /jobs only — never the product/store paths. These
+    # entries exist to complete the G5 material-wall fix; revert if the
+    # sites start blocking.
+    - { host: blenderseyewear.com, path_prefix: /careers }
+    - { host: blenderseyewear.com, path_prefix: /pages/careers }
+    - { host: blenderseyewear.com, path_prefix: /about/careers }
+    - { host: blenderseyewear.com, path_prefix: /jobs }
+    - { host: comfrt.com, path_prefix: /careers }
+    - { host: comfrt.com, path_prefix: /pages/careers }
+    - { host: comfrt.com, path_prefix: /about/careers }
+    - { host: comfrt.com, path_prefix: /jobs }
+    - { host: hexclad.com, path_prefix: /careers }
+    - { host: hexclad.com, path_prefix: /pages/careers }
+    - { host: hexclad.com, path_prefix: /about/careers }
+    - { host: hexclad.com, path_prefix: /jobs }
+    - { host: lumedeodorant.com, path_prefix: /careers }
+    - { host: lumedeodorant.com, path_prefix: /pages/careers }
+    - { host: lumedeodorant.com, path_prefix: /about/careers }
+    - { host: lumedeodorant.com, path_prefix: /jobs }
+    - { host: meritbeauty.com, path_prefix: /careers }
+    - { host: meritbeauty.com, path_prefix: /pages/careers }
+    - { host: meritbeauty.com, path_prefix: /about/careers }
+    - { host: meritbeauty.com, path_prefix: /jobs }
+    - { host: ridge.com, path_prefix: /careers }
+    - { host: ridge.com, path_prefix: /pages/careers }
+    - { host: ridge.com, path_prefix: /about/careers }
+    - { host: ridge.com, path_prefix: /jobs }
+    - { host: simplemodern.com, path_prefix: /careers }
+    - { host: simplemodern.com, path_prefix: /pages/careers }
+    - { host: simplemodern.com, path_prefix: /about/careers }
+    - { host: simplemodern.com, path_prefix: /jobs }
   max_workers: 6             # global thread pool for HTTP fan-out
   default_rate_per_host: 1.0 # requests/sec
   verify_tls: true

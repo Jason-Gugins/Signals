@@ -105,17 +105,46 @@ def _discover_and_fetch(client, rs: RawStore, db, run_id: str, domain: str,
     """Try the careers-hub candidates; on a careers-ish 200, discover job
     links (the careers_page adapter's regex) and fetch up to `cap` pages."""
     kept: list[dict] = []
-    # sitemap-assisted discovery: the sitemap often lists careers subpaths
-    # the fixed candidate list misses (brumate's sitemap was already fetched
-    # by ats_discovery)
+    # sitemap-assisted discovery (one index level: Shopify sitemaps are
+    # indexes pointing at sitemap_pages_*.xml) + homepage-anchor discovery
+    # (the careers_page adapter's own technique: scan anchors for career-ish
+    # hrefs — the fixed candidate list misses nonstandard paths)
     try:
         status, sm = _fetch(client, f"https://www.{domain}/sitemap.xml")
         if status == 200:
-            cands = cands + [u for u in re.findall(r"<loc>([^<]+)</loc>", sm)
-                             if JOB_LINK.search(u)][:6]
+            locs = re.findall(r"<loc>([^<]+)</loc>", sm)
+            sub = [u for u in locs if u.endswith(".xml") and u not in locs][:3]
+            for s2 in sub:
+                try:
+                    st2, sm2 = _fetch(client, s2)
+                    if st2 == 200:
+                        locs += re.findall(r"<loc>([^<]+)</loc>", sm2)
+                except Exception:
+                    pass
+            cands = cands + [u for u in locs
+                             if JOB_LINK.search(u) and u not in cands][:8]
     except Exception as exc:
         _log_fetch(db, run_id, source="careers", domain=domain,
                    url=f"https://www.{domain}/sitemap.xml", status=0, bytes_=0,
+                   error=f"{type(exc).__name__}: {exc}"[:200])
+    try:
+        status, home = _fetch(client, f"https://{domain}/")
+        if status == 200:
+            import src.sources.ats.careers_page as cp
+
+            from urllib.parse import urljoin
+            for href, anchor in cp._anchor_text(home):
+                if not href:
+                    continue
+                full = urljoin(f"https://{domain}/", href)
+                if (JOB_LINK.search(full)
+                        or re.search(r"career|job|hiring|join.?us|open.roles?",
+                                     (anchor or ""), re.I)) and full not in cands:
+                    cands.append(full)
+            cands = cands[:14]
+    except Exception as exc:
+        _log_fetch(db, run_id, source="careers", domain=domain,
+                   url=f"https://{domain}/", status=0, bytes_=0,
                    error=f"{type(exc).__name__}: {exc}"[:200])
     hub_url, hub_html = None, None
     for url in cands:
@@ -207,7 +236,19 @@ def main(argv=None) -> int:
     headers = {"User-Agent": "SignalsCareersHarvest/1.0 (contact: ops@signals.local)"}
     robots_cache: dict[str, urllib.robotparser.RobotFileParser | None] = {}
 
+    # the SAME recorded override list the production fetch layer honors
+    # (src/core/http.py robots_path_allowed) — one source of truth
+    from src.core.http import robots_path_allowed
+    from src.core.config import Config
+
+    try:
+        robots_allow = (Config().load_yaml("default") or {}).get("http", {}).get("robots_allow")
+    except Exception:
+        robots_allow = None
+
     def robots_ok(url: str) -> bool:
+        if robots_path_allowed(url, robots_allow):
+            return True  # operator-approved scoped override (config/default.yaml)
         host = url.split("/")[2]
         if host not in robots_cache:
             rp = urllib.robotparser.RobotFileParser()

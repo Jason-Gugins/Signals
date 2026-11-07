@@ -1020,12 +1020,37 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   vectors, RRF fusion, ms-marco cross-encoder rerank, MMR dedup; opt-in behind
   `retrieval.enabled`). See **Intel hybrid retrieval (2026-10-10 — DELIVERED)**
   at the end of this file.
-- [ ] **Generalise need extraction beyond first-party `company_feed`
-  documents** — news bodies and careers-page HTML are not yet covered.
-  Measured 2026-11-05 (`data/probe/G5_NEED_DENSITY_20261105.md`): careers/job
-  pages are the only need-dense prose in the corpus (2.6–5.1% of claims carry
-  need language, vs ~0% on home/feeds/archive captures and ~0.2% on vendor
-  blogs) — this box is now the highest-yield lever on the G5 material wall.
+- [x] **Careers harvest — Phase 1 + measurement DONE; verdict FLAT on the
+  ICP arm** (2026-11-06/07, `data/probe/CAREERS_HARVEST_20261106.md`,
+  decide-lab addendum 10): the ATS boards were ALREADY stored (ashby/
+  greenhouse 200s) but never rendered — `src/sources/ats/render.py` +
+  `scripts/ab/careers_fetch.py` now render + discover + persist careers
+  prose (`source="careers"`); coverage **10/23 DTC domains** (7
+  robots-disallowed — overrides need sign-off; 9 hubs behind JS widgets /
+  token-gated boards). Measurement (fresh flash, 348 claims): careers
+  need-density **3.12% vs homepage 1.21% (2.6× — under the pre-registered
+  3× bar)**; nouls unmoved (p90 0.36 = baseline, max 0.59, 0
+  floor-crossers). The mechanical HARVEST-WINS was overturned by the
+  DTC-only split (the mixed 8.91% was inflated by leaked vendor careers
+  docs at 25%). The harvest artifacts stay (docs + tooling), but the G5
+  wall is NOT broken by careers prose alone.
+- [ ] **G5 wall, next lever: the promotion question's intent bar** — three
+  measurements now converge: model tier irrelevant (addendum 9), homepage
+  prose carries ~0 needs (need-density probe), careers prose carries 2.6×
+  but still thin (3.12%, mostly "is hiring X" proxies) and nouls flat
+  (max 0.59 across all arms). The unmeasured variable is the promotion
+  question itself: "genuine buying intent" doesn't recognize role-based
+  operational needs ("run the helpdesk, triage tickets" — a real
+  helpdesk-seller signal — scored 0.2-0.59), and it mis-reads price
+  promotions as intent (the stocking-stuffer artifact). Redesign the
+  promotion question (distinguish the SUBJECT's selling from a BUYER's
+  intent; recognize role-based operational needs) — THEN re-measure the
+  careers corpus against it. Evidence base: the 20-claim flip audit +
+  these records.
+- [ ] **Robots-override decision (user)**: 7 DTC domains blanket-disallow
+  the harvest UA (Cloudflare-style). Public careers pages; the repo has a
+  recorded scoped-override precedent (cf1c99). Overriding would raise
+  coverage 10→17/23 domains. User sign-off required; not done unilaterally.
 - [ ] **Automatic alias / name-variant discovery from EDGAR/news strings** —
   the highest wrong-company attribution risk; deliberately not attempted.
 - [ ] **New scoring combos + re-pricing `need_statement` /

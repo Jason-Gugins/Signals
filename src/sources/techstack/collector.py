@@ -165,6 +165,8 @@ class TechstackSource(SourceAdapter):
         from datetime import date
 
         from src.sources.techstack.fingerprint import (
+            HttpEvidence,
+            NetworkEvidence,
             extract_http_evidence,
             extract_network_evidence,
             load_fingerprint_rules,
@@ -177,6 +179,7 @@ class TechstackSource(SourceAdapter):
             return self._parse_statuspage(doc, account, task_meta)
         body = doc.body or b""
         use_net = kind == "network" or (not kind and body.lstrip().startswith(b"{"))
+        ev: HttpEvidence | NetworkEvidence
         if use_net:
             try:
                 ev = extract_network_evidence(body or b"{}")
@@ -254,7 +257,7 @@ class TechstackSource(SourceAdapter):
             current = set(ev.spf_includes)
             removed = [i for i in (prior.get("spf_includes") or []) if i not in current]
 
-        claimed = set()
+        claimed: set[str] = set()
         for spec in (rules.get("vendors") or rules).values():
             match = (spec or {}).get("match") or {}
             claimed.update(str(n).casefold() for n in match.get("spf_include") or [])
@@ -343,6 +346,8 @@ class TechstackSource(SourceAdapter):
         import json
 
         from src.sources.techstack.fingerprint import (
+            HttpEvidence,
+            NetworkEvidence,
             extract_http_evidence,
             extract_network_evidence,
             load_fingerprint_rules,
@@ -358,6 +363,7 @@ class TechstackSource(SourceAdapter):
             return []
         body = doc.body or b""
         use_net = kind == "network" or (not kind and body.lstrip().startswith(b"{"))
+        ev: HttpEvidence | NetworkEvidence
         if use_net:
             try:
                 ev = extract_network_evidence(body or b"{}")

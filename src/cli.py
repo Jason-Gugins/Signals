@@ -580,32 +580,30 @@ def index_cmd(ctx, domain, limit, stats, rebuild_fts):
         ]
     )
 
+    def _n(sql: str, args: tuple) -> int:
+        row = db.one(sql, args)
+        return int(row["n"]) if row else 0
+
     def _coverage(dom):
         """(domain doc count, index_state-covered count) for the active model.
 
         'indexed' AND 'no_text' both count as covered (v9 ledger semantics:
         a permanently-unindexable doc is covered, not a permanent gap).
         """
-        docs = int(
-            db.one("SELECT COUNT(*) AS n FROM documents WHERE domain = ?", (dom,))["n"]
-        )
-        covered = int(
-            db.one(
-                "SELECT COUNT(*) AS n FROM index_state"
-                " WHERE domain = ? AND model_id = ?"
-                " AND state IN ('indexed', 'no_text')",
-                (dom, model),
-            )["n"]
+        docs = _n("SELECT COUNT(*) AS n FROM documents WHERE domain = ?", (dom,))
+        covered = _n(
+            "SELECT COUNT(*) AS n FROM index_state"
+            " WHERE domain = ? AND model_id = ?"
+            " AND state IN ('indexed', 'no_text')",
+            (dom, model),
         )
         return docs, covered
 
     if stats:
         for dom in domains:
             docs, covered = _coverage(dom)
-            chunks = int(
-                db.one(
-                    "SELECT COUNT(*) AS n FROM document_chunks WHERE domain = ?", (dom,)
-                )["n"]
+            chunks = _n(
+                "SELECT COUNT(*) AS n FROM document_chunks WHERE domain = ?", (dom,)
             )
             frac = f"{covered / docs:.2f}" if docs else "n/a"
             click.echo(
@@ -620,9 +618,7 @@ def index_cmd(ctx, domain, limit, stats, rebuild_fts):
             # Plans only, writes nothing — the rebuild branch sits before the
             # per-domain dry-run check, so it needs its own guard (review
             # finding: --dry-run index --rebuild-fts used to DELETE + re-INSERT).
-            would = int(
-                db.one("SELECT COUNT(*) AS n FROM document_chunks")["n"]
-            )
+            would = _n("SELECT COUNT(*) AS n FROM document_chunks", ())
             click.echo(f"[dry-run] would rebuild chunks_fts rows={would}")
             return
         # document_chunks.text is the source of truth; chunks_fts is derived.

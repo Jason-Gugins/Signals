@@ -15,7 +15,7 @@ from src.core.textutil import clean_text, to_iso_date
 @dataclass
 class JobPost:
     external_id: str
-    title: str
+    title: str | None
     url: str
     posted_at: str | None
     department: str | None = None

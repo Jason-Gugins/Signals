@@ -56,6 +56,7 @@ class WaybackSource(SourceAdapter):
         out = []
         for ts in pick_snapshots(rows, per_year=2, max_total=12):
             original = next((r.get("original") for r in rows if r.get("timestamp") == ts), f"https://{account.domain}/")
+            original = original or f"https://{account.domain}/"
             out.append(
                 FetchTask(
                     source=self.key,
@@ -79,6 +80,7 @@ class WaybackSource(SourceAdapter):
                 (r.get("original") for r in pricing_rows if r.get("timestamp") == ts),
                 f"https://{account.domain}/pricing",
             )
+            original = original or f"https://{account.domain}/pricing"
             out.append(
                 FetchTask(
                     source=self.key,

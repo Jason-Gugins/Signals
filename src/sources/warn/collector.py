@@ -1,3 +1,4 @@
+from src.sources.warn import WarnJurisdiction
 from src.sources.warn.states.ca import CaWarn
 from src.sources.warn.states.fl import FlWarn
 from src.sources.warn.states.il import IlWarn
@@ -7,7 +8,7 @@ from src.sources.warn.states.oh import OhWarn
 from src.sources.warn.states.tx import TxWarn
 from src.sources.warn.states.wa import WaWarn
 
-WARN_JURISDICTIONS = {
+WARN_JURISDICTIONS: dict[str, WarnJurisdiction] = {
     "NY": NyWarn(),
     "CA": CaWarn(),
     "WA": WaWarn(),

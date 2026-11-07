@@ -35,8 +35,8 @@ class JobSignalsSource(SourceAdapter):
             (account.domain, cutoff),
         )
         if prior is None:
-            prior_depts = {r.get("department") for r in rows if r.get("department")}
-            prior_ctys = {r.get("country") for r in rows if r.get("country")}
+            prior_depts = {d for r in rows if (d := r.get("department"))}
+            prior_ctys = {c for r in rows if (c := r.get("country"))}
             baseline = {}
         else:
             by_dept = json.loads(prior["by_department"] or "{}")

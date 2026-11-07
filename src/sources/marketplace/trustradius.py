@@ -193,7 +193,7 @@ def _card_rating(card) -> Optional[float]:
 
 def _section_items(card, label: str) -> list:
     """li span texts following the 'Pros'/'Cons' h3 in the review content."""
-    out = []
+    out: list[str] = []
     content = card.select_one("div[data-testid='content']")
     if content is None:
         return out
@@ -278,7 +278,7 @@ def extract_trustradius_reviews(html: str, product_slug: str) -> list:
         title_a = card.select_one("header h2 a[href]")
         if title_a is not None:
             review_title = title_a.get_text(strip=True).strip('"').strip()
-            href = title_a["href"]
+            href = str(title_a.get("href") or "")
             review_url = href if href.startswith("http") else _TR_BASE + href
             review_id = href.rstrip("/").rsplit("/", 1)[-1] or None
 

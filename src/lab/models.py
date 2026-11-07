@@ -470,7 +470,7 @@ def stability_check(
         for name in names:
             raw = run.get(name) if isinstance(run, dict) else None
             try:
-                value = float(raw)
+                value = float(raw) if raw is not None else None
             except (TypeError, ValueError):
                 value = None
             if value is None:

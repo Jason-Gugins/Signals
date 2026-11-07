@@ -509,7 +509,9 @@ def _screen_active(screen_cfg: dict | None) -> bool:
     """Whether the output screen rider rides this G4 request: only an
     explicitly passed, enabled ``output_screen`` config block turns it on
     (``None`` — the default — keeps the pre-rider request shape exactly)."""
-    return bool(screen_cfg) and bool(screen_cfg.get("enabled", True))
+    if not screen_cfg:
+        return False
+    return bool(screen_cfg.get("enabled", True))
 
 
 def _noul_of(answers, qid: str) -> float | None:
@@ -1204,15 +1206,17 @@ def gate_need_promotion(
     floor = _floor(cfg, PROMOTION_FLOOR)
     enforce = mode == "enforce"
     det_action = "promote" if deterministic_promote else "drop"
+    # Quote-first anchoring: quote_span is verbatim inside the excerpt
+    # (intel built it via claim_excerpt and the quote is verified before
+    # G5), so the anchor always hits; blank/absent keeps the need_text
+    # anchor (the pre-cascade-fix behavior).
+    if quote_span and quote_span.strip():
+        anchor = quote_span
+    else:
+        anchor = need_text
     state = {
         "need": need_text,
-        # Quote-first anchoring: quote_span is verbatim inside the excerpt
-        # (intel built it via claim_excerpt and the quote is verified before
-        # G5), so the anchor always hits; blank/absent keeps the need_text
-        # anchor (the pre-cascade-fix behavior).
-        "evidence_excerpt": anchor_window(
-            evidence_excerpt, quote_span if (quote_span or "").strip() else need_text
-        ),
+        "evidence_excerpt": anchor_window(evidence_excerpt, anchor),
     }
     questions = {
         "promotion": {
@@ -1637,7 +1641,7 @@ def gate_completeness(
     if not (doc_text or "").strip():
         # Nothing to verify against: deterministic skip, no Jev spend (the
         # five-fields pass only runs on docs with text, so this is defensive).
-        state = {"doc_id": doc_id, "text": ""}
+        state: dict = {"doc_id": doc_id, "text": ""}
         ledger.record(
             _row(
                 "completeness_verify", state, decider, run_id,
@@ -1648,14 +1652,14 @@ def gate_completeness(
         )
         return [], Decision(applies=False, ok=True, answers={}, raw_tokens=0)
 
-    state: dict = {
+    state = {
         "doc_id": doc_id,
         "text": truncate(doc_text, _DOC_STATE_TOKENS * _WINDOW_CHARS_PER_TOKEN) or "",
     }
     questions: dict[str, dict] = {}
     field_head: list[tuple[str, str]] = []
     for field in _five_fields():
-        if five_field_is_present(five_fields_result, field):
+        if five_fields_result and five_field_is_present(five_fields_result, field):
             head = f"{field}::grounded"
             state[field] = five_fields_result[field]["text"]
             questions[head] = {
@@ -2385,6 +2389,10 @@ def extract_event_date(
             note = "absolute date incomplete: " + ", ".join(missing)
         elif year_out_of_range:
             note = "year stated but out of range"
+        elif month is None or day is None:
+            # Unreachable: a None month/day already landed in `missing` above;
+            # the guard is the local proof that month/day are ints below.
+            note = "absolute date incomplete: month, day"
         elif year is not None:
             candidate = _assemble_date(year, month, day)
             if candidate is None:
@@ -2408,7 +2416,7 @@ def extract_event_date(
                         f"impossible date {pinned.year + 1:04d}-"
                         f"{month:02d}-{day:02d}"
                     )
-            if note is None:
+            if note is None and candidate is not None:
                 event_at = candidate.isoformat()
     elif mode_label == "relative":
         _used("mode", mode_label)
@@ -2785,7 +2793,8 @@ def extract_claim_amount(
     raise_prob = _noul_of(answers, "amount_is_raise")
 
     amount: dict | None = None
-    outcome, reason = "skipped", "no_answer"
+    outcome = "skipped"
+    reason: str | None = "no_answer"
     label = pick_raw.strip() if isinstance(pick_raw, str) else None
     if label is None:
         pass  # missing/malformed pick: the recorded skip stands

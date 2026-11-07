@@ -657,7 +657,8 @@ def _replay_doc_gate(
         if not ask:
             # requires_replay None: re-route the RECORDED answers under the
             # merged thresholds — zero calls, the incumbent's own behavior.
-            answers = row.get("answers") if isinstance(row.get("answers"), dict) else {}
+            answers = row.get("answers")
+            answers = answers if isinstance(answers, dict) else {}
             outcome, reason = _route_document(answers, cfg)
             meter.rows.append(
                 {
@@ -927,6 +928,7 @@ def _replay_g4(
             if (screen_axis or not ask)
             else None
         )
+        reason: str | None
         for i in judged:
             qid = f"claim_{i}"
             if override in ("wrong_entity", "unfounded_claims"):

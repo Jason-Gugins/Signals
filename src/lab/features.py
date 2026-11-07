@@ -288,7 +288,10 @@ def embedding_features(
 
     for i, row in enumerate(rows):
         if vectors[i] is None:  # duplicate-doc rows copy their doc's vector
-            doc_id = str(row.get("doc_id") or "") or None
+            doc_id = str(row.get("doc_id") or "")
             vectors[i] = vectors[first_row_of_doc[doc_id]]
 
-    return np.stack(vectors).astype(np.float32), EMBEDDING_NAME
+    return (
+        np.stack([v for v in vectors if v is not None]).astype(np.float32),
+        EMBEDDING_NAME,
+    )

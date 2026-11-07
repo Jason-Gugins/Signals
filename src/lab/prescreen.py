@@ -376,7 +376,8 @@ def prescreen(
             )
             continue
 
-        score = sum(nouls.values())
+        # every None already `continue`d via `failing` — the sum sees floats only
+        score = sum(v for v in nouls.values() if v is not None)
         survivor = dict(cand) if isinstance(cand, dict) else {}
         survivor["question"] = text
         survivor["criteria"] = criteria

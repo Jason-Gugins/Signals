@@ -63,6 +63,7 @@ import json
 import os
 import sqlite3
 import sys
+import threading
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -165,7 +166,13 @@ def _ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-class _ReadOnlyDB:
+# The nominal base for the read-only stand-in below — imported here rather
+# than at the stdlib-only module top so ``python -m src.lab --help`` stays
+# light (src/core/db pulls nothing beyond loguru, already loaded).
+from src.core.db import Database
+
+
+class _ReadOnlyDB(Database):
     """Minimal read-only Database stand-in (one/query — everything corpus +
     RawStore reads need). The lab never migrates or writes the signals DB:
     Database() would, so the runner opens the file read-only — and if the
@@ -182,6 +189,11 @@ class _ReadOnlyDB:
         uri = f"file:{quote(path.as_posix())}?mode=ro"
         self._conn: sqlite3.Connection = sqlite3.connect(uri, uri=True)
         self._conn.row_factory = sqlite3.Row
+        # Database's inherited read helpers serialize on the lock and log
+        # against db_path; __init__ deliberately skips Database._connect/
+        # _migrate — the read-only contract (no writes, no migration).
+        self._lock = threading.RLock()
+        self.db_path = path
 
     def one(self, sql: str, params=()):
         row = self._conn.execute(sql, params).fetchone()
@@ -412,7 +424,7 @@ def _discovered_variant(survivor: dict, index: int, round_no: int) -> dict:
     }
 
 
-def _best_family(baselines_out: dict, families: dict[str]) -> str | None:
+def _best_family(baselines_out: dict, families: dict[str, object]) -> str | None:
     """The best single feature family by baseline AUROC (the bar), falling
     back to deterministic/whatever exists."""
     best_name, best = None, None

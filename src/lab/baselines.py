@@ -248,7 +248,7 @@ def score_baselines(
         train_idx, test_idx = order[:n_train], order[n_train:]
         split_label = SPLIT_FALLBACK
 
-    results: dict[str, dict] = {}
+    results: dict[str, Any] = {}
     available: dict[str, Any] = {}
     for name, (X, _labels) in families.items():
         if X is None:

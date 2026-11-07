@@ -123,7 +123,7 @@ def run_arm(arm: str, model: str, docs: list[dict], decider, *,
         try:
             raw = llm_implement.call_implementer(
                 llm_implement.build_extraction_messages(spec["doc_id"], spec["text"]),
-                model=model, base_url=bulk_base_url, api_key=api_key,
+                model=model, base_url=bulk_base_url, api_key=api_key or "",
                 timeout_s=timeout_s,
             )
             claims = llm_implement.parse_claims(raw, batch_doc_id=spec["doc_id"])
@@ -162,7 +162,7 @@ def run_arm(arm: str, model: str, docs: list[dict], decider, *,
 
 
 def decide_promotion(decider, promotion_cfg: dict, ledger, run_id: str,
-                     claim, excerpt: str | None):
+                     claim, excerpt: str):
     """The pipeline's G5 call, verbatim shape (intel.py:954-963): judge the
     claim against the excerpt anchored on its VERIFIED quote span."""
     from src.decide.gates import gate_need_promotion

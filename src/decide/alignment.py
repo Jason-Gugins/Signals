@@ -100,7 +100,7 @@ _ALIGNMENT_FIELDS = tuple(_FIELD_NOULS)
 _SNIPPET_CHARS = 400
 
 # The unavailable posture: every failure mode degrades to this shape.
-_UNAVAILABLE = {"outcome": "unavailable", "score": None, "fields": {}}
+_UNAVAILABLE: dict[str, object] = {"outcome": "unavailable", "score": None, "fields": {}}
 
 
 def _mention_state(mention: dict | None) -> dict:

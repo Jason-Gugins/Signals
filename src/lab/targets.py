@@ -173,7 +173,7 @@ def claim_survival(rows: list[dict]) -> tuple[list[dict], dict]:
         if not isinstance(claims, list) or not claims:
             _skip(stats, domain, "skipped_no_claims")
             continue
-        label = _CLAIM_LABEL.get(row.get("outcome"))
+        label = _CLAIM_LABEL.get(row.get("outcome") or "")
         if label is None:
             _skip(stats, domain, "skipped_outcome")
             continue

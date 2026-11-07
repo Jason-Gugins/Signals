@@ -170,7 +170,8 @@ def _variants_section(rd: dict) -> list[str]:
     for res in variants:
         if not isinstance(res, dict):
             continue
-        comp = res.get("components") if isinstance(res.get("components"), dict) else {}
+        comp = res.get("components")
+        comp = comp if isinstance(comp, dict) else {}
         lines.append(
             f"| {res.get('variant_id') or _NA} | {_fmt(res.get('stage'))} "
             f"| {_fmt(res.get('status'))} | {_fmt(res.get('score'))} "
@@ -184,7 +185,8 @@ def _variants_section(rd: dict) -> list[str]:
 def _questions_section(rd: dict) -> list[str]:
     lines = ["### Questions (screening outcomes and importances)", ""]
     screening = rd.get("screening")
-    importances = rd.get("importances") if isinstance(rd.get("importances"), dict) else {}
+    importances = rd.get("importances")
+    importances = importances if isinstance(importances, dict) else {}
     if not isinstance(screening, list) or not screening:
         return lines + [_NA, ""]
     lines += [
@@ -334,7 +336,8 @@ def derive_proposal(round_results) -> dict:
         if not isinstance(rd, dict):
             continue
         results = [r for r in (rd.get("variants") or []) if isinstance(r, dict)]
-        specs = rd.get("variant_specs") if isinstance(rd.get("variant_specs"), dict) else {}
+        specs = rd.get("variant_specs")
+        specs = specs if isinstance(specs, dict) else {}
         stages = {str(r.get("stage")) for r in results if r.get("stage")}
         for stage in sorted(stages):
             stage_results = [r for r in results if r.get("stage") == stage]

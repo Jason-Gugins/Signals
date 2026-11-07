@@ -80,7 +80,7 @@ _backoff_sleep = time.sleep
 _HTTP_BODY_SNIPPET_CHARS = 110
 
 
-def _wire_questions(questions: dict[str, dict] | None) -> dict[str, dict]:
+def _wire_questions(questions: dict[str, dict]) -> dict[str, dict]:
     """Boundary normalization for the POST body's questions.
 
     TypeSafe's schema requires a choice question's ``criteria`` to be an

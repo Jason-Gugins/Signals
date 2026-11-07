@@ -625,8 +625,8 @@ def claims_to_candidates(
     """Build ``SignalCandidate`` objects for the signals table.
 
     ``pairs`` are the ``(claim, meta)`` pairs :func:`screen_and_gate_claims`
-    returns (``meta`` None = the citation gate was disabled — everything
-    defaults). ``proposals`` — optional — is the dict
+    returns (``meta`` is always a dict — ``{}`` when the citation gate was
+    disabled; falsy values normalize to everything-defaults). ``proposals`` — optional — is the dict
     :func:`src.decide.gates.classify_claims` returned for the SAME claim
     list (keyed by claim index): a taxonomy-typing proposal
     (``proposed_type`` or ``proposed_category`` plus ``confidence`` and

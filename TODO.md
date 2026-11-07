@@ -1231,14 +1231,18 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   median 0.24; all 18 human-NEED claims score below 0.60 while 2 of the 6
   human-NOTs score above 0.70. Duty-bearing descriptions score highest
   among NEEDs (0.46-0.59) — the gate sees duty content but not enough;
-  the user's construct counts hiring announcements as NEED (scaling
-  signal). Execute the promo-A/B (plan
-  `.zcode/plans/2026-11-07_013000-promotion-question-redesign.md`,
-  label-refereed verdict, runs on the 24 labeled claims — ~48 decider
-  calls, pennies): rewrite the question to perspective-anchor
-  operational-burden semantics, suppress selling phrasing, count hiring
-  as a scaling signal. THEN re-measure the careers corpus against the
-  winner.
+  Operator revision (same day): the careers-role labels are
+  CONTEXT-DEPENDENT — hiring's value "is largely contextual on the
+  product/service being offered" (a CX Manager hire matters to a helpdesk
+  seller; a Photo Production Assistant does not). Clean referee set:
+  **4 duty-bearing NEEDs + 6 NOTs + 9 context-dependent announcements**
+  (clean-set AUC 0.67, dragged by the two commerce artifacts). Execute
+  the promo-A/B (plan `.zcode/plans/2026-11-07_013000-promotion-question
+  -redesign.md`, label-refereed: duty-NEED lift + artifact suppression +
+  requisitions NOT inflated — ~48 decider calls, pennies). Architecture
+  fork to pick before landing: G5 stays profile-blind (burden measured;
+  ICP fit downstream — recommended default) vs profile-aware promotion
+  question. THEN re-measure the careers corpus against the winner.
 - [x] **Robots override: APPLIED (operator-approved 2026-11-06 session
   sign-off)** — `config/default.yaml` http.robots_allow gained 4
   careers-family prefixes per host for the 7 blanket-disallow domains

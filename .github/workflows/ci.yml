@@ -94,6 +94,12 @@ jobs:
       - name: mypy (type gate)
         run: mypy src
 
+      # Windows-stub pass: the ubuntu gate narrows sys.platform to linux and
+      # never sees win32 branches (run 42398629131 lesson: ctypes.windll).
+      # This lane checks them — together the two passes cover the union.
+      - name: mypy (type gate, windows stubs)
+        run: mypy src --platform win32
+
   nightly-live:
     name: Nightly live suite
     runs-on: ubuntu-latest

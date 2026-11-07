@@ -88,10 +88,10 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[rerank,lab]" mypy==2.4.1
 
-      # Warm-up lane: mirror the ruff lane. Flipped to blocking once the triage
-      # lands (see docs/todo type-gate record).
-      - name: mypy (warn-only warm-up)
-        continue-on-error: true
+      # Blocking since 2026-11-07: baseline triaged to zero (see docs/todo
+      # type-gate record). check_untyped_defs is the next ratchet, deliberately
+      # deferred — finish line documented in pyproject [tool.mypy].
+      - name: mypy (type gate)
         run: mypy src
 
   nightly-live:

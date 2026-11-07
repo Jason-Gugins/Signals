@@ -378,7 +378,7 @@ def _digest_paths(ctx, period, domains, include_tier4=False, include_formd=True)
             # Tier 4 (dormant) = nurture: include in the digest, no plays.
             plays = []
         else:
-            plays = assign_plays(acct, signals, result, tier, taxonomy=orch.taxonomy, plays_cfg=plays_cfg, contacts=contacts)
+            plays = assign_plays(acct, signals, result, tier, taxonomy=orch.taxonomy, plays_cfg=plays_cfg, contacts=contacts, today=today)
         text = build_digest(acct.domain, signals, plays, period=period, taxonomy=orch.taxonomy, since=since, include_formd_unmatched=include_formd)
         paths.append(write_digest(str(Path(digests_dir) / f"{acct.domain}.md"), text))
     return paths

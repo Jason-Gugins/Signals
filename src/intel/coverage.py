@@ -21,18 +21,17 @@ Callers (the intel CLI and the dossier) should share
 
 from __future__ import annotations
 
-from src.pipeline.runner import _missing_field
+from src.pipeline.runner import _missing_field, _ats_vendor_ok
 from src.sources.registry import (
     SOURCES,
     _CAREERS_FALLBACK_KEY,
-    _ats_vendor_ok,
 )
 
 _COUNTERS = ("tasks", "fetched", "cached", "failed", "candidates", "signals_new")
 
 
 def _row(source: str, key: str, status: str, reason: str | None) -> dict:
-    row = {"source": source, "key": key, "status": status, "reason": reason}
+    row: dict = {"source": source, "key": key, "status": status, "reason": reason}
     for counter in _COUNTERS:
         row[counter] = 0
     return row

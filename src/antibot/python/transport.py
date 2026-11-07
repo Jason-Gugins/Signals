@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass, field
+from typing import Any
 
 from src.core.curl_fetcher import CurlCffiFetcher, CurlCffiResponse
 
@@ -96,9 +97,9 @@ class SignalsTransport:
         self.conditional = conditional
         self.cookie_jar = cookie_jar
         self._engine = _engine()
-        self._native = None  # persistent SignalsEngine (pool + session store)
+        self._native: Any = None  # persistent SignalsEngine (pool + session store)
         self._cache = RevalidationCache()
-        self._fallback = None  # lazily constructed CurlCffiFetcher
+        self._fallback: CurlCffiFetcher | None = None  # lazily constructed CurlCffiFetcher
 
     @property
     def engine_available(self) -> bool:

@@ -142,7 +142,7 @@ def detect_ats(html: str, base_url: str) -> list[AtsMatch]:
             for vendor, pats in ATS_PATTERNS.items():
                 for pat in pats:
                     for m in pat.finditer(url):
-                        extra = {}
+                        extra: dict = {}
                         if vendor == "workday" and m.lastindex and m.lastindex >= 3:
                             token, extra = _workday_extra(m)
                         else:

@@ -68,8 +68,8 @@ def match_cik(
         if len(hits) > 1:
             return None
     if account.name:
-        want = normalize_name(account.name)
-        exact = [r for r in index if normalize_name(r["name"]) == want]
+        want_name = normalize_name(account.name)
+        exact = [r for r in index if normalize_name(r["name"]) == want_name]
         if len(exact) == 1:
             return exact[0]["cik"]
         if len(exact) > 1:

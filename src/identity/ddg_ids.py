@@ -131,9 +131,9 @@ def _resolve_href(href: str) -> str | None:
             query = urlsplit(value).query
         except ValueError:
             return value
-        target = (parse_qs(query).get("uddg") or [None])[0]
-        if target:
-            return unquote(target)
+        uddg = parse_qs(query).get("uddg") or []
+        if uddg and uddg[0]:
+            return unquote(uddg[0])
     return value
 
 
@@ -166,7 +166,7 @@ def parse_results(html: str) -> list[dict]:
     for anchor in soup.select("a.result__a"):
         if len(candidates) >= MAX_RESULTS:
             break
-        href = anchor.get("href") or ""
+        href = str(anchor.get("href") or "")
         if _is_ad_href(href):
             continue
         url = _resolve_href(href)

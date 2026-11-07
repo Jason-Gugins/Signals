@@ -84,7 +84,7 @@ def _formd_unmatched_rows(signals: Iterable[Signal]) -> list[str]:
         entity = d.get("entity_name") or s.title or s.domain
         amt = d.get("amount_usd")
         try:
-            amt_f = float(amt)
+            amt_f = float(amt or 0.0)
         except (TypeError, ValueError):
             amt_f = 0.0
         amt_s = _fmt_amount(amt_f) if amt is not None else (d.get("amount_display") or "?")

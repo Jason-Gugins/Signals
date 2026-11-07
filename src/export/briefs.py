@@ -122,11 +122,15 @@ def render_brief(
     if not contacts:
         lines.append(f"| — | — | — | No contact identified — run `signals deepen --domain {account.domain}` | — |")
     else:
-        for play in plays or [None]:
-            pick = best_contact(contacts, play.play_id if play else "growth_pitch", None)
+        # No plays → one None round: still pick a contact on the default pitch.
+        play_rounds: list[PlayAssignment | None] = [*plays] if plays else [None]
+        for play_or_none in play_rounds:
+            pick = best_contact(
+                contacts, play_or_none.play_id if play_or_none else "growth_pitch", None
+            )
             if not pick:
                 continue
-            why = play.play_name if play else "default"
+            why = play_or_none.play_name if play_or_none else "default"
             lines.append(
                 f"| {pick.name or ''} | {pick.title or ''} | {pick.persona or ''} | {why} | {pick.linkedin_url or ''} |"
             )

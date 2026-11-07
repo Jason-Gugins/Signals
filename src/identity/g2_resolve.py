@@ -24,7 +24,7 @@ def parse_g2_search_results(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "lxml")
     results = []
     for link in soup.select("a[href*='/products/']"):
-        href = link.get("href", "")
+        href = str(link.get("href") or "")
         m = re.search(r"/products/([^/]+)", href)
         if not m:
             continue

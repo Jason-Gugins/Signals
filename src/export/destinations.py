@@ -128,7 +128,7 @@ class WebhookDestination:
         try:
             for wh in webhooks:
                 url = wh.get("url") if isinstance(wh, dict) else None
-                if not _validate_webhook_url(url):
+                if not url or not _validate_webhook_url(url):
                     logger.warning(
                         "webhook skipped: invalid URL {!r} (must be http/https with a host)", url
                     )

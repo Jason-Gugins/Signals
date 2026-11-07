@@ -595,7 +595,7 @@ def _deliver_to_webhooks(
     for wh in webhooks:
         url = wh.get("url")
         fmt = wh.get("format", "json")
-        if not _validate_webhook_url(url):
+        if not url or not _validate_webhook_url(url):
             logger.warning("webhook skipped: invalid URL {!r} (must be http/https with a host)", url)
             continue
         signing_secret = _resolve_secret(wh.get("secret_env"))

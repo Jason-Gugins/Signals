@@ -276,9 +276,11 @@ class KnowledgeGraphClient:
         creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         if not creds_path:
             return ""
-        if self._sa_token_fetcher is None:
-            self._sa_token_fetcher = _build_service_account_token_fetcher(creds_path)
-        return str(self._sa_token_fetcher())
+        # A cached fetcher is always a truthy callable, so `or` doubles as
+        # the None check and the fetcher stays callable on both paths.
+        fetcher = self._sa_token_fetcher or _build_service_account_token_fetcher(creds_path)
+        self._sa_token_fetcher = fetcher
+        return str(fetcher())
 
     def _search_ekg(self, term: str) -> dict:
         try:

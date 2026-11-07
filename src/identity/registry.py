@@ -42,7 +42,10 @@ class AccountRegistry:
         if account.ats_token:
             self.add_alias(account.ats_token, "ats_token", domain, source=source)
         self.add_alias(domain, "domain", domain, source=source)
-        return self.get(domain)
+        stored = self.get(domain)
+        # Just upserted under this exact key; the read-back only misses on a
+        # db failure, in which case the in-memory instance is the truth.
+        return stored if stored is not None else account
 
     def get(self, domain: str) -> Optional[Account]:
         key = root_domain(domain) or domain.casefold()

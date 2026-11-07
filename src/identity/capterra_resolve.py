@@ -61,7 +61,7 @@ def parse_capterra_search_results(html: str) -> list[dict]:
         anchor = card.select_one("a[data-testid='thumbnail-link']") or card.select_one("a[href*='/p/']")
         if anchor is None:
             continue
-        href = anchor.get("href", "") or ""
+        href = str(anchor.get("href") or "")
         m = _P_SEGMENT.search(href)
         if not m:
             continue

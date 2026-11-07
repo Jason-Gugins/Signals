@@ -69,7 +69,7 @@ class FeedDiscovery:
                         (r.get("original") for r in rows if r.get("timestamp") == ts),
                         f"https://{account.domain}/",
                     )
-                    snap = fetch(snapshot_url(ts, original))
+                    snap = fetch(snapshot_url(ts, str(original)))
                     if snap and snap.ok and snap.doc and snap.doc.body:
                         html = snap.doc.body.decode("utf-8", "replace")
                         found = discover_feeds(html, f"https://{account.domain}/")

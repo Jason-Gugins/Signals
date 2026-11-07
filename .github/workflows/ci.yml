@@ -72,6 +72,28 @@ jobs:
           mkdir -p /tmp/smoke && cd /tmp/smoke
           python -m src.cli init
 
+  typecheck:
+    name: Type gate (mypy src)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      # Same install as the offline lane so mypy resolves imports exactly as the
+      # tests do. Scope is `src` ONLY — never widen to tests/ (baseline would
+      # balloon 3-5x). ubuntu-only is deliberate: mypy is OS-independent.
+      - name: Install dependencies
+        run: pip install -e ".[rerank,lab]" mypy==2.4.1
+
+      # Warm-up lane: mirror the ruff lane. Flipped to blocking once the triage
+      # lands (see docs/todo type-gate record).
+      - name: mypy (warn-only warm-up)
+        continue-on-error: true
+        run: mypy src
+
   nightly-live:
     name: Nightly live suite
     runs-on: ubuntu-latest

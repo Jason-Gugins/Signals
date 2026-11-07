@@ -65,3 +65,18 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+# Finish line: check_untyped_defs is the LAST ratchet. No strict mode, no disallow-any —
+# scraper glue (BS4 tags, JSON blobs) is Any-shaped on purpose.
+ignore_missing_imports = true
+warn_unused_ignores = true
+files = ["src"]
+# check_untyped_defs = true   # ratchet #2, after this baseline reaches zero
+
+[[tool.mypy.overrides]]
+# bs4 4.x partial typing: Tag.get/attr widths make Tag-glue arg-type/union-attr noise
+# (27 of 29 marketplace errors). Revisit if bs4 ships stricter stubs.
+module = ["src.sources.marketplace.*"]
+disable_error_code = ["arg-type", "union-attr"]

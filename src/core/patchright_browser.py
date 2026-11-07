@@ -14,11 +14,15 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from loguru import logger
 
 from src.core.http import FetchResult
 from src.core.models import Document
+
+if TYPE_CHECKING:
+    from patchright.sync_api import Playwright, Browser, BrowserContext, Page
+    from patchright.sync_api._generated import SetCookieParam
 
 
 class PatchrightBrowserFetcher:
@@ -31,10 +35,10 @@ class PatchrightBrowserFetcher:
     def __init__(self, config, store):
         self.config = config
         self.store = store
-        self._playwright = None
-        self._browser = None
-        self._context = None
-        self._page = None
+        self._playwright: Playwright | None = None
+        self._browser: Browser | None = None
+        self._context: BrowserContext | None = None
+        self._page: Page | None = None
 
     def start(self):
         """Launch Patchright browser."""
@@ -71,7 +75,7 @@ class PatchrightBrowserFetcher:
               capture_html: bool = False, click_show_more: bool = False,
               inject_turnstile_token: str | None = None,
               warmup_url: str | None = None, warmup_ms: int = 3000,
-              cookies: list[dict] | None = None) -> FetchResult:
+              cookies: list[SetCookieParam] | None = None) -> FetchResult:
         """Fetch a URL with optional behavioral warm-up.
 
         If warmup_url is set, navigate there first, scroll, wait warmup_ms,
@@ -80,29 +84,41 @@ class PatchrightBrowserFetcher:
         if not self._page:
             self.start()
 
+        page = self._page
+        context = self._context
+        # start() sets all four fields unconditionally (launch can raise), so
+        # these guards are dead-branch defensive; they return the failure
+        # contract rather than raise.
+        if page is None:
+            return FetchResult(ok=False, status=0, doc=None, cached=False,
+                             error="Browser page unavailable", elapsed_ms=0)
+        if context is None:
+            return FetchResult(ok=False, status=0, doc=None, cached=False,
+                             error="Browser context unavailable", elapsed_ms=0)
+
         # Inject cookies into context if provided
         if cookies:
             try:
-                self._context.add_cookies(cookies)
+                context.add_cookies(cookies)
             except Exception as e:
                 logger.warning("Failed to inject cookies: {}", e)
 
         # Behavioral warm-up: visit homepage, scroll, wait
         if warmup_url:
             try:
-                self._page.goto(warmup_url, wait_until="domcontentloaded")
+                page.goto(warmup_url, wait_until="domcontentloaded")
                 time.sleep(min(warmup_ms / 1000, 2))  # initial dwell
                 # Simulate scroll
-                self._page.mouse.wheel(0, 500)
+                page.mouse.wheel(0, 500)
                 time.sleep(0.5)
-                self._page.mouse.wheel(0, 300)
+                page.mouse.wheel(0, 300)
                 time.sleep(max(warmup_ms / 1000 - 2, 1))  # remaining dwell
             except Exception as e:
                 logger.warning("Warm-up navigation failed: {}", e)
 
         # Navigate to target
         try:
-            self._page.goto(url, wait_until="domcontentloaded")
+            page.goto(url, wait_until="domcontentloaded")
         except Exception as e:
             return FetchResult(ok=False, status=0, doc=None, cached=False,
                              error=f"Navigation failed: {e}", elapsed_ms=0)
@@ -113,7 +129,7 @@ class PatchrightBrowserFetcher:
 
         # Optional scroll on target page
         if scroll:
-            self._page.mouse.wheel(0, 800)
+            page.mouse.wheel(0, 800)
             time.sleep(1)
 
         # Optional Show More clicks
@@ -121,22 +137,22 @@ class PatchrightBrowserFetcher:
             for sel in ["a:has-text('Show More')", "a:has-text('Read More')",
                        "button:has-text('Show More')", "[data-testid='show-more']"]:
                 try:
-                    elements = self._page.query_selector_all(sel)
+                    elements = page.query_selector_all(sel)
                     for el in elements:
                         try:
                             el.click(timeout=2000)
-                            self._page.wait_for_timeout(300)
+                            page.wait_for_timeout(300)
                         except Exception:
                             pass
                 except Exception:
                     pass
 
         # Extract page content
-        html = self._page.content()
+        html = page.content()
         body = html.encode("utf-8")
 
         # Extract cookies from context
-        pw_cookies = self._context.cookies()
+        pw_cookies = context.cookies()
         cookie_list = [{"name": c["name"], "value": c["value"],
                         "domain": c.get("domain", ""), "path": c.get("path", "/"),
                         "expires": c.get("expires", -1)} for c in pw_cookies]

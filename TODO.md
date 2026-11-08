@@ -307,6 +307,64 @@ within-U structure faithfully; the band-vs-statistic tension belongs to
 the calibration chat's verdict review, not this wave. Remaining strict
 bulk: sources + pipeline (graduate on their own rewrite triggers).
 
+## ruff adjudication — DELIVERED (2026-11-08)
+
+**Status: DELIVERED (2026-11-08)** — 8 commits, executed via subagent-driven
+development (autofix agent + three parallel adjudication waves + core-tail
+cleanup; two-stage review on the whole campaign); offline suite green at
+every gate; **lane flipped to blocking.**
+
+- [x] **Pin + provenance** (`6d9b66a`) — CI `pip install ruff` →
+  `ruff==0.17.4` (the lane was UNPINNED since August: findings drifted on
+  every ruff release); effective ruleset captured — ruff 0.17.4's expanded
+  defaults = an enumerated **407-rule select** (rule-level membership, not
+  family-level: S = S102/S110/S112 only, E = E722/E902, …), saved to
+  `.zcode/ruff-select-0.17.4.txt`. `.git-blame-ignore-revs` scaffolded
+  (+ `blame.ignoreRevsFile` set).
+- [x] **Autofix** (`3b4a032`) — `--fix` (safe only): **1,184 fixed
+  (1,032 + 152 cascades) across 338 files**; audit-verified: zero
+  `__init__.py` import loss (29 sources registration imports intact —
+  their F401 noqas were STALE: F401 doesn't fire on submodule imports in a
+  package `__init__`; RUF100's fix stripped the markers), 20-hunk behavior
+  sample 19/20 runtime-identical. **The B010 landmine:** one "safe" fix
+  rewrote the deliberate `setattr(exc, …)` dynamic-attach
+  (runner.py:1791-1806) into direct assignment — runtime-identical but
+  3 new mypy attr-defined errors; reverted byte-identically; mypy gate
+  added to this task. 13 provenance reason texts re-landed as plain
+  comments. Blame-ignore updated (`203e452`).
+- [x] **Adjudication waves** (`41943d8` pipeline+core 170, `90f3410` tests
+  195, `6cf2a70` rest-of-src 218, `1e1b6a9` core-tail + pipeline
+  stragglers 31) — every finding FIXED or JUSTIFIED:
+  - **JUSTIFIED (~360):** the tolerance layer made explicit — per-site
+    `# noqa: BLE001/S110/S112 -- fail-open tolerance: <specific reason>`
+    (scraper parsing fail-opens, doctor-check isolation, durable-loop
+    per-stage isolation, teardown best-effort paths); 10 B023
+    "consumed within the same batch iteration" (audit-resolved:
+    all safe-in-loop, no deferred-capture bugs).
+  - **FIXED (~270):** B017 narrowings that STRENGTHEN tests
+    (`pytest.raises(sqlite3.IntegrityError)`), TRY002 exception classes,
+    dead-code removals (incl. 2 zero-consumer `__init__` re-exports),
+    ClassVar/RUF015/SIM/C408 mechanicals.
+  - Zero bare noqas; zero escape hatches; zero `# type: ignore`.
+- [x] **Flip + explicit ruleset** (`eb77a07`) — `[tool.ruff.lint] select`
+  written from the captured 407 codes (config-driven ≡ CLI,
+  audit-verified byte-identical — the lint contract is now
+  version-stable); lane `continue-on-error` removed.
+- [x] **Bookkeeping** — this entry.
+
+Baseline: 1,636 findings on `src` + `tests` (the warn-only lane had been
+accumulating since August). After: **"All checks passed!" — lane blocking,
+ruleset explicit, version pinned.** Two-stage review verdicts: PASS (both),
+zero blockers/majors; justification audit sampled 35+ sites — every reason
+verified true and site-specific; autofix audit sampled 25+ hunks — all
+runtime-identical. Known MINORs (recorded, not churned): one hand-edit
+(`lambda: {}` → `dict`) rode the autofix commit (runtime-identical,
+provenance nit); two PRE-EXISTING `or True` tautological assertions were
+preserved as-is (predate the campaign); B023/TRY002 site counts drifted
+from briefings (10/2 actual vs 12/3 briefed — all present sites verified).
+Finish line: new findings fail CI; new rules arrive only as deliberate
+select changes; `ruff format` adoption remains deliberately deferred.
+
 ## Antibot engine Linux port — DELIVERED (2026-11-06)
 
 **Status: DELIVERED (2026-11-06)** — 5 commits across 7 tasks (same

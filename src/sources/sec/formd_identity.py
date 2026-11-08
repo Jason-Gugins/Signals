@@ -39,7 +39,7 @@ def attach_form_d_account(fd: FormD, registry, *, cohort: str | None = "formd", 
                 registry.db.execute("DELETE FROM accounts WHERE domain=?", (old,))
                 try:
                     registry.db.execute("UPDATE account_aliases SET domain=? WHERE domain=?", (got.domain, old))
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 -- fail-open tolerance: a failed alias-remap leaves a stale alias (deduped on read); the upsert itself already succeeded
                     pass
             return got
         return registry.upsert(

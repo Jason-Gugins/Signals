@@ -72,7 +72,7 @@ def resolve_visitor(row: dict, *, ptr_lookup=None) -> tuple[str | None, str]:
 def aggregate_intent(rows: list[dict], *, today: date, page_rules: dict) -> list[tuple[str, SignalCandidate]]:
     groups: dict[tuple, list] = {}
     for row in rows:
-        domain, method = resolve_visitor(row)
+        domain, _method = resolve_visitor(row)
         if not domain:
             continue
         url = row.get("page_url") or row.get("page") or ""

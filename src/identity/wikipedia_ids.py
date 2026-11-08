@@ -162,7 +162,7 @@ class WikipediaExtlinksResolver:
         """Name -> {"status", "domain", "candidates"}. Never raises."""
         try:
             return self._discover(name)
-        except Exception as exc:  # network/parse failures never raise
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: discovery is a documented never-raises stage; a network/parse failure degrades to no_match
             logger.warning("wikipedia_ids: discovery failed for {!r}: {}", name, exc)
             return _no_match()
 
@@ -172,7 +172,7 @@ class WikipediaExtlinksResolver:
         for name in names:
             try:
                 out[name] = self.discover(name)
-            except Exception as exc:  # one failing name never kills the pass
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: per-name isolation — one failing name logs and yields no_match, the batch pass continues
                 logger.warning("wikipedia_ids: resolve failed for {!r}: {}", name, exc)
                 out[name] = _no_match()
         return out

@@ -475,6 +475,6 @@ def get_decider(cfg: dict | None = None) -> Decider:
             # A swapped-out decider must not leak its httpx connection pool.
             try:
                 getattr(previous, "close", lambda: None)()
-            except Exception as exc:  # hygiene only; never fail the swap
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: pool cleanup on decider swap is hygiene only; a failed close must never abort the swap
                 logger.debug("decider swap: closing previous instance failed: {}", exc)
         return instance

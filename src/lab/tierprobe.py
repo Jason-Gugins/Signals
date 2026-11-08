@@ -141,7 +141,7 @@ def run_arm(arm: str, model: str, docs: list[dict], decider: Decider, *,
                 run_id=run_id, mode="enforce", screen_cfg=screen_cfg,
                 persist_claims=False,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one doc's failure (rate limit, 402 credits, timeout) must not lose the arm's other rows — skip and continue, counted
             # one doc's failure (rate limit, 402 credits, timeout) must not
             # lose the arm's other rows — skip and continue, counted.
             print(f"  [{arm}] doc {spec['doc_id'][:12]}… failed: "
@@ -359,7 +359,7 @@ def verify_model_id(model: str, api_key: str) -> str | None:
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = _json.loads(resp.read())
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: any transport/HTTP failure becomes the probe's error string — a failed probe is a result, not a crash
         return f"{type(exc).__name__}: {exc}"
     if data.get("error"):
         return str(data["error"])
@@ -382,7 +382,7 @@ def _render_summary(docs: list[dict], domains: list[str],
             f"| {s['ge_floor']} | {s['band_released']} | {s['ge_045']} |")
     lines += ["", f"**VERDICT: {comparison['verdict']}**",
               f"(p90 moved {comparison['moved_p90']}, max moved {comparison['moved_max']})", "",
-              "Decision rule (pre-registered): MODEL-TIER if ge_floor >= 1 or p90 moved >= 0.15; "
-              "PROSE-BOUND if max moved <= 0.10 with zero promotions; else INCONCLUSIVE.",
+              ("Decision rule (pre-registered): MODEL-TIER if ge_floor >= 1 or p90 moved >= 0.15; "
+               "PROSE-BOUND if max moved <= 0.10 with zero promotions; else INCONCLUSIVE."),
               "Both arms fresh (fresh-vs-fresh); recorded claims reference-only.", ""]
     return "\n".join(lines)

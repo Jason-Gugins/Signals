@@ -86,7 +86,6 @@ def score_account(
     icp_max = float(cfg.get("icp", {}).get("max_multiplier", 2.0))
 
     contribs: list[Contribution] = []
-    kept: list[tuple[Signal, Contribution]] = []
 
     # 1. drop
     eligible: list[Signal] = []
@@ -109,7 +108,7 @@ def score_account(
     for sig in eligible:
         by_type.setdefault(sig.signal_type, []).append(sig)
     survivors: list[Signal] = []
-    for typ, group in by_type.items():
+    for group in by_type.values():
         # Rerank-aware cap ordering: ties on observed_at are broken by
         # evidence_data["relevance"] (absent -> 0.0, so ordering is unchanged
         # for pre-rerank signals). Descending + stable.

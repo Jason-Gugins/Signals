@@ -69,7 +69,8 @@ class PatchrightGhost:
         if getattr(browser_cfg, "headless", False):
             try:
                 self._fetcher.config.browser.headless = False
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: frozen/pydantic config rejects in-place mutation; the copy-and-set fallback below IS the recovery
+                copied = copy.copy(self._fetcher.config)
                 copied = copy.copy(self._fetcher.config)
                 copied.browser = copy.copy(browser_cfg)
                 copied.browser.headless = False
@@ -119,7 +120,7 @@ def solve_and_bounce(
 
     try:
         solved = ghost.solve(url)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: ghost browser automation can fail arbitrarily (crash/timeout/CDP); a solve_failed verdict with the tier1 response is the correct degradation
         return BounceResult(via="solve_failed", response=None, clearance_cookies=[])
 
     if not solved.clearance_cookies:

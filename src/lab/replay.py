@@ -236,7 +236,7 @@ def _call(
             decision = decider.decide(state, questions, gate=gate)
         else:
             decision = decider.decide(state, questions)
-    except Exception as exc:  # the belt: nothing escapes past a unit
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: the belt — a raising decider degrades to an ok=False Decision carrying the cause, never escapes the replay unit
         decision = Decision(
             applies=True, ok=False, answers={}, raw_tokens=0, cause=exception_cause(exc)
         )
@@ -895,24 +895,24 @@ def _replay_g4(
         ) -> None:
             meter.rows.append(
                 {
-                    **base,
+                    **base,  # noqa: B023 -- consumed within the same batch iteration
                     "claim_idx": i,
-                    "claim_text": claims[i].text[:400],
+                    "claim_text": claims[i].text[:400],  # noqa: B023 -- consumed within the same batch iteration
                     "answers": answers,
                     "outcome": outcome,
                     "reason": reason,
                     "error": error,
-                    "called": (ask and bool(decision.applies)) if first[0] else False,
-                    "latency_ms": latency_ms if first[0] else 0.0,
-                    "raw_tokens": int(decision.raw_tokens or 0) if first[0] else 0,
-                    "recorded_outcome": claim_outcomes.get(i),
+                    "called": (ask and bool(decision.applies)) if first[0] else False,  # noqa: B023 -- consumed within the same batch iteration
+                    "latency_ms": latency_ms if first[0] else 0.0,  # noqa: B023 -- consumed within the same batch iteration
+                    "raw_tokens": int(decision.raw_tokens or 0) if first[0] else 0,  # noqa: B023 -- consumed within the same batch iteration
+                    "recorded_outcome": claim_outcomes.get(i),  # noqa: B023 -- consumed within the same batch iteration
                 }
             )
             meter.count(
                 outcome == _CLAIM_POSITIVE,
-                claim_outcomes.get(i) == _CLAIM_POSITIVE,
+                claim_outcomes.get(i) == _CLAIM_POSITIVE,  # noqa: B023 -- consumed within the same batch iteration
             )
-            first[0] = False
+            first[0] = False  # noqa: B023 -- consumed within the same batch iteration
 
         if not decision.applies:
             # The gate's not-applicable posture: fail-closed for LLM content —
@@ -1070,9 +1070,7 @@ def _rotation_eligible(row: dict) -> bool:
             and row.get("text")
             and row.get("outcome") in (_DOC_POSITIVE, _DOC_NEGATIVE)
         )
-    if gate == "need_promotion":
-        return True
-    return False
+    return gate == "need_promotion"
 
 
 def _round_robin_by_domain(rows: list[dict]) -> list[dict]:

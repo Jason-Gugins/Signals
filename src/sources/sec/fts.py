@@ -105,10 +105,11 @@ def fts_to_candidates(hits: list[dict], account: Account, *, today: date) -> lis
     out = []
     for hit in hits:
         names = " ".join(hit.get("display_names") or [])
-        if want not in (normalize_name(names) or ""):
-            # also allow any individual display name
-            if not any(want == normalize_name(n) or (normalize_name(n) or "").find(want) >= 0 for n in hit.get("display_names") or []):
-                continue
+        # also allow any individual display name
+        if want not in (normalize_name(names) or "") and not any(
+            want == normalize_name(n) or (normalize_name(n) or "").find(want) >= 0 for n in hit.get("display_names") or []
+        ):
+            continue
         out.append(
             SignalCandidate(
                 signal_type="ma_target",

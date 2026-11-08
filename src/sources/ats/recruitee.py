@@ -19,7 +19,7 @@ def parse_recruitee(body: bytes) -> list[JobPost]:
     for j in jobs:
         loc = j.get("location") or j.get("city")
         loc_s = loc if isinstance(loc, str) else None
-        city, region, country, remote = parse_location(loc_s)
+        city, _region, country, remote = parse_location(loc_s)
         dept = j.get("department")
         if isinstance(dept, dict):
             dept = dept.get("name")

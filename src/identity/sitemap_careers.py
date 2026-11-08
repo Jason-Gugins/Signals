@@ -212,7 +212,7 @@ def fetcher_for(fetcher, domain: str, *, source: str = "careers_discovery") -> F
             # A configuration error would fail every subsequent fetch
             # identically; surface it instead of reporting "no careers page".
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one unreachable careers URL means no page for that probe; the candidate ladder keeps walking
             logger.warning("careers fetch failed for {}: {}", url, exc)
             return None
         if res and res.ok and res.doc and res.doc.body:
@@ -248,7 +248,7 @@ class SitemapCareersFinder:
         lookup.requests += 1
         try:
             return self.fetch_text(url)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a sitemap/robots fetch failure counts as "no page" — the request budget moves to the next candidate
             return None
 
     def find(self, domain: str) -> CareersLookup:

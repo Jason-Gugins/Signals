@@ -196,7 +196,7 @@ def backfill(
         # implementer gets the FULL stored body (unreadable => skipped).
         try:
             full = raw_store.get(doc_id)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: an unreadable raw row degrades to a skipped doc (stats counter), never a crashed backfill
             full = None
         text = _decode_body(getattr(full, "body", None) if full is not None else None)
         if not text.strip():
@@ -216,7 +216,7 @@ def backfill(
                 api_key=api_key,
                 timeout_s=timeout_s,
             )
-        except Exception:  # the seam never raises; a double might — never raise past a doc
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: the seam never raises but a double might — never raise past a doc; the failure is a counted error, not a crash
             stats["errors"] += 1
             continue
         if raw is None:  # failed call: NOT cached, so a later invocation can retry

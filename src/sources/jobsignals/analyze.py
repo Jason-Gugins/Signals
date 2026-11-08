@@ -121,7 +121,7 @@ def _vendor_vocab() -> list[tuple[str, re.Pattern]]:
             display = (spec or {}).get("display")
             if display:
                 names.add(display.casefold())
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 -- fail-open tolerance: the fingerprint-rule vocabulary is best-effort; if it cannot load the supplemental vendor set still applies
         pass  # vocabulary is best-effort; supplemental names still apply
     names -= _EXCLUDED_VENDORS
     vocab = [(n, re.compile(rf"\b{re.escape(n)}\b", re.IGNORECASE)) for n in names]

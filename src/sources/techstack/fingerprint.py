@@ -56,7 +56,7 @@ def extract_network_evidence(body: bytes) -> NetworkEvidence:
         parts = urlsplit(u)
         if parts.scheme in {"data", "blob"}:
             continue
-        if u.startswith("data:") or u.startswith("blob:"):
+        if u.startswith(("data:", "blob:")):
             continue
         if u:
             u = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
@@ -161,7 +161,7 @@ def extract_http_evidence(body: bytes, headers: dict, url: str) -> HttpEvidence:
     p = _Page()
     try:
         p.feed(html)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 -- fail-open tolerance: hostile/unparseable page HTML must not raise; whatever markup parsed so far is still fingerprinted
         pass
     cookies = []
     set_cookie = headers.get("set-cookie") or headers.get("Set-Cookie") or ""

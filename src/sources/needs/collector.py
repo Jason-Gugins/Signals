@@ -73,7 +73,7 @@ def _fetched_at_rank(doc) -> datetime:
     if not raw:
         return _EPOCH_MIN
     try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(raw)
     except ValueError:
         return _EPOCH_MIN
     if parsed.tzinfo is None:
@@ -208,7 +208,7 @@ class NeedsSource(SourceAdapter):
         for doc_id in _first_party_doc_ids(db, account.domain):
             try:
                 doc = raw_store.get(doc_id)
-            except Exception:
+            except Exception:  # noqa: BLE001, S112 -- fail-open tolerance: one unreadable raw row is skipped (never raise); the remaining first-party docs still rank
                 continue  # unreadable body: skip, never raise
             if doc is None:
                 continue

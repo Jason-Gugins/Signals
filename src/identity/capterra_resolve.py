@@ -143,7 +143,7 @@ def resolve_capterra(
         fetcher = _default_fetcher()
     try:
         html = _fetch_html(url, fetcher)
-    except Exception as exc:  # network/anti-bot failure — caller decides
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: network/anti-bot failure degrades to a structured error result; the caller decides what to do
         return ResolveResult(status="error", url=url, candidates=[{"error": str(exc)}])
     if html is None:
         return ResolveResult(status="error", url=url)

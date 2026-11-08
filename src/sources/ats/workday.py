@@ -55,7 +55,7 @@ def parse_workday(body: bytes, *, base: str, today: date) -> list[JobPost]:
         path = j.get("externalPath") or ""
         url = path if path.startswith("http") else (base.rstrip("/") + "/" + path.lstrip("/"))
         loc = j.get("locationsText")
-        city, region, country, remote = parse_location(loc)
+        city, _region, country, remote = parse_location(loc)
         posted, approx = _posted_on(j.get("postedOn"), today)
         extra = {"posted_approx": True} if approx else {}
         out.append(
@@ -79,7 +79,7 @@ def _text_field(info: dict, key: str) -> str | None:
     """Best-effort str field: None for absent, non-str, or blank values."""
     try:
         value = info.get(key)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a non-dict info payload yields None for the field, per the documented never-raises detail parser
         return None
     if not isinstance(value, str) or not value.strip():
         return None
@@ -101,7 +101,7 @@ def parse_workday_detail(body: bytes) -> dict:
     """
     try:
         raw = json.loads(body)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a malformed CXS body returns {} per the documented never-raises contract — one bad posting cannot fail a cycle
         return {}
     if not isinstance(raw, dict):
         return {}
@@ -111,7 +111,7 @@ def parse_workday_detail(body: bytes) -> dict:
     try:
         raw_desc = info.get("jobDescription")
         desc = html_to_text(raw_desc) if isinstance(raw_desc, str) and raw_desc.strip() else None
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: hostile/oversized description HTML degrades to no description instead of failing the posting parse
         desc = None
     return {
         "description": desc or None,

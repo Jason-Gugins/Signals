@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import ClassVar
 
 from src.core.models import Account, Document
 from src.identity.edgar_ids import SUBMISSIONS_URL, pad_cik
@@ -40,7 +41,7 @@ class SecEdgarSource(SourceAdapter):
     # would be fetched, parsed, and silently dropped. 10-Q XBRL mapping is
     # deferred. Amendment forms ("4/A", "SC 13D/A", "SC 13G/A") stay
     # unwatched — amendment noise, so no fetched-then-dropped rows return.
-    WATCH_FORMS = {
+    WATCH_FORMS: ClassVar[set[str]] = {
         "8-K",
         "10-K",
         "S-1",

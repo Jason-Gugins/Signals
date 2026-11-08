@@ -60,8 +60,10 @@ MAX_ALIGN_PAIRS = 10
 # the tuning knob (see module docstring) — do not add numeric thresholds.
 _LINK_STATE_LEVELS = (
     "different company",
-    "closely related, may or may not be the same — a subsidiary, parent, "
-    "similarly-named company, or a product line that could plausibly refer to either",
+    (
+        "closely related, may or may not be the same — a subsidiary, parent, "
+        "similarly-named company, or a product line that could plausibly refer to either"
+    ),
     "one and the same company",
 )
 _OUTCOMES = ("different", "related", "same")
@@ -231,7 +233,7 @@ def align_pair(
     enforce = mode == "enforce"
     try:
         decision, latency_ms = _call(decider, state, _questions(), gate="entity_alignment")
-    except Exception as exc:  # the protocol says never; audit.py catches too
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: deciders never raise per protocol, but a raising one degrades the pair to the unavailable/skip shape instead of poisoning the gate
         logger.warning("entity alignment: decider raised (run={}): {}", run_id, exc)
         ledger.record(
             _row(

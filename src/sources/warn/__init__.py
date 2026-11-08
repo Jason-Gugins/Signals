@@ -3,7 +3,7 @@ from datetime import date
 from pathlib import Path
 from typing import Protocol
 
-from src.core.textutil import parse_count, to_iso_date
+from src.core.textutil import parse_count
 from src.identity.names import name_similarity, normalize_name
 from src.identity.registry import AccountRegistry
 from src.sources.base import SignalCandidate

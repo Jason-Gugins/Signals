@@ -48,7 +48,7 @@ class JobSignalsSource(SourceAdapter):
         if cfg is None:
             try:
                 cfg = load_jobsignals_cfg()
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: an unreadable jobsignals config runs the window with analyze_jobs' built-in defaults
                 cfg = {}
         w = JobsWindow(
             domain=account.domain,

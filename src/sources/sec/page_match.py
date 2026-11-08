@@ -31,9 +31,7 @@ def issuer_matches_page(fd: FormD, hints: PageHints, *, brand: str) -> bool:
         return False
     if not bt <= et:
         return False
-    if brand_n in COMMON and not (extra & blob_tokens):
-        return False
-    return True
+    return not (brand_n in COMMON and not (extra & blob_tokens))
 
 
 def _strong_peel_hit(entity: str, peeled: list[str], brand_n: str) -> bool:

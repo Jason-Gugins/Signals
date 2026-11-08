@@ -75,7 +75,6 @@ def people_to_contacts(rows: list[dict], domain: str) -> list[Contact]:
 
 
 def detect_role_changes(contacts: list[Contact], people_rows: list[dict], champions: dict, *, today: date, max_role_months: int = 6) -> list[SignalCandidate]:
-    by_slug = {c.linkedin_slug: c for c in contacts if c.linkedin_slug}
     out = []
     for r in people_rows:
         slug = r.get("linkedin_slug")

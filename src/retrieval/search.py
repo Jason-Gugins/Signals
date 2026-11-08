@@ -57,7 +57,7 @@ def bm25_search(db, query: str, *, domain: str | None, limit: int = 60):
     params.append(int(limit))
     try:
         rows = db.query(sql, params) or []
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a malformed MATCH query or DB hiccup yields an empty FTS leg rather than crashing the search
         return []
     return [(r["chunk_id"], r["score"]) for r in rows]
 
@@ -199,7 +199,7 @@ def select_stage_docs(
         texts = _chunk_texts(db, top)
         try:
             scores = scorer.score_pairs(ce_query, [(texts.get(cid, ""), "") for cid in top])
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a crashed cross-encoder leg falls back to the RRF shortlist order (None = skip CE)
             scores = None
         if scores:
             ce_scored = True

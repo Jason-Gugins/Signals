@@ -330,7 +330,7 @@ def prescreen(
         }
         try:
             decision, latency_ms = _call(decider, state, _noul_questions())
-        except Exception as exc:  # the belt in never-raise: nothing escapes
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: the belt in never-raise — a crashed prescreen decision becomes a counted failed-decision row, nothing escapes
             logger.warning(
                 "prescreen: decider crashed on candidate {!r}: {}", text, exception_cause(exc)
             )

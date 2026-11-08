@@ -323,7 +323,7 @@ class DdgSerpResolver:
         """
         try:
             return self._discover(name)
-        except Exception as exc:  # network/parse failures never raise
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: discovery is a documented never-raises pass; a failure degrades to a no_match instead of aborting the waterfall
             logger.warning("ddg_ids: discovery failed for {!r}: {}", name, exc)
             return _no_match()
 
@@ -333,7 +333,7 @@ class DdgSerpResolver:
         for name in names:
             try:
                 out[name] = self.discover(name)
-            except Exception as exc:  # one failing name never kills the pass
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: per-name isolation — one failing name logs and yields no_match, the batch pass continues
                 logger.warning("ddg_ids: resolve failed for {!r}: {}", name, exc)
                 out[name] = _no_match()
         return out
@@ -385,7 +385,7 @@ class DdgSerpResolver:
             return _no_match()
         try:
             html, status = self._fetch(build_search_url(term))
-        except Exception as exc:  # network failure — error, not no_match
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a fetch failure surfaces as status "error" (with the detail), never as a raise into the waterfall
             logger.warning("ddg_ids: fetch failed for {!r}: {}", name, exc)
             return _fetch_error(str(exc))
         if html is None:

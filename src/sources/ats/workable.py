@@ -22,7 +22,7 @@ def parse_workable(body: bytes) -> list[JobPost]:
     for j in jobs:
         loc = j.get("location")
         loc_s = loc.get("city") if isinstance(loc, dict) else loc
-        city, region, country, remote = parse_location(loc_s if isinstance(loc_s, str) else None)
+        city, _region, country, remote = parse_location(loc_s if isinstance(loc_s, str) else None)
         description = j.get("description")
         if description:
             description = strip_html(unescape(description))

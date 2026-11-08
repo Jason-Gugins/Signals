@@ -200,7 +200,7 @@ class WikidataDomainResolver:
         """Name -> {"status", "domain", "candidates"}. Never raises."""
         try:
             return self._discover(name)
-        except Exception as exc:  # network/parse failures never raise
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: discovery is a documented never-raises stage; a network/parse failure degrades to no_match
             logger.warning("wikidata_ids: discovery failed for {!r}: {}", name, exc)
             return _no_match()
 
@@ -210,7 +210,7 @@ class WikidataDomainResolver:
         for name in names:
             try:
                 out[name] = self.discover(name)
-            except Exception as exc:  # one failing name never kills the pass
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: per-name isolation — one failing name logs and yields no_match, the batch pass continues
                 logger.warning("wikidata_ids: resolve failed for {!r}: {}", name, exc)
                 out[name] = _no_match()
         return out
@@ -234,7 +234,7 @@ class WikidataDomainResolver:
                 if claims_result.ok and claims_result.doc and claims_result.doc.body:
                     urls = parse_claims(claims_result.doc.body)
                     p856_url = urls[0] if urls else None
-            except Exception as exc:  # one bad entity never kills the pass
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one entity's claims fetch failing only drops that entity's p856_url; the other candidates still enrich
                 logger.warning("wikidata_ids: claims fetch failed for {}: {}", qid, exc)
             enriched.append(
                 {

@@ -73,7 +73,7 @@ def _import_stack() -> SimpleNamespace:
         from sklearn.isotonic import IsotonicRegression  # noqa: F401
 
         isotonic_ok = True
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: optional sklearn submodule absent/broken -> the honest Platt-sigmoid fallback ladder is used
         isotonic_ok = False
 
     return SimpleNamespace(
@@ -101,7 +101,7 @@ def _import_catboost() -> Any | None:
     includes it only where someone installed it by hand)."""
     try:
         from catboost import CatBoostClassifier
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: optional extra absent (not part of signals[lab]) -> the comparison simply omits catboost
         return None
     return CatBoostClassifier
 
@@ -204,7 +204,7 @@ def _calibrate_fold(
             )
             calibrated.fit(X_train, y_train)
             proba = np.asarray(calibrated.predict_proba(X[test_idx])[:, 1], dtype=float)
-        except Exception:
+        except Exception:  # noqa: BLE001, S112 -- fail-open tolerance: isotonic can genuinely fail on tiny/awkward folds -> the ladder falls through to Platt
             continue  # isotonic can genuinely fail on tiny/awkward folds -> Platt
         out["calibration"] = method
         out["brier_calibrated"] = float(stack.brier_score_loss(y[test_idx], proba))
@@ -245,7 +245,7 @@ def _score_fold(
     try:
         model = builder()
         model.fit(X[train_idx], y_train)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a fold-level fit failure is an honest None-with-note, never a crash of the comparison
         out["note"] = f"fit failed: {exc}"
         return out
 
@@ -461,7 +461,7 @@ def stability_check(
     if min_slices_useful <= 1:  # a share of the slices, rounded up (1.0 = all)
         threshold = math.ceil(min_slices_useful * n)
     else:  # an absolute count
-        threshold = int(math.ceil(min_slices_useful))
+        threshold = math.ceil(min_slices_useful)
     threshold = min(threshold, n)
 
     names: set[str] = set()

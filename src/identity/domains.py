@@ -107,10 +107,11 @@ def root_domain(value: str | None) -> str | None:
         parsed = urlparse(candidate)
         host = parsed.netloc or parsed.path.split("/")[0]
     host = host.strip().rstrip(".")
-    if ":" in host and not host.startswith("["):
+    if ":" in host and not host.startswith("[") and (
+        _IPV4.match(host.split(":")[0]) or not _IPV6_HINT.search(host.split(":")[0])
+    ):
         # strip port; keep IPv6 aside
-        if _IPV4.match(host.split(":")[0]) or not _IPV6_HINT.search(host.split(":")[0]):
-            host = host.rsplit(":", 1)[0]
+        host = host.rsplit(":", 1)[0]
     host = host.strip("[]").rstrip(".").casefold()
     if not host:
         return None

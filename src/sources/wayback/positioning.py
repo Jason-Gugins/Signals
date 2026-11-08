@@ -94,7 +94,7 @@ def extract_page_meta(html) -> tuple[str | None, str | None] | None:
     try:
         parser.feed(html)
         parser.close()
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: malformed archived HTML yields no title/description; the positioning diff handles the miss
         return None
     return parser.title, parser.effective_description
 

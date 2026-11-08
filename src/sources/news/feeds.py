@@ -128,7 +128,7 @@ def _unwrap(link: str, summary: str | None) -> str:
 def parse_feed(body: bytes, domain_resolver=None) -> list[NewsItem]:
     try:
         parsed = feedparser.parse(body)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: feedparser rarely raises but hostile bytes must not crash the collector — a broken feed yields no items, others still parse
         return []
     if getattr(parsed, "bozo", False) and not parsed.entries:
         return []

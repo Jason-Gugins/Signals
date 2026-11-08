@@ -204,7 +204,7 @@ def run_xray(
             attempts += 1
             try:
                 _http_status, body = fetch(url)  # status ignored by design
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a transport failure ends the query with status "error" recorded in the ledger, never a crashed run
                 status, error = "error", str(exc)
                 break
             body_bytes = len((body or "").encode("utf-8"))  # per-attempt overwrite — UTF-8 BYTES (str chars undercount non-ASCII; this instrument is compared against recorded byte-size captures)
@@ -307,7 +307,7 @@ def run_xray(
                             source="xray",
                         )
                         n_rows = 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a persistence failure is recorded per-query in the report and the ledger row still lands
                 persist_error = str(exc)
                 report["errors"].append(
                     {"query": query, "reason": f"persistence: {persist_error}"}

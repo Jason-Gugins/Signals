@@ -208,7 +208,7 @@ def _load_cached(cache_dir: Path, doc_id: str) -> np.ndarray | None:
         return None
     try:
         vec = np.load(path)
-    except Exception:  # corrupt/unreadable cache file: a miss, not an error
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: corrupt/unreadable cache file is a cache miss, not an error; the embedding is recomputed
         return None
     if isinstance(vec, np.ndarray) and vec.shape == (DIM,):
         return vec.astype(np.float32)

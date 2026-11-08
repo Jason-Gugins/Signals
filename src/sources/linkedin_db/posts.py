@@ -14,7 +14,6 @@ _DEPT = re.compile(r"\b(sales|engineering|marketing|product)\b", re.IGNORECASE)
 
 
 def posts_to_candidates(rows, domain, contacts, *, today: date) -> list[SignalCandidate]:
-    by_slug = {c.linkedin_slug: c for c in contacts if c.linkedin_slug}
     out = []
     for r in rows:
         text = r.get("text") or ""

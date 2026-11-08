@@ -90,7 +90,7 @@ class OnnxEmbedder:
             self._session = ort.InferenceSession(onnx_path, opts)
             self._tokenizer = tok
             return True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: missing/broken onnx model or tokenizer disables only the vector leg; the FTS leg keeps serving
             logger.warning("embedder model unavailable, vector leg disabled: %s", exc)
             self._session = None
             self._tokenizer = None
@@ -138,7 +138,7 @@ class OnnxEmbedder:
             norms = np.linalg.norm(pooled, axis=1, keepdims=True).clip(min=1e-12)
             pooled = (pooled / norms).astype("float32")
             return [row.tolist() for row in pooled]
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a failed inference batch returns None (leg unavailable); callers keep the FTS leg's results
             logger.warning("embed() failed: %s", exc)
             return None
 

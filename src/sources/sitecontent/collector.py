@@ -166,7 +166,7 @@ def _shared_context():
             cfg = Config.load()
             db = Database(cfg.storage.db_path)
             _SHARED = (db, RawStore(db, cfg.storage.raw_dir))
-        except Exception as exc:  # pragma: no cover — misconfigured host
+        except Exception as exc:  # pragma: no cover — misconfigured host  # noqa: BLE001 -- fail-open tolerance: no store means the source plans nothing, the rest of the cycle is unaffected
             logger.warning("sitecontent: store unavailable, planning nothing: {}", exc)
             return None
     return _SHARED
@@ -193,7 +193,7 @@ def _select_sitemap_text(db, store, domain: str) -> str | None:
     for row in rows[:_SNIFF_LIMIT]:
         try:
             doc = store.get(row.get("doc_id"))
-        except Exception:
+        except Exception:  # noqa: BLE001, S112 -- fail-open tolerance: one unreadable stored doc is skipped; the next sitemap candidate is still sniffed
             continue  # unreadable body: try the next candidate, never raise
         if doc is None:
             continue
@@ -253,9 +253,8 @@ class SiteContentSource(SourceAdapter):
         # unknown/stale cursor (the sitemap changed) restarts from the head.
         start = 0
         marker = str(cursor or "").strip()
-        if marker:
-            if marker in locs:
-                start = (locs.index(marker) + 1) % len(locs)
+        if marker and marker in locs:
+            start = (locs.index(marker) + 1) % len(locs)
         cap = max(0, int(cfg["max_fetches_per_cycle"]))
         out: list[FetchTask] = []
         for i in range(len(locs)):

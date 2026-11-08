@@ -39,7 +39,7 @@ def extract_token(link: str) -> str | None:
         parts = [p for p in parsed.path.split("/") if p]
         if len(parts) >= 2 and parts[-2] in ("articles", "read"):
             return parts[-1]
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a malformed Google News link yields no token; the other feed items still decode
         return None
     return None
 
@@ -47,7 +47,7 @@ def extract_token(link: str) -> str | None:
 def _get_html(fetcher, url: str) -> bytes | None:
     try:
         result = fetcher.get(FetchTask(source="google_news", url=url, domain="news.google.com"))
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a failed params-page fetch means this token cannot be decoded this cycle; collection continues
         return None
     if not result.ok or result.status != 200 or result.doc is None:
         return None
@@ -63,7 +63,7 @@ def _attrs_from_params_html(body: bytes) -> dict[str, str] | None:
         if not nodes:
             return None
         return dict(nodes[0].attrib)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a Google page-shape change (or hostile body) yields no attrs; the decode ladder handles the miss
         return None
 
 
@@ -83,8 +83,10 @@ def fetch_decoding_params(fetcher, token: str) -> tuple[str, str] | None:
 def _f_req(token: str, timestamp: str, signature: str) -> str:
     payload = [
         "Fbv4je",
-        f'["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",null,1,null,null,null,null,null,0,1],'
-        f'"X","X",1,[1,1,1],1,1,null,0,0,null,0],"{token}",{timestamp},"{signature}"]',
+        (
+            f'["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",null,1,null,null,null,null,null,0,1],'
+            f'"X","X",1,[1,1,1],1,1,null,0,0,null,0],"{token}",{timestamp},"{signature}"]'
+        ),
     ]
     return f"f.req={quote(json.dumps([[payload]]))}"
 
@@ -94,7 +96,7 @@ def _decoded_from_batchexecute(body: bytes) -> str | None:
         text = body.decode("utf-8", errors="replace")
         parsed = json.loads(text.split("\n\n")[1])[:-2]
         return json.loads(parsed[0][2])[1] or None
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: an unexpected batchexecute envelope (Google shape drift) degrades to None, never a crash
         return None
 
 
@@ -110,7 +112,7 @@ def post_decode(fetcher, signature: str, timestamp: str, token: str) -> str | No
     )
     try:
         result = fetcher.get(task)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a failed decode POST degrades to None for this token; the collector keeps processing the feed
         return None
     if not result.ok or result.status != 200 or result.doc is None:
         return None

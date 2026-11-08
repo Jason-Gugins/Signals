@@ -251,7 +251,7 @@ class KnowledgeGraphClient:
         """Name -> {"backend", "status", "entities", "error"}. Never raises."""
         try:
             return self._search(name)
-        except Exception as exc:  # token/HTTP/parse failures never raise
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: token/HTTP/parse failures degrade to a structured error result; the search entry point never raises
             return self._error(f"{type(exc).__name__}: {exc}")
 
     def _search(self, name: str) -> dict:

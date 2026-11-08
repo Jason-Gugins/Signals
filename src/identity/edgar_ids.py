@@ -131,7 +131,7 @@ class EdgarIdentityResolver:
                 self._index = parse_company_tickers(result.doc.body)
                 self._fetched_at = datetime.now(UTC)
                 return len(self._index)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: an unreachable tickers index degrades to an empty CIK index after one retry, not a raise
                 if attempt == 2:
                     logger.warning(
                         "edgar_ids: tickers index fetch failed after retry: {}", exc
@@ -156,7 +156,7 @@ class EdgarIdentityResolver:
                 if cik:
                     acct.cik = cik
                     self.registry.upsert(acct, source="sec_edgar")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: per-account isolation — one malformed row / failed registry write logs and yields None, the CIK pass continues
                 # Per-account isolation: one malformed row / failed write must
                 # not kill the CIK pass for the rest of the cohort.
                 logger.warning(

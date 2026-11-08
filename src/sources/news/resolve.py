@@ -34,7 +34,7 @@ def _is_google_news(host: str) -> bool:
 def _host(url: str) -> str | None:
     try:
         return urlparse(url).hostname
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a pathological URL yields no host; the item resolves offline or is skipped, never a crash
         return None
 
 
@@ -77,7 +77,7 @@ def _offline_domain(link: str, summary: str | None) -> str | None:
                         cand_host = _host(m.group(0))
                         if cand_host and not _is_google_news(cand_host.casefold()):
                             domain = cand_host
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: pathological link/summary text yields no offline domain; the network tiers still run
         domain = None
     if domain:
         domain = domain.casefold()
@@ -92,7 +92,7 @@ def _resolve_publisher_domain_uncached(link: str, summary: str | None) -> str | 
         try:
             if "/articles/" in urlparse(link).path:
                 domain = _resolve_google_news_token(link)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a pathological token link degrades to no domain; the rest of the feed still resolves
             domain = None
     if domain:
         domain = domain.casefold()
@@ -162,8 +162,8 @@ class DomainResolver:
                     {"token": token, "domain": domain, "resolved_at": self._now},
                     pk=("token",),
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001, S110 -- fail-open tolerance: the resolution cache write is best-effort; a failed write only risks a re-resolve, attribution is still returned
                 pass  # cache write is best-effort; attribution still returned
             return domain
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a failed live resolution degrades to no domain for this token; the rest of the feed still resolves
             return None

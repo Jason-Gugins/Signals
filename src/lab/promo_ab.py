@@ -285,8 +285,8 @@ def probe_main(argv: list[str] | None = None) -> int:
         lines.append(f"| {vid} | {duty_mean:.2f} | {promo_max:.2f} | {ctx_max:.2f} "
                      f"| {guard_max:.2f} | {U}/24 (cross-regime {by_variant_u[vid][1]}/24) "
                      f"| {v['verdict']} |")
-    lines += ["", "Permutation p-table (exact, C(10,4)=210): U=20: 0.057, "
-              "U=21: 0.033, U=22: 0.019, U=24: 0.0048. Ties = losses.", ""]
+    lines += ["", ("Permutation p-table (exact, C(10,4)=210): U=20: 0.057, "
+                   "U=21: 0.033, U=22: 0.019, U=24: 0.0048. Ties = losses."), ""]
     summary_path = out_dir / "summary.md"
     summary_path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     print(f"\nVERDICTS: V1 = {verdicts['V1']['verdict']}")

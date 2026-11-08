@@ -134,7 +134,7 @@ def parse_rss_titles(xml_bytes: bytes) -> list[dict]:
     """
     try:
         root = ET.fromstring(xml_bytes)
-    except Exception:  # ParseError and exotic encoding decls -> no results
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: malformed RSS XML (ParseError, exotic encoding decls) yields no titles, never raises
         return []
     out: list[dict] = []
     for elem in root.iter():
@@ -163,7 +163,7 @@ def parse_hn_hits(json_bytes: bytes) -> list[dict]:
     """
     try:
         raw = json.loads(json_bytes)
-    except Exception:  # JSONDecodeError and non-UTF payloads -> no results
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: malformed HN JSON (bad UTF-8, non-dict payload) yields no titles, never raises
         return []
     hits = raw.get("hits") if isinstance(raw, dict) else None
     out: list[dict] = []
@@ -363,7 +363,7 @@ class CompetitorNewsPass:
         """
         try:
             return self._discover(name)
-        except Exception as exc:  # network/parse failures never raise
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: mining is a documented never-raises pass; a failure degrades to a no_match result carrying the error detail
             logger.warning("competitor_news: mining failed for {!r}: {}", name, exc)
             return _no_match(name, {"pass": str(exc)})
 
@@ -388,7 +388,7 @@ class CompetitorNewsPass:
         for key, url, parser, source in sources:
             try:
                 items = self._fetch_items(url, parser)
-            except Exception as exc:  # one failing source never kills the pass
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one failing source (of three) is recorded in errors and the remaining sources still mine
                 logger.warning("competitor_news: {} fetch failed for {!r}: {}", key, name, exc)
                 errors[key] = str(exc)
                 continue

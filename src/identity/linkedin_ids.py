@@ -105,6 +105,7 @@ class LinkedinSlugResolver:
                 timeout=self.timeout,
                 capture_output=True,
                 text=True,
+                check=False,  # returncode inspected below (logged, not raised)
             )
             log_path.write_text((proc.stdout or "") + (proc.stderr or ""), encoding="utf-8")
             if proc.returncode != 0:
@@ -121,7 +122,7 @@ class LinkedinSlugResolver:
                 self.timeout,
             )
             return False
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a crashed scraper subprocess (crash/IO/sqlite) logs and reports discover=False; the operator runs the login manually
             logger.warning(
                 "linkedin discover failed: {} — run the scraper's login manually", exc
             )
@@ -142,7 +143,7 @@ class LinkedinSlugResolver:
                 row = conn.execute(COMPANIES_QUERY, (account.domain,)).fetchone()
             finally:
                 conn.close()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a locked/corrupt scraper DB degrades to no slug for this account; the operator hint is logged
             logger.warning(
                 "linkedin slug lookup failed for {}: {} — run the scraper's login manually",
                 account.domain,

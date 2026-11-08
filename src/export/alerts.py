@@ -201,7 +201,7 @@ def _mark_delivered(key: tuple, *, path: str | Path | None = None, window_h: flo
     _DELIVERED[key] = time.time()
     try:
         _save_dedupe(path, window_h=window_h)
-    except Exception as exc:  # persistence must never break delivery
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: dedupe persistence failure only risks a re-delivery; delivery must never break because persistence did
         logger.warning("alert dedupe persistence failed: {}", exc)
 
 
@@ -406,7 +406,7 @@ def post_webhook(
                             _mark_delivered((url,) + key, path=dedupe_path, window_h=dedupe_window_h)
                             logger.info("webhook delivered: {} (attempt {})", key, attempt)
                             break
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a webhook attempt can fail arbitrarily (transport/encode); logged and retried with backoff, then a final error log
                         logger.warning("webhook {} attempt {} failed: {}", url, attempt, exc)
                     if attempt < WEBHOOK_ATTEMPTS:
                         delay = WEBHOOK_BASE_DELAY_S * (2 ** (attempt - 1))
@@ -482,7 +482,7 @@ def post_json_webhook(
                             _mark_delivered((url,) + key, path=dedupe_path, window_h=dedupe_window_h)
                             logger.info("webhook delivered: {} (attempt {})", key, attempt)
                             break
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a webhook attempt can fail arbitrarily (transport/encode); logged and retried with backoff, then a final error log
                         logger.warning("webhook {} attempt {} failed: {}", url, attempt, exc)
                     if attempt < WEBHOOK_ATTEMPTS:
                         delay = WEBHOOK_BASE_DELAY_S * (2 ** (attempt - 1))

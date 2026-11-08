@@ -139,14 +139,14 @@ def sample_consistency(
         call_state = _stamped_state(state, uid_key, uid)
         try:
             decision = decider.decide(call_state, questions)
-        except Exception:  # impossible per the protocol; never propagate
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a protocol-violating decider raise degrades to a NaN sample per question instead of propagating
             decision = None
         if decision is None or not getattr(decision, "ok", False):
             # Unusable call: a NaN sample (and a parse failure) per question.
             parse_failures += len(questions)
-            for qid in questions:
+            for qid, qspec in questions.items():
                 values[qid].append(math.nan)
-                if questions[qid].get("type") == "choice":
+                if qspec.get("type") == "choice":
                     labels[qid].append(None)
             continue
         answers = getattr(decision, "answers", None) or {}

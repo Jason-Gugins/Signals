@@ -80,8 +80,8 @@ def _run_selfcheck_g2(fetcher, *, slug: str) -> SelfcheckResult:
         markup_hints=[b"elv-stars", b"-review-"],
         detect_challenge=lambda status, body: is_datadome_challenge(
             status=status, body=body),
-        fetch_kwargs=dict(wait_ms=4000, scroll=True,
-                          warmup_url="https://www.g2.com/", warmup_ms=4000),
+        fetch_kwargs={"wait_ms": 4000, "scroll": True,
+                      "warmup_url": "https://www.g2.com/", "warmup_ms": 4000},
         drift_detail="review markup present but parser extracted 0 — selectors stale",
     )
 

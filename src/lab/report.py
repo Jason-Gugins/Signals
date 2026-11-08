@@ -226,9 +226,12 @@ def _models_section(rd: dict) -> list[str]:
         return f"{mean:.3f}±{_fmt(std)}".replace("±n/a", "")
 
     lines += [
-        f"split: {_fmt(out.get('split'))} | n: {_fmt(out.get('n'), 0)} "
-        f"| features: {_fmt(out.get('n_features'), 0)} "
-        f"| positive rate: {_fmt(out.get('positive_rate'))}", "",
+        (
+            f"split: {_fmt(out.get('split'))} | n: {_fmt(out.get('n'), 0)} "
+            f"| features: {_fmt(out.get('n_features'), 0)} "
+            f"| positive rate: {_fmt(out.get('positive_rate'))}"
+        ),
+        "",
         "| model | AUROC (mean±std) | PR-AUC (mean±std) | folds scored | note |",
         "|---|---|---|---|---|",
     ]

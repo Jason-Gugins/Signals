@@ -79,7 +79,7 @@ def _record(
             account.icp_reasons = result.reasons
             account.disqualified = result.disqualified
             account.disqualify_reason = result.disqualify_reason
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a malformed ICP rule set degrades to no icp_fit write for this account; the seed itself still lands
             logger.warning("seed icp evaluation failed for %s: %s", account.domain, exc)
     elif existing is not None:
         # Re-seed without rules: Account defaults would write icp_fit=1.0

@@ -20,7 +20,7 @@ def load_ats_workday_cfg() -> dict:
     path = Path(__file__).resolve().parents[3] / "config" / "sources.yaml"
     try:
         table = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a missing/unreadable/unparseable sources.yaml falls back to the default cap so a bad file cannot abort a fetch cycle
         return {"detail_follow_max": 10}
     if not isinstance(table, dict):
         return {"detail_follow_max": 10}

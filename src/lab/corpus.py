@@ -179,7 +179,7 @@ class _DocIndex:
             did = str(getattr(meta, "doc_id", "") or "")
             try:
                 full = self._rs.get(did)
-            except Exception:
+            except Exception:  # noqa: BLE001, S112 -- fail-open tolerance: one unreadable raw row is skipped; the rest of the domain corpus still builds
                 continue
             body = getattr(full, "body", None) if full is not None else None
             if body is None:

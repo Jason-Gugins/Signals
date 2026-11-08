@@ -38,7 +38,7 @@ def validate_combo_coverage() -> list[str]:
     """
     try:
         scoring = Config.load().load_yaml("scoring")
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: an unreadable scoring.yaml yields an empty combo-drift report rather than crashing the plays pass
         return []
     combo_defs = scoring.get("combos") or []
     universe = {str(spec.get("id")) for spec in combo_defs if spec.get("id")}
@@ -162,7 +162,7 @@ def assign_plays(
     suppressed = set(gate_cfg.get("suppress_plays") or ["growth_pitch"])
     try:
         weights = (Config.load().load_yaml("health") or {}).get("weights") or None
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: an unreadable health.yaml falls back to health_score's built-in default weights
         weights = None
     health, _reasons = health_score(signals, weights=weights)
     gated = health < threshold
@@ -189,7 +189,7 @@ def assign_plays(
     for c in valued:
         try:
             play_id = taxonomy.get(c.signal_type).play
-        except Exception:
+        except Exception:  # noqa: BLE001, S112 -- fail-open tolerance: a contribution whose signal type is missing from the taxonomy is skipped; the remaining contributions still get plays
             continue
         add(play_id, by_id.get(c.signal_id), 0)
 

@@ -139,7 +139,7 @@ class MarketplaceG2Source(SourceAdapter):
             p = Path(self._session_cookie_file)
             if p.exists():
                 return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 -- fail-open tolerance: an unreadable/corrupt session-cookie cache means an unauthenticated fetch this cycle, not a crashed collector
             pass
         return []
 
@@ -279,7 +279,7 @@ class MarketplaceCapterraSource(SourceAdapter):
             p = Path(self._session_cookie_file)
             if p.exists():
                 return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 -- fail-open tolerance: an unreadable/corrupt session-cookie cache means an unauthenticated fetch this cycle, not a crashed collector
             pass
         return []
 
@@ -413,7 +413,7 @@ class MarketplaceTrustRadiusSource(SourceAdapter):
             p = Path(self._session_cookie_file)
             if p.exists():
                 return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 -- fail-open tolerance: an unreadable/corrupt session-cookie cache means an unauthenticated fetch this cycle, not a crashed collector
             pass
         return []
 

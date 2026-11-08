@@ -81,7 +81,7 @@ class FeedDiscovery:
                             if self.registry:
                                 self.registry.upsert(account, source="feed_discovery")
                             return found[0]
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: the archived-hint path is a bonus probe — its failure just means no feed hint, the live fetch path still runs
                 from loguru import logger
 
                 logger.warning("wayback feed hint failed for {}: {}", account.domain, exc)

@@ -35,7 +35,7 @@ class LinkedinDbSource(SourceAdapter):
             return []
         try:
             conn = _open_ro(path)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a locked/corrupt scraper DB yields no candidates for this account; the account is retried next cycle
             return []
         try:
             slug = account.linkedin_slug
@@ -45,15 +45,15 @@ class LinkedinDbSource(SourceAdapter):
             if slug:
                 try:
                     people = [dict(r) for r in conn.execute("SELECT * FROM people WHERE company_slug=?", (slug,)).fetchall()]
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: one missing/corrupt table empties just that leg; the other tables still collect
                     people = []
                 try:
                     jobs = [dict(r) for r in conn.execute("SELECT * FROM jobs WHERE company_slug=?", (slug,)).fetchall()]
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: one missing/corrupt table empties just that leg; the other tables still collect
                     jobs = []
                 try:
                     posts = [dict(r) for r in conn.execute("SELECT * FROM posts WHERE author_slug=?", (slug,)).fetchall()]
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: one missing/corrupt table empties just that leg; the other tables still collect
                     posts = []
         finally:
             conn.close()
@@ -117,13 +117,14 @@ def request_linkedin_deepen(config: Config, slug: str, **kw):
             timeout=kw.get("timeout", 900),
             capture_output=True,
             text=True,
+            check=False,  # returncode inspected below (logged, not raised)
         )
         log.write_text((proc.stdout or "") + (proc.stderr or ""), encoding="utf-8")
         if proc.returncode != 0:
             from loguru import logger
             logger.warning("linkedin deepen exited {} for {} — see {}", proc.returncode, slug, log)
         return proc
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a failed deepen subprocess (crash/IO) logs the slug and returns None; the caller keeps the rest of the pass
         from loguru import logger
         logger.warning("linkedin deepen failed for {}: {}", slug, exc)
         return None

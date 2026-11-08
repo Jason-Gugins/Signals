@@ -35,7 +35,7 @@ def probe_dns(domain: str, *, resolver=None, subdomains=("www", "info", "mail", 
             import dns.resolver
             resolver = dns.resolver.Resolver()
             resolver.lifetime = 3
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: no dnspython means the probe is unavailable — an empty evidence snapshot, not a crash
             from loguru import logger
 
             logger.debug("dnspython unavailable; DNS probe skipped for remaining collects")
@@ -44,7 +44,7 @@ def probe_dns(domain: str, *, resolver=None, subdomains=("www", "info", "mail", 
     def _q(name, rtype):
         try:
             return resolver.resolve(name, rtype)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: one failed DNS query (NXDOMAIN/timeout) contributes nothing; the other record types still probe
             return []
 
     for ans in _q(domain, "MX"):
@@ -77,11 +77,11 @@ def statuspage_target(domain: str, *, resolver=None) -> str | None:
 
             resolver = dns.resolver.Resolver()
             resolver.lifetime = 3
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: no dnspython means no statuspage target; planning proceeds without the status-page probe
             return None
     try:
         answers = resolver.resolve(f"status.{domain}", "CNAME")
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: NXDOMAIN/timeout on the status CNAME returns None per the documented plan-gate fail-open contract
         return None
     for ans in answers:
         target = str(ans).rstrip(".").lower()

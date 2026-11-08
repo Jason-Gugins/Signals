@@ -109,7 +109,7 @@ def assign_tier(
         spec = None
         try:
             spec = taxonomy.get(s.signal_type)
-        except Exception:
+        except Exception:  # noqa: BLE001, S112 -- fail-open tolerance: a signal type missing from the taxonomy is skipped for tiering; the remaining signals still tier
             continue
         ages.append((s, a, spec, known))
 

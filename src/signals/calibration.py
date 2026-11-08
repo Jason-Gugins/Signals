@@ -50,7 +50,7 @@ def load_stats(db: Database) -> dict:
         rows = db.query(
             "SELECT source, signal_type, samples, hits FROM calibration"
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a missing/unreadable calibration table is the documented zero-regression baseline, not an error
         return {}
     return {
         (r["source"], r["signal_type"]): {"samples": r["samples"], "hits": r["hits"]}

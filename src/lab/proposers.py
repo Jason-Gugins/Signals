@@ -148,7 +148,7 @@ def build_brief_messages(
     raises.
     """
     brief = brief if isinstance(brief, dict) else {}
-    system = "\n".join(
+    system = "\n".join(  # noqa: FLY002 -- list-of-lines keeps each instruction line legible; an f-string would bury the prompt structure
         [
             "You are a PROPOSER in an autoresearch loop that tunes a decide layer's gate questions.",
             "Candidate questions are screened cheaply, A/B-tested on recorded gate decisions,",
@@ -303,7 +303,7 @@ def propose_batch(
         return _propose_batch(
             decide_cfg, brief, api_key=api_key, budget_usd=budget_usd, failure=failure
         )
-    except Exception as exc:  # the belt in never-raise: nothing escapes
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: the belt in never-raise — a crashed proposal round degrades to zero candidates plus the failure["reason"] channel
         logger.error("propose_batch crashed (never-raise): {}: {}", type(exc).__name__, exc)
         if failure is not None:
             failure["reason"] = "crashed"

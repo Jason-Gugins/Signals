@@ -93,7 +93,7 @@ def parse_funding_amount(text: str) -> int | None:
     num = float(m.group(1).replace(",", ""))
     unit = m.group(2).lower()
     mult = 1_000_000_000 if unit == "billion" or unit == "b" else 1_000_000
-    return int(round(num * mult))
+    return round(num * mult)
 
 
 def extract_role_bucket(text: str) -> tuple[str, str] | None:
@@ -277,12 +277,10 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> SignalCan
         in_summary = bool(want and want in summary_n)
         in_text = in_title or in_summary or (want and want in blob_n and want in headline_n)
         # Gong Cha vs Gong: require token-ish presence of normalized name as whole-ish
-        if want:
-            # reject if name only as prefix of a longer different token (gong vs gong cha)
-            if re.search(rf"\b{re.escape(want)}\s+cha\b", blob_n):
-                if want == "gong":
-                    in_text = False
-                    in_title = False
+        # reject if name only as prefix of a longer different token (gong vs gong cha)
+        if want and re.search(rf"\b{re.escape(want)}\s+cha\b", blob_n) and want == "gong":
+            in_text = False
+            in_title = False
         if not in_text:
             return None
         # For common-word company names (e.g. "Levitate"), require proper-noun

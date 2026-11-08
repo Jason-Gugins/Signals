@@ -129,7 +129,7 @@ def detect_ats(html: str, base_url: str) -> list[AtsMatch]:
     collector = _LinkCollector()
     try:
         collector.feed(html)
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 -- fail-open tolerance: hostile careers-page HTML must not raise; whatever links parsed so far are still probed
         pass
     buckets = [
         (collector.strong, 0.95),
@@ -306,7 +306,7 @@ def _board_payload_ok(vendor: str, body: str) -> bool:
     """
     try:
         data = json.loads(body)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: an unparseable verify payload is a documented MISS for every vendor, not an error
         return False
     if vendor == "smartrecruiters":
         return isinstance(data, dict) and int(data.get("totalFound") or 0) > 0
@@ -339,7 +339,7 @@ def verify_board_candidates(fetch_text, candidates: list[tuple[str, str]]) -> At
         used += 1
         try:
             body = fetch_text(url)
-        except Exception:
+        except Exception:  # noqa: BLE001, S112 -- fail-open tolerance: a dead verify endpoint is a MISS for that vendor; the candidate ladder moves to the next one
             continue
         try:
             # The payload predicate runs OUTSIDE the fetch try, so a hostile
@@ -623,7 +623,7 @@ def _first_careers_link(html: str, base: str) -> str | None:
     collector = _LinkCollector()
     try:
         collector.feed(html)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: hostile homepage HTML must not raise; discovery falls back to the candidate ladder
         return None
     for href in collector.strong:
         if _CAREER_HREF.search(urlparse(href).path or href):
@@ -646,7 +646,7 @@ def listing_hub_link(html: str, base_url: str) -> str | None:
     collector = _LinkCollector()
     try:
         collector.feed(html)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: hostile careers-page HTML must not raise; the hub link is simply not found
         return None
     for href in collector.strong:
         if href.startswith(("#", "mailto:", "javascript:")):

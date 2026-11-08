@@ -212,7 +212,7 @@ def index_domain(
             _mark_state(db, doc_id, domain, model, "indexed")
             stats["docs_indexed"] += 1
             stats["chunks"] += len(chunks)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: per-doc indexing failure is logged and counted; the multi-doc run continues (partial rows cleaned up below)
             logger.exception("index: doc {} failed", doc_id)
             # The run may have committed PARTIAL chunk rows before the
             # failure (inserts commit per statement) — without cleanup the
@@ -222,7 +222,7 @@ def index_domain(
             # it cleanly. Best-effort: cleanup never raises past the doc.
             try:
                 _delete_doc_chunks(db, doc_id, model)
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: best-effort cleanup of partial rows; a failed cleanup only means the doc retries on the next run
                 logger.warning(
                     "index: post-failure cleanup incomplete for doc {}", doc_id
                 )

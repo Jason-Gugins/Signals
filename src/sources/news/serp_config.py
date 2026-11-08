@@ -56,5 +56,5 @@ def load_company_feed_cfg() -> dict:
         table = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         entry = (table.get("sources") or {}).get("company_feed") or {}
         return {"article_follow_max": int(entry.get("article_follow_max", 5) or 0)}
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a missing/garbled sources.yaml degrades to the default follow cap because the caller runs inside the collect loop
         return {"article_follow_max": 5}

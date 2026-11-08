@@ -108,7 +108,7 @@ class SignalStore:
         def weight(sig: Signal) -> float:
             try:
                 return self.taxonomy.get(sig.signal_type).weight
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: a signal type missing from the taxonomy sorts with neutral weight 0.0 instead of crashing the query
                 return 0.0
 
         signals.sort(key=lambda s: (s.observed_at, weight(s)), reverse=True)

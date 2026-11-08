@@ -50,7 +50,7 @@ def load_sitecontent_cfg() -> dict:
     try:
         table = yaml.safe_load(Path(SOURCES_YAML_PATH).read_text(encoding="utf-8")) or {}
         entry = (table.get("sources") or {}).get("sitecontent") or {}
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a missing/garbled sources.yaml degrades to the built-in fetch/pattern defaults because the caller runs inside the collect loop
         return out
     patterns = entry.get("content_patterns")
     if isinstance(patterns, list) and patterns:

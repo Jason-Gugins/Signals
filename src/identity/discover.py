@@ -80,7 +80,7 @@ def _safe_stage(stage: str, name: str, run: Callable[[], dict]) -> dict:
     """One stage, isolated: an exception is recorded, never aborts the waterfall."""
     try:
         return run()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a stage exception is recorded in the result and never aborts the multi-stage waterfall
         logger.warning("discover: {} stage failed for {!r}: {}", stage, name, exc)
         return {"status": "error", "domain": None, "candidates": [], "error": str(exc)}
 

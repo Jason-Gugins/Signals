@@ -53,7 +53,7 @@ def _rerank_cfg(task_meta: dict):
         try:
             from src.core.config import Config
             _RERANK_CFG_CACHE = Config.load().rerank
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a broken rerank config permanently disables reranking — warned (never silent) and items flow unranked
             # Warn (don't silent-cache a typo): a config problem that
             # permanently disables reranking must be visible to the operator.
             logger.warning("rerank config load failed, rerank disabled: %s", exc)
@@ -119,7 +119,7 @@ def _rerank_items(
         }
         fields = NewsItem.__dataclass_fields__
         return [NewsItem(**{k: d[k] for k in fields}) for d in kept], relevance
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a persistent model/tokenizer error falls back to unranked items — degrade loudly, never crash collection
         # Degrade loudly: a persistent model/tokenizer error must not be
         # silent forever — the operator needs to know reranking is off.
         logger.warning("rerank skipped, falling back to unranked items: %s", exc)

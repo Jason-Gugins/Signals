@@ -133,7 +133,7 @@ class BbbProfileResolver:
                     data["bbb_url"] = url
                     acct.extra_data = data
                     self.registry.upsert(acct, source="bbb_ids")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: per-account isolation — one failing account (fetch/parse/registry write) logs and yields None, the cohort pass continues
                 # Per-account isolation: one failing account (e.g. registry
                 # write failure) must not kill the pass for the cohort.
                 logger.warning("bbb_ids: resolve failed for {}: {}", acct.domain, exc)
@@ -152,7 +152,7 @@ class BbbProfileResolver:
                 return None
             results = parse_search_results(result.doc.body)
             return pick_profile_url(account, results)
-        except Exception as exc:  # network/parse failures never raise
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: network/parse failures on the BBB search never raise; the account simply resolves to no profile url
             logger.warning(
                 "bbb_ids: search failed for {} (term={!r}): {}",
                 account.domain,

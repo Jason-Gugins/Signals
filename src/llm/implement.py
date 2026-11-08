@@ -168,7 +168,7 @@ def build_extraction_messages(
             "If the document does not support a claim, do not emit it. Do not use any\n"
             "outside knowledge and do not invent facts that are not present in the document."
         )
-    system = "\n".join(
+    system = "\n".join(  # noqa: FLY002 -- list-of-lines keeps each instruction line legible; an f-string would bury the prompt structure
         [
             "You are the IMPLEMENTER for one stored document in a signal-collection run.",
             "",
@@ -176,8 +176,10 @@ def build_extraction_messages(
             "",
             cap_line,
             "",
-            'Output STRICT JSON exactly matching: {"claims": [{"text": "...", '
-            '"doc_id": "...", "quote": "..."}]}',
+            (
+                'Output STRICT JSON exactly matching: {"claims": [{"text": "...", '
+                '"doc_id": "...", "quote": "..."}]}'
+            ),
             "No prose, no markdown fences, no api_key or secrets in the output.",
         ]
     )

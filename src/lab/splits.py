@@ -161,7 +161,7 @@ def final_holdout(rows: list[dict], frac: float = 0.2) -> dict:
     if n < 2:
         raise ValueError("final_holdout needs at least 2 rows to carve off")
     order = _time_order(rows)
-    n_hold = max(1, min(int(round(frac * n)), n - 1))
+    n_hold = max(1, min(round(frac * n), n - 1))
     cut = n - n_hold
     return {
         "label": LABEL_HOLDOUT,

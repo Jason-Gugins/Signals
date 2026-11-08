@@ -65,7 +65,7 @@ class DataDomeBypass:
                     cookies=cached_cookies if cached else None,
                     headers={"User-Agent": user_agent},
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- fail-open tolerance: a failed shadow-tier fetch falls through to the curl_cffi tier; bypass continues
                 logger.warning("signals_shadow fetch failed for {}: {}", url, e)
             if shadow_resp is not None:
                 shadow_body = shadow_resp.body
@@ -125,7 +125,7 @@ class DataDomeBypass:
                         if dd_cookies:
                             self._persist(domain, dd_cookies, user_agent, proxy, method="stealth_browser")
                         return DataDomeOutcome(True, "stealth_browser", body, dd_cookies)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- fail-open tolerance: a stealth-browser crash falls through to the external-solver tier; the challenge ladder continues
                 logger.warning("Stealth browser tier failed: {}", e)
 
         # Tier 3: external solver (2Captcha/CapSolver)
@@ -163,7 +163,7 @@ class DataDomeBypass:
         """Fetch using curl_cffi with TLS impersonation."""
         try:
             return self.curl.get(url, cookies=cookies, headers={"User-Agent": user_agent})
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- fail-open tolerance: a curl_cffi transport failure yields None; the bypass ladder reports an unsolved challenge instead of crashing
             logger.warning("curl_cffi fetch failed for {}: {}", url, e)
             return None
 

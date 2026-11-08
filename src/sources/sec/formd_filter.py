@@ -31,6 +31,4 @@ def keep_form_d(fd: FormD, filt: FormDFilter) -> bool:
     amt = amount_usd(fd)
     if filt.min_sold and (amt is None or amt < filt.min_sold):
         return False
-    if filt.state and (fd.state or "").casefold() != filt.state.casefold():
-        return False
-    return True
+    return not (filt.state and (fd.state or "").casefold() != filt.state.casefold())

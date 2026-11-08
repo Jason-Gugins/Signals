@@ -72,7 +72,7 @@ class OnnxScorer:
             self._session = ort.InferenceSession(onnx_path, opts)
             self._tokenizer = tok
             return True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: missing/broken onnx cross-encoder disables only the rerank leg; the RRF shortlist order is kept
             logger.warning("rerank model unavailable, reranking disabled: %s", exc)
             self._session = None
             self._tokenizer = None

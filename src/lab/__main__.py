@@ -60,6 +60,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -223,7 +224,7 @@ def _load_decide_cfg() -> dict:
         return Config().load_yaml("decide") or {}
     except FileNotFoundError:
         return {}
-    except Exception as exc:  # unreadable yaml: run with defaults, say so
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: unreadable decide yaml runs the lab with defaults (layer-off posture) and says so
         logger.warning("lab: decide config unreadable ({}); using defaults", exc)
         return {}
 
@@ -384,7 +385,7 @@ def _market_profile(rows: list[dict]) -> MarketProfile | None:
         from src.intel.market import load_market_profile
 
         return load_market_profile(pid)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: an unavailable market profile only degrades the feature vocabulary to empty; the run continues
         logger.debug("lab: market profile {} unavailable ({}); empty vocabulary", pid, exc)
         return None
 
@@ -521,11 +522,11 @@ def _stability(
                 run[name] = None
                 continue
             r = float(np.corrcoef(col, labels)[0, 1])
-            run[name] = None if (r != r or abs(r) == float("inf")) else r
+            run[name] = None if (math.isnan(r) or abs(r) == float("inf")) else r
         runs[domain] = run
     try:
         return models_mod.stability_check(runs)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a crashed stability check degrades to no stability verdict (None); the round still reports its models
         logger.warning("lab: stability check failed: {}", exc)
         return None
 
@@ -731,7 +732,7 @@ def _one_round(
                 models_out = models_mod.fit_compare(
                     families[best_family], y, groups, folds
                 )
-            except Exception as exc:  # fitCompare's honest-error contract + belt
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: fitCompare's honest-error contract — a crashed fit becomes a recorded round error, never a crash
                 models_out = {"error": f"fit_compare crashed: {exc}"}
     rd["models"] = models_out
     if isinstance(models_out, dict) and models_out.get("error"):
@@ -794,7 +795,7 @@ def _print_dry_run(
         targets_mod.claim_survival if args.target == "claim_survival"
         else targets_mod.doc_useful
     )
-    labeled, stats = target_fn(rows)
+    _labeled, stats = target_fn(rows)
     overall = stats.get("overall") or {}
     variants = (
         base_variants if base_variants is not None
@@ -920,7 +921,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         X_det, det_names = features_mod.deterministic_features(labeled, profile)
         families["deterministic"] = X_det
         family_names["deterministic"] = list(det_names)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: an unavailable feature family just drops from the family set; the remaining families still compete
         logger.warning("lab: deterministic family unavailable: {}", exc)
     try:
         X_emb, _name = features_mod.embedding_features(
@@ -929,7 +930,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         if X_emb is not None:
             families["embedding"] = X_emb
             family_names["embedding"] = [_name]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: an unavailable feature family just drops from the family set; the remaining families still compete
         logger.warning("lab: embedding family unavailable: {}", exc)
 
     try:
@@ -940,7 +941,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             if families
             else {"error": "no feature families (empty labels or encoder unavailable)"}
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a crashed baseline pass becomes a recorded round error, never a crash
         baselines_out = {"error": f"baselines crashed: {exc}"}
     best_family = _best_family(baselines_out, families)
 
@@ -973,7 +974,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 variant_floor=args.variant_floor,
                 base_variants=base_variants,
             )
-        except Exception as exc:  # NEVER raises past a round
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: NEVER raises past a round — a crashed round is recorded as an error round and the loop continues
             logger.error("lab: round {} crashed (recorded): {}: {}", index, type(exc).__name__, exc)
             rd = {
                 "round": index,
@@ -1071,7 +1072,7 @@ def main(argv: list[str] | None = None) -> int:
         return handlers[args.command](args)
     except KeyboardInterrupt:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: CLI boundary — a failed lab command prints the failure and exits 2 instead of tracebacking
         print(
             f"src.lab {args.command}: failed: {type(exc).__name__}: {exc}",
             file=sys.stderr,

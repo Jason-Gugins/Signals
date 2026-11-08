@@ -144,7 +144,7 @@ class TechstackSource(SourceAdapter):
             target = (dns_snap.get("cname") or {}).get(f"status.{account.domain}")
             if target and not str(target).endswith(".statuspage.io"):
                 target = None
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a malformed dns_evidence snapshot only skips the statuspage probe; the rest of the plan still returns
             from loguru import logger
 
             logger.exception("statuspage gate failed for {}", account.domain)
@@ -232,7 +232,7 @@ class TechstackSource(SourceAdapter):
         today_iso = today.isoformat()
         try:
             ev = probe_dns_cached(account.domain, today_iso)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a failed DNS probe means no evidence this cycle (documented: never treated as "all includes removed"); no diff is emitted
             from loguru import logger
 
             logger.exception("dns probe failed for {}", account.domain)
@@ -401,7 +401,7 @@ class TechstackSource(SourceAdapter):
                     account.domain, str((task_meta or {}).get("today") or "")
                 )
                 matches = merge_matches(matches, dns_evidence_to_matches(dns_ev, rules))
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: a failed probe merge just omits DNS evidence from the fingerprint — logged so it is never mistaken for "no DNS evidence"
                 # Fail-open, but diagnosable: a silently broken probe would be
                 # indistinguishable from "no DNS evidence for this domain".
                 from loguru import logger

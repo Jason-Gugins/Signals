@@ -92,7 +92,7 @@ class AppStoreIdResolver:
                 if track_id:
                     acct.app_store_id = track_id
                     self.registry.upsert(acct, source="appstore")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: per-account isolation — one failing account (fetch/parse/registry write) logs and yields None, the cohort pass continues
                 # Per-account isolation: one failing account (e.g. registry
                 # write failure) must not kill the pass for the cohort.
                 logger.warning(
@@ -113,7 +113,7 @@ class AppStoreIdResolver:
                 return None
             results = parse_search_results(result.doc.body)
             return pick_track_id(account, results)
-        except Exception as exc:  # network/parse failures never raise
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: network/parse failures on the iTunes search never raise; the account simply resolves to no track id
             logger.warning(
                 "appstore_ids: search failed for {} (term={!r}): {}",
                 account.domain,

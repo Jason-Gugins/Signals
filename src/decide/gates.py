@@ -1038,7 +1038,6 @@ def gate_citation_batch(
             ),
         }
     decision, latency_ms = _call(decider, state, questions, gate="citation_soundness")
-    called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
 
     # Not applicable: fail-closed for LLM content — the deterministic dossier
@@ -1063,7 +1062,7 @@ def gate_citation_batch(
                     error=decision.cause or "jev_error",
                     latency_ms=latency_ms if first else 0.0,
                     raw_tokens=raw_tokens if first else 0,
-                    called=True if first else False, outcome="errored",
+                    called=bool(first), outcome="errored",
                     claims=claims_payload,
                 )
             )
@@ -1161,7 +1160,7 @@ def gate_citation_batch(
                 agree_direction="match" if agree else None, error=None,
                 latency_ms=latency_ms if first else 0.0,
                 raw_tokens=raw_tokens if first else 0,
-                called=True if first else False, outcome=outcome,
+                called=bool(first), outcome=outcome,
                 noul=row_noul, reason=reason,
                 claims=claims_payload,
             )
@@ -1949,7 +1948,6 @@ def classify_claims(
             "criteria": criteria,
         }
     decision, latency_ms = _call(decider, state, questions, gate="taxonomy_typing")
-    called = bool(decision.applies)
     raw_tokens = int(decision.raw_tokens or 0)
 
     if not decision.applies:
@@ -1979,7 +1977,7 @@ def classify_claims(
                     error=decision.cause or "jev_error",
                     latency_ms=latency_ms if first else 0.0,
                     raw_tokens=raw_tokens if first else 0,
-                    called=True if first else False, outcome="errored",
+                    called=bool(first), outcome="errored",
                 )
             )
             first = False
@@ -2033,7 +2031,7 @@ def classify_claims(
             agree_direction="match" if proposal is None else None,
             error=None, latency_ms=latency_ms if first else 0.0,
             raw_tokens=raw_tokens if first else 0,
-            called=True if first else False, outcome=outcome,
+            called=bool(first), outcome=outcome,
             noul=prob, reason=reason,
         )
         if separation is not None:

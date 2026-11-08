@@ -42,7 +42,7 @@ def _parse_set_cookie(raw: str, default_domain: str, clock) -> CookieEntry | Non
     cookie = SimpleCookie()
     try:
         cookie.load(raw)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: one malformed Set-Cookie header (arbitrary wire text) drops that cookie, not the whole response
         return None
     for name, morsel in cookie.items():
         attrs = morsel
@@ -64,7 +64,7 @@ def _parse_set_cookie(raw: str, default_domain: str, clock) -> CookieEntry | Non
                     from email.utils import parsedate_to_datetime
 
                     expires = parsedate_to_datetime(attrs["expires"]).timestamp()
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: unparseable Expires date degrades the cookie to session-scoped, never aborts response processing
                     expires = None
         domain = attrs["domain"] or default_domain
         return CookieEntry(

@@ -101,9 +101,7 @@ def _looks_like_pricing_line(text: str) -> bool:
     if not any(ch in _PRICE_CHARS for ch in text):
         return False
     # Reject pure noise: strings that are only punctuation/whitespace.
-    if not any(ch.isalnum() for ch in text):
-        return False
-    return True
+    return any(ch.isalnum() for ch in text)
 
 
 def extract_pricing_blocks(html: str) -> list[PricingBlock] | None:
@@ -123,7 +121,7 @@ def extract_pricing_blocks(html: str) -> list[PricingBlock] | None:
     try:
         parser.feed(html)
         parser.close()
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: malformed pricing HTML yields no blocks — a missing/unparseable container is the documented conservative None
         return None
     if not parser.container_found:
         return None

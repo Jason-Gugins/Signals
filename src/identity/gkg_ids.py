@@ -101,7 +101,7 @@ class GkgDomainResolver:
         """
         try:
             return self._discover(name)
-        except Exception as exc:  # broken injected client never raises out
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a broken injected client must not raise out of the documented never-raises stage; it degrades to no_match
             logger.warning("gkg_ids: discovery failed for {!r}: {}", name, exc)
             return _no_match()
 
@@ -111,7 +111,7 @@ class GkgDomainResolver:
         for name in names:
             try:
                 out[name] = self.discover(name)
-            except Exception as exc:  # one failing name never kills the pass
+            except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: per-name isolation — one failing name logs and yields no_match, the batch pass continues
                 logger.warning("gkg_ids: resolve failed for {!r}: {}", name, exc)
                 out[name] = _no_match()
         return out

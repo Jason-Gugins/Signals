@@ -168,7 +168,7 @@ def _fit_score(
         pr_auc = float(stack.average_precision_score(y_test, proba))
     except ValueError as exc:  # e.g. single-class test split: AUROC undefined
         return {**base, "note": f"metrics undefined: {exc}"}
-    except Exception as exc:  # fit failure is a family-level fact, not a crash
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a fit failure is a family-level fact recorded in the note, not a crash of the comparison
         return {**base, "note": f"fit failed: {exc}"}
     if math.isnan(auroc) or math.isnan(pr_auc):
         # Newer sklearn warns-and-NaNs (instead of raising) on a single-class

@@ -70,28 +70,26 @@ def _matches(account: Account, when: dict[str, Any], signals: list[Signal]) -> b
         lo, hi = when["employee_count_between"]
         if account.employee_count is None or not (lo <= account.employee_count <= hi):
             return False
-    if "employee_count_lt" in when:
-        if account.employee_count is None or not (account.employee_count < when["employee_count_lt"]):
-            return False
-    if "employee_count_gt" in when:
-        if account.employee_count is None or not (account.employee_count > when["employee_count_gt"]):
-            return False
-    if "industry_any" in when:
-        if not account.industry or account.industry not in when["industry_any"]:
-            return False
-    if "hq_country_any" in when:
-        if not account.hq_country or account.hq_country not in when["hq_country_any"]:
-            return False
-    if "company_type_any" in when:
-        if not account.company_type or account.company_type not in when["company_type_any"]:
-            return False
+    if "employee_count_lt" in when and (
+        account.employee_count is None or not (account.employee_count < when["employee_count_lt"])
+    ):
+        return False
+    if "employee_count_gt" in when and (
+        account.employee_count is None or not (account.employee_count > when["employee_count_gt"])
+    ):
+        return False
+    if "industry_any" in when and (not account.industry or account.industry not in when["industry_any"]):
+        return False
+    if "hq_country_any" in when and (not account.hq_country or account.hq_country not in when["hq_country_any"]):
+        return False
+    if "company_type_any" in when and (not account.company_type or account.company_type not in when["company_type_any"]):
+        return False
     if "domain_in_file" in when:
         listed = load_domain_list(when["domain_in_file"])
         if account.domain not in listed:
             return False
-    if "name_regex" in when:
-        if not account.name or not re.search(when["name_regex"], account.name, re.IGNORECASE):
-            return False
+    if "name_regex" in when and (not account.name or not re.search(when["name_regex"], account.name, re.IGNORECASE)):
+        return False
     if "tech_any" in when:
         techs = set()
         extra = account.extra_data or {}

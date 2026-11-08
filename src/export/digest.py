@@ -140,7 +140,7 @@ def build_digest(
         for stype, members in groups.items():
             try:
                 label = tax.get(stype).label
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: an unknown signal type falls back to its raw key as the digest section header
                 label = stype
             lines.append("")
             lines.append(f"## {label} ({len(members)})")

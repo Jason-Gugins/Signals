@@ -57,7 +57,7 @@ class CloudflareBypass:
                     cookies=cached_cookies if cached else None,
                     headers={"User-Agent": user_agent},
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- fail-open tolerance: a failed shadow-tier fetch falls through to the next bypass tier; the probe records no fingerprint from this leg
                 logger.warning("signals_shadow fetch failed for {}: {}", url, e)
             if shadow_resp is not None:
                 shadow_body = shadow_resp.body
@@ -173,7 +173,7 @@ class CloudflareBypass:
         Returns None on any failure so the caller falls through to tier 4."""
         try:
             cleared = inject_turnstile_token(self.browser, url, token)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- fail-open tolerance: a failed token injection just means clearance not achieved; the caller falls through to tier 4
             logger.warning("inject_turnstile_token error for {}: {}", url, e)
             cleared = False
         if not cleared:
@@ -183,7 +183,7 @@ class CloudflareBypass:
             page = self.browser._page
             body = page.content().encode("utf-8")
             jar = context.cookies(url)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- fail-open tolerance: post-injection cookie extraction can fail arbitrarily (page nav/CDP); None sends the caller to the next tier
             logger.warning("cookie extraction after injection failed for {}: {}", url, e)
             return None
         root = (domain or "").casefold().lstrip(".")
@@ -213,6 +213,6 @@ class CloudflareBypass:
             result = self.browser.fetch(url, source="techstack", domain=domain, capture_html=True)
             self.config.browser.headless = True
             return result
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a failed headed solve restores headless and yields None — the config must not be left headed
             self.config.browser.headless = True
             return None

@@ -201,7 +201,7 @@ def test_cli_selfcheck_challenge_and_empty_do_not_crash(monkeypatch, tmp_path):
     """A challenge (or empty) selfcheck must exit cleanly, not traceback."""
     import click.testing
 
-    import src.cli as cli
+    from src import cli
 
     bodies = {"ats_greenhouse": b'{"maintenance": true}',
               "techstack": b"<html><title>Just a moment...</title></html>",
@@ -234,7 +234,7 @@ def test_cli_selfcheck_challenge_and_empty_do_not_crash(monkeypatch, tmp_path):
 def test_cli_selfcheck_drift_fails_loudly(monkeypatch, tmp_path):
     import click.testing
 
-    import src.cli as cli
+    from src import cli
 
     class FakeFetcher:
         def __init__(self, cfg, raw):

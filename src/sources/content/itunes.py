@@ -6,7 +6,7 @@ import json
 from datetime import date
 from urllib.parse import quote_plus
 
-from src.core.models import Account, Contact
+from src.core.models import Account
 from src.identity.names import normalize_name
 from src.sources.base import SignalCandidate
 

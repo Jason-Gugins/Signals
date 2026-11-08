@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import urlsplit

@@ -6,7 +6,6 @@ import json
 
 from src.sources.techstack.fingerprint import TechMatch
 
-
 SUBDOMAIN_HINTS = {
     "status": "statuspage",
     "info": "marketing_automation",

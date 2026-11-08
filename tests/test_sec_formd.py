@@ -8,7 +8,6 @@ from pathlib import Path
 from src.sources.sec.parse_formd import form_d_to_candidates, infer_round_stage, parse_form_d
 from src.sources.sec.parse_submissions import Filing
 
-
 FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "form_d_primary_doc.xml"
 LIVE = Path(__file__).parent / "fixtures" / "sec" / "form_d_live_primary_doc.xml"
 FILING = Filing(

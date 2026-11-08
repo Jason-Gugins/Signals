@@ -1,5 +1,4 @@
-from src.identity.g2_resolve import resolve_g2_slug, parse_g2_search_results
-
+from src.identity.g2_resolve import parse_g2_search_results, resolve_g2_slug
 
 SEARCH_HTML = """
 <html><body>

@@ -6,8 +6,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from src.core.models import Account
 
 
@@ -157,9 +155,7 @@ def test_resolve_linkedin_default_off_no_subprocess(tmp_path, monkeypatch):
 
 # -------------------------------------------------------------------- CLI ---
 def test_cli_resolve_flags_forwarded():
-    import inspect
 
-    import click
     from src.cli import resolve
 
     params = {p.name: p for p in resolve.params}

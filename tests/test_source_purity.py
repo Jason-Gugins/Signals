@@ -12,7 +12,7 @@ FORBIDDEN_CALLS = {
     ("time", "time"),
 }
 FORBIDDEN_NAMES = {"open"}
-FORBIDDEN_PATH_READS = {"read_text", "read_bytes", "read_text", "open"}
+FORBIDDEN_PATH_READS = {"read_text", "read_bytes", "open"}
 
 
 def _module_name(path: Path) -> str:

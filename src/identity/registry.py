@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from src.core.db import Database
 from src.core.models import Account
 from src.identity.domains import root_domain
 from src.identity.names import name_similarity, normalize_name
-from src.identity.resolve import fuzzy_match, normalize_entity
+from src.identity.resolve import normalize_entity
 
 _ORDER_WHITELIST = {
     "score DESC": "score DESC",
@@ -47,7 +45,7 @@ class AccountRegistry:
         # db failure, in which case the in-memory instance is the truth.
         return stored if stored is not None else account
 
-    def get(self, domain: str) -> Optional[Account]:
+    def get(self, domain: str) -> Account | None:
         key = root_domain(domain) or domain.casefold()
         row = self.db.one("SELECT * FROM accounts WHERE domain = ?", (key,))
         return Account.from_db_row(row) if row else None
@@ -81,7 +79,7 @@ class AccountRegistry:
             pk=("alias", "alias_kind"),
         )
 
-    def _by_alias(self, alias: str, kind: str) -> Optional[Account]:
+    def _by_alias(self, alias: str, kind: str) -> Account | None:
         if kind == "name":
             key = normalize_name(alias)
         elif kind == "domain":
@@ -106,7 +104,7 @@ class AccountRegistry:
         cik: str | None = None,
         url: str | None = None,
         min_similarity: float = 0.86,
-    ) -> Optional[Account]:
+    ) -> Account | None:
         if domain:
             hit = self.get(domain) or self._by_alias(domain, "domain")
             if hit:
@@ -146,7 +144,7 @@ class AccountRegistry:
             return self._fuzzy_name(name, min_similarity)
         return None
 
-    def _normalized_name(self, name: str) -> Optional[Account]:
+    def _normalized_name(self, name: str) -> Account | None:
         """Match a name against known name-aliases by normalize_entity equality.
 
         Ties are ambiguous: two accounts whose aliases normalize identically
@@ -211,7 +209,7 @@ class AccountRegistry:
             )
         ]
 
-    def _by_entity_alias(self, name: str) -> Optional[Account]:
+    def _by_entity_alias(self, name: str) -> Account | None:
         """entity_aliases lookup: exact normalized key first, then a
         full-table normalized-equality pass (handles legacy rows written
         with a different normalization). Higher priority than fuzzy.
@@ -239,7 +237,7 @@ class AccountRegistry:
             return self.get(hits[0])
         return None
 
-    def _fuzzy_name(self, name: str, min_similarity: float) -> Optional[Account]:
+    def _fuzzy_name(self, name: str, min_similarity: float) -> Account | None:
         rows = self.db.query(
             "SELECT alias, domain FROM account_aliases WHERE alias_kind = 'name'"
         )

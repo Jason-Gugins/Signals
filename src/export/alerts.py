@@ -298,7 +298,7 @@ def _sign_body(
     if scheme == "stripe":
         t = int(now if now is not None else time.time())
         # "<t>.<body>" — the exact wire bytes appended to the timestamp.
-        digest = hmac_mod.new(key, f"{t}.".encode("utf-8") + body, hashlib.sha256).hexdigest()
+        digest = hmac_mod.new(key, f"{t}.".encode() + body, hashlib.sha256).hexdigest()
         return body, {"Stripe-Signature": f"t={t},v1={digest}"}
     digest = hmac_mod.new(key, body, hashlib.sha256).hexdigest()
     if scheme == "hub":

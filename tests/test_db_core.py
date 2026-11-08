@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import src.core.db as dbmod
-from src.core.db import Database, NEW_COLUMNS, CfCookieStore
+from src.core.db import NEW_COLUMNS, CfCookieStore, Database
 
 # A date far enough in the future that expiry checks never fail.
-_FUTURE = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-_FUTURE_PLUS1 = (datetime.now(timezone.utc) + timedelta(days=31)).isoformat()
+_FUTURE = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+_FUTURE_PLUS1 = (datetime.now(UTC) + timedelta(days=31)).isoformat()
 
 
 EXPECTED_TABLES = {

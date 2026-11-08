@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from src.core.config import Config
@@ -12,7 +12,7 @@ from src.core.models import Account, Document
 from src.core.rawstore import RawStore
 from src.core.runlog import RunContext
 from src.identity.registry import AccountRegistry
-from src.pipeline.runner import CollectorRunner, RunnerStats
+from src.pipeline.runner import CollectorRunner
 from src.signals.store import SignalStore
 from src.signals.taxonomy import Taxonomy
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
@@ -135,7 +135,7 @@ def _harness(tmp_path, accounts, adapters, by_url, **cfg_kw):
 
 def test_cadence_skip_and_force(tmp_path):
     acct = Account(domain="acme.com", name="Acme")
-    future = (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat()
+    future = (datetime.now(UTC) + timedelta(hours=12)).isoformat()
     db = Database(tmp_path / "s.db")
     db.upsert("source_cursors", {"source": "ok", "key": "acme.com", "next_due_at": future, "fail_count": 0}, pk=("source", "key"))
     cfg = Config()

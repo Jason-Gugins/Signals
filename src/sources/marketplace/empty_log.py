@@ -16,9 +16,9 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 DEFAULT_EMPTY_LOG_PATH = "data/antibot/empty_slugs.json"
 DEFAULT_THRESHOLD_CYCLES = 3
@@ -56,12 +56,12 @@ class EmptyLog:
         # UTC, not local time: dates must be deterministic regardless of the
         # machine's timezone (CI runners are UTC; dev boxes often are not).
         first_empty = entry.get("first_empty") or datetime.fromtimestamp(
-            now, tz=timezone.utc
+            now, tz=UTC
         ).date().isoformat()
         self._entries[key] = {
             "first_empty": first_empty,
             "cycles": int(entry.get("cycles", 0)) + 1,
-            "last_empty": datetime.fromtimestamp(now, tz=timezone.utc).date().isoformat(),
+            "last_empty": datetime.fromtimestamp(now, tz=UTC).date().isoformat(),
         }
         self._save()
 

@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from src.sources.ats.smartrecruiters import parse_smartrecruiters, smartrecruiters_pages
 
 

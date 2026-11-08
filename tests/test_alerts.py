@@ -1,5 +1,3 @@
-from datetime import date
-from pathlib import Path
 
 from src.core.db import Database
 from src.core.models import Account, Signal

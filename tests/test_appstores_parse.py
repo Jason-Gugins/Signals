@@ -10,15 +10,14 @@ migration that adds the 3 new account columns to legacy DBs.
 from __future__ import annotations
 
 import json
-import sqlite3
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from core.db import Database, NEW_COLUMNS  # noqa: E402
-from core.models import Account  # noqa: E402
-from sources.appstores.appstore import (  # noqa: E402
+from core.db import NEW_COLUMNS, Database
+from core.models import Account
+from sources.appstores.appstore import (
     AppStoreReviewSource,
     itunes_reviews_url,
     parse_itunes_reviews,

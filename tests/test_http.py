@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 import httpx
 import respx
@@ -20,11 +19,11 @@ from src.core.runlog import RunContext
 class Task:
     source: str
     url: str
-    domain: Optional[str] = None
+    domain: str | None = None
     method: str = "GET"
     headers: dict = field(default_factory=dict)
-    json_body: Optional[dict] = None
-    data_body: Optional[str] = None
+    json_body: dict | None = None
+    data_body: str | None = None
 
 
 class FakeClock:

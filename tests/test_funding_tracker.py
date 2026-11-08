@@ -20,7 +20,6 @@ from src.sources.sec.formd_filter import FormDFilter
 from src.sources.sec.fts import hit_to_filing, parse_fts_response
 from src.sources.sec.page_peel import peel_legal_names, peel_page
 
-
 FIX = Path(__file__).resolve().parent / "fixtures"
 TODAY = date(2026, 8, 22)
 

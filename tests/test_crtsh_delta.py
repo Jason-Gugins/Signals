@@ -20,7 +20,6 @@ nothing persisted it — so no delta existed. This pins:
 from __future__ import annotations
 
 import json
-from datetime import date
 
 from src.core.models import Account
 from src.signals.normalize import make_signal_id, normalize_batch

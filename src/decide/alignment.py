@@ -46,8 +46,7 @@ import math
 from loguru import logger
 
 from src.core.textutil import truncate
-from src.decide.gates import DecideLedger
-from src.decide.gates import _call, _noul_of, _row  # single-source row conventions
+from src.decide.gates import DecideLedger, _call, _noul_of, _row  # single-source row conventions
 from src.decide.jev import Decider
 from src.decide.shapes import exception_cause
 

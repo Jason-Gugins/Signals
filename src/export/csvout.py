@@ -8,7 +8,6 @@ from pathlib import Path
 
 from src.core.db import Database
 
-
 ACCOUNT_COLUMNS = [
     "domain", "name", "tier", "score", "buying_window", "urgency", "industry",
     "employee_count", "hq_country", "top_play", "top_signal_1", "top_signal_2", "top_signal_3",

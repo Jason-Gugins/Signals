@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+
 from src.sources.techstack.fingerprint import TechMatch
 from src.sources.wayback.cdx import parse_cdx, pick_snapshots, snapshot_url
 from src.sources.wayback.renewal import estimate_first_seen, renewal_candidates
@@ -33,8 +34,9 @@ def test_estimate_and_renewal_window():
 def test_pricing_follow_skips_when_no_pricing_row(tmp_path):
     """A CDX listing with no /pricing URL must not fabricate a pricing task."""
     import json as _json
-    from src.sources.wayback.collector import WaybackSource
+
     from src.core.models import Account
+    from src.sources.wayback.collector import WaybackSource
 
     # CDX JSON shape: [header, row, row...]
     raw = [
@@ -51,18 +53,16 @@ def test_runner_injects_prev_pricing_html(tmp_path, monkeypatch):
     """END-TO-END regression for the review blocker: the runner must inject
     prev_pricing_html from the prior stored pricing snapshot so pricing_change
     can actually fire (previously parse() always returned [])."""
-    import sys, tempfile
     from src.core.config import Config
     from src.core.db import Database
     from src.core.models import Account
-    from src.core.rawstore import RawStore
     from src.core.runlog import RunContext
     from src.identity.registry import AccountRegistry
     from src.pipeline.runner import CollectorRunner
     from src.signals.store import SignalStore
     from src.signals.taxonomy import Taxonomy
-    from src.sources.base import FetchTask, SourceAdapter
     from src.sources.ats.common import JobPost  # noqa: F401 (import surface)
+    from src.sources.base import FetchTask, SourceAdapter
 
     PREV = b"<html><div class='pricing'><p>Basic $10</p><p>Pro $25</p></div></html>"
     CURR = b"<html><div class='pricing'><p>Basic $10</p><p>Pro $49</p></div></html>"

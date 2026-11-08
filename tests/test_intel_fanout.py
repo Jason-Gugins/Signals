@@ -14,7 +14,6 @@ coordinator wiring, the dossier gap and the CLI flag.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -56,7 +55,7 @@ def test_exactly_the_three_global_sources_are_marked_fanout():
     """
     cfg = Config()
     cfg.config_dir = str(ROOT / "config")
-    configured = set((cfg.load_yaml("sources").get("sources") or {}))
+    configured = set(cfg.load_yaml("sources").get("sources") or {})
     fanout_keys = sorted(
         key
         for key in SOURCES

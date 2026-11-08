@@ -14,7 +14,6 @@ from pathlib import Path
 
 from src.identity.ats_discovery import AtsDiscovery, detect_ats
 
-
 FIXTURES = Path(__file__).parent / "fixtures" / "ats"
 
 

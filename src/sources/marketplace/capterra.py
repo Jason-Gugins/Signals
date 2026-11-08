@@ -26,14 +26,14 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 
 from src.core.textutil import to_iso_date
+
 # Keep the TrustRadius-era parser importable from this module for backward
 # compatibility: tests/test_marketplace.py imports parse_capterra_reviews from
 # src.sources.marketplace.capterra and asserts it parses the TrustRadius
 # fixture. The Capterra-specific extraction is extract_capterra_reviews below.
-from src.sources.marketplace.trustradius import parse_capterra_reviews  # noqa: F401
+from src.sources.marketplace.trustradius import parse_capterra_reviews
 
 __all__ = ["CapterraReview", "extract_capterra_reviews", "parse_capterra_reviews"]
 
@@ -49,7 +49,7 @@ _MONTH_DATE_RE = re.compile(
 )
 
 
-def _month_name_to_iso(text: str) -> Optional[str]:
+def _month_name_to_iso(text: str) -> str | None:
     """'July 11, 2026' -> '2026-07-11'. Pure month-name parsing, no clock."""
     if not text:
         return None
@@ -66,26 +66,26 @@ def _month_name_to_iso(text: str) -> Optional[str]:
 class CapterraReview:
     review_id: str
     product_slug: str
-    reviewer_name: Optional[str] = None
-    reviewer_title: Optional[str] = None
-    reviewer_company_size: Optional[str] = None
-    rating: Optional[float] = None
-    review_title: Optional[str] = None
-    review_body: Optional[str] = None
+    reviewer_name: str | None = None
+    reviewer_title: str | None = None
+    reviewer_company_size: str | None = None
+    rating: float | None = None
+    review_title: str | None = None
+    review_body: str | None = None
     pros: list[str] = field(default_factory=list)
     cons: list[str] = field(default_factory=list)
-    posted_at: Optional[str] = None
-    review_url: Optional[str] = None
+    posted_at: str | None = None
+    review_url: str | None = None
     verified_reviewer: bool = False
-    review_source: Optional[str] = None
+    review_source: str | None = None
     # Present in the dataclass contract, but Capterra's current rendered review
     # cards carry no NPS-score or helpful-vote markup (Task 1 spike, Aug 2026),
     # so extraction yields None until real markup maps.
-    nps_score: Optional[int] = None
-    helpful_votes: Optional[int] = None
+    nps_score: int | None = None
+    helpful_votes: int | None = None
 
 
-def _card_rating(overall_div) -> Optional[float]:
+def _card_rating(overall_div) -> float | None:
     """Rating from the 'Overall Rating-rating' div.
 
     Preferred: the numeric span text ("5.0") inside the rating widget.

@@ -1,6 +1,13 @@
-import yaml
 from pathlib import Path
-from src.sources.techstack.dns_probe import DnsEvidence, dns_evidence_to_matches, parse_spf, probe_dns
+
+import yaml
+
+from src.sources.techstack.dns_probe import (
+    DnsEvidence,
+    dns_evidence_to_matches,
+    parse_spf,
+    probe_dns,
+)
 from src.sources.techstack.fingerprint import TechMatch, extract_http_evidence, merge_matches
 
 RULES = yaml.safe_load(Path("config/fingerprints.yaml").read_text(encoding="utf-8"))

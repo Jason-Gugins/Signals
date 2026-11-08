@@ -1,7 +1,7 @@
 """Chunker: spans are exact, boundaries never mid-word, overlap present."""
 from __future__ import annotations
 
-from src.retrieval.chunker import Chunk, chunk_text
+from src.retrieval.chunker import chunk_text
 
 
 def test_short_text_single_chunk_exact_span():

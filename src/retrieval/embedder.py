@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import TYPE_CHECKING, Optional, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:  # ML deps stay lazy at runtime (import-safe without [rerank])
     import onnxruntime as ort
@@ -25,7 +25,7 @@ TOKENIZER_FILE = "tokenizer.json"
 # src/signals/rerank.py does (supply-chain posture: same hf_hub pattern).
 # Verified 2026-10-10: both files exist at this revision; live embed()
 # returned 384-dim vectors.
-MODEL_REVISION: Optional[str] = "751bff37182d3f1213fa05d7196b954e230abad9"
+MODEL_REVISION: str | None = "751bff37182d3f1213fa05d7196b954e230abad9"
 DIM = 384
 MAX_SEQ_LEN = 256  # tokenizer truncation; matches the reranker's budget
 # Rows per session.run() in embed(). ONNX preallocates the arena for the
@@ -37,7 +37,7 @@ EMBED_BATCH = 32
 
 
 class Embedder(Protocol):
-    def embed(self, texts: list[str]) -> Optional[list[list[float]]]: ...
+    def embed(self, texts: list[str]) -> list[list[float]] | None: ...
 
 
 class NullEmbedder:
@@ -53,10 +53,10 @@ class OnnxEmbedder:
     def __init__(
         self,
         model_repo: str = MODEL_REPO,
-        revision: Optional[str] = MODEL_REVISION,
+        revision: str | None = MODEL_REVISION,
     ) -> None:
-        self._session: Optional["ort.InferenceSession"] = None
-        self._tokenizer: Optional["Tokenizer"] = None
+        self._session: ort.InferenceSession | None = None
+        self._tokenizer: Tokenizer | None = None
         self._model_repo = model_repo
         self._revision = revision
 
@@ -96,7 +96,7 @@ class OnnxEmbedder:
             self._tokenizer = None
             return False
 
-    def embed(self, texts: list[str]) -> Optional[list[list[float]]]:
+    def embed(self, texts: list[str]) -> list[list[float]] | None:
         if not texts:
             return []
         if not self._ensure_loaded():
@@ -148,7 +148,7 @@ class OnnxEmbedder:
 # that ONCE per process, not once per embed. Double-checked locking (the
 # indexer and the watch loop can both reach get_embedder()).
 _embedder_lock = threading.Lock()
-_embedder_instance: Optional[Embedder] = None
+_embedder_instance: Embedder | None = None
 
 
 def get_embedder() -> Embedder:

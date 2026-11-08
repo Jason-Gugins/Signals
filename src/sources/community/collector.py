@@ -14,7 +14,12 @@ from src.sources.community.github import (
 )
 from src.sources.community.github_search import parse_search_users, search_users_url
 from src.sources.community.hn import hn_to_candidates, hn_url, parse_hn
-from src.sources.community.npm import npm_search_url, npm_to_candidates, owned_packages, parse_npm_search
+from src.sources.community.npm import (
+    npm_search_url,
+    npm_to_candidates,
+    owned_packages,
+    parse_npm_search,
+)
 from src.sources.registry import register
 
 

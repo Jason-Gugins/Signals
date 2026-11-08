@@ -12,7 +12,6 @@ import pytest
 
 from src.antibot.python.cookies import PersistentCookieJar
 
-
 # ---------------------------------------------------------------------------
 # set_from_response parsing
 # ---------------------------------------------------------------------------

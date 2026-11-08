@@ -16,7 +16,6 @@ from src.sources.sec.fts import (
 )
 from src.sources.sec.parse_submissions import archive_url
 
-
 FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "fts_response.json"
 
 

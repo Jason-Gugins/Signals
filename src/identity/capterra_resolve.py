@@ -20,8 +20,8 @@ Management).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Optional, Union
 from urllib.parse import quote_plus
 
 CAPTERNA_SEARCH_URL = "https://www.capterra.com/search/?query={query}"
@@ -35,9 +35,9 @@ class ResolveResult:
     """Outcome of a Capterra name → segment resolution."""
 
     status: str  # "resolved" | "ambiguous" | "no_match" | "error"
-    segment: Optional[str] = None  # "<id>/<Slug>" when resolved
+    segment: str | None = None  # "<id>/<Slug>" when resolved
     candidates: list[dict] = field(default_factory=list)
-    url: Optional[str] = None
+    url: str | None = None
 
 
 def fetch_capterra_search_url(name: str) -> str:
@@ -115,7 +115,7 @@ def _default_fetcher():
     return CurlCffiFetcher(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36")
 
 
-def _fetch_html(url: str, fetcher) -> Optional[str]:
+def _fetch_html(url: str, fetcher) -> str | None:
     """Fetch a URL and return the response body as text, or None. Tolerates
     fetcher objects with ``.get`` and plain callables."""
     resp = fetcher.get(url) if hasattr(fetcher, "get") else fetcher(url)
@@ -130,7 +130,7 @@ def _fetch_html(url: str, fetcher) -> Optional[str]:
 
 def resolve_capterra(
     name: str,
-    fetcher: Optional[Union[object, Callable[[str], str]]] = None,
+    fetcher: object | Callable[[str], str] | None = None,
 ) -> ResolveResult:
     """Resolve a company/product name to a Capterra ``<id>/<Slug>`` segment.
 

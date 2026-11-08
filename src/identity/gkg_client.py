@@ -71,8 +71,8 @@ def _build_service_account_token_fetcher(creds_path: str):
     time — ImportError propagates so the caller can downgrade to
     "unconfigured" instead of crashing.
     """
-    from google.oauth2 import service_account
     from google.auth.transport.requests import Request as AuthRequest
+    from google.oauth2 import service_account
 
     creds = service_account.Credentials.from_service_account_file(
         creds_path, scopes=[CLOUD_PLATFORM_SCOPE]

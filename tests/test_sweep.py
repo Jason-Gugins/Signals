@@ -9,7 +9,6 @@ from click.testing import CliRunner
 
 from src.core.models import Account
 
-
 # ---------------------------------------------------------------------------
 # run_sweep — orchestration logic (src/pipeline/sweep.py)
 # ---------------------------------------------------------------------------
@@ -183,7 +182,6 @@ def test_sweep_reminder_mentions_deepen(monkeypatch):
 def _cli_setup(monkeypatch, accounts_by_domain=None):
     """Repo CLI-test pattern: patch Orchestrator.__init__ to a no-op and
     class-level attributes; never pass obj= to CliRunner.invoke."""
-    from src.identity.registry import AccountRegistry
     from src.pipeline.orchestrator import Orchestrator
 
     accounts_by_domain = accounts_by_domain if accounts_by_domain is not None else {}
@@ -208,8 +206,8 @@ def _cli_setup(monkeypatch, accounts_by_domain=None):
 
 
 def test_cli_sweep_runs_and_prints_digest(monkeypatch):
-    from src.pipeline import sweep as sweep_mod
     from src.cli import main
+    from src.pipeline import sweep as sweep_mod
 
     monkeypatch.setattr(
         sweep_mod, "orchestrator_collect",
@@ -366,8 +364,8 @@ def test_sweep_deep_false_no_deep_key(monkeypatch):
 
 
 def test_cli_sweep_deep_flag(monkeypatch):
-    from src.pipeline import sweep as sweep_mod
     from src.cli import main
+    from src.pipeline import sweep as sweep_mod
 
     seen = {}
 
@@ -394,8 +392,8 @@ def test_cli_sweep_deep_flag(monkeypatch):
 
 
 def test_cli_sweep_no_deep_flag(monkeypatch):
-    from src.pipeline import sweep as sweep_mod
     from src.cli import main
+    from src.pipeline import sweep as sweep_mod
 
     seen = {}
 

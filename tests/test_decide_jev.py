@@ -16,17 +16,15 @@ import httpx
 import pytest
 import respx
 
-import src.decide.jev as jev
 from src.decide import (
     Claim,
-    Decision,
     Decider,
+    Decision,
     LiveDecider,
     MockDecider,
     NullDecider,
-    Plan,
-    PlanStep,
     get_decider,
+    jev,
 )
 
 BASE = "https://api.typesafe.ai/v1/systemone"
@@ -433,7 +431,7 @@ def test_breaker_trips_on_counted_failures_and_fast_fails_everything(monkeypatch
 def test_call_threads_gate_only_to_deciders_that_accept_it():
     """Two-argument deciders (every test fake, third-party impls) keep
     working; three-argument deciders receive the gate for breaker math."""
-    from src.decide.gates import DecideLedger, _call
+    from src.decide.gates import _call
 
     class TwoArg:
         def decide(self, state, questions):

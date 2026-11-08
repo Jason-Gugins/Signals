@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from src.core.db import Database
 from src.pipeline.health_report import source_health
@@ -16,7 +16,7 @@ def _ago(hours: float) -> str:
     expire silently once the window rolls past them: these fixtures did, and
     every CI run from 2026-09-07 onward failed on them.
     """
-    return (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
+    return (datetime.now(UTC) - timedelta(hours=hours)).strftime(
         "%Y-%m-%d %H:%M:%S"
     )
 

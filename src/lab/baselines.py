@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -52,7 +52,7 @@ def _parse_iso(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.timestamp()
 
 
@@ -61,10 +61,9 @@ def _parse_pkg_ts(package: object) -> float | None:
     if not match:
         return None
     body = match.group(1)
-    if body.endswith("Z"):
-        body = body[:-1]
+    body = body.removesuffix("Z")
     try:
-        dt = datetime.strptime(body[:14], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+        dt = datetime.strptime(body[:14], "%Y%m%dT%H%M%S").replace(tzinfo=UTC)
         frac = body[14:]
         if frac:
             dt = dt.replace(microsecond=int(frac[:6].ljust(6, "0")))

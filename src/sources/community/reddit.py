@@ -36,7 +36,7 @@ from src.identity.names import normalize_name
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.registry import register
 
-_LAUNCH_RE = re.compile(r"\b(launch\w*|introducing|announcing)\b", re.I)
+_LAUNCH_RE = re.compile(r"\b(launch\w*|introducing|announcing)\b", re.IGNORECASE)
 
 
 def reddit_search_url(name: str, *, subreddit: str | None = None) -> str:

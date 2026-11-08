@@ -9,7 +9,6 @@ import yaml
 
 from src.signals.taxonomy import Taxonomy, TaxonomyError, UnknownSignalType
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

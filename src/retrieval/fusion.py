@@ -29,7 +29,7 @@ def rrf_fuse(
 
 def mmr_select(
     ranked: list[tuple[str, float]],
-    vecs: dict[str, "np.ndarray"],       # id -> L2-normalised vector (numpy row)
+    vecs: dict[str, np.ndarray],       # id -> L2-normalised vector (numpy row)
     *,
     lam: float = 0.7,
     k: int = 10,

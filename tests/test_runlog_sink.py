@@ -7,8 +7,8 @@ import time
 import pytest
 from loguru import logger
 
-from src.core.db import Database
 from src.core import runlog
+from src.core.db import Database
 from src.core.runlog import RunContext, attach_file_sink
 
 

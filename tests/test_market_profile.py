@@ -1,9 +1,9 @@
-import pytest
 from pathlib import Path
+
+import pytest
 
 from src.core.config import ConfigError
 from src.intel.market import load_market_profile, match_relevance
-
 
 PROFILE_YAML = '''profiles:
   p:

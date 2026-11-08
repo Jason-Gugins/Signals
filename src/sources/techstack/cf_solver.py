@@ -7,8 +7,10 @@ let Cloudflare's edge set the real cf_clearance cookie. There is no stateless
 token→cookie exchange via httpx.
 """
 from __future__ import annotations
+
 import time
-from typing import Protocol, Optional
+from typing import Protocol
+
 import httpx
 
 

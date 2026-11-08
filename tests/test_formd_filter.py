@@ -8,7 +8,6 @@ from pathlib import Path
 from src.sources.sec.formd_filter import FormDFilter, amount_usd, keep_form_d
 from src.sources.sec.parse_formd import parse_form_d
 
-
 FIX = Path(__file__).parent / "fixtures" / "sec" / "form_d_primary_doc.xml"
 
 

@@ -128,14 +128,15 @@ def test_missing_evidence_graceful():
 def test_digest_paths_wiring_passes_formd_flag(monkeypatch, tmp_path):
     """Parent wiring: _digest_paths must pass include_formd_unmatched=True."""
     from datetime import date
-    import src.cli as cli
+    from types import SimpleNamespace
+
     import src.export.digest as digest_mod
+    import src.pipeline.orchestrator as orch_mod
     import src.signals.plays as plays_mod
     import src.signals.tier as tier_mod
-    import src.pipeline.orchestrator as orch_mod
+    from src import cli
     from src.core.models import Account
     from src.signals.tier import TierResult
-    from types import SimpleNamespace
 
     TODAY = date(2026, 9, 3)
     captured = {}

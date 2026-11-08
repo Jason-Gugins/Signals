@@ -1,12 +1,14 @@
 """Cloudflare bypass waterfall for the techstack source."""
 from __future__ import annotations
+
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from loguru import logger
 
-from src.core.config import Config
 from src.core.browser import inject_turnstile_token
+from src.core.config import Config
 from src.core.db import CfCookieStore
 from src.core.http import FetchResult
 from src.sources.techstack.cf_solver import solve_cloudflare
@@ -139,15 +141,14 @@ class CloudflareBypass:
         """Compute expires_at from the real Playwright cookie `expires` (epoch),
         with cookie_ttl_hours as a ceiling. Returns tz-aware ISO."""
         from datetime import timedelta
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         ceiling = now + timedelta(hours=self.config.cloudflare.cookie_ttl_hours)
         earliest = ceiling
         for c in cookies:
             exp = c.get("expires")
             if exp and isinstance(exp, (int, float)) and exp > 0:
-                exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
-                if exp_dt < earliest:
-                    earliest = exp_dt
+                exp_dt = datetime.fromtimestamp(exp, tz=UTC)
+                earliest = min(earliest, exp_dt)
         return earliest.isoformat()
 
     def _persist(self, domain, cookies, user_agent, proxy, expires_at, *, method):

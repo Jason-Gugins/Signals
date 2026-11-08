@@ -1,9 +1,10 @@
 from pathlib import Path
+
 from src.core.config import Config
-from src.core.db import Database, CfCookieStore
+from src.core.db import CfCookieStore, Database
+from src.core.models import Account, Document
 from src.sources.techstack.cf_bypass import CloudflareBypass
 from src.sources.techstack.collector import TechstackSource
-from src.core.models import Account, Document
 
 
 class _StubHttp:

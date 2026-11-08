@@ -1,13 +1,12 @@
 """G2 end-to-end: plan -> parse -> harvest -> export. All offline with fixture."""
 import json
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 from src.core.db import Database
 from src.core.models import Account, Document
+from src.export.g2_export import export_g2_csv, export_g2_json
 from src.sources.marketplace.collector import MarketplaceG2Source, upsert_g2_reviews
-from src.sources.marketplace.g2 import parse_g2_reviews
-from src.export.g2_export import export_g2_json, export_g2_csv
 
 FIXTURE = (Path("tests/fixtures/marketplace/g2_reviews.html")).read_text(encoding="utf-8")
 
@@ -44,7 +43,7 @@ def test_g2_e2e_offline(tmp_path):
     # 4. Harvest — persist all 3 reviews to DB (harvest_reviews returns all, not filtered by date)
     revs = adapter.harvest_reviews(doc, acct, meta)
     assert len(revs) == 3
-    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    now = datetime.now(UTC).replace(microsecond=0).isoformat()
     new_count, updated_count = upsert_g2_reviews(db, revs, now=now, raw_ref="d1")
     assert new_count == 3
     assert updated_count == 0

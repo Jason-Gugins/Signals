@@ -1,6 +1,6 @@
-from unittest.mock import patch, MagicMock
-from src.sources.techstack.datadome_solver import solve_datadome, TwoCaptchaDataDomeSolver
+from unittest.mock import MagicMock, patch
 
+from src.sources.techstack.datadome_solver import TwoCaptchaDataDomeSolver, solve_datadome
 
 CAPTCHA_URL = "https://geo.captcha-delivery.com/captcha/?initialCid=AHrlqAAA&hash=ABC&cid=xyz&t=fe&referer=https%3A%2F%2Fwww.g2.com%2F&s=50168&e=abc"
 PAGE_URL = "https://www.g2.com/products/databricks/reviews"

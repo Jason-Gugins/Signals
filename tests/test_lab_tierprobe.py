@@ -5,7 +5,6 @@ documents (MODEL-TIER ceiling), or is the input prose the binding
 constraint (PROSE-BOUND)? Both arms fresh; recorded claims reference-only
 (the 2026-11-06 fresh-vs-recorded instability)."""
 
-import json
 
 from src.lab.tierprobe import estimate_cost, stratify_domains, summarize_nouls
 
@@ -62,8 +61,8 @@ def test_run_arm_wiring_offline(tmp_path, monkeypatch):
     passes); the citation decider accepts both; the promotion decider
     returns a real noul. Every accepted claim lands in the output rows with
     its noul, and the implementer model rides through unchanged."""
-    import src.llm.implement as llm_implement
     import src.lab.tierprobe as tp
+    import src.llm.implement as llm_implement
     from src.decide.jev import Decision
 
     seen_models = []

@@ -1,8 +1,9 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-from src.sources.techstack.datadome_bypass import DataDomeBypass, DataDomeOutcome
+
 from src.core.http import FetchResult
 from src.core.models import Document
+from src.sources.techstack.datadome_bypass import DataDomeBypass
 
 CHALLENGE_BODY = b"""<html><script>var dd={'rt':'c','cid':'AHrlq','hsh':'ABC','t':'fe','s':50168,'e':'xyz','host':'geo.captcha-delivery.com','cookie':'abc'}</script>
 <iframe src="https://geo.captcha-delivery.com/captcha/?initialCid=AHrlq&hash=ABC&cid=xyz&t=fe&referer=https%3A%2F%2Fwww.g2.com%2F&s=50168&e=xyz"></iframe></html>"""
@@ -130,7 +131,6 @@ def test_datadome_bypass_disabled():
 
 def test_datadome_bypass_stealth_browser_clears():
     """Tier 2.5: Patchright stealth browser clears the DataDome interstitial."""
-    from types import SimpleNamespace
     cookie_store = MagicMock()
     cookie_store.get.return_value = None
 
@@ -142,8 +142,6 @@ def test_datadome_bypass_stealth_browser_clears():
     curl_fetcher.get.return_value = curl_resp
 
     stealth_browser = MagicMock()
-    from src.core.http import FetchResult
-    from src.core.models import Document
     stealth_doc = Document(doc_id="d", source="marketplace_g2",
                           url="https://www.g2.com/products/slack/reviews",
                           body=REAL_BODY)

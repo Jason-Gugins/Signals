@@ -24,9 +24,9 @@ from loguru import logger
 # validation from the alerts delivery path — reused here, never re-implemented.
 from src.export.alerts import (
     _NO_CLIENT,
+    Alert,
     _deliver_once,
     _validate_webhook_url,
-    Alert,
     deliver_alerts,
     write_jsonl,
 )

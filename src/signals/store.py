@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from src.core.db import Database
 from src.core.models import Signal
 from src.signals.taxonomy import Taxonomy
@@ -14,7 +12,7 @@ class SignalStore:
         self.db = db
         self.taxonomy = taxonomy or Taxonomy.load()
 
-    def get(self, signal_id: str) -> Optional[Signal]:
+    def get(self, signal_id: str) -> Signal | None:
         row = self.db.one("SELECT * FROM signals WHERE signal_id = ?", (signal_id,))
         return Signal.from_db_row(row) if row else None
 
@@ -38,14 +36,14 @@ class SignalStore:
                 return b
             if not b:
                 return a
-            return a if a <= b else b
+            return min(a, b)
 
         def _max(a, b):
             if not a:
                 return b
             if not b:
                 return a
-            return a if a >= b else b
+            return max(a, b)
 
         return Signal(
             signal_id=old.signal_id,
@@ -118,7 +116,7 @@ class SignalStore:
             signals = signals[:limit]
         return signals
 
-    def newest(self, domain: str, signal_type: str) -> Optional[Signal]:
+    def newest(self, domain: str, signal_type: str) -> Signal | None:
         rows = self.for_account(domain, types=[signal_type], limit=1)
         return rows[0] if rows else None
 

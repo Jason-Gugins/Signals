@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from src.core.models import Contact, Signal
 from src.core.textutil import guess_persona
-
 
 PLAY_PERSONA_PREFERENCE: dict[str, list[str]] = {
     "growth_pitch": ["economic_buyer", "champion"],
@@ -56,12 +53,12 @@ def rank_contacts(
     return sorted(contacts, key=key)
 
 
-def best_contact(contacts, play_id, signal, **kw) -> Optional[Contact]:
+def best_contact(contacts, play_id, signal, **kw) -> Contact | None:
     ranked = rank_contacts(contacts, play_id, signal, **kw)
     return ranked[0] if ranked else None
 
 
-def email_guess(contact: Contact, domain: str, pattern: str | None) -> Optional[str]:
+def email_guess(contact: Contact, domain: str, pattern: str | None) -> str | None:
     pat = pattern or contact.email_pattern
     if not pat:
         return None

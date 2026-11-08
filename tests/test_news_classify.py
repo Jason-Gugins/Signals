@@ -1,6 +1,14 @@
 from datetime import date
+
 from src.core.models import Account
-from src.sources.news.classify import NEWS_RULES, classify_news, extract_vars, _strip_source_attribution, _is_common_word, _has_proper_mention
+from src.sources.news.classify import (
+    NEWS_RULES,
+    _has_proper_mention,
+    _is_common_word,
+    _strip_source_attribution,
+    classify_news,
+    extract_vars,
+)
 from src.sources.news.feeds import NewsItem
 
 TODAY = date(2026, 8, 16)

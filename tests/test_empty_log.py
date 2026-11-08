@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC
 
 from src.sources.marketplace.empty_log import EmptyLog
 
@@ -73,9 +74,9 @@ def test_clock_injection_sets_first_empty(tmp_path):
     # Expected date is derived from the injected clock in UTC — the same
     # conversion record_empty uses — so the test is timezone-independent
     # (a hardcoded local-date string failed on UTC CI runners).
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    expected = datetime.fromtimestamp(1756600000.0, tz=timezone.utc).date().isoformat()
+    expected = datetime.fromtimestamp(1756600000.0, tz=UTC).date().isoformat()
     assert data["g2:jira"]["first_empty"] == expected
 
 

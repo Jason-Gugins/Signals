@@ -1,10 +1,15 @@
 from datetime import date
 from pathlib import Path
+
 from src.core.db import Database
 from src.core.models import Account
 from src.identity.registry import AccountRegistry
-from src.sources.marketplace.trustradius import parse_g2_reviews, parse_trustradius_reviews, reviews_to_candidates
 from src.sources.marketplace.capterra import parse_capterra_reviews
+from src.sources.marketplace.trustradius import (
+    parse_g2_reviews,
+    parse_trustradius_reviews,
+    reviews_to_candidates,
+)
 
 HTML = (Path("tests/fixtures/marketplace/trustradius.html")).read_text(encoding="utf-8")
 

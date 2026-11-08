@@ -159,9 +159,9 @@ def _enablejs_is_soft(engine: str, body: str, marker: str) -> bool:
     )
 
 
-_ANCHOR_RE = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.S | re.I)
-_HREF_RE = re.compile(r"""href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", re.I)
-_TD_RE = re.compile(r"<td\b([^>]*)>(.*?)</td>", re.S | re.I)
+_ANCHOR_RE = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.DOTALL | re.IGNORECASE)
+_HREF_RE = re.compile(r"""href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", re.IGNORECASE)
+_TD_RE = re.compile(r"<td\b([^>]*)>(.*?)</td>", re.DOTALL | re.IGNORECASE)
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 

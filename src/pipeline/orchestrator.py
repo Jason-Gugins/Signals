@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import fields
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 
@@ -26,17 +27,16 @@ from src.identity.registry import AccountRegistry
 from src.identity.seeds import SeedStats, seed_from_csv, seed_from_linkedin_db, seed_from_repvue_db
 from src.intel.snapshot import IntelligenceSnapshot, build_intelligence_snapshot
 from src.pipeline.runner import CollectorRunner, RunnerStats
+from src.signals.calibration import load_stats
 from src.signals.combos import evaluate_combos
-from src.signals.lifecycle import load_supersede_map, partition_signals
+from src.signals.lifecycle import load_supersede_map
 from src.signals.normalize import normalize_batch
 from src.signals.plays import assign_plays
-from src.signals.calibration import load_stats
 from src.signals.score import score_account
 from src.signals.store import SignalStore
 from src.signals.taxonomy import Taxonomy
 from src.signals.tier import assign_tier
 from src.sources.registry import SOURCES, enabled_sources
-
 
 _INJECTED_TODAY: date | None = None
 
@@ -58,7 +58,7 @@ def _today() -> date:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def _company_feed_kind(doc, account) -> str:
@@ -287,7 +287,11 @@ class Orchestrator:
                     except Exception as exc:
                         logger.warning("icp failed for {}: {}", acct.domain, exc)
             if g2:
-                from src.identity.g2_resolve import fetch_g2_search_url, parse_g2_search_results, resolve_g2_from_results
+                from src.identity.g2_resolve import (
+                    fetch_g2_search_url,
+                    parse_g2_search_results,
+                    resolve_g2_from_results,
+                )
 
                 fetcher = self.fetcher or self._http_fetcher(ctx)
                 for acct in accounts:
@@ -487,7 +491,7 @@ class Orchestrator:
             stats = RunnerStats()
             formd = [a for a in adapters if a.key == "sec_formd"]
             if formd:
-                now = datetime.now(timezone.utc).replace(microsecond=0)
+                now = datetime.now(UTC).replace(microsecond=0)
                 due_row = self.db.one(
                     "SELECT * FROM source_cursors WHERE source=? AND key=?",
                     ("sec_formd", "global"),

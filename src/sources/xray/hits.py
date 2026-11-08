@@ -28,12 +28,12 @@ from urllib.parse import urlsplit
 from src.identity.domains import root_domain
 
 LINKEDIN_PROFILE_RE = re.compile(
-    r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/in/([A-Za-z0-9_%\-]{3,100})", re.I)
+    r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/in/([A-Za-z0-9_%\-]{3,100})", re.IGNORECASE)
 TITLE_AT_RE = re.compile(r"^(.{2,80}?)\s+(?:at|@)\s+(.{2,80})$")
 
 # SERP chrome that trails the company group on real LinkedIn titles
 # ("... @ Embryo | LinkedIn", "... @ Chexy | GTM & Partnerships - LinkedIn").
-_COMPANY_CHROME_TAIL_RE = re.compile(r"\s*-\s*LinkedIn\s*$", re.I)
+_COMPANY_CHROME_TAIL_RE = re.compile(r"\s*-\s*LinkedIn\s*$", re.IGNORECASE)
 
 
 def _clean_company(raw: str) -> str:

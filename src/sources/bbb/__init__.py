@@ -7,4 +7,4 @@ from src.sources.bbb.collector import (
     parse_bbb_profile,
 )
 
-__all__ = ["BbbProfileSource", "parse_bbb_profile", "grade_ordinal", "BBB_GRADE_SCALE"]
+__all__ = ["BBB_GRADE_SCALE", "BbbProfileSource", "grade_ordinal", "parse_bbb_profile"]

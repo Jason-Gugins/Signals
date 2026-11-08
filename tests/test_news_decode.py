@@ -8,7 +8,6 @@ from src.sources.news.decode import (
     post_decode,
 )
 
-
 PARAMS_HTML = (
     b'<html><c-wiz><div jscontroller="X" data-n-a-sg="SG123" data-n-a-ts="1700000000"></div></c-wiz></html>'
 )

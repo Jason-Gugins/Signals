@@ -24,7 +24,6 @@ from pathlib import Path
 from src.core.models import Account, Document
 from src.signals.normalize import normalize_batch
 from src.signals.taxonomy import Taxonomy
-
 from src.sources.marketplace.sa_ga import (
     GartnerReview,
     MarketplaceGetAppSource,

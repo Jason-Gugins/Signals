@@ -41,7 +41,7 @@ def blend_confidence(
     return max(0.05, min(0.95, base * (0.5 + 0.5 * rate)))
 
 
-def load_stats(db: "Database") -> dict:
+def load_stats(db: Database) -> dict:
     """Load calibration stats keyed by (source, signal_type).
 
     Returns {} when the table is missing or empty (zero-regression path).

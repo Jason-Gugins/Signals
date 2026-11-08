@@ -119,7 +119,7 @@ def test_parse_does_not_emit_tech_install_new(monkeypatch):
     # installs, while high_ticket_tech (enterprise tier) and
     # competitor_detected (vendor in rules['competitors']) keep firing for
     # vendors whose spec matches.
-    import src.sources.techstack.fingerprint as fingerprint
+    from src.sources.techstack import fingerprint
 
     rules = {
         "version": 1,

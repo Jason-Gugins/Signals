@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 from src.identity.edgar_ids import pad_cik
 
@@ -18,10 +17,10 @@ class Filing:
     accession: str
     form: str
     filing_date: str
-    report_date: Optional[str]
+    report_date: str | None
     items: list[str]
     primary_document: str
-    description: Optional[str]
+    description: str | None
     cik: str = ""
 
     @property

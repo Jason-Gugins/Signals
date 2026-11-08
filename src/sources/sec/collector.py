@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
 
 from src.core.models import Account, Document
 from src.identity.edgar_ids import SUBMISSIONS_URL, pad_cik
@@ -59,7 +58,7 @@ class SecEdgarSource(SourceAdapter):
     # Form 4s in one window — cap primary-doc fetches per cycle (newest first).
     FORM4_MAX_FOLLOWS = 10
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         if not account.cik:
             return []  # requires = ("cik",) — the orchestrator only routes CIK-bearing accounts here
         cik = pad_cik(account.cik)

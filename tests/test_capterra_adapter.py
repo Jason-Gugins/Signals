@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from src.core.models import Account, Document
 from src.sources.marketplace.collector import MarketplaceCapterraSource
 

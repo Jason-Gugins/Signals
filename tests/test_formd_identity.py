@@ -11,7 +11,6 @@ from src.identity.registry import AccountRegistry
 from src.sources.sec.formd_identity import attach_form_d_account, stub_domain
 from src.sources.sec.parse_formd import parse_form_d
 
-
 FIX = Path(__file__).parent / "fixtures" / "sec" / "form_d_primary_doc.xml"
 
 

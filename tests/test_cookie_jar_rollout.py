@@ -88,9 +88,9 @@ class TestMergeOrder:
     def test_explicit_caller_cookie_wins_over_stored_http(self, tmp_path: Path, monkeypatch):
         """HttpFetcher: task.headers Cookie must override the jar's stored cookie."""
         pytest.importorskip("httpx")
+        from src.core.cookiejar import PersistentCookieJar
         from src.core.http import HttpFetcher
         from src.sources.base import FetchTask
-        from src.core.cookiejar import PersistentCookieJar
 
         jar = PersistentCookieJar(path=tmp_path / "c.json")
         jar.update("sid", "stored", "example.com")
@@ -141,9 +141,9 @@ class TestMergeOrder:
 
     def test_jar_emits_cookie_when_no_caller_cookie(self, tmp_path: Path, monkeypatch):
         pytest.importorskip("httpx")
+        from src.core.cookiejar import PersistentCookieJar
         from src.core.http import HttpFetcher
         from src.sources.base import FetchTask
-        from src.core.cookiejar import PersistentCookieJar
 
         jar = PersistentCookieJar(path=tmp_path / "c.json")
         jar.update("sid", "stored", "example.com")
@@ -190,9 +190,9 @@ class TestMergeOrder:
 
     def test_response_set_cookie_fed_into_jar(self, tmp_path: Path, monkeypatch):
         pytest.importorskip("httpx")
+        from src.core.cookiejar import PersistentCookieJar
         from src.core.http import HttpFetcher
         from src.sources.base import FetchTask
-        from src.core.cookiejar import PersistentCookieJar
 
         jar = PersistentCookieJar(path=tmp_path / "c.json")
 
@@ -302,6 +302,7 @@ class TestDisabledByDefault:
     def test_http_behavior_identical_without_jar(self):
         """Byte-identical: default kwargs reproduce existing constructor signature."""
         import inspect
+
         from src.core.http import HttpFetcher
 
         sig = inspect.signature(HttpFetcher.__init__)
@@ -318,8 +319,8 @@ class TestCurlJarHook:
         from unittest.mock import patch
 
         import src.core.curl_fetcher as cf
-        from src.core.curl_fetcher import CurlCffiFetcher
         from src.core.cookiejar import PersistentCookieJar
+        from src.core.curl_fetcher import CurlCffiFetcher
 
         jar = PersistentCookieJar(path=tmp_path / "c.json")
         jar.update("sid", "stored", "example.com")
@@ -339,8 +340,8 @@ class TestCurlJarHook:
         from unittest.mock import patch
 
         import src.core.curl_fetcher as cf
-        from src.core.curl_fetcher import CurlCffiFetcher
         from src.core.cookiejar import PersistentCookieJar
+        from src.core.curl_fetcher import CurlCffiFetcher
 
         jar = PersistentCookieJar(path=tmp_path / "c.json")
         jar.update("sid", "stored", "example.com")
@@ -372,6 +373,7 @@ class TestBrowserJarHook:
     def test_browser_accepts_jar_kwarg(self):
         """BrowserFetcher constructor accepts optional cookie_jar (default None)."""
         import inspect
+
         from src.core.browser import BrowserFetcher
 
         sig = inspect.signature(BrowserFetcher.__init__)

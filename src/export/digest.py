@@ -6,14 +6,14 @@ Pure rendering — no DB, no file I/O, no wall-clock time.
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from src.core.models import Signal
 from src.signals.plays import PlayAssignment
 from src.signals.taxonomy import Taxonomy
 
 
-def _fmt_amount(amount_usd) -> Optional[str]:
+def _fmt_amount(amount_usd) -> str | None:
     try:
         n = float(amount_usd)
     except (TypeError, ValueError):
@@ -28,7 +28,7 @@ def _fmt_amount(amount_usd) -> Optional[str]:
     return f"${n:.0f}"
 
 
-def _why_now(signal: Signal) -> Optional[str]:
+def _why_now(signal: Signal) -> str | None:
     """Derive a why-now line from evidence_data, with graceful fallback."""
     d = signal.evidence_data or {}
     if not isinstance(d, dict):
@@ -110,8 +110,8 @@ def build_digest(
     plays: list[PlayAssignment],
     *,
     period: str,
-    taxonomy: Optional[Taxonomy] = None,
-    since: Optional[str] = None,
+    taxonomy: Taxonomy | None = None,
+    since: str | None = None,
     include_formd_unmatched: bool = False,
 ) -> str:
     """Render a markdown alert digest for one account.
@@ -134,7 +134,7 @@ def build_digest(
         lines.append("")
         lines.append("No signals this period.")
     else:
-        groups: "OrderedDict[str, list[Signal]]" = OrderedDict()
+        groups: OrderedDict[str, list[Signal]] = OrderedDict()
         for s in signals:
             groups.setdefault(s.signal_type, []).append(s)
         for stype, members in groups.items():

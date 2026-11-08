@@ -1,12 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
-from typing import Optional
 
 from src.core.models import Account, Document
-import json
-
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.registry import register
 
@@ -150,7 +148,7 @@ class MarketplaceG2Source(SourceAdapter):
         """g2_slug may hold comma-separated slugs. Returns clean slug list."""
         return split_slugs(g2_slug)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         slugs = self._split_slugs(account.g2_slug)
         if not slugs:
             return []
@@ -290,7 +288,7 @@ class MarketplaceCapterraSource(SourceAdapter):
         """Slug field may hold comma-separated '<id>/<Slug>' segments."""
         return split_slugs(slug_field)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         segments = self._split_slugs(account.g2_slug)
         if not segments:
             return []
@@ -424,7 +422,7 @@ class MarketplaceTrustRadiusSource(SourceAdapter):
         """Slug field may hold comma-separated TrustRadius product slugs."""
         return split_slugs(slug_field)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         slugs = self._split_slugs(account.g2_slug)
         if not slugs:
             return []

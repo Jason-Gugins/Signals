@@ -14,13 +14,12 @@ under ``data/probe/`` (gitignored).
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 from src.core.textutil import to_iso_date
 from src.sources.ats.common import JobPost, parse_location, strip_html
 
 
-def _loc_parts(j: dict) -> tuple[Optional[str], Optional[bool]]:
+def _loc_parts(j: dict) -> tuple[str | None, bool | None]:
     loc = j.get("location")
     if not isinstance(loc, dict):
         loc = next((l for l in j.get("locations") or [] if isinstance(l, dict)), None)
@@ -80,7 +79,7 @@ class BreezySource(SourceAdapter):
     cadence_hours = 12
     requires = ("ats_token",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token
         return [
             FetchTask(

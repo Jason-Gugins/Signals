@@ -29,13 +29,14 @@ import hashlib
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from loguru import logger
 
 from src.core import doccontent
 from src.core.models import Account
+from src.core.textutil import truncate
 from src.decide import gates as decide_gates
 from src.decide import policy as decide_policy
 from src.decide.gates import DecideLedger
@@ -48,14 +49,13 @@ from src.llm import planner as llm_planner
 from src.pipeline.sweep import parse_target
 from src.signals.normalize import normalize_batch
 from src.sources.registry import enabled_sources, sources_for_account
-from src.core.textutil import truncate
 
 __all__ = [
-    "STAGES",
-    "MARKETPLACE_SOURCE_KEYS",
     "LOCAL_DERIVED_SOURCES",
-    "MAX_IMPLEMENT_DOCS",
+    "MARKETPLACE_SOURCE_KEYS",
     "MAX_G5_CALLS",
+    "MAX_IMPLEMENT_DOCS",
+    "STAGES",
     "run_intel",
 ]
 
@@ -282,7 +282,7 @@ def _utc_now_iso() -> str:
     Duplicated (not imported) so the intel wiring never imports the
     orchestrator module — the same "now" convention, no new coupling.
     """
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def _shadow_appendix(rows: list[dict]) -> dict:

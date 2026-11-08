@@ -42,7 +42,6 @@ from src.pipeline.orchestrator import Orchestrator
 from src.sources.jobsignals.collector import JobSignalsSource
 from src.sources.needs.collector import NeedsSource
 
-
 DOMAIN = "acme.com"
 ACCOUNT_NAME = "Acme"
 

@@ -11,13 +11,12 @@ shapes, string or dict locations, and multiple date-key aliases.
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 from src.core.textutil import to_iso_date
 from src.sources.ats.common import JobPost, parse_location, strip_html
 
 
-def _loc_str(loc) -> Optional[str]:
+def _loc_str(loc) -> str | None:
     if isinstance(loc, str):
         return loc or None
     if isinstance(loc, dict):
@@ -72,7 +71,7 @@ class JobviteSource(SourceAdapter):
     cadence_hours = 12
     requires = ("ats_token",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token
         return [
             FetchTask(

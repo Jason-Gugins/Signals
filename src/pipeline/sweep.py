@@ -22,7 +22,7 @@ from loguru import logger
 from src.core.models import Account
 from src.identity.domains import root_domain
 
-__all__ = ["run_sweep", "SweepError"]
+__all__ = ["SweepError", "run_sweep"]
 
 
 class SweepError(ValueError):

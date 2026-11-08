@@ -1,10 +1,9 @@
 """g2-selfcheck: live selector-drift alarm (fetcher mocked — no network in tests)."""
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from src.core.http import FetchResult
 from src.core.models import Document
-from src.sources.marketplace.selfcheck import run_selfcheck, SelfcheckResult
+from src.sources.marketplace.selfcheck import run_selfcheck
 
 GOOD = b"<html><article id='sierra-review-1' ue='track-in-viewport'>x</article></html>"
 CHALLENGE = b"<html><script>var dd={'rt':'i','host':'geo.captcha-delivery.com'}</script></html>"

@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from src.core.errors import BACKOFF_MULTIPLIER, FetchErrorClass, classify_fetch_error
+from src.core.errors import BACKOFF_MULTIPLIER, classify_fetch_error
 from src.core.filelock import exclusive_lock
 from src.core.http import FetchResult
-from src.core.models import Account, Document
+from src.core.models import Account
 from src.core.runlog import RunContext
 from src.core.textutil import to_iso_date
 from src.signals.normalize import normalize_batch
@@ -73,7 +73,7 @@ class RunnerStats:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _iso(dt: datetime) -> str:
@@ -190,7 +190,7 @@ class CollectorRunner:
                                 adapter.key,
                                 _ckey(adapter, account),
                                 "ineligible_ats_vendor",
-                                f"ats vendor gate: ats_vendor={account.ats_vendor!r}, token_present={str(bool(account.ats_token))}",
+                                f"ats vendor gate: ats_vendor={account.ats_vendor!r}, token_present={bool(account.ats_token)!s}",
                             )
                         continue
                     cur = self._cursor(adapter.key, _ckey(adapter, account))
@@ -327,7 +327,7 @@ class CollectorRunner:
         # end-of-cycle, so a per-pass query would never see them anyway. On any
         # failure an EMPTY set is injected: the adapter then behaves
         # positionally, i.e. exactly as it did before F8, rather than crashing.
-        described_external_ids: Optional[set] = None
+        described_external_ids: set | None = None
         if getattr(adapter, "detail_selection", False):
             described_external_ids = set()
             try:
@@ -367,7 +367,7 @@ class CollectorRunner:
         # detail-marked fetches per (adapter, account) per cycle, in queue
         # order. An explicit 0 means "no details at all". NaN/None/garbage and
         # adapters without the attribute mean "unbounded" (the old behaviour).
-        detail_budget: Optional[int] = None
+        detail_budget: int | None = None
         try:
             _raw_budget = getattr(adapter, "detail_budget", None)
             if _raw_budget is not None:
@@ -765,6 +765,8 @@ class CollectorRunner:
             if review_harvests:
                 from src.sources.marketplace.trend import (
                     DEFAULT_STATS_PATH as MARKETPLACE_STATS_PATH,
+                )
+                from src.sources.marketplace.trend import (
                     compute_stats,
                     load_stats,
                     review_trend_signal,
@@ -784,9 +786,7 @@ class CollectorRunner:
                 # the suffix stays the source name exactly as before, so the
                 # G2/Capterra/TrustRadius stats keys are unchanged.
                 source_name = (
-                    adapter.key[len("marketplace_"):]
-                    if adapter.key.startswith("marketplace_")
-                    else adapter.key
+                    adapter.key.removeprefix("marketplace_")
                 )
                 # Single-process assumption: the load→mutate→save cycle below
                 # touches a shared JSON file, so it is serialized against a
@@ -818,10 +818,16 @@ class CollectorRunner:
             if job_harvests and not follow:
                 from src.sources.jobsignals.trend import (
                     DEFAULT_STATS_PATH as JOBSIGNALS_STATS_PATH,
+                )
+                from src.sources.jobsignals.trend import (
                     compute_stats as jobs_compute_stats,
+                )
+                from src.sources.jobsignals.trend import (
                     hiring_trend_signal,
                     load_stats,
                     save_stats,
+                )
+                from src.sources.jobsignals.trend import (
                     stats_key as jobs_stats_key,
                 )
 
@@ -862,6 +868,8 @@ class CollectorRunner:
                 from src.sources.community.github import repo_delta
                 from src.sources.community.stats import (
                     DEFAULT_STATS_PATH as GITHUB_STATS_PATH,
+                )
+                from src.sources.community.stats import (
                     load_stats,
                     save_stats,
                 )
@@ -940,6 +948,8 @@ class CollectorRunner:
             if pkg_harvests:
                 from src.sources.community.npm import (
                     DEFAULT_STATS_PATH as NPM_STATS_PATH,
+                )
+                from src.sources.community.npm import (
                     npm_delta,
                 )
                 from src.sources.community.stats import load_stats, save_stats
@@ -1327,7 +1337,7 @@ class CollectorRunner:
         if last_doc is not None:
             self._record_success(adapter, "global", adapter.next_cursor(last_doc, []), last_doc, now)
 
-    def _execute_tasks(self, adapter, tasks, cursor_row, stats) -> list[tuple[FetchTask, "FetchResult | None"]]:
+    def _execute_tasks(self, adapter, tasks, cursor_row, stats) -> list[tuple[FetchTask, FetchResult | None]]:
         stats.tasks += len(tasks)
         stats._src(adapter.key)["tasks"] += len(tasks)
         etag = cursor_row.get("etag")
@@ -1442,7 +1452,7 @@ class CollectorRunner:
                 )
         return result
 
-    def _fetch_g2_fragment(self, task) -> Optional[object]:
+    def _fetch_g2_fragment(self, task) -> object | None:
         """Fetch the rendered reviews_and_filters fragment for a marketplace_g2 task.
 
         G2's current live reviews are served as client-rendered elv-* DOM from
@@ -1518,8 +1528,8 @@ class CollectorRunner:
             return None
         if result is not None and result.ok and result.doc is not None and result.doc.body:
             # Classify the fragment: DataDome challenge / rendered reviews / empty page.
-            from src.sources.techstack.datadome import is_datadome_challenge
             from src.sources.marketplace.g2 import extract_g2_reviews
+            from src.sources.techstack.datadome import is_datadome_challenge
 
             body = result.doc.body
             if is_datadome_challenge(status=result.status, body=body):
@@ -1561,7 +1571,7 @@ class CollectorRunner:
             return result
         return None
 
-    def _prev_pricing_html(self, domain: str, *, exclude_doc_id: str) -> Optional[str]:
+    def _prev_pricing_html(self, domain: str, *, exclude_doc_id: str) -> str | None:
         """Most recent wayback pricing snapshot body for this domain, EXCLUDING
         the doc currently being parsed (that's the 'current' side of the diff).
 
@@ -1587,7 +1597,7 @@ class CollectorRunner:
             return None
         return doc.body.decode("utf-8", "replace")
 
-    def _prev_homepage_html(self, domain: str, *, exclude_doc_id: str) -> Optional[str]:
+    def _prev_homepage_html(self, domain: str, *, exclude_doc_id: str) -> str | None:
         """Most recent wayback HOMEPAGE snapshot body for this domain, EXCLUDING
         the doc currently being parsed (that's the 'current' side of the diff).
 
@@ -1618,7 +1628,7 @@ class CollectorRunner:
             return None
         return doc.body.decode("utf-8", "replace")
 
-    def _prev_crtsh_names(self, domain: str, *, exclude_doc_id: str) -> Optional[list[str]]:
+    def _prev_crtsh_names(self, domain: str, *, exclude_doc_id: str) -> list[str] | None:
         """Most recent prior crt.sh name list for this domain, EXCLUDING the
         doc currently being parsed (that's the 'current' side of the diff).
 
@@ -1674,7 +1684,7 @@ class CollectorRunner:
         if is_ats and not more_pages:
             snapshot_jobs(self.db, account.domain, as_of=now.date().isoformat())
 
-    def _cursor(self, source: str, key: str) -> Optional[dict]:
+    def _cursor(self, source: str, key: str) -> dict | None:
         return self.db.one("SELECT * FROM source_cursors WHERE source=? AND key=?", (source, key))
 
     def _record_success(self, adapter, key, cursor, doc, now):
@@ -1728,7 +1738,7 @@ class CollectorRunner:
             penalty_days = (2 ** (n - 1)) * multiplier
             prev_dt = datetime.fromisoformat(prev_due)
             if prev_dt.tzinfo is None:
-                prev_dt = prev_dt.replace(tzinfo=timezone.utc)
+                prev_dt = prev_dt.replace(tzinfo=UTC)
             due_dt = min(prev_dt + timedelta(days=penalty_days), floor + cap)
             due = _iso(due_dt)
         else:

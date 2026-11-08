@@ -1,32 +1,57 @@
 """Import collectors so @register populates SOURCES."""
 
-import src.sources.sec.collector  # noqa: F401
-import src.sources.sec.formd_source  # noqa: F401
-import src.sources.ats.collector  # noqa: F401
-import src.sources.ats.rippling  # noqa: F401  (ats_rippling)
-import src.sources.ats.jobvite  # noqa: F401  (ats_jobvite)
-import src.sources.ats.breezy  # noqa: F401  (ats_breezy)
-import src.sources.ats.teamtailor  # noqa: F401  (ats_teamtailor)
-import src.sources.ats.careers_page  # noqa: F401  (ats_careers_page — no-ATS fallback)
-import src.sources.jobsignals.collector  # noqa: F401
-import src.sources.needs.collector  # noqa: F401  (needs — local-tier derived, profile-matched)
-import src.sources.news.collector  # noqa: F401
-import src.sources.regulatory.collector  # noqa: F401
-import src.sources.warn.source  # noqa: F401
-import src.sources.techstack.collector  # noqa: F401
-import src.sources.wayback.collector  # noqa: F401
-import src.sources.crtsh.collector  # noqa: F401
-import src.sources.community.collector  # noqa: F401
-import src.sources.community.reddit  # noqa: F401  (community_reddit — live via scoped /search.rss robots override, 2026-10-30)
-import src.sources.marketplace.collector  # noqa: F401
-import src.sources.marketplace.sa_ga  # noqa: F401  (marketplace_softwareadvice / marketplace_getapp — disabled by default)
-import src.sources.content.collector  # noqa: F401
-import src.sources.content.producthunt  # noqa: F401  (content_producthunt — stub)
+# (appstore_reviews — live iTunes RSS)
+import src.sources.appstores.appstore
+
+# (ats_breezy)
+import src.sources.ats.breezy
+
+# (ats_careers_page — no-ATS fallback)
+import src.sources.ats.careers_page
+import src.sources.ats.collector
+
+# (ats_jobvite)
+import src.sources.ats.jobvite
+
+# (ats_rippling)
+import src.sources.ats.rippling
+
+# (ats_teamtailor)
+import src.sources.ats.teamtailor
+
+# (bbb_profile — live SSR)
+import src.sources.bbb.collector
+import src.sources.community.collector
+
+# (community_reddit — live via scoped /search.rss robots override, 2026-10-30)
+import src.sources.community.reddit
+import src.sources.content.collector
+
+# (content_producthunt — stub)
+import src.sources.content.producthunt
+import src.sources.crtsh.collector
+
+# (federal_contracts — live usaspending.gov award search)
+import src.sources.federal.collector
+import src.sources.jobsignals.collector
+import src.sources.linkedin_db.collector
+import src.sources.marketplace.collector
+
+# (marketplace_softwareadvice / marketplace_getapp — disabled by default)
+import src.sources.marketplace.sa_ga
+
+# (needs — local-tier derived, profile-matched)
+import src.sources.needs.collector
+import src.sources.news.collector
+import src.sources.owned.collector
+import src.sources.regulatory.collector
+import src.sources.repvue_db.collector
+import src.sources.sec.collector
+import src.sources.sec.formd_source
+
+# (sitecontent — sitemap-enumerated prose pages, spike arm C)
+import src.sources.sitecontent.collector
+import src.sources.techstack.collector
+import src.sources.warn.source
+import src.sources.wayback.collector
 import src.sources.yc.collector  # noqa: F401  (yc_batch — stub, browser-tier upgrade required)
-import src.sources.appstores.appstore  # noqa: F401  (appstore_reviews — live iTunes RSS)
-import src.sources.bbb.collector  # noqa: F401  (bbb_profile — live SSR)
-import src.sources.sitecontent.collector  # noqa: F401  (sitecontent — sitemap-enumerated prose pages, spike arm C)
-import src.sources.owned.collector  # noqa: F401
-import src.sources.linkedin_db.collector  # noqa: F401
-import src.sources.repvue_db.collector  # noqa: F401
-import src.sources.federal.collector  # noqa: F401  (federal_contracts — live usaspending.gov award search)

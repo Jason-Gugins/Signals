@@ -5,11 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import respx
-import httpx
-import yaml
 
 from src.core.config import Config
-from src.core.db import Database
 from src.core.models import Account, Document
 from src.core.rawstore import RawStore
 from src.pipeline.orchestrator import Orchestrator

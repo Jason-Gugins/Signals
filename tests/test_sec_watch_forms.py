@@ -12,7 +12,6 @@ from src.sources.sec.collector import SecEdgarSource
 from src.sources.sec.parse_8k import classify_form
 from src.sources.sec.parse_submissions import Filing, parse_submissions
 
-
 TODAY = date(2026, 8, 16)
 FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "submissions_sample.json"
 

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import gzip
-from datetime import datetime, timedelta, timezone
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Iterator, Optional
 
 from loguru import logger
 
@@ -15,7 +15,7 @@ from src.core.textutil import sha256_hex
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 class RawStore:
@@ -83,7 +83,7 @@ class RawStore:
         self.db.upsert("documents", doc.to_db_row(), pk="doc_id")
         return doc
 
-    def get(self, doc_id: str) -> Optional[Document]:
+    def get(self, doc_id: str) -> Document | None:
         row = self.db.one("SELECT * FROM documents WHERE doc_id = ?", (doc_id,))
         if row is None:
             return None
@@ -135,7 +135,7 @@ class RawStore:
         only stale docs — review finding). Per-row best-effort: a row whose
         cleanup fails is logged and skipped, never raised past.
         """
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=keep_days)).isoformat()
         if keep_days <= 0:
             rows = self.db.query("SELECT doc_id, path FROM documents")
         else:

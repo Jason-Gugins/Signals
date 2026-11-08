@@ -104,7 +104,7 @@ def test_parse_emits_candidate_for_cross_account_alternate_name(tmp_path):
     assert len(matches) == 1
     c = matches[0]
     assert c.signal_type == "intent_3rd_topic"
-    assert c.natural_key == f"bbba:avalara-inc:track1099"
+    assert c.natural_key == "bbba:avalara-inc:track1099"
     assert c.evidence_data["resolved_domain"] == "track1099.com"
     assert c.evidence_data["facts"]["business_name"] == "Avalara Inc"
     assert c.domain_override == "avalara.com"

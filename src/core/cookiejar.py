@@ -16,10 +16,11 @@ it from core adds no new package-level cycle.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
-from src.antibot.python.cookies import CookieEntry, PersistentCookieJar as _AntibotJar
+from src.antibot.python.cookies import CookieEntry
+from src.antibot.python.cookies import PersistentCookieJar as _AntibotJar
 
 __all__ = ["CookieEntry", "PersistentCookieJar"]
 

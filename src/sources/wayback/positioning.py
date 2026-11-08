@@ -11,7 +11,6 @@ snapshot, or unparseable html all yield ``None``. Never guess.
 from __future__ import annotations
 
 from html.parser import HTMLParser
-from typing import Optional
 
 from src.sources.base import SignalCandidate
 
@@ -28,9 +27,9 @@ class _PageMeta(HTMLParser):
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.title: Optional[str] = None
-        self.description: Optional[str] = None
-        self._og_description: Optional[str] = None
+        self.title: str | None = None
+        self.description: str | None = None
+        self._og_description: str | None = None
         self._in_title = False
         self._title_chunks: list[str] = []
 
@@ -74,14 +73,14 @@ class _PageMeta(HTMLParser):
         self._close_title()
 
     @property
-    def effective_description(self) -> Optional[str]:
+    def effective_description(self) -> str | None:
         """meta description preferred, og:description as the fallback."""
         if self.description is not None:
             return self.description
         return self._og_description
 
 
-def extract_page_meta(html) -> Optional[tuple[Optional[str], Optional[str]]]:
+def extract_page_meta(html) -> tuple[str | None, str | None] | None:
     """Extract (title, description) from an html document.
 
     Accepts str or bytes. Returns ``None`` when the html is empty or
@@ -100,15 +99,15 @@ def extract_page_meta(html) -> Optional[tuple[Optional[str], Optional[str]]]:
     return parser.title, parser.effective_description
 
 
-def _collapse(value: Optional[str]) -> str:
+def _collapse(value: str | None) -> str:
     return " ".join(value.split()) if value else ""
 
 
-def _norm(value: Optional[str]) -> str:
+def _norm(value: str | None) -> str:
     return _collapse(value).casefold()
 
 
-def diff_positioning(prev_html, curr_html, *, domain: str, today: str) -> Optional[SignalCandidate]:
+def diff_positioning(prev_html, curr_html, *, domain: str, today: str) -> SignalCandidate | None:
     """Diff the title/meta-description of two homepage snapshots.
 
     Conservative: missing/unparseable html, an empty previous snapshot, or a

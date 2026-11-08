@@ -7,10 +7,10 @@ import re
 from datetime import date
 
 from src.core.models import Contact
-from src.core.textutil import guess_seniority, slugify, stable_id
+from src.core.textutil import guess_seniority, stable_id
 from src.sources.base import SignalCandidate
 
-_MONTHS = {m: i for i, m in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+_MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
 
 
 def _current_role(row: dict) -> tuple[str, str]:
@@ -41,7 +41,7 @@ def _current_role(row: dict) -> tuple[str, str]:
 
 def parse_role_start(dates: str | None) -> date | None:
     s = dates or ""
-    m = re.search(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(20\d{2})", s, re.I)
+    m = re.search(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(20\d{2})", s, re.IGNORECASE)
     if m:
         return date(int(m.group(2)), _MONTHS[m.group(1)[:3].lower()], 1)
     m = re.search(r"\b(20\d{2})\s*[–\-]", s)

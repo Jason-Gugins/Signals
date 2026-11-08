@@ -20,9 +20,6 @@ handles directly); parse() is bytes-in-candidates-out.
 from __future__ import annotations
 
 import gzip
-from pathlib import Path
-
-import pytest
 
 from src.core.db import Database
 from src.core.models import Account, Document

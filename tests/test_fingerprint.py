@@ -1,4 +1,8 @@
 from datetime import date
+from pathlib import Path
+
+import yaml
+
 from src.core.db import Database
 from src.sources.techstack.collector import tech_to_candidates, upsert_technologies
 from src.sources.techstack.fingerprint import (
@@ -10,8 +14,6 @@ from src.sources.techstack.fingerprint import (
     match_fingerprints,
     observed_hosts,
 )
-import yaml
-from pathlib import Path
 
 RULES = yaml.safe_load(Path("config/fingerprints.yaml").read_text(encoding="utf-8"))
 NET_FIX = Path("tests/fixtures/techstack/network_scanner.dev.json")
@@ -98,7 +100,11 @@ def test_probe_fixture_names_onetrust_bing_vimeo():
 
 
 def test_challenge_host_names_cloudflare():
-    from src.sources.techstack.fingerprint import NetworkEvidence, is_challenge_evidence, load_fingerprint_rules
+    from src.sources.techstack.fingerprint import (
+        NetworkEvidence,
+        is_challenge_evidence,
+        load_fingerprint_rules,
+    )
 
     ev = NetworkEvidence(page_url="https://example.com/", hosts=("challenges.cloudflare.com",), urls=())
     assert is_challenge_evidence(ev) is True

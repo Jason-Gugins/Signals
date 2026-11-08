@@ -7,7 +7,6 @@ spec (2026-08-30_232300-p1-roadmap-execution.md Task 5).
 """
 from __future__ import annotations
 
-import pytest
 from click.testing import CliRunner
 
 from src.identity.capterra_resolve import resolve_capterra, resolve_capterra_from_results
@@ -124,8 +123,8 @@ class TestCliResolveCapterra:
 
     def _setup(self, monkeypatch, accounts):
         from unittest.mock import MagicMock
+
         from src.pipeline.orchestrator import Orchestrator
-        from src.identity.registry import AccountRegistry
 
         registry = MagicMock()
         registry.list_accounts.return_value = accounts
@@ -152,13 +151,11 @@ class TestCliResolveCapterra:
         return ResolveResult(status="resolved", segment=segment)
 
     def _invoke(self, monkeypatch):
-        from click.testing import CliRunner
         from src.cli import main
 
         return CliRunner().invoke(main, ["resolve", "--capterra"])
 
     def test_appends_segment_to_g2_slug(self, monkeypatch):
-        from unittest.mock import MagicMock
 
         acct = self._account(g2_slug="existing-g2")
         registry = self._setup(monkeypatch, [acct])
@@ -174,7 +171,6 @@ class TestCliResolveCapterra:
         assert acct.g2_slug == "19319/JIRA"
 
     def test_ambiguous_exits_nonzero_and_does_not_write(self, monkeypatch):
-        from unittest.mock import MagicMock
         from src.identity.capterra_resolve import ResolveResult
 
         acct = self._account()

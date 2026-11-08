@@ -29,7 +29,6 @@ returns ``[]``), not an error.
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 from src.core.models import Account, Document
 from src.sources.base import FetchTask, SourceAdapter
@@ -117,7 +116,7 @@ class AppStoreReviewSource(SourceAdapter):
     requires = ("app_store_id",)
     emits = ("appstore_reviews",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         """PURE. One fetch task per app_store_id (comma-separated list OK)."""
         raw = account.app_store_id
         if not raw:
@@ -155,8 +154,8 @@ class AppStoreReviewSource(SourceAdapter):
 
 
 def upsert_appstore_reviews(db, reviews: list[dict], *, now: str,
-                            raw_ref: Optional[str] = None,
-                            app_store_id: Optional[str] = None) -> tuple[int, int]:
+                            raw_ref: str | None = None,
+                            app_store_id: str | None = None) -> tuple[int, int]:
     """Upsert App Store review dicts into the shared g2_reviews table.
 
     Writes ``source='appstore'`` rows with ``product_slug =

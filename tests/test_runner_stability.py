@@ -10,7 +10,7 @@ Task 4: _record_fail backoff scales with the adapter's real cadence_hours
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -84,7 +84,7 @@ def _runner(tmp_path, fetcher=None):
 
 
 def _utc(dt: datetime) -> datetime:
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
 # ── Task 3: fanout isolation in run() ───────────────────────────────────────
@@ -130,7 +130,7 @@ def test_fanout_failure_does_not_abort_later_adapters(tmp_path, monkeypatch):
 
 def _due_hours_from_now(row):
     due = _utc(datetime.fromisoformat(row["next_due_at"]))
-    return (due - datetime.now(timezone.utc)).total_seconds() / 3600
+    return (due - datetime.now(UTC)).total_seconds() / 3600
 
 
 def test_record_fail_first_penalty_scales_with_cadence(tmp_path):
@@ -164,7 +164,7 @@ def test_record_fail_cap_scales_with_cadence(tmp_path):
     floor + 8*336h, a 24h source at floor + 8 days; the 336h cap must be
     strictly later than the 24h cap (relationship, not absolute instants)."""
     runner, db, ctx = _runner(tmp_path)
-    stale = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    stale = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     # Seed deep-failed cursors so prev + 2^n * 2 days far exceeds any cap.
     db.upsert(
         "source_cursors",
@@ -184,7 +184,7 @@ def test_record_fail_cap_scales_with_cadence(tmp_path):
     r24 = db.one("SELECT next_due_at FROM source_cursors WHERE source='ok' AND key='d24'")
     due336 = _utc(datetime.fromisoformat(r336["next_due_at"]))
     due24 = _utc(datetime.fromisoformat(r24["next_due_at"]))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # 336h case: capped at floor + 8*336h (2688h)
     assert (due336 - now) <= timedelta(hours=8 * 336 + 1)
     # ... and strictly beyond the 24h-cadence cap (8 days)

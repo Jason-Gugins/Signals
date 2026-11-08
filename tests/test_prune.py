@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,7 +16,7 @@ def db(tmp_path):
 
 
 def _iso_old(days: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    return (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
 
 def _seed(db: Database, *, old_days: int = 120, new_days: int = 1) -> None:
@@ -115,6 +115,7 @@ def test_prune_all_checkpoints_and_analyzes(db):
 
 def test_cli_prune(tmp_path, monkeypatch, capsys):
     from types import SimpleNamespace
+
     from click.testing import CliRunner
 
     from src.cli import main

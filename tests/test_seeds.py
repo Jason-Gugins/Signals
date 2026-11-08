@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 from src.core.db import Database
 from src.identity.registry import AccountRegistry

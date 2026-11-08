@@ -1,5 +1,6 @@
 from src.core.db import Database
 
+
 def test_g2_reviews_table_exists(tmp_path):
     db = Database(tmp_path / "s.db")
     cols = db.table_columns("g2_reviews")

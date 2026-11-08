@@ -8,7 +8,6 @@ from pathlib import Path
 from src.core.models import Account, Document
 from src.sources.sec.collector import SecEdgarSource
 
-
 ACCT = Account(domain="acme.com", cik="0001234567")
 TODAY = date(2026, 8, 16)
 

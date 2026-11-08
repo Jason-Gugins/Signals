@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-
 PUBLIC_EMAIL_DOMAINS: frozenset[str] = frozenset(
     {
         "gmail.com",
@@ -78,8 +77,7 @@ def is_public_email_domain(d: str) -> bool:
 
 def _registrable(host: str) -> str:
     host = host.casefold().rstrip(".")
-    if host.startswith("www."):
-        host = host[4:]
+    host = host.removeprefix("www.")
     for tld in sorted(MULTI_LABEL_TLDS, key=len, reverse=True):
         suffix = "." + tld
         if host == tld:

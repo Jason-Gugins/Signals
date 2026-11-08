@@ -162,7 +162,7 @@ class BrowserFetcher:
                 args["storage_state"] = str(session_path)
         return args
 
-    def start(self) -> "BrowserFetcher":
+    def start(self) -> BrowserFetcher:
         if not self.config.browser.enabled:
             raise BrowserDisabled("browser tier is disabled (config.browser.enabled=false)")
         from playwright.sync_api import sync_playwright
@@ -181,7 +181,7 @@ class BrowserFetcher:
         self._page = self._context.new_page()
         return self
 
-    def _new_solve_context(self) -> "tuple[BrowserContext, Page]":
+    def _new_solve_context(self) -> tuple[BrowserContext, Page]:
         """Create a fresh browser context WITHOUT storage_state for challenge solves.
 
         Returns (context, page). The caller is responsible for closing the context
@@ -436,7 +436,7 @@ class BrowserFetcher:
             self._playwright.stop()
             self._playwright = None
 
-    def __enter__(self) -> "BrowserFetcher":
+    def __enter__(self) -> BrowserFetcher:
         return self.start()
 
     def __exit__(self, *exc: object) -> None:

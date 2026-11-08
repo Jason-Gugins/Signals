@@ -2,7 +2,8 @@
 """Library loader: schema validation, kind filter, unknown-slot rejection."""
 import pytest
 
-from src.sources.xray.library import load_library, LibraryError
+from src.sources.xray.library import LibraryError, load_library
+
 
 def test_loads_shipped_library():
     strings = load_library("config/lists/xray_strings.yaml")

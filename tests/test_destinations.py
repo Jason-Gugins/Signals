@@ -5,10 +5,10 @@ import os
 
 import pytest
 
-from src.core.config import Config
-from src.export.alerts import Alert, format_slack_text
 import src.export.alerts as alerts_mod
 import src.export.destinations as dest_mod
+from src.core.config import Config
+from src.export.alerts import Alert, format_slack_text
 from src.export.destinations import (
     FileDestination,
     WebhookDestination,

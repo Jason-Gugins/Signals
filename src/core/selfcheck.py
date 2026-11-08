@@ -10,8 +10,9 @@ parser still extracts items. States:
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Sequence
+from typing import Any
 
 
 @dataclass

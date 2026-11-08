@@ -20,11 +20,10 @@ from src.core.config import Config
 from src.core.db import Database
 from src.core.http import FetchResult
 from src.core.models import Account, Document
-from src.identity.registry import AccountRegistry
 from src.identity.names import name_similarity, normalize_name
+from src.identity.registry import AccountRegistry
 from src.identity.resolve import fuzzy_match, normalize_entity
 from src.pipeline.orchestrator import Orchestrator
-
 
 # ── normalization table ────────────────────────────────────────────────────
 

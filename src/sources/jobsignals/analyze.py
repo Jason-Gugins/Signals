@@ -23,21 +23,21 @@ class JobsWindow:
 MIGRATION_PATTERNS = [
     re.compile(
         r"migrat\w+\s+(?:from|off(?:\s+of)?)\s+(?P<from>[A-Z][\w .+-]{2,30})\s+to\s+(?P<to>[A-Z][\w .+-]{2,30})",
-        re.I,
+        re.IGNORECASE,
     ),
     re.compile(
         r"replac\w+\s+(?P<from>[A-Z][\w .+-]{2,30})\s+with\s+(?P<to>[A-Z][\w .+-]{2,30})",
-        re.I,
+        re.IGNORECASE,
     ),
-    re.compile(r"sunset\w*\s+(?P<from>[A-Z][\w .+-]{2,30})", re.I),
+    re.compile(r"sunset\w*\s+(?P<from>[A-Z][\w .+-]{2,30})", re.IGNORECASE),
     re.compile(
         r"consolidat\w+\s+.{0,40}\bonto\s+(?P<to>[A-Z][\w .+-]{2,30})",
-        re.I,
+        re.IGNORECASE,
     ),
 ]
 
 PROJECT_PATTERNS = [
-    re.compile(r"\b(?:we are|we're)\s+(?:building|standing up|rolling out)\s+(?P<what>[A-Za-z][\w .+-]{2,40})", re.I),
+    re.compile(r"\b(?:we are|we're)\s+(?:building|standing up|rolling out)\s+(?P<what>[A-Za-z][\w .+-]{2,40})", re.IGNORECASE),
 ]
 
 # ── job-text vendor extraction (roadmap Task 12) ────────────────────────────
@@ -54,25 +54,25 @@ _RELAXED_MIGRATION_PATTERNS = [
     # captured names are only trusted when they resolve to a known vendor.
     re.compile(
         r"migrat\w+\s+(?:from|off(?:\s+of)?)\s+(?P<from>[\w .+-]{2,30}?)\s+to\s+(?P<to>[\w .+-]{2,30})",
-        re.I,
+        re.IGNORECASE,
     ),
-    re.compile(r"replac\w+\s+(?P<from>[\w .+-]{2,30}?)\s+with\s+(?P<to>[\w .+-]{2,30})", re.I),
-    re.compile(r"sunset\w*\s+(?P<from>[\w .+-]{2,30})", re.I),
-    re.compile(r"consolidat\w+\s+.{0,40}\bonto\s+(?P<to>[\w .+-]{2,30})", re.I),
+    re.compile(r"replac\w+\s+(?P<from>[\w .+-]{2,30}?)\s+with\s+(?P<to>[\w .+-]{2,30})", re.IGNORECASE),
+    re.compile(r"sunset\w*\s+(?P<from>[\w .+-]{2,30})", re.IGNORECASE),
+    re.compile(r"consolidat\w+\s+.{0,40}\bonto\s+(?P<to>[\w .+-]{2,30})", re.IGNORECASE),
 ]
 
 _REQUIRED_STACK_PATTERNS = [
-    re.compile(r"\bexperience\s+(?:with|using|in)\s+([\w +/#&-]{2,40})", re.I),
-    re.compile(r"\bproficien(?:cy|t)\s+(?:with|in)\s+([\w +/#&-]{2,40})", re.I),
-    re.compile(r"\b([\w +/#&-]{2,30}?)\s+experience\s+(?:is\s+)?(?:required|preferred|necessary|mandatory|a\s+must)", re.I),
+    re.compile(r"\bexperience\s+(?:with|using|in)\s+([\w +/#&-]{2,40})", re.IGNORECASE),
+    re.compile(r"\bproficien(?:cy|t)\s+(?:with|in)\s+([\w +/#&-]{2,40})", re.IGNORECASE),
+    re.compile(r"\b([\w +/#&-]{2,30}?)\s+experience\s+(?:is\s+)?(?:required|preferred|necessary|mandatory|a\s+must)", re.IGNORECASE),
 ]
 
 _STACK_PATTERNS = [
-    re.compile(r"\bbuilt\s+on\s+(?:top\s+of\s+)?([\w +/#&-]{3,60})", re.I),
-    re.compile(r"\b(?:runs?|running)\s+on\s+([\w +/#&-]{3,60})", re.I),
-    re.compile(r"\bpowered\s+by\s+([\w +/#&-]{3,60})", re.I),
-    re.compile(r"\bour\s+(?:tech|technology|data)?\s*stack\s+(?:is|includes?)\s+([\w +/#&-]{3,60})", re.I),
-    re.compile(r"\bwe\s+(?:use|rely\s+on)\s+([\w +/#&-]{2,40})", re.I),
+    re.compile(r"\bbuilt\s+on\s+(?:top\s+of\s+)?([\w +/#&-]{3,60})", re.IGNORECASE),
+    re.compile(r"\b(?:runs?|running)\s+on\s+([\w +/#&-]{3,60})", re.IGNORECASE),
+    re.compile(r"\bpowered\s+by\s+([\w +/#&-]{3,60})", re.IGNORECASE),
+    re.compile(r"\bour\s+(?:tech|technology|data)?\s*stack\s+(?:is|includes?)\s+([\w +/#&-]{3,60})", re.IGNORECASE),
+    re.compile(r"\bwe\s+(?:use|rely\s+on)\s+([\w +/#&-]{2,40})", re.IGNORECASE),
 ]
 
 # B2B SaaS names that job posts use but fingerprints.yaml does not track.
@@ -124,7 +124,7 @@ def _vendor_vocab() -> list[tuple[str, re.Pattern]]:
     except Exception:
         pass  # vocabulary is best-effort; supplemental names still apply
     names -= _EXCLUDED_VENDORS
-    vocab = [(n, re.compile(rf"\b{re.escape(n)}\b", re.I)) for n in names]
+    vocab = [(n, re.compile(rf"\b{re.escape(n)}\b", re.IGNORECASE)) for n in names]
     vocab.sort(key=lambda t: -len(t[0]))
     return vocab
 

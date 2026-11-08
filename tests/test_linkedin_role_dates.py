@@ -2,14 +2,12 @@
 experience JSON (the column the scraper actually populates), not from the
 nonexistent experience_dates/dates columns."""
 import json
-import sqlite3
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 
 from src.core.config import Config
 from src.identity.seeds import _open_ro
-from src.sources.linkedin_db.collector import LinkedinDbSource
 from src.sources.linkedin_db.people import detect_role_changes, people_to_contacts
 
 
@@ -89,7 +87,6 @@ def test_live_scraper_db_role_dates():
     the DB belongs to the private linkedin-scraper repo."""
     import os
 
-    import pytest
 
     cfg = Config()
     path = cfg.external_dbs.linkedin_db

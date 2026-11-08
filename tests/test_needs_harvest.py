@@ -38,7 +38,7 @@ profiles:
 
 
 def _vocab(*names: str) -> list[tuple[str, re.Pattern]]:
-    return [(n, re.compile(rf"\b{re.escape(n)}\b", re.I)) for n in names]
+    return [(n, re.compile(rf"\b{re.escape(n)}\b", re.IGNORECASE)) for n in names]
 
 
 VENDOR_VOCAB = _vocab("snowflake", "dbt")

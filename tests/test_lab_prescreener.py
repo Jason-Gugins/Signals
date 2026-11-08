@@ -66,7 +66,7 @@ class TwoArgFakeDecider(FakeDecider):
     """The older two-argument signature (every test fake, third-party impls) —
     prescreen must call it WITHOUT the gate kwarg (gates.py _call's rule)."""
 
-    def decide(self, state, questions):  # noqa: D102 - two-arg override
+    def decide(self, state, questions):
         self.calls.append({"state": state, "questions": questions, "gate": "<not passed>"})
         question = state["question"] if isinstance(state, dict) else str(state)
         return self.decisions.get(question, self.default)

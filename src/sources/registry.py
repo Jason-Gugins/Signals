@@ -8,7 +8,6 @@ from src.core.config import Config
 from src.core.models import Account
 from src.sources.base import SourceAdapter
 
-
 SOURCES: dict[str, type[SourceAdapter]] = {}
 
 

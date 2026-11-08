@@ -25,7 +25,6 @@ from src.signals.store import SignalStore
 from src.signals.taxonomy import Taxonomy
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 
-
 # --------------------------------------------------------------------------
 # Change 2: merge_runner_stats
 # --------------------------------------------------------------------------

@@ -6,7 +6,6 @@ import hashlib
 import pytest
 
 from src.core.db import Database
-from src.core.models import Document
 from src.core.rawstore import RawStore
 from src.retrieval import indexer
 

@@ -27,7 +27,7 @@ filesystem writer is :func:`write_intel_package`.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from src.core.textutil import to_iso_date
@@ -731,7 +731,7 @@ def write_intel_package(dossier: dict, *, out_dir, decide_rows: list | None = No
 
     domain = _slug(dossier.get("domain") or "unknown-domain")
     invocation = _slug(str(dossier.get("invocation_id") or "noinvocation"))
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     package_dir = base / f"{domain}-{stamp}-{invocation}"
     suffix = 2
     while package_dir.exists():

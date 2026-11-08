@@ -1,8 +1,10 @@
-import json
 import csv
+import json
 from pathlib import Path
+
 from src.core.db import Database
-from src.export.g2_export import export_g2_json, export_g2_csv
+from src.export.g2_export import export_g2_csv, export_g2_json
+
 
 def _seed(db):
     db.upsert("g2_reviews", {

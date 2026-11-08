@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+
 from src.core.db import Database
 from src.core.models import Account
 from src.identity.registry import AccountRegistry
@@ -48,8 +49,8 @@ def test_match_notices_conservative(tmp_path):
 
 def test_ca_parse_list_typed_cells():
     """Live CA pages sometimes return list-typed CSV cells — must not crash."""
+
     from src.sources.warn.states.ca import CaWarn
-    import csv, io
     body = b'Company,Notice Date,Employees\n["Acme Corp"],2026-08-01,[42]\n'
     notices = CaWarn().parse(body)
     assert len(notices) == 1

@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-__all__ = ["append_event", "load_events", "string_stats", "status_rollup"]
+__all__ = ["append_event", "load_events", "status_rollup", "string_stats"]
 
 
 def append_event(path: str | Path, event: dict, *, clock) -> None:

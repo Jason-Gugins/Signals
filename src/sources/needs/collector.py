@@ -26,7 +26,7 @@ passed-in ``today``, no filesystem access except through the injected
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from src.core.models import Account
 from src.core.textutil import sha256_hex
@@ -50,7 +50,7 @@ _KEY_HASH_CHARS = 12
 _CONFIDENCE = 0.7
 
 #: Undated documents rank oldest, so a timestamped copy always wins.
-_EPOCH_MIN = datetime.min.replace(tzinfo=timezone.utc)
+_EPOCH_MIN = datetime.min.replace(tzinfo=UTC)
 
 
 def _normalise_quote(quote: str) -> str:
@@ -77,7 +77,7 @@ def _fetched_at_rank(doc) -> datetime:
     except ValueError:
         return _EPOCH_MIN
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -90,7 +90,7 @@ def _normalise_vocab(vocab) -> list[tuple[str, re.Pattern]]:
             pairs.append((str(name), pattern))
         else:
             name = str(item).casefold()
-            pairs.append((name, re.compile(rf"\b{re.escape(name)}\b", re.I)))
+            pairs.append((name, re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)))
     return pairs
 
 

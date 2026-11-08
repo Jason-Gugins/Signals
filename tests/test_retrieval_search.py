@@ -5,14 +5,14 @@ import pytest
 
 from src.core.db import Database
 from src.retrieval import search
-from src.retrieval.indexer import MIN_TEXT_CHARS
 
 
 class FakeEmbedder:  # same shape as tests/test_retrieval_indexer.py
     model = "fake@1"
 
     def embed(self, texts):
-        import hashlib, math
+        import hashlib
+        import math
         out = []
         for t in texts:
             v = [0.0] * 16

@@ -7,7 +7,6 @@ idempotent; integrity_check runs on startup.
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -15,8 +14,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from core import db as db_mod  # noqa: E402
-from core.db import Database  # noqa: E402
+from core import db as db_mod
+from core.db import Database
 
 LATEST = max(v for v, _, _ in db_mod.MIGRATIONS)
 
@@ -108,7 +107,7 @@ def test_v0_db_missing_column_is_migrated_on_reopen(tmp_path: Path) -> None:
     # Simulate a pre-migration v0 DB: drop the source column from g2_reviews
     # and roll user_version back to 0.
     db.execute("ALTER TABLE g2_reviews DROP COLUMN source")
-    db.execute(f"PRAGMA user_version = 0")
+    db.execute("PRAGMA user_version = 0")
     cols_before = db.table_columns("g2_reviews")
     assert "source" not in cols_before
     db.close()

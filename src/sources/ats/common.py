@@ -6,10 +6,9 @@ import json
 import re
 from dataclasses import dataclass, field
 from html import unescape
-from typing import Optional
 
 from src.core.db import Database
-from src.core.textutil import clean_text, to_iso_date
+from src.core.textutil import clean_text
 
 
 @dataclass
@@ -85,9 +84,9 @@ def parse_location(raw: str | None) -> tuple[str | None, str | None, str | None,
     if not raw:
         return None, None, None, None
     s = raw.strip()
-    remote = bool(re.search(r"\bremote\b", s, re.I))
+    remote = bool(re.search(r"\bremote\b", s, re.IGNORECASE))
     city = region = country = None
-    parts = [p.strip() for p in re.split(r"[,/]| or ", s) if p.strip() and not re.fullmatch(r"remote(?:\s*-.*)?", p.strip(), re.I)]
+    parts = [p.strip() for p in re.split(r"[,/]| or ", s) if p.strip() and not re.fullmatch(r"remote(?:\s*-.*)?", p.strip(), re.IGNORECASE)]
     if not parts:
         return None, None, None, True if remote else None
     # last part may be country
@@ -108,7 +107,7 @@ def parse_location(raw: str | None) -> tuple[str | None, str | None, str | None,
         known = MAJOR_CITIES.get(city.casefold())
         if known:
             city, region, country = known[0], region or known[1], known[2]
-    if city and re.search(r"\bremote\b", city, re.I):
+    if city and re.search(r"\bremote\b", city, re.IGNORECASE):
         city = None
     return city, region, country, remote or None
 

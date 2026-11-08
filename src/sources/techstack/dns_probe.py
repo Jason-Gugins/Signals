@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from src.sources.techstack.fingerprint import TechMatch, match_dns
+from src.sources.techstack.fingerprint import match_dns
 
 
 @dataclass

@@ -53,7 +53,7 @@ from src.core.textutil import slugify, stable_id
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.registry import register
 
-__all__ = ["parse_bbb_profile", "BbbProfileSource", "grade_ordinal", "BBB_GRADE_SCALE"]
+__all__ = ["BBB_GRADE_SCALE", "BbbProfileSource", "grade_ordinal", "parse_bbb_profile"]
 
 # BBB letter-grade scale, best -> worst. The index IS the ordinal: a downgrade
 # is any step toward a HIGHER ordinal. "NR" (no rating) and anything unknown
@@ -380,7 +380,6 @@ class BbbProfileSource(SourceAdapter):
         via ``extra_data['bbb_url']``. Accounts without a seeded URL plan
         nothing (do not guess/construct profile URLs).
         """
-        from src.core.models import Account
 
         extra = getattr(account, "extra_data", None) or {}
         bbb_url = extra.get("bbb_url")

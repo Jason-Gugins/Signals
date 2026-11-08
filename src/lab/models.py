@@ -39,8 +39,9 @@ stay pure stdlib so the round runner can consult them anywhere.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 
 ERROR_SKLEARN_UNAVAILABLE = "sklearn unavailable"
 

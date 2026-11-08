@@ -40,10 +40,9 @@ def test_runcontext_inserts_then_completes(tmp_path):
 
 def test_runcontext_marks_failed_and_reraises(tmp_path):
     db = Database(tmp_path / "signals.db")
-    with pytest.raises(RuntimeError, match="boom"):
-        with RunContext(db, stage="collect") as ctx:
-            run_id = ctx.run_id
-            raise RuntimeError("boom")
+    with pytest.raises(RuntimeError, match="boom"), RunContext(db, stage="collect") as ctx:
+        run_id = ctx.run_id
+        raise RuntimeError("boom")
     row = db.one("SELECT * FROM runs WHERE run_id = ?", (run_id,))
     assert row["status"] == "failed"
     assert row["finished_at"]

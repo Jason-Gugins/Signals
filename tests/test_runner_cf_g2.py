@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-from src.core.models import Document
+
 from src.core.http import FetchResult
+from src.core.models import Document
 from src.sources.base import FetchTask
 
 

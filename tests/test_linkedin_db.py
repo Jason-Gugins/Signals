@@ -1,12 +1,12 @@
 from datetime import date
 from pathlib import Path
+
+from src.core.config import Config
 from src.core.models import Contact
+from src.sources.linkedin_db.collector import request_linkedin_deepen
 from src.sources.linkedin_db.jobs import linkedin_jobs_to_candidates
 from src.sources.linkedin_db.people import detect_role_changes, people_to_contacts
 from src.sources.linkedin_db.posts import posts_to_candidates
-from src.core.config import Config
-from src.sources.linkedin_db.collector import request_linkedin_deepen
-
 
 TODAY = date(2026, 8, 16)
 
@@ -144,7 +144,7 @@ def test_deepen_missing_checkout_returns_none(caplog):
 
 def test_deepen_cli_forwards_options(monkeypatch):
     """deepen --domain X --max-people N must forward both to request_linkedin_deepen."""
-    import src.cli as cli
+    from src import cli
     seen = {}
 
     def fake_deepen(config, slug, **kw):

@@ -5,11 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.core.db import Database
-from src.core.models import Account, Signal
+from src.core.models import Signal
 from src.signals.normalize import make_signal_id
 from src.signals.store import SignalStore
 from src.signals.taxonomy import Taxonomy
-
 
 TAX = Taxonomy.load(str(Path(__file__).resolve().parents[1] / "config" / "signals.yaml"))
 

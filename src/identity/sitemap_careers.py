@@ -18,14 +18,14 @@ falls back to its legacy heuristics.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from itertools import islice as _islice
-from typing import Callable, Iterable, Optional
 from urllib.parse import urljoin, urlparse
 
 # --- robots.txt ---------------------------------------------------------------
 
-_ROBOTS_SITEMAP = re.compile(r"^[ \t]*sitemap[ \t]*:[ \t]*(\S+)[ \t]*$", re.I | re.M)
+_ROBOTS_SITEMAP = re.compile(r"^[ \t]*sitemap[ \t]*:[ \t]*(\S+)[ \t]*$", re.IGNORECASE | re.MULTILINE)
 
 
 def parse_robots_sitemaps(text: str, base_url: str) -> list[str]:
@@ -42,9 +42,9 @@ def parse_robots_sitemaps(text: str, base_url: str) -> list[str]:
 
 # --- sitemap XML --------------------------------------------------------------
 
-_LOC = re.compile(r"<loc>\s*(.*?)\s*</loc>", re.I | re.S)
-_ROOT_TAG = re.compile(r"<\s*(sitemapindex|urlset)\b", re.I)
-_BARE_URL_LINE = re.compile(r"^\s*https?://\S+\s*$", re.I | re.M)
+_LOC = re.compile(r"<loc>\s*(.*?)\s*</loc>", re.IGNORECASE | re.DOTALL)
+_ROOT_TAG = re.compile(r"<\s*(sitemapindex|urlset)\b", re.IGNORECASE)
+_BARE_URL_LINE = re.compile(r"^\s*https?://\S+\s*$", re.IGNORECASE | re.MULTILINE)
 MAX_LOCS_PER_SITEMAP = 50_000
 
 
@@ -149,13 +149,13 @@ def career_path_score(url: str) -> int:
     return score if score >= _MIN_INDEX_SCORE else -1
 
 
-def pick_careers_url(urls: Iterable[str]) -> Optional[str]:
+def pick_careers_url(urls: Iterable[str]) -> str | None:
     """PURE. Best careers-index URL from a pool. Deterministic.
 
     Rank: (score desc, path depth asc, path length asc, url asc), so the
     shallowest highest-scoring index always wins regardless of input order.
     """
-    best: Optional[tuple[tuple[int, int, int, str], str]] = None
+    best: tuple[tuple[int, int, int, str], str] | None = None
     for url in dict.fromkeys(urls):
         score = career_path_score(url)
         if score < _MIN_INDEX_SCORE:
@@ -171,18 +171,18 @@ def pick_careers_url(urls: Iterable[str]) -> Optional[str]:
 
 DEFAULT_MAX_SITEMAPS = 3
 DEFAULT_MAX_REQUESTS = 6
-_CAREERISH_SITEMAP = re.compile(r"(career|job|position|hiring|vacanc)", re.I)
-_GENERIC_PAGE_CHILD = re.compile(r"(^|[/_-])(page|pages)[-_]", re.I)
+_CAREERISH_SITEMAP = re.compile(r"(career|job|position|hiring|vacanc)", re.IGNORECASE)
+_GENERIC_PAGE_CHILD = re.compile(r"(^|[/_-])(page|pages)[-_]", re.IGNORECASE)
 _TAXONOMY_CHILD = re.compile(
     r"^(category|topic|tag|author|glossary|industry|location|resource_type|integration_type|post_tag)[-_]",
-    re.I,
+    re.IGNORECASE,
 )
-FetchText = Callable[[str], Optional[str]]
+FetchText = Callable[[str], str | None]
 
 
 @dataclass
 class CareersLookup:
-    careers_url: Optional[str] = None
+    careers_url: str | None = None
     source: str = "none"  # robots_sitemap | root_sitemap | none
     requests: int = 0
     # ATTEMPTED fetches: a failed or unparsable sitemap still appears here.
@@ -200,7 +200,7 @@ def fetcher_for(fetcher, domain: str, *, source: str = "careers_discovery") -> F
     never actually contacted.
     """
 
-    def _get(url: str) -> Optional[str]:
+    def _get(url: str) -> str | None:
         from loguru import logger
 
         from src.core.config import ConfigError
@@ -242,7 +242,7 @@ class SitemapCareersFinder:
         self.max_sitemaps = max_sitemaps
         self.max_requests = max_requests
 
-    def _get(self, url: str, lookup: CareersLookup) -> Optional[str]:
+    def _get(self, url: str, lookup: CareersLookup) -> str | None:
         if lookup.requests >= self.max_requests:
             return None
         lookup.requests += 1

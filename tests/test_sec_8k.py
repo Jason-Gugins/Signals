@@ -11,7 +11,6 @@ from src.signals.taxonomy import Taxonomy
 from src.sources.sec.parse_8k import classify_8k, classify_form, extract_text
 from src.sources.sec.parse_submissions import Filing
 
-
 TODAY = date(2026, 8, 16)
 FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "8k_body.htm"
 

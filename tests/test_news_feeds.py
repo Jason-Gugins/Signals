@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from src.sources.news.feeds import (
     FEED_GUESSES,
     discover_feeds,
@@ -80,8 +81,6 @@ from src.sources.news.serp_config import load_google_news_cfg
 
 def test_serp_config_defaults_when_absent(tmp_path, monkeypatch):
     """When no google_news.serp_keywords in sources.yaml, return defaults."""
-    import yaml
-    from pathlib import Path
     fake = tmp_path / "sources.yaml"
     fake.write_text("sources:\n  google_news:\n    enabled: true\n  other:\n    enabled: true\n")
     import src.sources.news.serp_config as sc
@@ -94,7 +93,6 @@ def test_serp_config_defaults_when_absent(tmp_path, monkeypatch):
 
 def test_serp_config_reads_custom(tmp_path, monkeypatch):
     """serp_keywords from sources.yaml override defaults."""
-    from pathlib import Path
     fake = tmp_path / "sources.yaml"
     fake.write_text(
         "sources:\n  google_news:\n    serp_keywords: [fundraising, acquisition]\n"
@@ -195,6 +193,7 @@ def test_parse_feed_publisher_domain_cached_per_link(monkeypatch):
 def test_resolver_cache_is_bounded():
     """The resolver memo must be an lru_cache (bounded), not a bare dict."""
     import functools as _ft
+
     from src.sources.news import resolve
     assert isinstance(
         resolve._cached_resolve, _ft._lru_cache_wrapper

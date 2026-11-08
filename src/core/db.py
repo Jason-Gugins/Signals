@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime, timedelta, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -716,7 +717,7 @@ class Database:
                 self._conn.close()
                 self._conn = None
 
-    def __enter__(self) -> "Database":
+    def __enter__(self) -> Database:
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -731,7 +732,7 @@ class CfCookieStore:
     jars per browser fingerprint / proxy chain.
     """
 
-    def __init__(self, db: "Database"):
+    def __init__(self, db: Database):
         self.db = db
 
     def get(self, domain: str, *, user_agent: str, proxy: str = "direct") -> dict | None:
@@ -744,8 +745,8 @@ class CfCookieStore:
         # expiry check via datetime parsing (not ISO string compare — fragile across tz formats)
         expires = datetime.fromisoformat(row["expires_at"])
         if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-        if expires < datetime.now(timezone.utc):
+            expires = expires.replace(tzinfo=UTC)
+        if expires < datetime.now(UTC):
             return None
         return dict(row)
 
@@ -769,7 +770,7 @@ class CfCookieStore:
                 "proxy": proxy,
                 "cookies": json.dumps(cookies),
                 "expires_at": expires_at,
-                "solved_at": datetime.now(timezone.utc).isoformat(),
+                "solved_at": datetime.now(UTC).isoformat(),
                 "solve_method": solve_method,
             },
             pk=("domain", "user_agent", "proxy"),
@@ -789,7 +790,7 @@ class DataDomeCookieStore:
     but for DataDome's `datadome` cookie (IP + UA bound, stricter than CF).
     """
 
-    def __init__(self, db: "Database"):
+    def __init__(self, db: Database):
         self.db = db
 
     def get(self, domain: str, *, user_agent: str, proxy: str = "direct") -> dict | None:
@@ -802,8 +803,8 @@ class DataDomeCookieStore:
         # expiry check via datetime parsing (not ISO string compare — fragile across tz formats)
         expires = datetime.fromisoformat(row["expires_at"])
         if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-        if expires < datetime.now(timezone.utc):
+            expires = expires.replace(tzinfo=UTC)
+        if expires < datetime.now(UTC):
             return None
         return dict(row)
 
@@ -846,7 +847,7 @@ class IdentityCandidateStore:
     writes to accounts — same never-auto-merge policy as entity_aliases.
     """
 
-    def __init__(self, db: "Database"):
+    def __init__(self, db: Database):
         self.db = db
 
     def upsert_candidate(
@@ -872,7 +873,7 @@ class IdentityCandidateStore:
                 "chosen_domain": None,
                 "status": "pending",
                 "source": source,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
             },
             pk=("name", "kind"),
             coalesce=False,
@@ -926,7 +927,7 @@ def prune_all(db: Database, *, keep_days: int, raw_store: RawStore | None = None
     isoformat-written (datetime.now(timezone.utc).isoformat(), see
     CfCookieStore/DataDomeCookieStore), so their comparison is exact.
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(days=keep_days)).isoformat()
     counts: dict = {"raw_files": 0}
 
     if raw_store is not None:

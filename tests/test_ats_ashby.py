@@ -1,5 +1,7 @@
 from pathlib import Path
+
 from src.sources.ats.ashby import parse_ashby
+
 
 def test_parse_ashby():
     jobs = parse_ashby((Path(__file__).parent / "fixtures/ats/ashby_jobs.json").read_bytes())

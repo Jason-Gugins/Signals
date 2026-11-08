@@ -288,7 +288,6 @@ def probe_main(argv: list[str] | None = None) -> int:
     from src.lab.__main__ import _lab_decider, _load_decide_cfg
 
     decide_cfg = _load_decide_cfg()
-    from src.lab.__main__ import _lab_decider
 
     decider = _lab_decider(decide_cfg)
     consent = os.environ.get("SIGNALS_DECIDE_DATA_EXIT")
@@ -340,7 +339,7 @@ def probe_main(argv: list[str] | None = None) -> int:
 def _ts() -> str:
     import datetime
 
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def verify_model_id(model: str, api_key: str) -> str | None:

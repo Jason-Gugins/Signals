@@ -66,7 +66,6 @@ def test_review_id_unknown_date_falls_back_to_raw_date():
 def test_upsert_adopts_legacy_row_matching_natural_key(tmp_path):
     """A legacy row (old-style id) with same (slug, reviewer, posted_at) is
     ADOPTED — review_id updated in place — rather than duplicated."""
-    import sqlite3
 
     from src.core.db import Database
     from src.sources.marketplace.capterra import CapterraReview

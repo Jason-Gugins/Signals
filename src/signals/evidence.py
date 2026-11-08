@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from typing import Optional
 
 from src.core.models import Account, Signal
 from src.core.textutil import to_iso_date, truncate

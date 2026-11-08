@@ -279,7 +279,7 @@ def validate_plan(
 
 
 def _cache_path(cache_dir: Path, domain: str, profile: str, snapshot_hash: str) -> Path:
-    key = hashlib.sha256(f"{domain}|{profile}|{snapshot_hash}".encode("utf-8")).hexdigest()
+    key = hashlib.sha256(f"{domain}|{profile}|{snapshot_hash}".encode()).hexdigest()
     return Path(cache_dir) / f"{key}.json"
 
 

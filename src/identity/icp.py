@@ -10,7 +10,6 @@ from src.core.config import ConfigError
 from src.core.models import Account, Signal
 from src.identity.lists import load_domain_list
 
-
 KNOWN_PREDICATES = {
     "employee_count_between",
     "employee_count_lt",
@@ -56,10 +55,8 @@ def evaluate_icp(
             mult *= float(rule.get("multiplier", 1.0))
             if rule.get("reason"):
                 reasons.append(rule["reason"])
-    if mult < 0.0:
-        mult = 0.0
-    if mult > 2.0:
-        mult = 2.0
+    mult = max(mult, 0.0)
+    mult = min(mult, 2.0)
     return IcpResult(multiplier=mult, reasons=reasons, disqualified=False, disqualify_reason=None)
 
 
@@ -93,7 +90,7 @@ def _matches(account: Account, when: dict[str, Any], signals: list[Signal]) -> b
         if account.domain not in listed:
             return False
     if "name_regex" in when:
-        if not account.name or not re.search(when["name_regex"], account.name, re.I):
+        if not account.name or not re.search(when["name_regex"], account.name, re.IGNORECASE):
             return False
     if "tech_any" in when:
         techs = set()

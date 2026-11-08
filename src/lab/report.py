@@ -43,7 +43,7 @@ guard: src/lab never enters the intel import graph).
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -70,7 +70,7 @@ _PROPOSAL_NOTE = (
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def _fmt(value: object, nd: int = 3) -> str:

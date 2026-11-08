@@ -13,7 +13,7 @@ genuinely future-dated observation.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from src.core.models import Signal
 from src.pipeline import orchestrator
@@ -57,7 +57,7 @@ class _FrozenUtcDateTime(datetime):
 
     @classmethod
     def now(cls, tz=None) -> datetime:
-        return datetime(2026, 9, 15, 0, 30, tzinfo=timezone.utc)
+        return datetime(2026, 9, 15, 0, 30, tzinfo=UTC)
 
 
 # --------------------------------------------------------------------------

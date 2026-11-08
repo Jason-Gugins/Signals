@@ -97,9 +97,9 @@ class TestCollectorWiring:
         return {"today": "2026-03-15", "click_show_more": expand, "deep_reviews_bound": bound}
 
     def _parse(self, monkeypatch, meta, ratings=(3.0, 5.0)):
+        from src.core.models import Account, Document
         from src.sources.marketplace.collector import MarketplaceG2Source
         from src.sources.marketplace.g2 import G2Review
-        from src.core.models import Account, Document
 
         reviews = [
             G2Review(review_id=f"r{i}", product_slug="slack", rating=rating,

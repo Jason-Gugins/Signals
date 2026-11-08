@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+
 from src.core.models import Account, Contact
 from src.sources.content.blog import blog_to_candidates
 from src.sources.content.itunes import itunes_to_candidates, itunes_url, parse_itunes

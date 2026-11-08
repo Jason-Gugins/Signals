@@ -21,10 +21,10 @@ Callers (the intel CLI and the dossier) should share
 
 from __future__ import annotations
 
-from src.pipeline.runner import _missing_field, _ats_vendor_ok
+from src.pipeline.runner import _ats_vendor_ok, _missing_field
 from src.sources.registry import (
-    SOURCES,
     _CAREERS_FALLBACK_KEY,
+    SOURCES,
 )
 
 _COUNTERS = ("tasks", "fetched", "cached", "failed", "candidates", "signals_new")

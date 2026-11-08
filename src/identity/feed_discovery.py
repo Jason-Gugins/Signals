@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from src.core.models import Account
 from src.sources.news.feeds import FEED_GUESSES, discover_feeds, parse_feed
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class FeedDiscovery:
-    def __init__(self, fetcher: "HttpFetcher", registry: "AccountRegistry | None"):
+    def __init__(self, fetcher: HttpFetcher, registry: AccountRegistry | None):
         self.fetcher = fetcher
         self.registry = registry
 
@@ -21,7 +21,7 @@ class FeedDiscovery:
     # query + up to 2 wayback snapshots. A named constant prevents drift.
     MAX_FETCHES = 12
 
-    def discover(self, account: Account) -> Optional[str]:
+    def discover(self, account: Account) -> str | None:
         if account.blog_feed_url:
             return None
         used = 0

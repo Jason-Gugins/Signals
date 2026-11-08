@@ -35,7 +35,6 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 from html.parser import HTMLParser
-from typing import Optional
 
 from src.core.textutil import to_iso_date
 from src.identity.registry import AccountRegistry
@@ -142,34 +141,34 @@ def reviews_to_candidates(reviews, registry: AccountRegistry, *, today: date, ow
 
 _TR_BASE = "https://www.trustradius.com"
 
-_RATING10_RE = re.compile(r"Rating:\s*(\d+)\s*out of\s*10", re.I)
-_COMPANY_SIZE_RE = re.compile(r"\(([^)]*employees)\)", re.I)
+_RATING10_RE = re.compile(r"Rating:\s*(\d+)\s*out of\s*10", re.IGNORECASE)
+_COMPANY_SIZE_RE = re.compile(r"\(([^)]*employees)\)", re.IGNORECASE)
 
 
 @dataclass
 class TrustRadiusReview:
     review_id: str
     product_slug: str
-    reviewer_name: Optional[str] = None
-    reviewer_title: Optional[str] = None
-    reviewer_company_size: Optional[str] = None
-    rating: Optional[float] = None
-    review_title: Optional[str] = None
-    review_body: Optional[str] = None
+    reviewer_name: str | None = None
+    reviewer_title: str | None = None
+    reviewer_company_size: str | None = None
+    rating: float | None = None
+    review_title: str | None = None
+    review_body: str | None = None
     pros: list = field(default_factory=list)
     cons: list = field(default_factory=list)
-    posted_at: Optional[str] = None
-    review_url: Optional[str] = None
+    posted_at: str | None = None
+    review_url: str | None = None
     verified_reviewer: bool = False
-    review_source: Optional[str] = None
+    review_source: str | None = None
     # Present in the dataclass contract, but TrustRadius review cards carry no
     # NPS-score or helpful-vote markup (live capture, Aug 2026), so extraction
     # yields None until real markup maps.
-    nps_score: Optional[int] = None
-    helpful_votes: Optional[int] = None
+    nps_score: int | None = None
+    helpful_votes: int | None = None
 
 
-def _card_rating(card) -> Optional[float]:
+def _card_rating(card) -> float | None:
     """TrustRadius rates on a 0-10 scale; normalize to 0-5.
 
     Preferred: data-rating on the stars-container test id.

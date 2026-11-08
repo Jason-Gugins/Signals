@@ -14,7 +14,6 @@ from src.sources.sec.parse_submissions import (
     parse_submissions,
 )
 
-
 FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "submissions_sample.json"
 
 

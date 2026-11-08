@@ -10,9 +10,8 @@ import yaml
 
 from src.core.config import ConfigError
 from src.core.models import Signal
-from src.signals.combos import condition_matches, evaluate_combos
+from src.signals.combos import evaluate_combos
 from src.signals.taxonomy import Taxonomy
-
 
 TODAY = date(2026, 8, 16)
 TAX = Taxonomy.load("config/signals.yaml")

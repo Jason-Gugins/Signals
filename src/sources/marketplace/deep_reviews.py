@@ -7,13 +7,12 @@ expansion only proceeds when a review's rating is extreme (>= 4.0 or <= 2.0).
 Set ``deep_reviews_bound: null`` in config for the old bound-free behavior.
 """
 
-from typing import Optional
 
 DEFAULT_BOUND = "extreme"
 _VALID_BOUNDS = {"extreme"}
 
 
-def normalize_bound(value) -> Optional[str]:
+def normalize_bound(value) -> str | None:
     """Normalize a config bound value; explicit ``None`` = legacy bound-free
     behavior (returns ``None``); absent/invalid -> 'extreme' default.
 
@@ -29,7 +28,7 @@ def normalize_bound(value) -> Optional[str]:
     return DEFAULT_BOUND
 
 
-def should_expand(review_rating: Optional[float], bound: Optional[str]) -> bool:
+def should_expand(review_rating: float | None, bound: str | None) -> bool:
     """Decide whether a review justifies deep-review (Show More) expansion.
 
     Pure. ``bound='extreme'`` expands only ratings >= 4.0 or <= 2.0;

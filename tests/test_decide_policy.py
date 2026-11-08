@@ -20,13 +20,13 @@ from pathlib import Path
 
 import yaml
 
-import src.decide.policy as policy
 from src.decide import (
     LiveDecider,
     MockDecider,
     NullDecider,
     attach_decider,
     compose,
+    policy,
     resolve_mode,
 )
 

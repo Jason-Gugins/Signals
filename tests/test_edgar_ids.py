@@ -14,7 +14,6 @@ from src.identity.edgar_ids import (
 )
 from src.identity.names import name_similarity, normalize_name
 
-
 FIXTURE = Path(__file__).parent / "fixtures" / "sec" / "company_tickers.json"
 
 

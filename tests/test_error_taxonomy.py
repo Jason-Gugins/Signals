@@ -12,9 +12,8 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import httpx
 import pytest
@@ -22,9 +21,8 @@ import respx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from core.errors import BACKOFF_MULTIPLIER, FetchErrorClass, classify_fetch_error  # noqa: E402
-from src.sources.base import FetchTask  # noqa: E402
-
+from core.errors import BACKOFF_MULTIPLIER, FetchErrorClass, classify_fetch_error
+from src.sources.base import FetchTask
 
 # ── 1. classification truth table ────────────────────────────────────────────
 
@@ -152,10 +150,10 @@ def test_migration_v3_upgrades_old_v2_db(tmp_path):
 class Task:
     source: str
     url: str
-    domain: Optional[str] = None
+    domain: str | None = None
     method: str = "GET"
     headers: dict = field(default_factory=dict)
-    json_body: Optional[dict] = None
+    json_body: dict | None = None
 
 
 class FakeClock:
@@ -374,7 +372,6 @@ def test_runner_backoff_capped_at_8x_cadence(tmp_path):
     """4 consecutive auth failures on a 24h source: the compounding per-class
     penalty (2^3 * 8 = 64 days) is capped — next_due never exceeds
     now + 8x cadence (8 days), mirroring scheduler.MAX_BACKOFF_EXPONENT."""
-    from datetime import timezone as _tz
 
     from core.models import Account
 
@@ -391,10 +388,10 @@ def test_runner_backoff_capped_at_8x_cadence(tmp_path):
     assert cur["error_class"] == "auth"
     next_due = datetime.fromisoformat(cur["next_due_at"])
     if next_due.tzinfo is None:
-        next_due = next_due.replace(tzinfo=_tz.utc)
+        next_due = next_due.replace(tzinfo=UTC)
     # Uncapped would be 1 + 8 + 16 + 32... far beyond 8 days; the TOTAL
     # penalty from any point must never exceed now + 8x cadence (8 days).
-    assert (next_due - datetime.now(_tz.utc)).total_seconds() / 86400 <= 8.1, (
+    assert (next_due - datetime.now(UTC)).total_seconds() / 86400 <= 8.1, (
         f"backoff cap violated: next_due={cur['next_due_at']}"
     )
 

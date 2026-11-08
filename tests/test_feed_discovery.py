@@ -43,11 +43,12 @@ def test_discover_skips_when_already_set():
 def test_wayback_fallback_finds_feed_in_snapshot(tmp_path):
     """Live homepage is a JS shell; the archived snapshot exposes the feed."""
     import json as _json
+
     from src.core.db import Database
+    from src.core.http import FetchResult
     from src.core.models import Account, Document
     from src.identity.feed_discovery import FeedDiscovery
     from src.identity.registry import AccountRegistry
-    from src.core.http import FetchResult
 
     db = Database(tmp_path / "s.db")
     reg = AccountRegistry(db)
@@ -84,11 +85,12 @@ def test_wayback_fallback_finds_feed_in_snapshot(tmp_path):
 def test_wayback_fallback_ignores_third_party_feeds(tmp_path):
     """An archived page referencing a DIFFERENT host's feed must not be stored."""
     import json as _json
+
     from src.core.db import Database
+    from src.core.http import FetchResult
     from src.core.models import Account, Document
     from src.identity.feed_discovery import FeedDiscovery
     from src.identity.registry import AccountRegistry
-    from src.core.http import FetchResult
 
     db = Database(tmp_path / "s.db")
     reg = AccountRegistry(db)

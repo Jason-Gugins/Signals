@@ -5,7 +5,14 @@ from __future__ import annotations
 import json
 
 from src.core.db import Database
-from src.sources.ats.common import JobPost, job_key, parse_location, snapshot_jobs, strip_html, upsert_jobs
+from src.sources.ats.common import (
+    JobPost,
+    job_key,
+    parse_location,
+    snapshot_jobs,
+    strip_html,
+    upsert_jobs,
+)
 
 
 def test_job_key_stable():

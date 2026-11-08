@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -269,6 +269,7 @@ class _Fetch:
 
 
 def _runner(tmp_path, monkeypatch, fetch_factory=None):
+    import src.sources.community.stats as gh_stats
     from src.core.config import Config
     from src.core.db import Database
     from src.core.rawstore import RawStore
@@ -277,7 +278,6 @@ def _runner(tmp_path, monkeypatch, fetch_factory=None):
     from src.pipeline.runner import CollectorRunner
     from src.signals.store import SignalStore
     from src.signals.taxonomy import Taxonomy
-    import src.sources.community.stats as gh_stats
 
     stats_path = tmp_path / "github_stats.json"
     real_load, real_save = gh_stats.load_stats, gh_stats.save_stats
@@ -316,7 +316,7 @@ def test_runner_persists_github_momentum_and_writes_stats(tmp_path, monkeypatch)
     ]
     stub = _GithubStub(repos)
     runner, db, ctx, stats_path = _runner(tmp_path, monkeypatch)
-    month = (datetime.now(timezone.utc).date()).isoformat()[:7]
+    month = (datetime.now(UTC).date()).isoformat()[:7]
     accounts = [Account(domain="acme.com", name="Acme")]
     try:
         # Cycle 1: no prior stats -> conservative; only the recently created
@@ -340,7 +340,7 @@ def test_runner_persists_github_momentum_and_writes_stats(tmp_path, monkeypatch)
         assert stats["acme.com"]["acme/tool"] == {
             "stars": 100,
             "archived": False,
-            "seen_at": (datetime.now(timezone.utc).date()).isoformat(),
+            "seen_at": (datetime.now(UTC).date()).isoformat(),
             # Topic momentum (2026-10-30): the snapshot now persists casefolded
             # topics so repo_delta can diff them next cycle (empty here — the
             # stub repos carry none).
@@ -396,7 +396,7 @@ def test_two_new_topics_persist_two_signals(tmp_path, monkeypatch):
     repos = [_repo("acme/tool", stars=100, created="2019-01-01T00:00:00Z")]
     stub = _GithubStub(repos)
     runner, db, ctx, _stats_path = _runner(tmp_path, monkeypatch)
-    month = (datetime.now(timezone.utc).date()).isoformat()[:7]
+    month = (datetime.now(UTC).date()).isoformat()[:7]
     accounts = [Account(domain="acme.com", name="Acme")]
     try:
         # Cycle 1: baseline snapshot (no topics) — old repo, no new_repo bet.
@@ -460,7 +460,7 @@ def test_runner_persists_npm_momentum_and_writes_stats(tmp_path, monkeypatch):
     within NEW_PACKAGE_WINDOW_DAYS) with an npm: monthly natural key."""
     import src.sources.community.npm as npm_mod
 
-    now_date = datetime.now(timezone.utc).date()
+    now_date = datetime.now(UTC).date()
     published = (now_date - timedelta(days=10)).isoformat()
     pkgs = [
         {
@@ -521,7 +521,7 @@ def test_runner_persists_npm_downloads_surge_momentum_kind(tmp_path, monkeypatch
     ": monthly downloads …"."""
     import src.sources.community.npm as npm_mod
 
-    now_date = datetime.now(timezone.utc).date()
+    now_date = datetime.now(UTC).date()
     published = (now_date - timedelta(days=10)).isoformat()
     pkgs = [{
         "name": "@acme/sdk", "version": "1.0.0",

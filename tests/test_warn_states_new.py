@@ -81,8 +81,8 @@ def test_oh_parse_empty():
 
 # --- P3 Batch 2 hardening ---------------------------------------------------
 
-from src.sources.warn.states.fl import FlWarn as _FlWarn  # noqa: E402
-from src.sources.warn.states.oh import OhWarn as _OhWarn  # noqa: E402
+from src.sources.warn.states.fl import FlWarn as _FlWarn
+from src.sources.warn.states.oh import OhWarn as _OhWarn
 
 
 def _fl_row(cell: str) -> bytes:
@@ -129,8 +129,9 @@ def test_nj_lazy_import_degrades_to_noop_without_openpyxl(monkeypatch):
 
 def test_nj_header_scanned_beyond_first_row():
     """Header row is located by scanning the first rows, not assumed row 1."""
-    from openpyxl import Workbook
     from io import BytesIO
+
+    from openpyxl import Workbook
 
     wb = Workbook()
     ws = wb.active

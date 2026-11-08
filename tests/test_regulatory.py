@@ -1,8 +1,15 @@
 from datetime import date
 from pathlib import Path
+
 import yaml
+
 from src.core.models import Account
-from src.sources.regulatory.federal_register import fr_query_url, fr_to_candidates, match_watches, parse_fr_documents
+from src.sources.regulatory.federal_register import (
+    fr_query_url,
+    fr_to_candidates,
+    match_watches,
+    parse_fr_documents,
+)
 
 WATCHES = yaml.safe_load(Path("config/regulations.yaml").read_text(encoding="utf-8"))["watches"]
 

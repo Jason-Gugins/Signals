@@ -11,7 +11,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 from dotenv import load_dotenv
@@ -48,7 +48,7 @@ class BrowserConfig:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
     )
-    proxy_server: Optional[str] = None
+    proxy_server: str | None = None
     min_delay: float = 5.0
     max_delay: float = 15.0
     session_dir: str = "data/state"
@@ -65,8 +65,8 @@ class CloudflareConfig:
     cookie_ttl_hours: int = 24
     headed_fallback: bool = False
     headed_solve_timeout_ms: int = 120000  # hard cap for ad-hoc headed runs
-    solver_provider: Optional[str] = None  # "2captcha" | "anticaptcha" | None
-    solver_api_key: Optional[str] = None
+    solver_provider: str | None = None  # "2captcha" | "anticaptcha" | None
+    solver_api_key: str | None = None
     min_retry_delay_s: float = 2.0
     max_retry_delay_s: float = 8.0
     max_solves_per_domain_per_24h: int = 1  # anti-escalation cap
@@ -98,7 +98,7 @@ class SmtpConfig:
     credentials (resolved at send time) — never the credentials themselves.
     """
 
-    host: Optional[str] = None
+    host: str | None = None
     port: int = 587
     user_env: str = "SIGNALS_SMTP_USER"
     pass_env: str = "SIGNALS_SMTP_PASS"
@@ -214,13 +214,13 @@ class Config:
     external_dbs: ExternalDbConfig = field(default_factory=ExternalDbConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
-    contact_email: Optional[str] = None
-    github_token: Optional[str] = None
+    contact_email: str | None = None
+    github_token: str | None = None
     # GKG identity-discovery stage backend ("ekg" | "kgsearch"); the client
     # itself reads GOOGLE_APPLICATION_CREDENTIALS + GKG_PROJECT_ID (ekg) or
     # GOOGLE_KGSEARCH_KEY (kgsearch) — credentials absent = stage no-ops.
     gkg_backend: str = "ekg"
-    alert_webhook_url: Optional[str] = None
+    alert_webhook_url: str | None = None
     alert_webhook_timeout_s: float = 10.0
     # Outbound alert webhooks: list of {url, format: "slack"|"json", secret_env?}.
     # secret_env is the NAME of an env var holding the signing secret (resolved at
@@ -230,11 +230,11 @@ class Config:
     # Empty = legacy behavior (all alerts to all configured webhooks).
     # Populated from ALERT_ROUTES_JSON.
     alert_routes: list = field(default_factory=list)
-    exports: "ExportsConfig" = field(default_factory=lambda: ExportsConfig())
-    cookies: "CookiesConfig" = field(default_factory=lambda: CookiesConfig())
+    exports: ExportsConfig = field(default_factory=lambda: ExportsConfig())
+    cookies: CookiesConfig = field(default_factory=lambda: CookiesConfig())
     smtp: SmtpConfig = field(default_factory=SmtpConfig)
-    rerank: "RerankConfig" = field(default_factory=lambda: RerankConfig())
-    retrieval: "RetrievalConfig" = field(default_factory=lambda: RetrievalConfig())
+    rerank: RerankConfig = field(default_factory=lambda: RerankConfig())
+    retrieval: RetrievalConfig = field(default_factory=lambda: RetrievalConfig())
     config_dir: str = "config"
 
     _yaml_cache: dict[str, dict] = field(default_factory=dict, init=False, repr=False)

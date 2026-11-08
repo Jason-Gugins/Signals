@@ -12,11 +12,9 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 
 from src.sources.marketplace.base import coerce_rating
 from src.sources.marketplace.deep_reviews import normalize_bound, should_expand
-
 
 _SLUG_RE = re.compile(r"/products/([^/]+)/reviews")
 _STARS_RE = re.compile(r"stars-(\d+)")
@@ -78,7 +76,7 @@ def _extract_slug(url: str) -> str:
     return m.group(1) if m else "unknown"
 
 
-def _parse_rating(stars_class: str) -> Optional[float]:
+def _parse_rating(stars_class: str) -> float | None:
     """Convert a ``stars-N`` class string into a 0–5 float rating.
 
     G2 encodes the rating as an integer out of 10 (``stars-9`` == 4.5/5),
@@ -96,23 +94,23 @@ def _parse_rating(stars_class: str) -> Optional[float]:
 class G2Review:
     review_id: str
     product_slug: str
-    reviewer_name: Optional[str] = None
-    reviewer_title: Optional[str] = None
-    reviewer_company_size: Optional[str] = None
-    rating: Optional[float] = None
-    review_title: Optional[str] = None
-    review_body: Optional[str] = None
+    reviewer_name: str | None = None
+    reviewer_title: str | None = None
+    reviewer_company_size: str | None = None
+    rating: float | None = None
+    review_title: str | None = None
+    review_body: str | None = None
     pros: list[str] = field(default_factory=list)
     cons: list[str] = field(default_factory=list)
-    posted_at: Optional[str] = None
-    review_url: Optional[str] = None
+    posted_at: str | None = None
+    review_url: str | None = None
     verified_reviewer: bool = False
-    review_source: Optional[str] = None
+    review_source: str | None = None
     # Present in the dataclass contract, but G2's current rendered review cards
     # carry no identifiable per-card NPS-score or helpful-vote markup (verified
     # against live captures), so extraction yields None until real markup maps.
-    nps_score: Optional[int] = None
-    helpful_votes: Optional[int] = None
+    nps_score: int | None = None
+    helpful_votes: int | None = None
 
 
 def filter_deep_reviews(reviews: list, bound) -> list:
@@ -253,7 +251,7 @@ def extract_g2_reviews(html: str, product_slug: str) -> list[G2Review]:
         # --- pros / cons / body -------------------------------------------------
         pros: list[str] = []
         cons: list[str] = []
-        review_body: Optional[str] = None
+        review_body: str | None = None
         for heading in card.select("div.elv-font-bold"):
             heading_text = heading.get_text(" ", strip=True)
             if heading_text.startswith("What do you like best"):

@@ -1,5 +1,5 @@
-from src.sources.marketplace.collector import MarketplaceG2Source
 from src.core.models import Account, Document
+from src.sources.marketplace.collector import MarketplaceG2Source
 
 FIXTURE_BODY = b"<html><body><div class='paper'>review</div></body></html>"
 
@@ -24,6 +24,7 @@ def test_g2_parse_works_with_click_show_more_meta():
 def test_browser_fetch_accepts_click_show_more():
     """BrowserFetcher.fetch() accepts click_show_more kwarg without error."""
     import inspect
+
     from src.core.browser import BrowserFetcher
     sig = inspect.signature(BrowserFetcher.fetch)
     assert "click_show_more" in sig.parameters
@@ -31,6 +32,7 @@ def test_browser_fetch_accepts_click_show_more():
 def test_cf_bypass_attempt_accepts_click_show_more():
     """CloudflareBypass.attempt() accepts click_show_more kwarg."""
     import inspect
+
     from src.sources.techstack.cf_bypass import CloudflareBypass
     sig = inspect.signature(CloudflareBypass.attempt)
     assert "click_show_more" in sig.parameters

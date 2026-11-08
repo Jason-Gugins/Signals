@@ -2,10 +2,9 @@ import re
 
 from src.sources.jobsignals.analyze import _required_stack, extract_required_stack_demands
 
-
 VOCAB = [
-    ("snowflake", re.compile(r"\bsnowflake\b", re.I)),
-    ("dbt", re.compile(r"\bdbt\b", re.I)),
+    ("snowflake", re.compile(r"\bsnowflake\b", re.IGNORECASE)),
+    ("dbt", re.compile(r"\bdbt\b", re.IGNORECASE)),
 ]
 
 

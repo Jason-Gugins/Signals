@@ -12,8 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from core.db import Database, LATEST_VERSION  # noqa: E402
-from signals.backtest import (  # noqa: E402
+from core.db import LATEST_VERSION, Database
+from signals.backtest import (
     feed_calibration,
     play_hit_rates,
     record_outcome,
@@ -194,18 +194,17 @@ def test_migration_v5_play_outcomes_table(tmp_path: Path) -> None:
         cols = db.table_columns("play_outcomes")
         assert {"domain", "play_id", "outcome", "decided_at"} <= cols
         # PK is (domain, play_id) — inserting the same pair twice must conflict.
-        with db._lock:
-            with pytest.raises(sqlite3.IntegrityError):
-                db.conn.execute(
-                    "INSERT INTO play_outcomes (domain, play_id, outcome) VALUES (?, ?, ?)",
-                    ("acme.com", "p1", "hit"),
-                )
-                db.conn.execute(
-                    "INSERT INTO play_outcomes (domain, play_id, outcome) VALUES (?, ?, ?)",
-                    ("acme.com", "p1", "hit"),
-                )
+        with db._lock, pytest.raises(sqlite3.IntegrityError):
+            db.conn.execute(
+                "INSERT INTO play_outcomes (domain, play_id, outcome) VALUES (?, ?, ?)",
+                ("acme.com", "p1", "hit"),
+            )
+            db.conn.execute(
+                "INSERT INTO play_outcomes (domain, play_id, outcome) VALUES (?, ?, ?)",
+                ("acme.com", "p1", "hit"),
+            )
     finally:
         db.close()
 
 
-import pytest  # noqa: E402
+import pytest

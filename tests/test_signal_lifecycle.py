@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import date, timedelta
 from pathlib import Path
 
-import yaml
-
 from src.core.models import Account, Signal
 from src.signals.lifecycle import is_superseded, partition_signals
 from src.signals.taxonomy import Taxonomy

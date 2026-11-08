@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from typing import Optional
 
 from src.core.models import Account, Signal
 from src.core.textutil import stable_id, to_iso_date
@@ -20,13 +19,13 @@ class SignalCandidate:
     signal_type: str
     observed_at: str
     natural_key: str
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    url: Optional[str] = None
+    title: str | None = None
+    summary: str | None = None
+    url: str | None = None
     confidence: float = 0.8
-    person_key: Optional[str] = None
+    person_key: str | None = None
     evidence_data: dict = field(default_factory=dict)
-    domain_override: Optional[str] = None
+    domain_override: str | None = None
 
 
 def make_signal_id(domain: str, signal_type: str, natural_key: str) -> str:

@@ -8,7 +8,6 @@ same User-Agent that solved the challenge.
 from __future__ import annotations
 
 import time
-from typing import Optional
 from urllib.parse import urlparse
 
 

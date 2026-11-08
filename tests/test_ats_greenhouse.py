@@ -6,7 +6,6 @@ from pathlib import Path
 
 from src.sources.ats.greenhouse import parse_greenhouse
 
-
 FIXTURE = Path(__file__).parent / "fixtures" / "ats" / "greenhouse_jobs.json"
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 
@@ -41,7 +41,7 @@ def _resolve_logs_dir() -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 class RunContext:
@@ -55,7 +55,7 @@ class RunContext:
         self.errors = 0
         self._sink_id: int | None = None
 
-    def __enter__(self) -> "RunContext":
+    def __enter__(self) -> RunContext:
         self.db.execute(
             """
             INSERT INTO runs(run_id, stage, started_at, status,

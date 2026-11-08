@@ -1,4 +1,5 @@
 from datetime import date
+
 from src.sources.repvue_db.collector import repvue_to_candidates
 
 

@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import UTC, date
 from pathlib import Path
 
 from src.core.models import Account, Document
@@ -221,7 +221,7 @@ def test_workday_follow_tasks_cap_zero(monkeypatch):
     halves of the contract are asserted here, so the update is a widening, not
     a weakening.
     """
-    import src.sources.ats.collector as collector
+    from src.sources.ats import collector
 
     monkeypatch.setattr(collector, "load_ats_workday_cfg", lambda: {"detail_follow_max": 0})
     src = collector.WorkdaySource()
@@ -239,7 +239,7 @@ def test_workday_follow_tasks_cap_zero(monkeypatch):
 
 def test_workday_follow_tasks_cap_reads_config(monkeypatch):
     """The loader is still the single source for the number, read at CALL time."""
-    import src.sources.ats.collector as collector
+    from src.sources.ats import collector
 
     monkeypatch.setattr(collector, "load_ats_workday_cfg", lambda: {"detail_follow_max": 3})
     src = collector.WorkdaySource()
@@ -451,7 +451,7 @@ def test_runner_list_and_detail_reach_storage_and_the_demand_extractor(tmp_path,
     pass's posted_at / location / title (the COALESCE merge), and whatever the
     production demand extractor genuinely makes of that stored description.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     import src.sources.ats.collector as collector_module
     import src.sources.jobsignals.trend as trend_module
@@ -502,7 +502,7 @@ def test_runner_list_and_detail_reach_storage_and_the_demand_extractor(tmp_path,
     # branch passes posted_at=None deliberately, and the detail payload carries
     # only human text / a boolean. (_posted_on mirrors the runner's own clock:
     # the runner injects meta["today"] = its UTC date.)
-    expected_posted = _posted_on("Posted 6 Days Ago", datetime.now(timezone.utc).date())[0]
+    expected_posted = _posted_on("Posted 6 Days Ago", datetime.now(UTC).date())[0]
     assert row["posted_at"] == expected_posted
     assert row["location_raw"] == "Amsterdam, Netherlands"
     assert row["city"] == "Amsterdam"

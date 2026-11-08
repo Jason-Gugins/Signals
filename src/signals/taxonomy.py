@@ -7,7 +7,6 @@ from pathlib import Path
 
 import yaml
 
-
 REQUIRED_FIELDS = (
     "category",
     "origin",
@@ -57,7 +56,7 @@ class Taxonomy:
             self._types[key] = self._validate(key, raw or {})
 
     @classmethod
-    def load(cls, path: str = "config/signals.yaml") -> "Taxonomy":
+    def load(cls, path: str = "config/signals.yaml") -> Taxonomy:
         p = Path(path)
         if not p.is_file():
             p = Path(__file__).resolve().parents[2] / path

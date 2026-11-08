@@ -27,7 +27,6 @@ from src.intel.snapshot import build_intelligence_snapshot
 from src.signals.lifecycle import load_supersede_map
 from src.signals.taxonomy import Taxonomy
 
-
 TODAY = date(2026, 8, 16)
 TAX = Taxonomy.load("config/signals.yaml")
 SIGNALS_CFG = yaml.safe_load(Path("config/signals.yaml").read_text(encoding="utf-8"))

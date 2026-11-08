@@ -253,7 +253,6 @@ def test_cli_sweep_still_requires_target_without_discover(monkeypatch):
 # way (cfg loader + get_decider + attach identity — attach_decider refuses a
 # MockDecider BY DESIGN). Layer-off byte-identity: no jev_alignment keys.
 
-import json
 
 WATERFALL_CANDIDATES = [
     {"domain": "acme.com", "score": 4, "stage": "wikidata", "label": "Acme Corp",

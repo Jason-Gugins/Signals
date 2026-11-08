@@ -74,8 +74,8 @@ __all__ = [
 ]
 
 #: <loc> extraction: stdlib regex, XML-escaped ampersands unescaped.
-_LOC_RE = re.compile(r"<loc>\s*(.*?)\s*</loc>", re.I | re.S)
-_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+_LOC_RE = re.compile(r"<loc>\s*(.*?)\s*</loc>", re.IGNORECASE | re.DOTALL)
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 
 #: Body-sniff attempts per plan() call (newest docs first): bounding the
 #: gzip reads keeps a sitemap-less domain's weekly cycle cheap.

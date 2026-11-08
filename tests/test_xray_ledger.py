@@ -2,6 +2,7 @@
 """Ledger: UTC stamps from injected clock, append/load round-trip, stats."""
 from src.sources.xray.ledger import append_event, load_events, string_stats
 
+
 def test_append_stamps_utc_and_roundtrips(tmp_path):
     p = tmp_path / "ledger.jsonl"
     append_event(p, {"string_id": "s1", "query": "q", "results": 3},

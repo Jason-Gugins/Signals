@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from src.core.models import Document
@@ -23,7 +23,13 @@ from src.signals.normalize import normalize_batch
 from src.sources.base import FetchTask, SignalCandidate
 from src.sources.sec.formd_filter import FormDFilter, keep_form_d
 from src.sources.sec.formd_identity import attach_form_d_account
-from src.sources.sec.fts import fts_search_url, hit_to_filing, next_fts_offset, parse_fts_response, parse_fts_total
+from src.sources.sec.fts import (
+    fts_search_url,
+    hit_to_filing,
+    next_fts_offset,
+    parse_fts_response,
+    parse_fts_total,
+)
 from src.sources.sec.page_match import COMMON, issuer_matches_page
 from src.sources.sec.page_peel import PageHints, peel_legal_names, peel_page
 from src.sources.sec.parse_formd import FormD, form_d_to_candidates, parse_form_d
@@ -286,7 +292,7 @@ def parse_funding_doc(
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 @dataclass

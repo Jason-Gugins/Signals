@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -101,8 +101,8 @@ def parse_submissions_identity(body: bytes) -> dict:
 class EdgarIdentityResolver:
     def __init__(
         self,
-        fetcher: "HttpFetcher",
-        registry: "AccountRegistry",
+        fetcher: HttpFetcher,
+        registry: AccountRegistry,
         cache_ttl_hours: int = 168,
         sleep=time.sleep,
         retry_delay: float = 2.0,
@@ -129,7 +129,7 @@ class EdgarIdentityResolver:
                 if not result.ok or not result.doc or not result.doc.body:
                     raise ValueError(f"tickers index unavailable (ok={result.ok})")
                 self._index = parse_company_tickers(result.doc.body)
-                self._fetched_at = datetime.now(timezone.utc)
+                self._fetched_at = datetime.now(UTC)
                 return len(self._index)
             except Exception as exc:
                 if attempt == 2:

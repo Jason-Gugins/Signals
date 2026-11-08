@@ -45,10 +45,10 @@ from tests.test_intel_llm_layer import (
     DOMAIN,
     TAX,
     FakeOrchLlm,
-    _FakeRawStore,
-    _FakeSignalStore,
     _decide_cfg,
     _doc,
+    _FakeRawStore,
+    _FakeSignalStore,
     _high_decider,
     _patch_adapters,
     _patch_coverage,
@@ -56,7 +56,6 @@ from tests.test_intel_llm_layer import (
     _patch_package_recorder,
     _patch_planner,
 )
-
 
 # ---------------------------------------------------------------------------
 # Doubles

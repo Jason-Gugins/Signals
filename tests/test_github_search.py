@@ -6,7 +6,6 @@ from src.core.models import Account
 from src.sources.community.github import PUSH_BURST_THRESHOLD, parse_events, push_burst_count
 from src.sources.community.github_search import parse_search_users, search_users_url
 
-
 # ── plan(): recoverable multi-guess org probes (2026-10-31) ─────────────────
 
 

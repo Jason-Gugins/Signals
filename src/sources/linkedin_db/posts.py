@@ -5,13 +5,12 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from src.core.models import Contact
 from src.core.textutil import to_iso_date
 from src.sources.base import SignalCandidate
 
-_LAUNCH = re.compile(r"\b(launch|introducing|announcing)\b", re.I)
-_HIRE = re.compile(r"\b(we're hiring|we are hiring|join our team)\b", re.I)
-_DEPT = re.compile(r"\b(sales|engineering|marketing|product)\b", re.I)
+_LAUNCH = re.compile(r"\b(launch|introducing|announcing)\b", re.IGNORECASE)
+_HIRE = re.compile(r"\b(we're hiring|we are hiring|join our team)\b", re.IGNORECASE)
+_DEPT = re.compile(r"\b(sales|engineering|marketing|product)\b", re.IGNORECASE)
 
 
 def posts_to_candidates(rows, domain, contacts, *, today: date) -> list[SignalCandidate]:

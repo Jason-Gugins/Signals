@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Optional
 
 from src.sources.base import SignalCandidate
 
@@ -51,7 +50,7 @@ class _PricingParser(HTMLParser):
 
     # -- container / capture bookkeeping -----------------------------------
 
-    def _attr_hit(self, attrs: list[tuple[str, Optional[str]]]) -> bool:
+    def _attr_hit(self, attrs: list[tuple[str, str | None]]) -> bool:
         for name in ("class", "id", "data-testid", "data-section"):
             for key, val in attrs:
                 if key == name and val:
@@ -131,7 +130,7 @@ def extract_pricing_blocks(html: str) -> list[PricingBlock] | None:
     return parser.blocks
 
 
-def diff_pricing(prev_html, curr_html, *, domain: str, today: str) -> Optional[SignalCandidate]:
+def diff_pricing(prev_html, curr_html, *, domain: str, today: str) -> SignalCandidate | None:
     """Diff the pricing containers of two pricing-page snapshots.
 
     Conservative: missing/unparseable container in either html -> None.

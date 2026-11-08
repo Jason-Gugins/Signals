@@ -1,3 +1,6 @@
+from datetime import UTC
+
+
 def test_today_defaults_to_utc_clock():
     """The fallback is the UTC date — the age reference, not ``date.today()``.
 
@@ -6,20 +9,21 @@ def test_today_defaults_to_utc_clock():
     the local date lags the UTC date that ``observed_at`` values are written in.
     Accept either side of a UTC-midnight rollover so it can never flake.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from src.pipeline import orchestrator
 
     # reset any injection from other tests
     orchestrator.set_today(None)
-    before = datetime.now(timezone.utc).date()
+    before = datetime.now(UTC).date()
     got = orchestrator._today()
-    after = datetime.now(timezone.utc).date()
+    after = datetime.now(UTC).date()
     assert got in {before, after}
 
 
 def test_today_injectable():
     from datetime import date
+
     from src.pipeline import orchestrator
 
     orchestrator.set_today(date(2026, 9, 1))

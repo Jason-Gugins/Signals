@@ -7,10 +7,9 @@ The runner must therefore fetch the fragment through the DataDome stealth
 browser so ``parse()``/``harvest_reviews()`` receive the actual rendered reviews
 in the Document body.
 """
+import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-
-import logging
 
 from src.core.http import FetchResult
 from src.core.models import Document
@@ -183,8 +182,8 @@ def test_follow_tasks_page2_refetches_fragment_page_2(tmp_path):
     datadome_bypass.stealth = stealth_browser
     runner = _make_runner(MagicMock(), datadome_bypass)
 
-    from src.sources.marketplace.collector import MarketplaceG2Source
     from src.core.models import Account
+    from src.sources.marketplace.collector import MarketplaceG2Source
     adapter = MarketplaceG2Source()
     account = Account(domain="sierra.com", g2_slug="sierra")
 

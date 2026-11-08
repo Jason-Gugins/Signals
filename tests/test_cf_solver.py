@@ -1,4 +1,3 @@
-import pytest
 from src.sources.techstack.cf_solver import NoSolver, TwoCaptchaSolver, solve_cloudflare
 
 

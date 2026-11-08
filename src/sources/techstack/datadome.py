@@ -7,8 +7,6 @@ to submit the challenge to a solver service (2Captcha, CapSolver).
 from __future__ import annotations
 
 import re
-from typing import Optional
-
 
 _DD_MARKER = b"captcha-delivery.com"
 _DD_SCRIPT_RE = re.compile(rb"var\s+dd\s*=\s*(\{[^}]+\})", re.DOTALL)
@@ -28,7 +26,7 @@ def is_datadome_challenge(*, status: int, body: bytes) -> bool:
     return bool(_DD_SCRIPT_RE.search(body))
 
 
-def extract_datadome_params(body: bytes) -> Optional[dict]:
+def extract_datadome_params(body: bytes) -> dict | None:
     """Extract the dd={} JavaScript object from a DataDome challenge page.
 
     Returns a dict with keys: rt, cid, hsh, t, qp, s, e, host, cookie.
@@ -57,7 +55,7 @@ def extract_datadome_params(body: bytes) -> Optional[dict]:
         return params if params else None
 
 
-def extract_datadome_captcha_url(body: bytes) -> Optional[str]:
+def extract_datadome_captcha_url(body: bytes) -> str | None:
     """Extract the captcha URL from the DataDome iframe src attribute."""
     m = _DD_IFRAME_RE.search(body)
     if not m:

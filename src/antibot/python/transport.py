@@ -53,7 +53,7 @@ class AntibotResponse:
 def _engine():
     """Import the native engine, or None if unavailable (graceful tiering)."""
     try:
-        import signals_antibot  # noqa: F401  (compiled module)
+        import signals_antibot
 
         return signals_antibot
     except ImportError:
@@ -96,7 +96,7 @@ class SignalsTransport:
         user_agent: str = DEFAULT_USER_AGENT,
         proxy: str | None = None,
         conditional: bool = True,
-        cookie_jar: "PersistentCookieJar | None" = None,
+        cookie_jar: PersistentCookieJar | None = None,
     ):
         self.user_agent = user_agent
         self.proxy = proxy
@@ -104,7 +104,7 @@ class SignalsTransport:
         self.cookie_jar = cookie_jar
         self._engine = _engine()
         # persistent SignalsEngine (pool + session store)
-        self._native: "_NativeEngine | Literal[False] | None" = None
+        self._native: _NativeEngine | Literal[False] | None = None
         self._cache = RevalidationCache()
         self._fallback: CurlCffiFetcher | None = None  # lazily constructed CurlCffiFetcher
 
@@ -246,4 +246,4 @@ class SignalsTransport:
         )
 
 
-__all__ = ["AntibotResponse", "SignalsTransport", "DEFAULT_USER_AGENT"]
+__all__ = ["DEFAULT_USER_AGENT", "AntibotResponse", "SignalsTransport"]

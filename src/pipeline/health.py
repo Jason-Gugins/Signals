@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-
 
 MB = 1024 * 1024
 
@@ -40,7 +39,7 @@ def stale_running_runs(db, *, now=None, max_age_hours: int = DEFAULT_STALE_RUN_H
     row stays 'running' forever and misleads status/doctor. Read-only: the
     caller decides whether to repair.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     cutoff = (now - timedelta(hours=max_age_hours)).replace(microsecond=0).isoformat()
     return db.query(
         "SELECT run_id, stage, started_at FROM runs WHERE status='running' AND started_at < ? "
@@ -55,7 +54,7 @@ def finalize_stale_runs(db, *, now=None, max_age_hours: int = DEFAULT_STALE_RUN_
     Safe to re-run: the UPDATE is guarded on status='running', so a live
     process that finishes in the meantime is never touched.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     stamp = now.replace(microsecond=0).isoformat()
     rows = stale_running_runs(db, now=now, max_age_hours=max_age_hours)
     for row in rows:
@@ -219,7 +218,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
 
     add("python", "OK" if sys.version_info >= (3, 12) else "FAIL", sys.version.split()[0])
     try:
-        import httpx, lxml, yaml  # noqa: F401
+        import httpx
         add("deps", "OK", "httpx lxml yaml")
     except Exception as exc:
         add("deps", "FAIL", str(exc))

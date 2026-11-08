@@ -94,7 +94,6 @@ class _G2Fetch:
 
     def get(self, task, **kw):
         from src.core.http import FetchResult
-
         from src.core.models import Document
 
         doc = Document(

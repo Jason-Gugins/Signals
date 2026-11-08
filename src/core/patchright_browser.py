@@ -13,8 +13,8 @@ expect from a real user.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
+
 from loguru import logger
 
 from src.core.http import FetchResult
@@ -23,7 +23,7 @@ from src.core.models import Document
 if TYPE_CHECKING:
     from typing import Protocol
 
-    from patchright.sync_api import Playwright, Browser, BrowserContext, Page
+    from patchright.sync_api import Browser, BrowserContext, Page, Playwright
     from patchright.sync_api._generated import SetCookieParam
 
     from src.core.config import Config

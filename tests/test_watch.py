@@ -1,9 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from src.core.db import Database
 from src.pipeline.scheduler import Scheduler
 from src.pipeline.watch import due_sources, watch_loop
-from src.sources.base import FetchTask, SourceAdapter
+from src.sources.base import SourceAdapter
 
 
 class A(SourceAdapter):
@@ -120,7 +120,6 @@ def test_watch_loop_isolates_failing_adapter(tmp_path):
             self.collected.extend(sources)
             if "first" in sources:
                 raise RuntimeError("first adapter boom")
-            return None
 
     db = Database(tmp_path / "iso.db")
     now = datetime(2026, 8, 16, 12, 0, 0)

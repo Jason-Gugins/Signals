@@ -73,7 +73,7 @@ _HTML_CITYZIP_MOVED = (
 _HTML_BLOCK = (
     '<div class="bpr-overview-address">' + _HTML_STREET + _HTML_CITYZIP + "</div>"
 )
-_LDJSON_RE = re.compile(r'<script type="application/ld\+json">.*?</script>', re.S)
+_LDJSON_RE = re.compile(r'<script type="application/ld\+json">.*?</script>', re.DOTALL)
 
 
 def _html() -> str:

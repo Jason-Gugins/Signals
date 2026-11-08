@@ -17,7 +17,6 @@ and lock the doc in as permanently partial.
 from __future__ import annotations
 
 import struct
-from typing import Optional
 
 from loguru import logger
 
@@ -92,10 +91,10 @@ def index_domain(
     raw_store: RawStore,
     domain: str,
     *,
-    embedder: Optional[Embedder] = None,
+    embedder: Embedder | None = None,
     chunk_tokens: int = 500,
     overlap_tokens: int = 60,
-    limit: Optional[int] = None,
+    limit: int | None = None,
 ) -> dict:
     """Index one domain's stored documents; returns stats. Idempotent per (doc, model).
 

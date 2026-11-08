@@ -610,7 +610,7 @@ def claim_natural_key(doc_id: str, text: str) -> str:
     casefold + whitespace collapse.
     """
     normalized = " ".join(text.casefold().split())
-    return hashlib.sha256(f"{doc_id}:{normalized}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{doc_id}:{normalized}".encode()).hexdigest()
 
 
 def claims_to_candidates(

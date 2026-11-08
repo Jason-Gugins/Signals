@@ -9,7 +9,6 @@ import yaml
 
 from src.core.config import Config, ConfigError
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_YAML = ROOT / "config" / "default.yaml"
 

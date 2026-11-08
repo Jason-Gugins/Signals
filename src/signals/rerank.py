@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 import logging
 import math
-from typing import TYPE_CHECKING, Optional, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:  # ML deps stay lazy at runtime (import-safe without [rerank])
     import onnxruntime as ort
@@ -24,7 +24,7 @@ MODEL_FILE = "onnx/model_quantized.onnx"
 TOKENIZER_FILE = "tokenizer.json"
 # Pinned repo revision (supply-chain: matches donsetch's SHA256-pinning practice).
 # Verify before bumping: both files exist at this revision (checked 2026-09-01).
-MODEL_REVISION: Optional[str] = "a09144355adeed5f58c8ed011d209bf8ee5a1fec"
+MODEL_REVISION: str | None = "a09144355adeed5f58c8ed011d209bf8ee5a1fec"
 DEFAULT_FLOOR = 0.35
 MAX_SEQ_LEN = 256
 
@@ -32,7 +32,7 @@ MAX_SEQ_LEN = 256
 class RelevanceScorer(Protocol):
     def score_pairs(
         self, query: str, docs: list[tuple[str, str]]
-    ) -> Optional[list[float]]: ...
+    ) -> list[float] | None: ...
 
 
 class NullScorer:
@@ -46,8 +46,8 @@ class OnnxScorer:
     """ms-marco-MiniLM-L-6-v2 cross-encoder via onnxruntime (lazy singleton)."""
 
     def __init__(self, model_repo: str = MODEL_REPO) -> None:
-        self._session: Optional["ort.InferenceSession"] = None
-        self._tokenizer: Optional["Tokenizer"] = None
+        self._session: ort.InferenceSession | None = None
+        self._tokenizer: Tokenizer | None = None
         self._model_repo = model_repo
 
     def _ensure_loaded(self) -> bool:
@@ -80,7 +80,7 @@ class OnnxScorer:
 
     def score_pairs(
         self, query: str, docs: list[tuple[str, str]]
-    ) -> Optional[list[float]]:
+    ) -> list[float] | None:
         if not self._ensure_loaded():
             return None
         # _ensure_loaded True implies both are set; the explicit guard keeps
@@ -126,7 +126,7 @@ class OnnxScorer:
 # that ONCE per process, not once per parse. Double-checked locking (the
 # collector thread and the watch loop can both reach get_scorer()).
 _scorer_lock = __import__("threading").Lock()
-_scorer_instance: Optional[RelevanceScorer] = None
+_scorer_instance: RelevanceScorer | None = None
 
 
 def get_scorer() -> RelevanceScorer:
@@ -151,7 +151,7 @@ def get_scorer() -> RelevanceScorer:
 
 
 def apply_relevance_floor(
-    items: list[dict], scores: Optional[list[float]], *, floor: float
+    items: list[dict], scores: list[float] | None, *, floor: float
 ) -> list[dict]:
     """Drop items whose relevance score is below floor.
 
@@ -165,7 +165,7 @@ def apply_relevance_floor(
 
 
 def attach_relevance_evidence(
-    items: list[dict], scores: Optional[list[float]]
+    items: list[dict], scores: list[float] | None
 ) -> list[dict]:
     """Attach evidence_data['relevance'] without touching natural_key.
 

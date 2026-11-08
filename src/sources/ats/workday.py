@@ -29,7 +29,7 @@ def workday_offsets(total: int, limit: int = 20, cap: int = 200) -> list[int]:
     return list(range(0, n, limit))
 
 
-_REL = re.compile(r"posted\s+(yesterday|today|(\d+)\+?\s+days?\s+ago)", re.I)
+_REL = re.compile(r"posted\s+(yesterday|today|(\d+)\+?\s+days?\s+ago)", re.IGNORECASE)
 
 
 def _posted_on(text: str | None, today: date) -> tuple[str | None, bool]:

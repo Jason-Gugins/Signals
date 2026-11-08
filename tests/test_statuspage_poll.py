@@ -18,7 +18,6 @@ import pytest
 from src.core.models import Account, Document
 from src.signals.normalize import normalize_batch
 from src.signals.taxonomy import Taxonomy
-from src.sources.techstack import dns_probe
 from src.sources.techstack.collector import TechstackSource
 from src.sources.techstack.dns_probe import statuspage_target
 

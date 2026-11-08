@@ -11,22 +11,22 @@ from src.identity.domains import root_domain
 from src.identity.names import normalize_name
 
 DENY = frozenset({"webflow", "fonticons", "hubspot", "wordpress"})
-_TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+_TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 _OG_SITE = re.compile(
     r'<meta\b[^>]*(?:property|name)=["\']og:site_name["\'][^>]*>',
-    re.I,
+    re.IGNORECASE,
 )
 _META_DESC = re.compile(
     r'<meta\b[^>]*name=["\']description["\'][^>]*>',
-    re.I,
+    re.IGNORECASE,
 )
-_CONTENT = re.compile(r'\bcontent=["\']([^"\']+)["\']', re.I)
+_CONTENT = re.compile(r'\bcontent=["\']([^"\']+)["\']', re.IGNORECASE)
 _LD = re.compile(
     r'<script\b[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
-    re.I | re.S,
+    re.IGNORECASE | re.DOTALL,
 )
-_COPY = re.compile(r"(?:©|&copy;)\s+\d{4}\s+([^.<]{3,80})", re.I)
-_COPYRIGHT = re.compile(r"Copyright\s+\d{4}\s+([^.<]{3,80})", re.I)
+_COPY = re.compile(r"(?:©|&copy;)\s+\d{4}\s+([^.<]{3,80})", re.IGNORECASE)
+_COPYRIGHT = re.compile(r"Copyright\s+\d{4}\s+([^.<]{3,80})", re.IGNORECASE)
 _LEGAL_NAME_Q = re.compile(r'"legalName"\s*:\s*"([^"]+)"')
 _WS = re.compile(r"\s+")
 

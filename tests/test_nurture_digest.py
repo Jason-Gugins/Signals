@@ -7,7 +7,6 @@ from pathlib import Path
 
 from src.cli import _digest_paths
 from src.core.models import Account
-from src.signals.score import ScoreResult
 from src.signals.tier import TierResult
 
 TODAY = date(2026, 9, 2)
@@ -58,10 +57,10 @@ def _ctx(orch, tmp_path):
 
 def _wire(monkeypatch, tmp_path, tier):
     """Patch scoring internals so the digest path is deterministic."""
-    import src.cli as cli
     import src.export.digest as digest_mod
     import src.signals.plays as plays_mod
     import src.signals.tier as tier_mod
+    from src import cli
 
     captured = {}
 
@@ -135,8 +134,9 @@ def test_tier4_non_tier4_unaffected(monkeypatch, tmp_path):
 
 def test_digest_cli_tier4_flag_reaches_digest_paths(monkeypatch):
     """MAJOR 1: the --tier-4 flag must reach _digest_paths (was dropped on the floor)."""
-    import src.cli as cli
     from click.testing import CliRunner
+
+    from src import cli
 
     seen = {}
 

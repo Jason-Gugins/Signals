@@ -7,7 +7,7 @@ shape are unchanged — this base is the normalization contract only.
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 def coerce_rating(value: Any) -> float:
@@ -29,14 +29,14 @@ class MarketplaceReview:
 
     review_id: str
     product_slug: str
-    reviewer: Optional[str] = None
+    reviewer: str | None = None
     rating: float = 0.0
-    posted: Optional[str] = None
-    body: Optional[str] = None
-    source: Optional[str] = None
-    url: Optional[str] = None
-    helpful_votes: Optional[int] = None
-    nps: Optional[int] = None
+    posted: str | None = None
+    body: str | None = None
+    source: str | None = None
+    url: str | None = None
+    helpful_votes: int | None = None
+    nps: int | None = None
 
     @classmethod
     def from_raw(cls, raw: dict) -> "MarketplaceReview":

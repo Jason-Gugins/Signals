@@ -6,7 +6,6 @@ import re
 
 from src.identity.domains import MULTI_LABEL_TLDS, root_domain
 
-
 LEGAL_SUFFIXES: frozenset[str] = frozenset(
     {
         "inc",
@@ -31,7 +30,6 @@ LEGAL_SUFFIXES: frozenset[str] = frozenset(
         "ag",
         "nv",
         "spa",
-        "srl",
         "pte",
     }
 )

@@ -7,9 +7,14 @@ from datetime import date
 import pytest
 
 from src.identity.edgar_ids import SUBMISSIONS_URL, pad_cik
-from src.pipeline.funding import SOURCE, common_query_follow_cap, homepage_url, plan_company_queries, plan_funding
+from src.pipeline.funding import (
+    SOURCE,
+    common_query_follow_cap,
+    homepage_url,
+    plan_company_queries,
+    plan_funding,
+)
 from src.sources.sec.fts import fts_search_url
-
 
 TODAY = date(2026, 8, 22)
 

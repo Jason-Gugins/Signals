@@ -1,6 +1,5 @@
 from datetime import date
 
-from src.core.models import Account, Document
 from src.sources.base import FetchTask, SourceAdapter
 from src.sources.registry import register
 from src.sources.regulatory.federal_register import (

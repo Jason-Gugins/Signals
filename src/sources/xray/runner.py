@@ -81,8 +81,8 @@ contacts upsert coalesces to one row (per-query rows stay accurate).
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from src.core.db import Database, IdentityCandidateStore
 from src.core.models import Contact
@@ -91,8 +91,8 @@ from src.identity.domains import root_domain
 from src.sources.xray.hits import extract_companies, extract_profiles
 from src.sources.xray.ledger import append_event
 from src.sources.xray.serp import (
-    ParseError,
     SUPPORTED_ENGINES,
+    ParseError,
     is_challenge,
     parse_results,
 )

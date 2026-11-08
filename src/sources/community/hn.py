@@ -55,7 +55,7 @@ def hn_to_candidates(hits, account: Account, *, today: date) -> list[SignalCandi
             )
         )
         import re
-        if re.search(r"\b(launch\w*|introducing|announcing)\b", title, re.I):
+        if re.search(r"\b(launch\w*|introducing|announcing)\b", title, re.IGNORECASE):
             host = root_domain(h.get("url"))
             if host and host == account.domain:
                 out.append(

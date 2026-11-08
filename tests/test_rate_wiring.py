@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Optional
 
 import httpx
 import respx
@@ -162,10 +161,10 @@ def test_orchestrator_limiter_carries_source_overrides(tmp_path):
 class Task:
     source: str
     url: str
-    domain: Optional[str] = None
+    domain: str | None = None
     method: str = "GET"
     headers: dict = field(default_factory=dict)
-    json_body: Optional[dict] = None
+    json_body: dict | None = None
 
 
 class RecordingLimiter:

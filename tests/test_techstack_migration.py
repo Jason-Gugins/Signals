@@ -65,8 +65,8 @@ def test_monthly_key_dedupes():
 # tech_migration_mentioned row in the signal store, persisted through the same
 # _persist path the diff's tech_install_new/tech_churn candidates use.
 
-import json  # noqa: E402  (runner-wiring half; pure tests above stay import-light)
-from datetime import datetime, timedelta, timezone
+import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from src.core.config import Config
@@ -125,7 +125,7 @@ class _FlipStub(SourceAdapter):
 def _harness(tmp_path, *, fetcher, first_seen_days_ago: dict | None = None):
     """CollectorRunner over a db pre-seeded with technologies rows."""
     db = Database(tmp_path / "s.db")
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     for vendor, days_ago in (first_seen_days_ago or {}).items():
         seen = (today - timedelta(days=days_ago)).isoformat()
         db.upsert(

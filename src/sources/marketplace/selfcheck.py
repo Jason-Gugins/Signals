@@ -22,7 +22,7 @@ so existing imports keep working.
 """
 from __future__ import annotations
 
-from src.core.selfcheck import SelfcheckResult, run_source_selfcheck  # noqa: F401
+from src.core.selfcheck import SelfcheckResult, run_source_selfcheck
 
 _CAPTERRA_CHALLENGE_MARKERS = (b"cf-chl", b"Just a moment")
 

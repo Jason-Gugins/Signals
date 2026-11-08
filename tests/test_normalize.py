@@ -13,7 +13,6 @@ from src.signals.normalize import (
 )
 from src.signals.taxonomy import Taxonomy
 
-
 TAX = Taxonomy.load(str(Path(__file__).resolve().parents[1] / "config" / "signals.yaml"))
 ACCT = Account(domain="acme.com", name="Acme")
 

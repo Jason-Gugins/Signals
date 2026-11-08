@@ -82,7 +82,6 @@ def test_decay_factor_garbage_is_none_not_floor():
 
 def test_tier_garbage_date_does_not_flip_tier():
     from src.core.models import Signal
-
     from src.signals.tier import assign_tier
 
     tax = TAX
@@ -145,7 +144,6 @@ def test_tier_garbage_date_does_not_flip_tier():
 
 def test_news_classify_garbage_date_keeps_candidate_with_date_raw():
     from src.core.models import Account
-
     from src.sources.news.classify import classify_news
     from src.sources.news.feeds import NewsItem
 
@@ -167,7 +165,6 @@ def test_news_classify_garbage_date_keeps_candidate_with_date_raw():
 
 def test_news_classify_feb30_keeps_date_raw_not_fabricated():
     from src.core.models import Account
-
     from src.sources.news.classify import classify_news
     from src.sources.news.feeds import NewsItem
 
@@ -187,7 +184,6 @@ def test_news_classify_feb30_keeps_date_raw_not_fabricated():
 
 def test_news_classify_valid_date_no_date_raw():
     from src.core.models import Account
-
     from src.sources.news.classify import classify_news
     from src.sources.news.feeds import NewsItem
 
@@ -207,7 +203,6 @@ def test_news_classify_valid_date_no_date_raw():
 
 def test_news_classify_missing_date_still_falls_back_to_today():
     from src.core.models import Account
-
     from src.sources.news.classify import classify_news
     from src.sources.news.feeds import NewsItem
 

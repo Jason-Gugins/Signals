@@ -9,7 +9,6 @@ from src.signals.score import ScoreResult
 from src.signals.taxonomy import Taxonomy
 from src.signals.tier import assign_tier, buying_window, newest_primary
 
-
 TODAY = date(2026, 8, 16)
 TAX = Taxonomy.load("config/signals.yaml")
 CFG = {

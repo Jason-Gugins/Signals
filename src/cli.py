@@ -6,7 +6,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
@@ -19,8 +19,8 @@ from src.identity.lists import load_champions, upsert_champions
 from src.identity.registry import AccountRegistry
 from src.pipeline.orchestrator import Orchestrator
 from src.sources.registry import COLLECTED_VENDORS
+from src.sources.xray.ledger import load_events, status_rollup, string_stats
 from src.sources.xray.library import load_library
-from src.sources.xray.ledger import load_events, string_stats, status_rollup
 from src.sources.xray.runner import run_xray
 from src.sources.xray.serp import SUPPORTED_ENGINES
 
@@ -500,7 +500,7 @@ def export_cmd(ctx, fmt, what):
 @click.pass_context
 def g2_export(ctx, slugs, export_dir, fmt):
     """Export G2 reviews to JSON and/or CSV."""
-    from src.export.g2_export import export_g2_json, export_g2_csv, export_g2_all
+    from src.export.g2_export import export_g2_all, export_g2_csv, export_g2_json
     cfg = ctx.obj["config"]
     db = Database(cfg.storage.db_path)
     out_dir = export_dir or cfg.storage.export_dir
@@ -520,7 +520,7 @@ def g2_export(ctx, slugs, export_dir, fmt):
 class _RawShim:
     """No-op raw store for self-check fetches (self-check does not persist)."""
 
-    def put(self, *args, **kwargs):  # noqa: ANN002, ANN003
+    def put(self, *args, **kwargs):
         return None
 
 
@@ -766,7 +766,7 @@ def _selfcheck_source(source: str, *, domain: str | None = None,
             ev = extract_http_evidence(html.encode("utf-8", "replace"), {}, _u)
             return match_fingerprints(ev, load_fingerprint_rules())
 
-        detect = lambda status, body: (  # noqa: E731
+        detect = lambda status, body: (
             classify_cloudflare_challenge(status=status, body=body) is not None)
         return sample, "techstack", d, extract, [b"technologies", b"__NEXT_DATA__"], detect
 
@@ -775,7 +775,7 @@ def _selfcheck_source(source: str, *, domain: str | None = None,
             raise click.UsageError("--url (or the account's blog_feed_url) is required for news_rss")
         from src.sources.news.feeds import parse_feed
 
-        detect = lambda status, body: (  # noqa: E731
+        detect = lambda status, body: (
             b"Just a moment" in body or b"cf-chl" in body)
         return (url, "news_rss", url.split("/")[2],
                 lambda html: parse_feed(html.encode("utf-8", "replace")),
@@ -788,7 +788,7 @@ def _selfcheck_source(source: str, *, domain: str | None = None,
 
         sample = (f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs"
                   f"?content=true")
-        detect = lambda status, body: (  # noqa: E731
+        detect = lambda status, body: (
             b'"maintenance"' in body or b"Just a moment" in body)
         return (sample, "ats_greenhouse", "boards-api.greenhouse.io",
                 lambda html: parse_greenhouse(html.encode("utf-8", "replace")),
@@ -1327,7 +1327,7 @@ def xray(ctx, kinds, title, location, niche, role, problem_phrase,
         fetch=fetch_factory(),
         db=ctx.obj["get_orch"]().db,
         ledger_path=XRAY_LEDGER_PATH,
-        clock=lambda: datetime.now(timezone.utc).isoformat(),
+        clock=lambda: datetime.now(UTC).isoformat(),
         sleep=time.sleep,
         slots=slots,
         kinds=set(kinds) or None,

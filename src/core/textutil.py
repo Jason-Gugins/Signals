@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from html import unescape
-from typing import Any, Optional
-
+from typing import Any
 
 _WS = re.compile(r"[\s\u00a0]+")
 _ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
@@ -35,18 +34,18 @@ _DMY = re.compile(
 )
 _RELATIVE = re.compile(
     r"^(?:(?P<n>\d+)\s+(?P<unit>days?|weeks?|months?)\s+ago|yesterday|today|last\s+week)$",
-    re.I,
+    re.IGNORECASE,
 )
 _MONEY = re.compile(
     r"(?P<cur>CA\$|US\$|C\$|A\$|AU\$|£|€|\$)\s*(?P<num>\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*"
     r"(?P<suf>bn|billion|million|mm|b|m|k)?",
-    re.I,
+    re.IGNORECASE,
 )
 _COUNT = re.compile(r"(\d{1,3}(?:,\d{3})+|\d+)")
 
 _TAG = re.compile(r"<[^>]+>")
-_DROP = re.compile(r"<(script|style)\b.*?</\1>", re.I | re.S)
-_BREAK = re.compile(r"</?(p|div|li|br|tr|h[1-6])\b[^>]*>", re.I)
+_DROP = re.compile(r"<(script|style)\b.*?</\1>", re.IGNORECASE | re.DOTALL)
+_BREAK = re.compile(r"</?(p|div|li|br|tr|h[1-6])\b[^>]*>", re.IGNORECASE)
 
 # Ported from ../Linkedin/src/triggers.py
 _LEAD = re.compile(
@@ -57,7 +56,7 @@ _LEAD = re.compile(
     r"|\bhead\s+of\b"
     r"|\bpresident\b|\bfounder\b|\bco-founder\b"
     r")",
-    re.I,
+    re.IGNORECASE,
 )
 _NOT_LEAD = re.compile(
     r"\b("
@@ -65,29 +64,29 @@ _NOT_LEAD = re.compile(
     r"art\s+director|creative\s+director|associate\s+director|"
     r"assistant\s+director|director\s+of\s+photography"
     r")\b",
-    re.I,
+    re.IGNORECASE,
 )
 _C_LEVEL = re.compile(
     r"\b(?:chief\b|ceo|cfo|coo|cto|cmo|cro|cio|ciso|cpo|founder|co-founder|president)\b",
-    re.I,
+    re.IGNORECASE,
 )
-_VP = re.compile(r"\b(?:svp|evp|avp|vice\s+president|\bvp)\b", re.I)
-_HEAD = re.compile(r"\bhead\s+of\b", re.I)
-_DIRECTOR = re.compile(r"\bdirector\b", re.I)
-_MANAGER = re.compile(r"\b(?:manager|mgr)\b", re.I)
+_VP = re.compile(r"\b(?:svp|evp|avp|vice\s+president|\bvp)\b", re.IGNORECASE)
+_HEAD = re.compile(r"\bhead\s+of\b", re.IGNORECASE)
+_DIRECTOR = re.compile(r"\bdirector\b", re.IGNORECASE)
+_MANAGER = re.compile(r"\b(?:manager|mgr)\b", re.IGNORECASE)
 
 _DEPTS: list[tuple[str, re.Pattern]] = [
-    ("sales", re.compile(r"\b(?:sales|revenue|account\s+exec|ae\b|sdr|bdr|go.?to.?market|gtm)\b", re.I)),
-    ("marketing", re.compile(r"\b(?:marketing|demand\s+gen|growth|brand|content\s+market)\b", re.I)),
-    ("engineering", re.compile(r"\b(?:engineer|developer|swe|software|devops|sre)\b", re.I)),
-    ("finance", re.compile(r"\b(?:finance|controller|accountant|cfo|treasury|fp&a)\b", re.I)),
-    ("hr", re.compile(r"\b(?:people|human\s+resources|\bhr\b|recruiter|talent)\b", re.I)),
-    ("ops", re.compile(r"\b(?:operations|\bops\b|\bcoo\b|chief\s+operating)\b", re.I)),
-    ("product", re.compile(r"\b(?:product\b|cpo|pm\b)\b", re.I)),
-    ("support", re.compile(r"\b(?:support|success|csm|customer\s+care)\b", re.I)),
-    ("legal", re.compile(r"\b(?:counsel|legal|attorney|compliance)\b", re.I)),
-    ("it", re.compile(r"\b(?:\bit\b|information\s+technology|sysadmin|administrator)\b", re.I)),
-    ("data", re.compile(r"\b(?:data|analytics|scientist|bi\b)\b", re.I)),
+    ("sales", re.compile(r"\b(?:sales|revenue|account\s+exec|ae\b|sdr|bdr|go.?to.?market|gtm)\b", re.IGNORECASE)),
+    ("marketing", re.compile(r"\b(?:marketing|demand\s+gen|growth|brand|content\s+market)\b", re.IGNORECASE)),
+    ("engineering", re.compile(r"\b(?:engineer|developer|swe|software|devops|sre)\b", re.IGNORECASE)),
+    ("finance", re.compile(r"\b(?:finance|controller|accountant|cfo|treasury|fp&a)\b", re.IGNORECASE)),
+    ("hr", re.compile(r"\b(?:people|human\s+resources|\bhr\b|recruiter|talent)\b", re.IGNORECASE)),
+    ("ops", re.compile(r"\b(?:operations|\bops\b|\bcoo\b|chief\s+operating)\b", re.IGNORECASE)),
+    ("product", re.compile(r"\b(?:product\b|cpo|pm\b)\b", re.IGNORECASE)),
+    ("support", re.compile(r"\b(?:support|success|csm|customer\s+care)\b", re.IGNORECASE)),
+    ("legal", re.compile(r"\b(?:counsel|legal|attorney|compliance)\b", re.IGNORECASE)),
+    ("it", re.compile(r"\b(?:\bit\b|information\s+technology|sysadmin|administrator)\b", re.IGNORECASE)),
+    ("data", re.compile(r"\b(?:data|analytics|scientist|bi\b)\b", re.IGNORECASE)),
 ]
 
 
@@ -127,7 +126,7 @@ def to_iso_date(value: Any, *, today: date | None = None) -> str | None:
         return value.isoformat()
     if isinstance(value, (int, float)):
         if value >= 1_000_000_000:
-            return datetime.fromtimestamp(int(value), tz=timezone.utc).date().isoformat()
+            return datetime.fromtimestamp(int(value), tz=UTC).date().isoformat()
         return None
     if not isinstance(value, str):
         return None
@@ -139,11 +138,11 @@ def to_iso_date(value: Any, *, today: date | None = None) -> str | None:
     if rel:
         if today is None:
             return None
-        if re.match(r"today$", s, re.I):
+        if re.match(r"today$", s, re.IGNORECASE):
             return today.isoformat()
-        if re.match(r"yesterday$", s, re.I):
+        if re.match(r"yesterday$", s, re.IGNORECASE):
             return (today - timedelta(days=1)).isoformat()
-        if re.match(r"last\s+week$", s, re.I):
+        if re.match(r"last\s+week$", s, re.IGNORECASE):
             return (today - timedelta(days=7)).isoformat()
         n = int(rel.group("n"))
         unit = rel.group("unit").lower()
@@ -166,7 +165,7 @@ def to_iso_date(value: Any, *, today: date | None = None) -> str | None:
         if m:  # always true while _YMD_COMPACT stays ^(\d{4})(\d{2})(\d{2})$; pins the invariant
             return _from_ymd(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     if re.fullmatch(r"\d{9,12}", s):
-        return datetime.fromtimestamp(int(s), tz=timezone.utc).date().isoformat()
+        return datetime.fromtimestamp(int(s), tz=UTC).date().isoformat()
 
     m = _MDY.match(s) or _DMY.match(s)
     if m:
@@ -307,7 +306,7 @@ def guess_seniority(title: str | None) -> str:
         return "ic"
     if _C_LEVEL.search(s) and not _VP.search(s):
         # "Vice President" contains president — VP already handled
-        if re.search(r"\bvice\s+president\b", s, re.I):
+        if re.search(r"\bvice\s+president\b", s, re.IGNORECASE):
             return "vp"
         return "c_level"
     if _VP.search(s):
@@ -341,7 +340,7 @@ def guess_persona(title: str | None) -> str:
         return "champion"
     if dept in {"engineering", "it", "data"} or seniority == "unknown" and dept == "engineering":
         return "technical"
-    if re.search(r"\b(?:engineer|architect|developer|cto)\b", title, re.I):
+    if re.search(r"\b(?:engineer|architect|developer|cto)\b", title, re.IGNORECASE):
         return "technical"
     if seniority in {"ic", "manager"}:
         return "user"

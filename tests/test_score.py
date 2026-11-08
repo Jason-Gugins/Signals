@@ -12,7 +12,6 @@ from src.core.models import Account, Signal
 from src.signals.score import decay_factor, score_account
 from src.signals.taxonomy import Taxonomy
 
-
 TODAY = date(2026, 8, 16)
 TAX = Taxonomy.load(str(Path("config/signals.yaml")))
 CFG = yaml.safe_load(Path("config/scoring.yaml").read_text(encoding="utf-8"))

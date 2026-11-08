@@ -1,11 +1,12 @@
 """Wave B: stale 'running' runs rows — detect, surface, repair."""
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
-from datetime import datetime, timedelta, timezone
 
 from src.core.db import Database
 
-NOW = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
 
 
 @pytest.fixture()
@@ -34,7 +35,7 @@ def _real(*, hours: int = 0, minutes: int = 0) -> str:
     ~17:55 UTC and a 5-minute-old-by-NOW row is 6+ hours old in reality, so the
     detector legitimately flags it and the "no stale line" assertion fails.
     """
-    return (datetime.now(timezone.utc) - timedelta(hours=hours, minutes=minutes)).replace(
+    return (datetime.now(UTC) - timedelta(hours=hours, minutes=minutes)).replace(
         microsecond=0
     ).isoformat()
 
@@ -122,7 +123,7 @@ def test_render_status_prints_the_stale_line(db):
 
 
 def test_doctor_reports_a_warn_row(tmp_path):
-    import unittest.mock as mock
+    from unittest import mock
 
     from src.core.config import Config
     from src.pipeline.health import doctor
@@ -172,7 +173,7 @@ def _cli_prune(tmp_path, monkeypatch, argv):
 
 def _recent(*, hours: int = 0, minutes: int = 0):
     """ISO timestamp relative to real now — the CLI cannot inject `now`."""
-    return (datetime.now(timezone.utc) - timedelta(hours=hours, minutes=minutes)).replace(microsecond=0).isoformat()
+    return (datetime.now(UTC) - timedelta(hours=hours, minutes=minutes)).replace(microsecond=0).isoformat()
 
 
 def test_cli_prune_finalizes_stale_rows(tmp_path, monkeypatch):

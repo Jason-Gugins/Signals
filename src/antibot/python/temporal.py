@@ -10,7 +10,7 @@ per URL and reconstructs the cached response from a 304.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # avoids a circular import: transport imports this module
     from .transport import AntibotResponse
@@ -46,7 +46,7 @@ class RevalidationCache:
 
     # -- lookup ----------------------------------------------------------
 
-    def get(self, url: str) -> Optional[CacheEntry]:
+    def get(self, url: str) -> CacheEntry | None:
         return self._entries.get(url)
 
     def has_validators(self, url: str) -> bool:
@@ -99,7 +99,7 @@ class RevalidationCache:
             stored_at=time.time(),
         )
 
-    def serve_304(self, url: str, not_modified_response: "AntibotResponse") -> "AntibotResponse":
+    def serve_304(self, url: str, not_modified_response: AntibotResponse) -> AntibotResponse:
         """Materialize the cached response behind a 304.
 
         Chrome semantics: the user-visible response is the cached one (200),

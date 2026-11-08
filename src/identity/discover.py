@@ -30,7 +30,7 @@ waterfall (recorded as {"status": "error", ...}, remaining stages run).
 from __future__ import annotations
 
 import json
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from loguru import logger
 
@@ -125,7 +125,7 @@ def _merge_candidates(stages: dict[str, dict]) -> list[dict]:
     return merged
 
 
-def _apex_agreement(stages: dict[str, dict]) -> Optional[tuple[str, list[str]]]:
+def _apex_agreement(stages: dict[str, dict]) -> tuple[str, list[str]] | None:
     """2-source apex agreement over stage candidates (pure).
 
     A domain qualifies when >=2 DISTINCT stages surfaced it (each stage
@@ -140,7 +140,7 @@ def _apex_agreement(stages: dict[str, dict]) -> Optional[tuple[str, list[str]]]:
             domain = root_domain(cand.get("domain") if isinstance(cand, dict) else None)
             if domain:
                 votes.setdefault(domain, set()).add(stage)
-    best: Optional[tuple[tuple[int, int], str, list[str]]] = None
+    best: tuple[tuple[int, int], str, list[str]] | None = None
     for domain, agreeing in votes.items():
         if len(agreeing) < 2:
             continue
@@ -160,8 +160,8 @@ def discover_waterfall(
     gkg_backend: str = "ekg",
     ddg_enabled: bool = False,
     ddg_fetcher=None,
-    clock: Optional[Callable[[], float]] = None,
-    sleep: Optional[Callable[[float], None]] = None,
+    clock: Callable[[], float] | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> dict:
     """Run the discovery waterfall for one company name.
 
@@ -182,7 +182,7 @@ def discover_waterfall(
         plan.append(("ddg", lambda: _run_ddg(term, ddg_fetcher, clock, sleep)))
 
     stages: dict[str, dict] = {}
-    hit: Optional[tuple[str, dict]] = None
+    hit: tuple[str, dict] | None = None
     for stage, run in plan:
         result = _safe_stage(stage, term, run)
         stages[stage] = result
@@ -194,7 +194,7 @@ def discover_waterfall(
         stages.setdefault(stage, {"status": "skipped"})
 
     merged = _merge_candidates(stages)
-    agreement: Optional[list[str]] = None
+    agreement: list[str] | None = None
     if hit is not None:
         status, domain = "resolved", hit[1].get("domain")
     else:

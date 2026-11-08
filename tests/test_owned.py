@@ -1,6 +1,8 @@
 from datetime import date
 from pathlib import Path
+
 import yaml
+
 from src.sources.owned.ingest import aggregate_intent, classify_page, read_drop, resolve_visitor
 
 RULES = yaml.safe_load(Path("config/owned_pages.yaml").read_text(encoding="utf-8"))

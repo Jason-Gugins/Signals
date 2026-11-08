@@ -12,7 +12,7 @@ lags UTC past midnight.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 
 def utc_today(now: datetime | None = None) -> date:
@@ -23,4 +23,4 @@ def utc_today(now: datetime | None = None) -> date:
     local time lagged UTC past midnight (reproduced 2026-09-15: local 2026-09-14
     against observed_at 2026-09-15T00:30Z -> age -1).
     """
-    return (now or datetime.now(timezone.utc)).date()
+    return (now or datetime.now(UTC)).date()

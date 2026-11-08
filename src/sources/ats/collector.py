@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
 
 from src.core.models import Account, Document
 from src.sources.ats.ashby import parse_ashby
@@ -36,7 +35,7 @@ class GreenhouseSource(SourceAdapter):
     cadence_hours = 12
     requires = ("ats_token",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token
         return [
             FetchTask(
@@ -61,7 +60,7 @@ class LeverSource(SourceAdapter):
     cadence_hours = 12
     requires = ("ats_token",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token
         return [
             FetchTask(
@@ -86,7 +85,7 @@ class AshbySource(SourceAdapter):
     cadence_hours = 12
     requires = ("ats_token",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token
         return [
             FetchTask(
@@ -111,7 +110,7 @@ class SmartRecruitersSource(SourceAdapter):
     cadence_hours = 24
     requires = ("ats_token",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token
         return [
             FetchTask(
@@ -159,7 +158,7 @@ class WorkableSource(SourceAdapter):
     cadence_hours = 24
     requires = ("ats_token",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token
         return [
             FetchTask(
@@ -184,7 +183,7 @@ class RecruiteeSource(SourceAdapter):
     cadence_hours = 24
     requires = ("ats_token",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token
         return [
             FetchTask(
@@ -231,7 +230,7 @@ class WorkdaySource(SourceAdapter):
         except (TypeError, ValueError):
             return 10
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token or ""
         parts = token.split("/")
         tenant = parts[0] if parts else token

@@ -11,8 +11,9 @@ tier-probe arms)."""
 import json
 
 from src.lab.promo_ab import (
-    SHIPPED_TEXT, VARIANTS, load_labeled_claims, referee_verdict,
-    summarize_nouls,
+    SHIPPED_TEXT,
+    VARIANTS,
+    load_labeled_claims,
 )
 
 
@@ -207,7 +208,7 @@ def test_probe_main_live_summary_computes_the_cross_regime_column(tmp_path, caps
                             answers={"promotion": {"type": "noul", "noul": noul}},
                             raw_tokens=4)
 
-    monkeypatch.setattr(lab_main, "_load_decide_cfg", lambda: {})
+    monkeypatch.setattr(lab_main, "_load_decide_cfg", dict)
     monkeypatch.setattr(lab_main, "_lab_decider", lambda cfg: FakeDecider())
 
     ws = tmp_path / "ws.md"

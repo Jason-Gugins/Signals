@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from src.sources.ats.common import JobPost, parse_location
 
@@ -21,7 +21,7 @@ def parse_lever(body: bytes) -> list[JobPost]:
         posted = None
         created = j.get("createdAt")
         if isinstance(created, (int, float)):
-            posted = datetime.fromtimestamp(created / 1000.0, tz=timezone.utc).date().isoformat()
+            posted = datetime.fromtimestamp(created / 1000.0, tz=UTC).date().isoformat()
         salary = j.get("salaryRange") or {}
         out.append(
             JobPost(

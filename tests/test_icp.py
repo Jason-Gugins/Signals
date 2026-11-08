@@ -8,7 +8,6 @@ from src.core.config import ConfigError
 from src.core.models import Account, Signal
 from src.identity.icp import evaluate_icp
 
-
 RULES = {
     "rules": [
         {

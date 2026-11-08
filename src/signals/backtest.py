@@ -7,7 +7,7 @@ conversion rates. These rates feed the existing `calibration` table
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 MIN_SAMPLES = 30
 
 
-def record_outcome(db: "Database", domain: str, play_id: str, outcome: str) -> None:
+def record_outcome(db: Database, domain: str, play_id: str, outcome: str) -> None:
     """Record a play outcome. PK (domain, play_id): re-recording upserts."""
     db.execute(
         """
@@ -25,11 +25,11 @@ def record_outcome(db: "Database", domain: str, play_id: str, outcome: str) -> N
         ON CONFLICT(domain, play_id)
         DO UPDATE SET outcome = excluded.outcome, decided_at = excluded.decided_at
         """,
-        (domain, play_id, outcome, datetime.now(timezone.utc).isoformat()),
+        (domain, play_id, outcome, datetime.now(UTC).isoformat()),
     )
 
 
-def play_hit_rates(db: "Database") -> dict[str, dict]:
+def play_hit_rates(db: Database) -> dict[str, dict]:
     """Per-play hit rates: {play_id: {sent, hit, rate}}.
 
     ``sent`` = number of DISTINCT (domain, play_id) pairs ever assigned the
@@ -67,7 +67,7 @@ def play_hit_rates(db: "Database") -> dict[str, dict]:
     return rates
 
 
-def feed_calibration(db: "Database", *, min_samples: int = MIN_SAMPLES) -> None:
+def feed_calibration(db: Database, *, min_samples: int = MIN_SAMPLES) -> None:
     """Write (source, signal_type) samples/hits into the calibration table.
 
     For each (source, signal_type) pair derivable by joining

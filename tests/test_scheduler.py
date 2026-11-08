@@ -7,6 +7,7 @@ import os
 from datetime import datetime, timedelta
 
 from src.core.db import Database
+from src.pipeline.runner import RunnerStats
 from src.pipeline.scheduler import (
     LOCK_MAX_AGE_S,
     Scheduler,
@@ -14,9 +15,7 @@ from src.pipeline.scheduler import (
     cadences_from_config,
 )
 from src.pipeline.watch import watch_loop
-from src.pipeline.runner import RunnerStats
 from src.sources.base import SourceAdapter
-
 
 NOW = datetime(2026, 8, 30, 12, 0, 0)
 

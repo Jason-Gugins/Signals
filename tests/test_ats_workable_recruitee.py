@@ -1,6 +1,8 @@
 from pathlib import Path
-from src.sources.ats.workable import parse_workable
+
 from src.sources.ats.recruitee import parse_recruitee
+from src.sources.ats.workable import parse_workable
+
 
 def test_parse_workable():
     jobs = parse_workable((Path(__file__).parent / "fixtures/ats/workable_jobs.json").read_bytes())

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from src.sources.ats.lever import parse_lever
 
-
 FIXTURE = Path(__file__).parent / "fixtures" / "ats" / "lever_postings.json"
 
 

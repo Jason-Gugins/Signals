@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-import re
 from urllib.parse import urlsplit, urlunsplit
 
 from src.core.textutil import clean_text
@@ -455,8 +455,9 @@ def load_fingerprint_rules() -> dict:
     A changed mtime (edited YAML) invalidates the cache on next call.
     """
     global _RULES_CACHE
-    import yaml
     from pathlib import Path
+
+    import yaml
 
     path = Path(__file__).resolve().parents[3] / "config" / "fingerprints.yaml"
     mtime = path.stat().st_mtime

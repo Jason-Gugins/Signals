@@ -9,7 +9,6 @@ live only in the PDFs — detail parsing is deferred; those fields are None.
 from __future__ import annotations
 
 import re
-
 from urllib.parse import urljoin
 
 from lxml import html

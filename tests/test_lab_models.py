@@ -33,7 +33,7 @@ import pytest
 np = pytest.importorskip("numpy")  # the whole lane rides the signals[lab] extra
 pytest.importorskip("sklearn")
 
-from src.lab import models, splits  # noqa: E402  (module tops stay stdlib-only)
+from src.lab import models, splits
 
 # ------------------------------------------------------ deterministic worlds
 

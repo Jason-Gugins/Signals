@@ -7,7 +7,7 @@ with a known vendor-out. Pure: no I/O, no clock reads (today is injected).
 """
 from __future__ import annotations
 
-from typing import Callable, Iterable
+from collections.abc import Callable, Iterable
 
 from src.sources.base import SignalCandidate
 

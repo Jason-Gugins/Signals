@@ -7,10 +7,10 @@ import re
 from pathlib import Path
 
 from src.identity.ats_discovery import (
-    MAX_BOARD_CANDIDATES,
-    MAX_VERIFY_REQUESTS,
     _LADDER_VENDORS,
     _VERIFY_ENDPOINTS,
+    MAX_BOARD_CANDIDATES,
+    MAX_VERIFY_REQUESTS,
     _board_payload_ok,
     board_token_candidates,
     careers_url_candidates,
@@ -18,7 +18,6 @@ from src.identity.ats_discovery import (
     listing_hub_link,
     verify_board_candidates,
 )
-
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ats"
 VENDORS = [

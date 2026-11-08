@@ -252,7 +252,7 @@ def test_stripe_signature_scheme_with_injected_clock():
     # v1 = HMAC-SHA256 of "<t>.<body>" over the EXACT wire bytes.
     for parts, call in ((p1, first), (p2, second)):
         expected = hmac.new(
-            secret.encode("utf-8"), f"{parts['t']}.".encode("utf-8") + call["body"], hashlib.sha256
+            secret.encode("utf-8"), f"{parts['t']}.".encode() + call["body"], hashlib.sha256
         ).hexdigest()
         assert parts["v1"] == expected
     assert p1["v1"] != p2["v1"]

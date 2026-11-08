@@ -1,4 +1,5 @@
 import inspect
+
 from src.core.patchright_browser import PatchrightBrowserFetcher
 
 

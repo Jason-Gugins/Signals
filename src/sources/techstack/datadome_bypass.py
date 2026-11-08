@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+
 from loguru import logger
 
 from src.sources.techstack.datadome import (
-    is_datadome_challenge,
-    extract_datadome_params,
     extract_datadome_captcha_url,
+    extract_datadome_params,
+    is_datadome_challenge,
     is_datadome_ip_banned,
 )
 from src.sources.techstack.datadome_solver import solve_datadome
@@ -193,8 +194,7 @@ class DataDomeBypass:
         return []
 
     def _persist(self, domain, cookies, user_agent, proxy, *, method):
-        from datetime import timedelta
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_at = (now + timedelta(hours=self.config.datadome.cookie_ttl_hours)).isoformat()
         self.cookies.put(domain, user_agent=user_agent, proxy=proxy,
                          cookies=cookies, expires_at=expires_at, solve_method=method)

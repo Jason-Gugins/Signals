@@ -14,7 +14,7 @@ taxonomy but had no live production call site. These tests pin each wiring:
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from src.core.config import Config
 from src.core.db import Database
@@ -61,7 +61,7 @@ def test_parse_passes_fingerprint_competitors(monkeypatch):
     load_fingerprint_rules is imported function-locally inside parse, so the
     monkeypatch targets the fingerprint module attribute.
     """
-    import src.sources.techstack.fingerprint as fingerprint
+    from src.sources.techstack import fingerprint
 
     rules = {
         "version": 1,
@@ -133,7 +133,7 @@ def _removed_harness(tmp_path):
     default 1-year renewal OUTSIDE the 30..120-day lead window so only
     tech_removed is under test."""
     db = Database(tmp_path / "s.db")
-    today = (datetime.now(timezone.utc).date())
+    today = (datetime.now(UTC).date())
     seen = (today - timedelta(days=200)).isoformat()
     db.upsert(
         "technologies",
@@ -181,9 +181,9 @@ def test_runner_persists_tech_removed_after_two_missing_runs(tmp_path):
     from src.signals.normalize import make_signal_id
 
     assert row["signal_id"] == make_signal_id(
-        "acme.com", "tech_removed", f"tech_removed:zendesk:{(datetime.now(timezone.utc).date()):%Y-%m}"
+        "acme.com", "tech_removed", f"tech_removed:zendesk:{(datetime.now(UTC).date()):%Y-%m}"
     )
-    assert row["observed_at"] == (datetime.now(timezone.utc).date()).isoformat()
+    assert row["observed_at"] == (datetime.now(UTC).date()).isoformat()
     assert json.loads(row["evidence_data"]) == {"vendor": "zendesk"}
     assert stats2.signals_new == 1
     assert stats2.by_source["techstack"]["signals_new"] == 1
@@ -197,9 +197,9 @@ def test_runner_persists_tech_removed_after_two_missing_runs(tmp_path):
 
 # ── 4c: backfill_open (jobsignals local derivation) ─────────────────────────
 
-from src.signals.normalize import make_signal_id, normalize_batch  # noqa: E402
-from src.sources.ats.common import JobPost, upsert_jobs  # noqa: E402
-from src.sources.jobsignals.collector import JobSignalsSource  # noqa: E402
+from src.signals.normalize import make_signal_id, normalize_batch
+from src.sources.ats.common import JobPost, upsert_jobs
+from src.sources.jobsignals.collector import JobSignalsSource
 
 BACKFILL_TODAY = date(2026, 9, 5)
 

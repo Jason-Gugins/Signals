@@ -6,7 +6,6 @@ from datetime import date
 
 from src.core.models import Account, Contact
 from src.export.briefs import render_brief, select_persona_framing
-from src.signals.plays import PlayAssignment
 from src.signals.score import ScoreResult
 from src.signals.taxonomy import Taxonomy
 from src.signals.tier import TierResult

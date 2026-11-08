@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import os
 import smtplib
+from collections.abc import Callable
 from email.mime.text import MIMEText
-from typing import Callable, Optional
 
 from loguru import logger
 
@@ -28,7 +28,7 @@ def send_email(
     pass_env: str,
     use_tls: bool = True,
     timeout_s: int = 30,
-    smtp_factory: Optional[Callable[..., smtplib.SMTP]] = None,
+    smtp_factory: Callable[..., smtplib.SMTP] | None = None,
 ) -> bool:
     """Send a plain-text (markdown) email via SMTP. Returns True on success.
 

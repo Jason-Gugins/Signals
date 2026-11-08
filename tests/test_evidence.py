@@ -7,7 +7,6 @@ from datetime import date
 from src.core.models import Account, Signal
 from src.signals.evidence import humanize_age, render_evidence
 
-
 ACCT = Account(domain="acme.com", name="Acme")
 TODAY = date(2026, 8, 16)
 

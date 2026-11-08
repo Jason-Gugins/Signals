@@ -14,7 +14,6 @@ from src.signals.score import Contribution, ScoreResult
 from src.signals.taxonomy import Taxonomy
 from src.signals.tier import TierResult
 
-
 TODAY = date(2026, 8, 16)
 TAX = Taxonomy.load("config/signals.yaml")
 PLAYS = yaml.safe_load(Path("config/plays.yaml").read_text(encoding="utf-8"))

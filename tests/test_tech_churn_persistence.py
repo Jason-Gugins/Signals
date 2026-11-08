@@ -10,7 +10,7 @@ can never regress to unknown (same shape as test_review_trend_persistence).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -110,7 +110,7 @@ class _HealthyFetch:
 def _harness(tmp_path, *, fetcher, bypass=None, first_seen_days_ago: dict | None = None):
     """CollectorRunner over a db pre-seeded with technologies rows."""
     db = Database(tmp_path / "s.db")
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     for vendor, days_ago in (first_seen_days_ago or {}).items():
         seen = (today - timedelta(days=days_ago)).isoformat()
         db.upsert(
@@ -303,7 +303,7 @@ def test_flap_guard_suppresses_immediate_rechurn(tmp_path, monkeypatch):
     natural key (same-day re-churns would merge into one row and hide the
     regression)."""
     monkeypatch.setattr("src.sources.techstack.dns_probe.probe_dns", _no_dns_probe)
-    day1 = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+    day1 = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
     clock = {"now": day1}
     monkeypatch.setattr("src.pipeline.runner._now", lambda: clock["now"])
     runner, db, ctx = _harness(

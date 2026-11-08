@@ -134,10 +134,10 @@ def solve_and_bounce(
 
 
 __all__ = [
-    "extract_clearance_cookies",
+    "BounceResult",
     "Ghost",
     "GhostResult",
     "PatchrightGhost",
-    "BounceResult",
+    "extract_clearance_cookies",
     "solve_and_bounce",
 ]

@@ -66,7 +66,7 @@ import sys
 import threading
 from collections import Counter
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -169,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _ts() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 # The nominal base for the read-only stand-in below — imported here rather
@@ -404,8 +404,8 @@ def _discovered_variant(survivor: dict, index: int, round_no: int) -> dict:
     """One screened-survivor question as a registry-shaped doc-gate variant:
     the question rides the gate's batched request as an added Noul with its
     own routing floor (the has_profile_vocab_evidence pattern)."""
-    from src.lab.report import question_slug
     from src.lab.proposers import normalize_text
+    from src.lab.report import question_slug
 
     question = str(survivor.get("question") or "").strip()
     slug = question_slug(question) or (

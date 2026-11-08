@@ -77,7 +77,7 @@ def test_doctor_aggregated_check(tmp_path):
             return {"sources": {"fake_src": {"enabled": True, "bogus_key": 1}}}
         return real_load(self, name)
 
-    import unittest.mock as mock
+    from unittest import mock
 
     with mock.patch.object(Config, "load_yaml", fake_load):
         rows = doctor(cfg, Database(tmp_path / "s.db"), check_network=False)

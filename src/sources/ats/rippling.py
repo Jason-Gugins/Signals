@@ -13,16 +13,15 @@ before enabling in production wiring.
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 from src.core.models import Account, Document
 from src.core.textutil import to_iso_date
-from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.ats.common import JobPost, parse_location, strip_html
+from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.registry import register
 
 
-def _loc_str(loc) -> Optional[str]:
+def _loc_str(loc) -> str | None:
     if isinstance(loc, str):
         return loc or None
     if isinstance(loc, dict):
@@ -73,7 +72,7 @@ class RipplingSource(SourceAdapter):
     cadence_hours = 12
     requires = ("ats_token",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token
         return [
             FetchTask(

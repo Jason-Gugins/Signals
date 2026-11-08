@@ -1,5 +1,7 @@
 import inspect
+
 from src.core.browser import BrowserFetcher
+
 
 def test_browser_fetch_accepts_inject_turnstile_token():
     """BrowserFetcher.fetch() accepts inject_turnstile_token kwarg."""
@@ -8,11 +10,12 @@ def test_browser_fetch_accepts_inject_turnstile_token():
 
 def test_solver_via_browser_passes_token():
     """_solver_via_browser injects the solved token via inject_turnstile_token."""
-    from unittest.mock import MagicMock, patch
     from types import SimpleNamespace
-    from src.sources.techstack.cf_bypass import CloudflareBypass
+    from unittest.mock import MagicMock, patch
+
     from src.core.http import FetchResult
     from src.core.models import Document
+    from src.sources.techstack.cf_bypass import CloudflareBypass
 
     cfg = SimpleNamespace(
         cloudflare=SimpleNamespace(

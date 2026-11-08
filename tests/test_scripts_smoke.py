@@ -1,4 +1,3 @@
-from click.testing import CliRunner
 import pytest
 
 from scripts import pull_fixture, recon_ats, recon_ats_boards, recon_browser, recon_http

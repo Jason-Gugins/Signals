@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Optional
 
 import httpx
 import respx
@@ -33,11 +32,11 @@ from src.core.models import Account, Document
 from src.core.ratelimit import RateLimiter
 from src.core.rawstore import RawStore
 from src.core.runlog import RunContext
+from src.identity.registry import AccountRegistry
 from src.pipeline.runner import CollectorRunner
 from src.signals.store import SignalStore
 from src.signals.taxonomy import Taxonomy
-from src.identity.registry import AccountRegistry
-from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
+from src.sources.base import FetchTask, SourceAdapter
 from src.sources.techstack.collector import TechstackSource
 from src.sources.techstack.fingerprint import extract_http_evidence, match_fingerprints
 
@@ -51,10 +50,10 @@ TODAY = "2026-09-05"
 class Task:
     source: str
     url: str
-    domain: Optional[str] = None
+    domain: str | None = None
     method: str = "GET"
     headers: dict = field(default_factory=dict)
-    json_body: Optional[dict] = None
+    json_body: dict | None = None
 
 
 class FakeClock:

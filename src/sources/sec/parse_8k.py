@@ -25,25 +25,25 @@ ITEM_MAP: dict[str, tuple[str | None, float]] = {
     "8.01": (None, 0.0),
 }
 
-_APPOINT = re.compile(r"\b(appoint(?:ed|ment)?|named|joins?|elected)\b", re.I)
-_DEPART = re.compile(r"\b(resign(?:ed|ation)?|depart(?:ed|ure)?|step(?:s|ped)?\s+down|terminat)\b", re.I)
+_APPOINT = re.compile(r"\b(appoint(?:ed|ment)?|named|joins?|elected)\b", re.IGNORECASE)
+_DEPART = re.compile(r"\b(resign(?:ed|ation)?|depart(?:ed|ure)?|step(?:s|ped)?\s+down|terminat)\b", re.IGNORECASE)
 _PERSON = re.compile(
     r"\b(?:Mr|Ms|Mrs|Dr)\.?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)(?:,\s+([^.]{3,60}))?",
 )
 _ACQUIRED = re.compile(
     r"acquisition of\s+([A-Z][\w .,&-]{2,60}?)(?:\s*,?\s*Inc\.?|\s+LLC|\.)",
-    re.I,
+    re.IGNORECASE,
 )
 # Prospective seller/depositor language for Item 2.01 (and 1.01) — if present,
 # the filer is the SELLER, not the acquirer.
 _DISPOSE = re.compile(
     r"\b(?:sold|sale of|disposed? of|divest(?:ed|ing)?|complete[ds]?\s+(?:the\s+)?sale|completed\s+the\s+disposition|exchanged)\b",
-    re.I,
+    re.IGNORECASE,
 )
-_AFFECTED = re.compile(r"(\d[\d,]*)\s+(?:employees|roles|positions|workers)", re.I)
-_CHARGE = re.compile(r"\$[\d,.]+\s*(?:million|billion|m|b)?", re.I)
+_AFFECTED = re.compile(r"(\d[\d,]*)\s+(?:employees|roles|positions|workers)", re.IGNORECASE)
+_CHARGE = re.compile(r"\$[\d,.]+\s*(?:million|billion|m|b)?", re.IGNORECASE)
 # Bankruptcy-code chapter for Item 1.03 (7 = liquidation, 11 = reorganization).
-_CHAPTER = re.compile(r"\bchapter\s+(\d+)", re.I)
+_CHAPTER = re.compile(r"\bchapter\s+(\d+)", re.IGNORECASE)
 
 
 def extract_text(html_bytes: bytes) -> str:
@@ -164,7 +164,7 @@ def _classify_502(filing: Filing, text: str, conf: float) -> list[SignalCandidat
     if m:
         person = m.group(1)
         role = (m.group(2) or "").strip(" ,") or None
-        if role and re.search(r"\bappointed\b", role, re.I):
+        if role and re.search(r"\bappointed\b", role, re.IGNORECASE):
             role = None
     # better role: "Jane Doe, Chief Revenue Officer, was appointed"
     m2 = re.search(

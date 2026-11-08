@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from src.core.models import Account
 from src.sources.base import SignalCandidate
 from src.sources.news.classify import NEWS_RULES, extract_vars
 from src.sources.news.feeds import NewsItem
-import re
 
 BLOG_ALLOW = {"product_launch", "award", "certification", "office_open", "content_appearance"}
 
@@ -21,9 +21,9 @@ def blog_to_candidates(items: list[NewsItem], account: Account, *, today: date) 
         for rule in NEWS_RULES:
             if rule.signal_type not in BLOG_ALLOW:
                 continue
-            if any(re.search(n, text, re.I) for n in rule.negative):
+            if any(re.search(n, text, re.IGNORECASE) for n in rule.negative):
                 continue
-            if any(re.search(p, text, re.I) for p in rule.patterns):
+            if any(re.search(p, text, re.IGNORECASE) for p in rule.patterns):
                 hit = rule
                 break
         if hit is None:

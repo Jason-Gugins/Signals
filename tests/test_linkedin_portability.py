@@ -3,7 +3,7 @@ POSIX layout for containers, explicit env override wins."""
 
 from pathlib import Path
 
-import src.sources.linkedin_db.collector as collector
+from src.sources.linkedin_db import collector
 
 
 def test_scraper_python_windows_layout_is_unchanged(monkeypatch):

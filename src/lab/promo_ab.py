@@ -21,7 +21,6 @@ the timing is disclosed).
 from __future__ import annotations
 
 import json
-import random
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -174,7 +173,6 @@ def rescore(claims: list[dict], pass_name: str, decider: Decider, *,
 
 def probe_main(argv: list[str] | None = None) -> int:
     import argparse
-    import os
     import sys
 
     ap = argparse.ArgumentParser(
@@ -203,7 +201,7 @@ def probe_main(argv: list[str] | None = None) -> int:
           f"{partition['ORPHAN']} ORPHAN")
     print(f"passes: {args.passes} per claim per variant (nondeterminism "
           f"averaging) | calls: {estimate} | budget cap {args.budget_calls}")
-    print(f"variants: V0 (shipped, quote-rebaseline), V1, V2")
+    print("variants: V0 (shipped, quote-rebaseline), V1, V2")
     if estimate > args.budget_calls:
         print(f"ABORT: estimate {estimate} calls exceeds budget "
               f"{args.budget_calls}", file=sys.stderr)
@@ -229,7 +227,7 @@ def probe_main(argv: list[str] | None = None) -> int:
 
     gates_cfg = (decide_cfg.get("decider") or {}).get("gates") or {}
     out_dir = Path(args.out_dir) / f"promo-ab-{_ts()}"
-    print(f"--- V0 quote-rebaseline (shipped question) ---")
+    print("--- V0 quote-rebaseline (shipped question) ---")
     v0_rows = rescore(claims, "V0", decider, gates_cfg=gates_cfg,
                       out_path=out_dir / "v0-rows.jsonl", passes=args.passes)
     results: dict[str, list[dict]] = {"V0": v0_rows}
@@ -304,10 +302,10 @@ def _mean(xs: Sequence[float]) -> float:
 def _ts() -> str:
     import datetime
 
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-from collections import Counter  # noqa: E402  (probe_main partition counts)
+from collections import Counter
 
 if __name__ == "__main__":
     import sys

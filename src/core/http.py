@@ -6,7 +6,7 @@ import json
 import random
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -20,7 +20,8 @@ from src.core.rawstore import RawStore
 from src.core.runlog import RunContext
 
 if TYPE_CHECKING:
-    from typing import Callable, Protocol
+    from collections.abc import Callable
+    from typing import Protocol
 
     from src.core.cookiejar import PersistentCookieJar
 
@@ -76,9 +77,9 @@ def robots_path_allowed(url: str, allow: list | None) -> bool:
 class FetchResult:
     ok: bool
     status: int
-    doc: Optional[Document]
+    doc: Document | None
     cached: bool
-    error: Optional[str]
+    error: str | None
     elapsed_ms: int
     cloudflare_cookies: list = field(default_factory=list)
     # Response headers from the 2xx path (keys lowercased), in-memory only —
@@ -248,7 +249,7 @@ class HttpFetcher:
         attempts = 0
         response: httpx.Response | None = None
 
-        for attempt in range(0, max_retries + 1):
+        for attempt in range(max_retries + 1):
             attempts = attempt + 1
             self.limiter.wait(url, source=getattr(task, "source", None))
             try:

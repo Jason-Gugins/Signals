@@ -93,8 +93,9 @@ def test_enabled_drops_below_floor_and_attaches_evidence(monkeypatch):
     survivor = cands[0]
     assert survivor.evidence_data["relevance"] == pytest.approx(0.9)
     # natural_key stability: same link -> same key
-    from src.core.textutil import sha256_hex
     from urllib.parse import urlparse, urlunparse
+
+    from src.core.textutil import sha256_hex
     p = urlparse("https://techcrunch.com/acme-series-b")
     expected = sha256_hex(urlunparse((p.scheme, p.netloc, p.path, "", "", "")))[:16]
     assert survivor.natural_key == expected

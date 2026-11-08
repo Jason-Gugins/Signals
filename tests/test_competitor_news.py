@@ -35,7 +35,6 @@ from src.identity.competitor_news import (
     parse_rss_titles,
 )
 
-
 # ── fixtures / fake fetcher ──────────────────────────────────────────────────
 
 class FakeDoc:
@@ -85,7 +84,7 @@ def _rss(items: list[tuple[str, str]]) -> bytes:
         '<?xml version="1.0" encoding="utf-8"?>'
         '<rss version="2.0"><channel><title>Bing News</title>'
         f"{entries}</channel></rss>"
-    ).encode("utf-8")
+    ).encode()
 
 
 def _hit(title: str | None, url: str | None = "https://example.com/a", oid: str = "42") -> dict:
@@ -172,9 +171,9 @@ def test_parse_rss_titles_caps_at_10():
 
 def test_parse_rss_titles_missing_link_yields_empty_url():
     xml = (
-        '<?xml version="1.0" encoding="utf-8"?><rss version="2.0"><channel>'
-        "<item><title>Acme vs Globe</title></item></channel></rss>"
-    ).encode("utf-8")
+        b'<?xml version="1.0" encoding="utf-8"?><rss version="2.0"><channel>'
+        b"<item><title>Acme vs Globe</title></item></channel></rss>"
+    )
     assert parse_rss_titles(xml) == [{"title": "Acme vs Globe", "url": ""}]
 
 

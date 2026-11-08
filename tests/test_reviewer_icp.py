@@ -92,7 +92,7 @@ def test_icp_reviewer_candidate_survives_normalize_batch():
     cand = SignalCandidate(
         signal_type="intent_2nd_marketplace",
         observed_at="2026-09-04",
-        natural_key=f"icprev:marketplace_g2:rv-1",
+        natural_key="icprev:marketplace_g2:rv-1",
         title="ICP reviewer: VP Sales & Marketing",
         confidence=0.7,
         evidence_data={

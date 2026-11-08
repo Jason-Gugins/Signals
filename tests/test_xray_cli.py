@@ -22,10 +22,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-import src.cli as cli
 import src.core.curl_fetcher as curl_fetcher_mod
+from src import cli
 from src.pipeline.orchestrator import Orchestrator
-
 
 # Small synthetic organic ddg-lite body, same markup shape as the SYNTHETIC in
 # tests/test_xray_serp_parse.py — ONE company URL (newco.io), uddg-wrapped.

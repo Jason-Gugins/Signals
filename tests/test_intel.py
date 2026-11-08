@@ -24,7 +24,6 @@ from src.core.models import Account
 from src.pipeline import intel
 from src.pipeline.runner import RunnerStats
 
-
 DOMAIN = "acme.com"
 
 

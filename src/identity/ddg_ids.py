@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Callable, Optional, Union
+from collections.abc import Callable
 from urllib.parse import parse_qs, quote_plus, unquote, urlsplit
 
 from loguru import logger
@@ -303,7 +303,7 @@ class DdgSerpResolver:
 
     def __init__(
         self,
-        fetcher: Optional[Union[object, Callable[[str], object]]] = None,
+        fetcher: object | Callable[[str], object] | None = None,
         registry=None,
         clock=time.monotonic,
         sleep=time.sleep,
@@ -361,7 +361,7 @@ class DdgSerpResolver:
             self._built_fetcher = _default_fetcher()
         return self._built_fetcher
 
-    def _fetch(self, url: str) -> tuple[Optional[str], int]:
+    def _fetch(self, url: str) -> tuple[str | None, int]:
         """One paced GET -> (body text or None, status). Tolerates fetcher
         objects with ``.get`` and plain callables (capterra_resolve style).
 

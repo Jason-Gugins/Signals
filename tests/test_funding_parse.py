@@ -10,7 +10,6 @@ from src.pipeline.funding import SOURCE, follow_funding, parse_funding_doc
 from src.sources.sec.formd_filter import FormDFilter
 from src.sources.sec.fts import hit_to_filing, parse_fts_response
 
-
 FIX = Path(__file__).resolve().parent / "fixtures"
 TODAY = date(2026, 8, 22)
 

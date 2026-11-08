@@ -4,9 +4,9 @@ import json
 
 import pytest
 
+import src.export.alerts as alerts_mod
 from src.core.config import Config
 from src.export.alerts import Alert, deliver_alerts
-import src.export.alerts as alerts_mod
 
 
 @pytest.fixture(autouse=True)

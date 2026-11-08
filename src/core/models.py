@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field, fields
-from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 _T = TypeVar("_T", bound="DataclassInstance")
 
 
-def _json_dump(value: Any) -> Optional[str]:
+def _json_dump(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, (list, dict)) and not value:
@@ -50,40 +50,40 @@ def _row_to_dataclass(cls: type[_T], row: dict) -> _T:
 @dataclass
 class Account:
     domain: str
-    name: Optional[str] = None
-    legal_name: Optional[str] = None
-    linkedin_slug: Optional[str] = None
-    linkedin_company_id: Optional[str] = None
-    repvue_slug: Optional[str] = None
-    g2_slug: Optional[str] = None
-    app_store_id: Optional[str] = None
-    play_id: Optional[str] = None
-    subreddit: Optional[str] = None
-    cik: Optional[str] = None
-    ticker: Optional[str] = None
-    ats_vendor: Optional[str] = None
-    ats_token: Optional[str] = None
-    careers_url: Optional[str] = None
-    blog_feed_url: Optional[str] = None
-    industry: Optional[str] = None
-    sic_code: Optional[str] = None
-    employee_count: Optional[int] = None
-    employee_count_at: Optional[str] = None
-    hq_country: Optional[str] = None
-    hq_region: Optional[str] = None
-    hq_city: Optional[str] = None
-    founded: Optional[str] = None
-    company_type: Optional[str] = None
-    cohort: Optional[str] = None
-    seed_source: Optional[str] = None
+    name: str | None = None
+    legal_name: str | None = None
+    linkedin_slug: str | None = None
+    linkedin_company_id: str | None = None
+    repvue_slug: str | None = None
+    g2_slug: str | None = None
+    app_store_id: str | None = None
+    play_id: str | None = None
+    subreddit: str | None = None
+    cik: str | None = None
+    ticker: str | None = None
+    ats_vendor: str | None = None
+    ats_token: str | None = None
+    careers_url: str | None = None
+    blog_feed_url: str | None = None
+    industry: str | None = None
+    sic_code: str | None = None
+    employee_count: int | None = None
+    employee_count_at: str | None = None
+    hq_country: str | None = None
+    hq_region: str | None = None
+    hq_city: str | None = None
+    founded: str | None = None
+    company_type: str | None = None
+    cohort: str | None = None
+    seed_source: str | None = None
     icp_fit: float = 1.0
     icp_reasons: list = field(default_factory=list)
     disqualified: bool = False
-    disqualify_reason: Optional[str] = None
-    score: Optional[float] = None
-    tier: Optional[int] = None
-    buying_window: Optional[str] = None
-    scored_at: Optional[str] = None
+    disqualify_reason: str | None = None
+    score: float | None = None
+    tier: int | None = None
+    buying_window: str | None = None
+    scored_at: str | None = None
     extra_data: dict = field(default_factory=dict)
 
     def to_db_row(self) -> dict:
@@ -127,7 +127,7 @@ class Account:
         }
 
     @classmethod
-    def from_db_row(cls, row: dict) -> "Account":
+    def from_db_row(cls, row: dict) -> Account:
         data = dict(row)
         data["icp_reasons"] = _json_load(data.get("icp_reasons"), [])
         data["extra_data"] = _json_load(data.get("extra_data"), {})
@@ -140,20 +140,20 @@ class Account:
 @dataclass
 class Contact:
     person_key: str
-    domain: Optional[str] = None
-    name: Optional[str] = None
-    title: Optional[str] = None
-    seniority: Optional[str] = None
-    persona: Optional[str] = None
-    department: Optional[str] = None
-    linkedin_slug: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    location: Optional[str] = None
+    domain: str | None = None
+    name: str | None = None
+    title: str | None = None
+    seniority: str | None = None
+    persona: str | None = None
+    department: str | None = None
+    linkedin_slug: str | None = None
+    linkedin_url: str | None = None
+    location: str | None = None
     is_champion: bool = False
-    role_started_at: Optional[str] = None
-    prior_domain: Optional[str] = None
-    email_guess: Optional[str] = None
-    email_pattern: Optional[str] = None
+    role_started_at: str | None = None
+    prior_domain: str | None = None
+    email_guess: str | None = None
+    email_pattern: str | None = None
     extra_data: dict = field(default_factory=dict)
 
     def to_db_row(self) -> dict:
@@ -177,7 +177,7 @@ class Contact:
         }
 
     @classmethod
-    def from_db_row(cls, row: dict) -> "Contact":
+    def from_db_row(cls, row: dict) -> Contact:
         data = dict(row)
         data["extra_data"] = _json_load(data.get("extra_data"), {})
         data["is_champion"] = bool(data.get("is_champion", 0))
@@ -196,17 +196,17 @@ class Signal:
     observed_at: str
     source: str
     degree: int = 0
-    person_key: Optional[str] = None
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    evidence: Optional[str] = None
+    person_key: str | None = None
+    title: str | None = None
+    summary: str | None = None
+    evidence: str | None = None
     evidence_data: dict = field(default_factory=dict)
-    url: Optional[str] = None
+    url: str | None = None
     confidence: float = 0.8
-    first_seen_at: Optional[str] = None
-    last_seen_at: Optional[str] = None
-    raw_ref: Optional[str] = None
-    superseded_by: Optional[str] = None
+    first_seen_at: str | None = None
+    last_seen_at: str | None = None
+    raw_ref: str | None = None
+    superseded_by: str | None = None
 
     def to_db_row(self) -> dict:
         return {
@@ -234,7 +234,7 @@ class Signal:
         }
 
     @classmethod
-    def from_db_row(cls, row: dict) -> "Signal":
+    def from_db_row(cls, row: dict) -> Signal:
         data = dict(row)
         data["evidence_data"] = _json_load(data.get("evidence_data"), {})
         return _row_to_dataclass(cls, data)
@@ -244,19 +244,19 @@ class Signal:
 class Document:
     doc_id: str
     source: str
-    url: Optional[str] = None
-    domain: Optional[str] = None
+    url: str | None = None
+    domain: str | None = None
     method: str = "GET"
-    content_type: Optional[str] = None
-    status: Optional[int] = None
-    byte_size: Optional[int] = None
-    path: Optional[str] = None
-    etag: Optional[str] = None
-    last_modified: Optional[str] = None
-    fetched_at: Optional[str] = None
-    parsed_at: Optional[str] = None
-    parse_error: Optional[str] = None
-    body: Optional[bytes] = None  # NOT persisted; lives in rawstore
+    content_type: str | None = None
+    status: int | None = None
+    byte_size: int | None = None
+    path: str | None = None
+    etag: str | None = None
+    last_modified: str | None = None
+    fetched_at: str | None = None
+    parsed_at: str | None = None
+    parse_error: str | None = None
+    body: bytes | None = None  # NOT persisted; lives in rawstore
 
     def to_db_row(self) -> dict:
         return {
@@ -277,7 +277,7 @@ class Document:
         }
 
     @classmethod
-    def from_db_row(cls, row: dict) -> "Document":
+    def from_db_row(cls, row: dict) -> Document:
         return _row_to_dataclass(cls, dict(row))
 
 
@@ -297,7 +297,7 @@ class ScoreComponents:
         }
 
     @classmethod
-    def from_db_row(cls, row: dict) -> "ScoreComponents":
+    def from_db_row(cls, row: dict) -> ScoreComponents:
         data = dict(row)
         data["per_signal"] = _json_load(data.get("per_signal"), [])
         data["combos"] = _json_load(data.get("combos"), [])

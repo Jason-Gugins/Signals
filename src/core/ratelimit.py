@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Callable, Iterator
 from urllib.parse import urlparse
 
 

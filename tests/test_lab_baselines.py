@@ -34,9 +34,9 @@ import pytest
 
 np = pytest.importorskip("numpy")  # src.lab.features imports numpy at module top
 
-from src.intel.market import load_market_profile  # noqa: E402
-from src.lab import baselines, features  # noqa: E402
-from src.retrieval.embedder import DIM, NullEmbedder  # noqa: E402
+from src.intel.market import load_market_profile
+from src.lab import baselines, features
+from src.retrieval.embedder import DIM, NullEmbedder
 
 # --------------------------------------------------------------- test corpus
 

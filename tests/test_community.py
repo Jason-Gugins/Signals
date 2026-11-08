@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+
 from src.core.config import Config
 from src.core.models import Account
 from src.sources.community.github import (

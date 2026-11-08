@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from src.core.textutil import (
     clean_text,
@@ -33,7 +33,7 @@ def test_clean_text_collapses_and_none_on_empty():
 
 def test_to_iso_date_absolute_formats():
     assert to_iso_date(date(2026, 1, 5)) == "2026-01-05"
-    assert to_iso_date(datetime(2026, 1, 5, 12, 0, tzinfo=timezone.utc)) == "2026-01-05"
+    assert to_iso_date(datetime(2026, 1, 5, 12, 0, tzinfo=UTC)) == "2026-01-05"
     assert to_iso_date("2026-01-05") == "2026-01-05"
     assert to_iso_date("Jan 5, 2026") == "2026-01-05"
     assert to_iso_date("5 January 2026") == "2026-01-05"

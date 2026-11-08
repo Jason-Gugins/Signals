@@ -12,7 +12,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
 
 from src.core.models import Account
@@ -37,35 +37,35 @@ MAX_DISCOVERY_REQUESTS = 22
 
 ATS_PATTERNS: dict[str, list[re.Pattern]] = {
     "greenhouse": [
-        re.compile(r"boards\.greenhouse\.io/(?:embed/job_board\?for=)?([a-z0-9_-]+)", re.I),
-        re.compile(r"job-boards\.greenhouse\.io/([a-z0-9_-]+)", re.I),
+        re.compile(r"boards\.greenhouse\.io/(?:embed/job_board\?for=)?([a-z0-9_-]+)", re.IGNORECASE),
+        re.compile(r"job-boards\.greenhouse\.io/([a-z0-9_-]+)", re.IGNORECASE),
     ],
-    "lever": [re.compile(r"jobs\.lever\.co/([a-z0-9_-]+)", re.I)],
-    "ashby": [re.compile(r"jobs\.ashbyhq\.com/([a-z0-9_-]+)", re.I)],
+    "lever": [re.compile(r"jobs\.lever\.co/([a-z0-9_-]+)", re.IGNORECASE)],
+    "ashby": [re.compile(r"jobs\.ashbyhq\.com/([a-z0-9_-]+)", re.IGNORECASE)],
     "smartrecruiters": [
         re.compile(r"careers\.smartrecruiters\.com/([A-Za-z0-9_-]+)"),
         re.compile(r"jobs\.smartrecruiters\.com/([A-Za-z0-9_-]+)"),
     ],
     "workable": [
-        re.compile(r"([a-z0-9-]+)\.workable\.com", re.I),
-        re.compile(r"apply\.workable\.com/([a-z0-9-]+)", re.I),
+        re.compile(r"([a-z0-9-]+)\.workable\.com", re.IGNORECASE),
+        re.compile(r"apply\.workable\.com/([a-z0-9-]+)", re.IGNORECASE),
     ],
-    "recruitee": [re.compile(r"([a-z0-9-]+)\.recruitee\.com", re.I)],
+    "recruitee": [re.compile(r"([a-z0-9-]+)\.recruitee\.com", re.IGNORECASE)],
     "workday": [
         re.compile(
             r"([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?([A-Za-z0-9_-]+)",
-            re.I,
+            re.IGNORECASE,
         )
     ],
-    "bamboohr": [re.compile(r"([a-z0-9-]+)\.bamboohr\.com/(?:jobs|careers)", re.I)],
-    "jazzhr": [re.compile(r"([a-z0-9-]+)\.applytojob\.com", re.I)],
-    "personio": [re.compile(r"([a-z0-9-]+)\.jobs\.personio\.(?:de|com)", re.I)],
-    "teamtailor": [re.compile(r"([a-z0-9-]+)\.teamtailor\.com", re.I)],
+    "bamboohr": [re.compile(r"([a-z0-9-]+)\.bamboohr\.com/(?:jobs|careers)", re.IGNORECASE)],
+    "jazzhr": [re.compile(r"([a-z0-9-]+)\.applytojob\.com", re.IGNORECASE)],
+    "personio": [re.compile(r"([a-z0-9-]+)\.jobs\.personio\.(?:de|com)", re.IGNORECASE)],
+    "teamtailor": [re.compile(r"([a-z0-9-]+)\.teamtailor\.com", re.IGNORECASE)],
     # Collector-backed vendors (src/sources/registry.py COLLECTED_VENDORS):
     # every one of these must be detectable, else the collector never fires.
-    "rippling": [re.compile(r"ats\.rippling\.com/([a-z0-9_-]+)", re.I)],
-    "jobvite": [re.compile(r"jobs\.jobvite\.com/([a-z0-9_-]+)", re.I)],
-    "breezy": [re.compile(r"([a-z0-9-]+)\.breezy\.hr", re.I)],
+    "rippling": [re.compile(r"ats\.rippling\.com/([a-z0-9_-]+)", re.IGNORECASE)],
+    "jobvite": [re.compile(r"jobs\.jobvite\.com/([a-z0-9_-]+)", re.IGNORECASE)],
+    "breezy": [re.compile(r"([a-z0-9-]+)\.breezy\.hr", re.IGNORECASE)],
 }
 
 
@@ -324,7 +324,7 @@ def _board_payload_ok(vendor: str, body: str) -> bool:
     return False
 
 
-def verify_board_candidates(fetch_text, candidates: list[tuple[str, str]]) -> Optional[AtsMatch]:
+def verify_board_candidates(fetch_text, candidates: list[tuple[str, str]]) -> AtsMatch | None:
     """Probe (vendor, token) pairs in order; return the first verified AtsMatch.
 
     fetch_text is the SAME budgeted closure discover() uses (fetch_log source
@@ -356,20 +356,20 @@ def verify_board_candidates(fetch_text, candidates: list[tuple[str, str]]) -> Op
     return None
 
 
-_CAREER_HREF = re.compile(r"/(careers|jobs|join-us|company/careers)(?:/|$)", re.I)
+_CAREER_HREF = re.compile(r"/(careers|jobs|join-us|company/careers)(?:/|$)", re.IGNORECASE)
 
 
-def _is_site_root(url: Optional[str]) -> bool:
+def _is_site_root(url: str | None) -> bool:
     """PURE. True for a bare origin URL (no path, or just '/')."""
     return urlparse(url or "").path in ("", "/")
 
 
 def _best_match_page(
     pages: list[tuple[str, str]],
-) -> tuple[Optional[AtsMatch], Optional[str]]:
+) -> tuple[AtsMatch | None, str | None]:
     """PURE. Best (match, page_url) across fetched pages; (None, None) if none."""
-    best: Optional[AtsMatch] = None
-    best_url: Optional[str] = None
+    best: AtsMatch | None = None
+    best_url: str | None = None
     for url, html in pages:
         matches = detect_ats(html, url)
         if matches and (best is None or matches[0].confidence > best.confidence):
@@ -411,7 +411,7 @@ def find_careers_url(fetch_text, domain: str, *, max_requests: int = MAX_DISCOVE
     """
     used = 0
 
-    def fetch(url: str) -> Optional[str]:
+    def fetch(url: str) -> str | None:
         nonlocal used
         if used >= max_requests:
             return None
@@ -442,18 +442,18 @@ def find_careers_url(fetch_text, domain: str, *, max_requests: int = MAX_DISCOVE
 
 
 class AtsDiscovery:
-    def __init__(self, fetcher: "HttpFetcher", registry: "AccountRegistry"):
+    def __init__(self, fetcher: HttpFetcher, registry: AccountRegistry):
         self.fetcher = fetcher
         self.registry = registry
 
     def discover(
         self, account: Account, alias_names: list[str] | None = None
-    ) -> Optional[AtsMatch]:
+    ) -> AtsMatch | None:
         used = 0
         max_req = MAX_DISCOVERY_REQUESTS
         raw_get = fetcher_for(self.fetcher, account.domain, source="ats_discovery")
 
-        def fetch(url: str) -> Optional[str]:
+        def fetch(url: str) -> str | None:
             """Budgeted fetch: returns HTML text or None. Never raises."""
             nonlocal used
             if used >= max_req:
@@ -462,11 +462,11 @@ class AtsDiscovery:
             return raw_get(url)
 
         pages: list[tuple[str, str]] = []
-        sitemap_careers_url: Optional[str] = None
+        sitemap_careers_url: str | None = None
         # Careers-shaped URLs found by the legacy rungs (homepage hop, path
         # candidates), recorded only AFTER a successful fetch so they are safe
         # to persist - unlike a sitemap guess we never contacted.
-        ladder_careers_url: Optional[str] = None
+        ladder_careers_url: str | None = None
         stored_careers_ok = False
 
         # Stage 1: an already-known careers URL is authoritative — verify only.
@@ -632,11 +632,11 @@ def _first_careers_link(html: str, base: str) -> str | None:
 
 
 _HUB_HREF = re.compile(
-    r"/(?:open[-_]?(?:roles|positions)|search[-_]jobs|vacancies|jobs?|join[-_]us)(?:[/?#]|$)", re.I
+    r"/(?:open[-_]?(?:roles|positions)|search[-_]jobs|vacancies|jobs?|join[-_]us)(?:[/?#]|$)", re.IGNORECASE
 )
 
 
-def listing_hub_link(html: str, base_url: str) -> Optional[str]:
+def listing_hub_link(html: str, base_url: str) -> str | None:
     """PURE. First internal link shaped like a job-listing hub, query stripped.
 
     Distinct from _first_careers_link (which finds the careers INDEX from the

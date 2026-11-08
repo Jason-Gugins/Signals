@@ -4,8 +4,8 @@ Mirrors tests/test_capterra_db.py: upsert_trustradius_reviews writes
 source='trustradius' rows and is idempotent (no duplicates on re-upsert).
 """
 from src.core.db import Database
-from src.sources.marketplace.trustradius import TrustRadiusReview
 from src.sources.marketplace.collector import upsert_trustradius_reviews
+from src.sources.marketplace.trustradius import TrustRadiusReview
 
 
 def _tr_review(**overrides):

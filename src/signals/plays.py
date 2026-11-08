@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from src.core.config import Config
 from src.core.models import Account, Contact, Signal
@@ -12,7 +12,6 @@ from src.signals.health import health_score
 from src.signals.score import ScoreResult
 from src.signals.taxonomy import Taxonomy
 from src.signals.tier import TierResult
-
 
 COMBO_PLAY = {
     "super_signal": "t24_profiling",

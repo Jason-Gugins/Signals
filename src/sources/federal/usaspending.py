@@ -164,7 +164,7 @@ def match_recipient(recipient_name: str, account_name: str, others: list[str] | 
     return "match"
 
 
-def humanize_amount(amount: float | int | None) -> str | None:
+def humanize_amount(amount: float | None) -> str | None:
     """Human award size: ``$1.4B`` / ``$1.2M`` / ``$450,000`` bands."""
     if amount is None:
         return None

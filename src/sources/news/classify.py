@@ -5,11 +5,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
 from urllib.parse import urlparse, urlunparse
 
 from src.core.models import Account
-from src.core.textutil import normalize_ws_lines, sha256_hex, to_iso_date
+from src.core.textutil import sha256_hex, to_iso_date
 from src.identity.names import normalize_name
 from src.sources.base import SignalCandidate
 from src.sources.news.feeds import NewsItem
@@ -57,7 +56,7 @@ NEWS_RULES: list[NewsRule] = [
     NewsRule("earnings_warning", [r"\bprofit warning\b", r"\bcuts? guidance\b", r"\bmisses? (?:q\d )?estimates\b"], [], 0.7, {}),
 ]
 
-_ACQ = re.compile(r"(.+?)\s+(?:acquires?|to acquire|buys?)\s+(.+)", re.I)
+_ACQ = re.compile(r"(.+?)\s+(?:acquires?|to acquire|buys?)\s+(.+)", re.IGNORECASE)
 
 # Task 18: leadership role buckets — canonical title → bucket.
 _ROLE_BUCKETS: list[tuple[str, str, str]] = [
@@ -78,15 +77,15 @@ _ROLE_BUCKETS: list[tuple[str, str, str]] = [
     ("COO", r"\bCOO\b", "exec"),
     ("President", r"\bPresident\b", "exec"),
 ]
-_ROLE_RE = [re.compile(p, re.I) for _, p, _ in _ROLE_BUCKETS]
+_ROLE_RE = [re.compile(p, re.IGNORECASE) for _, p, _ in _ROLE_BUCKETS]
 
 # Task 18: funding amount parsing — "$12M", "$12 million", "$1.2B".
 _AMOUNT_RE = re.compile(r"\$\s?([\d,]+(?:\.\d+)?)\s?(million|billion|[mMbB])\b")
 # Task 18: funding stage — "Series A".."Series E", "seed", "angel".
-_STAGE_RE = re.compile(r"\b(Series [A-E]|seed|angel)\b", re.I)
+_STAGE_RE = re.compile(r"\b(Series [A-E]|seed|angel)\b", re.IGNORECASE)
 
 
-def parse_funding_amount(text: str) -> Optional[int]:
+def parse_funding_amount(text: str) -> int | None:
     """Parse a funding amount like '$12M' / '$12 million' / '$1.2B' into USD int."""
     m = _AMOUNT_RE.search(text or "")
     if not m:
@@ -97,7 +96,7 @@ def parse_funding_amount(text: str) -> Optional[int]:
     return int(round(num * mult))
 
 
-def extract_role_bucket(text: str) -> Optional[tuple[str, str]]:
+def extract_role_bucket(text: str) -> tuple[str, str] | None:
     """Return (role, bucket) for the first leadership title found, else None."""
     t = text or ""
     for (role, _pat, bucket), rx in zip(_ROLE_BUCKETS, _ROLE_RE):
@@ -109,7 +108,7 @@ def extract_role_bucket(text: str) -> Optional[tuple[str, str]]:
 def extract_vars(text: str, rule: NewsRule) -> dict:
     out = {}
     for key, pat in rule.extract.items():
-        m = re.search(pat, text, re.I)
+        m = re.search(pat, text, re.IGNORECASE)
         if m:
             out[key] = m.group(1)
     if rule.signal_type == "exec_hire":
@@ -237,7 +236,7 @@ def _is_other_brand_domain(pub_host: str, want: str | None, acct_domain: str | N
     return w in pub and bare != w and len(bare) > len(w)
 
 
-def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[SignalCandidate]:
+def classify_news(item: NewsItem, account: Account, *, today: date) -> SignalCandidate | None:
     title = item.title or ""
     summary = item.summary or ""
     text = f"{title} {summary}"
@@ -348,7 +347,7 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
     if want and normalize_name(source) == want:
         # Check if the headline reads like research/prediction
         # (re is already imported at module top)
-        is_research = any(re.search(p, headline, re.I) for p in _RESEARCH_PATTERNS)
+        is_research = any(re.search(p, headline, re.IGNORECASE) for p in _RESEARCH_PATTERNS)
         if is_research:
             return None
     published = to_iso_date(item.published)
@@ -369,16 +368,16 @@ def classify_news(item: NewsItem, account: Account, *, today: date) -> Optional[
     else:
         forced = None
 
-    best: Optional[tuple[NewsRule, float]] = None
+    best: tuple[NewsRule, float] | None = None
     for rule in NEWS_RULES:
         if forced and rule.signal_type not in {forced, "ma_acquirer", "ma_target"}:
             # still allow other rules if no forced? forced takes precedence
             pass
         if forced and rule.signal_type != forced:
             continue
-        if any(re.search(n, text, re.I) for n in rule.negative):
+        if any(re.search(n, text, re.IGNORECASE) for n in rule.negative):
             continue
-        if any(re.search(p, text, re.I) for p in rule.patterns):
+        if any(re.search(p, text, re.IGNORECASE) for p in rule.patterns):
             best = (rule, rule.confidence)
             break
     if forced and best is None:

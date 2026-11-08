@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 from src.core.timeutil import utc_today
 
@@ -15,7 +15,7 @@ def test_utc_today_follows_utc_not_local():
     aware-UTC ISO strings.  Pre-fix there was no such helper: the reference came
     from ``date.today()``, i.e. 2026-09-14 for this instant.
     """
-    instant = datetime(2026, 9, 15, 1, 0, tzinfo=timezone.utc)
+    instant = datetime(2026, 9, 15, 1, 0, tzinfo=UTC)
     assert utc_today(now=instant) == date(2026, 9, 15)
     # The two really do disagree at this instant — that is the bug being pinned.
     local = instant.astimezone(timezone(timedelta(hours=-4)))
@@ -24,9 +24,9 @@ def test_utc_today_follows_utc_not_local():
 
 def test_utc_today_defaults_to_now_utc():
     """With no argument the reference is the current UTC date."""
-    before = datetime.now(timezone.utc).date()
+    before = datetime.now(UTC).date()
     got = utc_today()
-    after = datetime.now(timezone.utc).date()
+    after = datetime.now(UTC).date()
     assert isinstance(got, date)
     # Accept either side of a UTC-midnight rollover — never flake.
     assert got in {before, after}

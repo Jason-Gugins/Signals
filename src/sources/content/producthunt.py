@@ -33,7 +33,7 @@ from src.sources.registry import register
 
 PH_BASE = "https://www.producthunt.com"
 
-_ALTERNATIVE_RE = re.compile(r"\balternatives?\b|\bvs\.?\b", re.I)
+_ALTERNATIVE_RE = re.compile(r"\balternatives?\b|\bvs\.?\b", re.IGNORECASE)
 
 
 def ph_slug(name: str | None) -> str:

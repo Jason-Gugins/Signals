@@ -94,10 +94,9 @@ def test_slot_caps_concurrency():
     def third():
         nonlocal current, max_seen
         blocked.set()
-        with limiter.slot():
-            with lock:
-                current += 1
-                max_seen = max(max_seen, current)
+        with limiter.slot(), lock:
+            current += 1
+            max_seen = max(max_seen, current)
 
     t3 = threading.Thread(target=third)
     t3.start()

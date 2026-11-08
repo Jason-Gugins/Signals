@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, urljoin, urlparse, quote_plus
+from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
 
 import feedparser
 
-from src.core.textutil import to_iso_date
-
 # moved to src/core/textutil.py (core must not import from src.sources);
 # re-exported here for the news collectors' existing imports.
-from src.core.textutil import html_to_text  # noqa: F401
-
+from src.core.textutil import (
+    html_to_text,  # noqa: F401
+    to_iso_date,
+)
 
 FEED_GUESSES = [
     "/feed",

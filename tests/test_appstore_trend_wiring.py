@@ -106,6 +106,7 @@ class _AppstoreStub(SourceAdapter):
 def _make_runner(tmp_path, monkeypatch):
     """Harness mirroring test_marketplace_empty_parity: shared trend stats
     JSON redirected into tmp_path — never at data/."""
+    import src.sources.marketplace.trend as trend_mod
     from src.core.config import Config
     from src.core.rawstore import RawStore
     from src.core.runlog import RunContext
@@ -113,7 +114,6 @@ def _make_runner(tmp_path, monkeypatch):
     from src.pipeline.runner import CollectorRunner
     from src.signals.store import SignalStore
     from src.signals.taxonomy import Taxonomy
-    import src.sources.marketplace.trend as trend_mod
 
     stats_path = tmp_path / "stats.json"
     real_load, real_save = trend_mod.load_stats, trend_mod.save_stats

@@ -14,7 +14,6 @@ from src.core.config import Config
 from src.sources.techstack.cf_bypass import CloudflareBypass
 from src.sources.techstack.datadome_bypass import DataDomeBypass
 
-
 # --- fakes ---------------------------------------------------------------
 
 CHALLENGE_BODY = (

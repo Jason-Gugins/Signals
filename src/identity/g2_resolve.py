@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 from urllib.parse import quote_plus
 
 
@@ -48,7 +47,7 @@ class G2ResolveResult:
     """Outcome of a G2 name → slug resolution (mirrors capterra_resolve.ResolveResult)."""
 
     status: str  # "resolved" | "ambiguous" | "no_match"
-    slug: Optional[str] = None  # the G2 product slug when resolved
+    slug: str | None = None  # the G2 product slug when resolved
     candidates: list[dict] = field(default_factory=list)
 
 
@@ -93,7 +92,7 @@ def resolve_g2_from_results(company_name: str, search_results: list[dict]) -> G2
     return G2ResolveResult(status="no_match", candidates=search_results)
 
 
-def resolve_g2_slug(company_name: str, search_results: list[dict]) -> Optional[str]:
+def resolve_g2_slug(company_name: str, search_results: list[dict]) -> str | None:
     """Pick the best G2 product slug for a company name — candidates-only.
 
     Backward-compatible wrapper around :func:`resolve_g2_from_results`:

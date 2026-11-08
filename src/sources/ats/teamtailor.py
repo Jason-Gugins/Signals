@@ -20,13 +20,12 @@ Two shapes are parsed:
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 from src.core.textutil import to_iso_date
 from src.sources.ats.common import JobPost, parse_location, strip_html
 
 
-def _loc_str(loc) -> Optional[str]:
+def _loc_str(loc) -> str | None:
     if isinstance(loc, str):
         return loc or None
     if isinstance(loc, dict):
@@ -36,13 +35,13 @@ def _loc_str(loc) -> Optional[str]:
     return None
 
 
-def _dept(d) -> Optional[str]:
+def _dept(d) -> str | None:
     if isinstance(d, dict):
         return d.get("name")
     return d if isinstance(d, str) and d else None
 
 
-def _dept_from_tags(tags) -> Optional[str]:
+def _dept_from_tags(tags) -> str | None:
     """Best-effort department for JSON Feed items, which carry ``tags``
     (JSON Feed 1.1's list-of-strings labels field) and no department key:
     the first non-empty tag wins."""
@@ -144,7 +143,7 @@ class TeamtailorSource(SourceAdapter):
     cadence_hours = 12
     requires = ("ats_token",)
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         token = account.ats_token
         return [
             FetchTask(

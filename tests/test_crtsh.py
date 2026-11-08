@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from src.sources.crtsh.subdomains import infer_from_subdomains, parse_crtsh
 
 

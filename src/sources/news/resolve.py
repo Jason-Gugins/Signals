@@ -18,6 +18,7 @@ import functools
 import re
 from urllib.parse import parse_qs, urlparse
 
+
 # Google News SERPs reuse the same article links across feeds/keywords, so a
 # bounded LRU cache keeps the slow decoder to one call per unique link without
 # unbounded process-lifetime growth in a long-running scheduler.

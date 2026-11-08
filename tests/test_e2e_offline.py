@@ -16,7 +16,6 @@ from src.sources.news.feeds import bing_news_url, google_news_url
 from src.sources.owned.collector import OwnedIntentSource
 from src.sources.sec.collector import SecEdgarSource
 
-
 FIX = Path(__file__).resolve().parent / "fixtures"
 
 

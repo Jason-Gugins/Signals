@@ -28,7 +28,7 @@ import json
 
 import pytest
 
-from src.decide import Claim, Decision, DecideLedger, NullDecider
+from src.decide import Claim, DecideLedger, Decision, NullDecider
 from src.decide import gates as gates_mod
 from src.decide.gates import (
     CLAIM_FLOOR,
@@ -80,7 +80,7 @@ class TwoArgSpyDecider(SpyDecider):
     """The older two-argument signature — replay must call it WITHOUT the
     gate kwarg (gates.py _call's rule, mirrored by the lab)."""
 
-    def decide(self, state, questions):  # noqa: D102 - two-arg override
+    def decide(self, state, questions):
         self.calls.append({"state": state, "questions": questions, "gate": "<not passed>"})
         return self.fn(state, questions)
 

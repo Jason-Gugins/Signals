@@ -13,13 +13,11 @@ import yaml
 
 from src.core.config import Config
 from src.core.models import Account, Contact, Document, Signal
-from src.identity.icp import evaluate_icp
 from src.intel.snapshot import IntelligenceSnapshot, build_intelligence_snapshot
 from src.pipeline.orchestrator import Orchestrator
 from src.signals.lifecycle import load_supersede_map
 from src.signals.taxonomy import Taxonomy
 from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
-
 
 TODAY = date(2026, 8, 16)
 TAX = Taxonomy.load("config/signals.yaml")

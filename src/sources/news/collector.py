@@ -1,18 +1,23 @@
 from dataclasses import asdict
 from datetime import date
-from typing import Optional
 
 from loguru import logger
 
-from src.core.models import Account, Document
+from src.core.models import Account
 from src.signals.rerank import NullScorer, get_scorer  # noqa: F401  (lazy use; import-safe without ML deps)
-from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
+from src.sources.base import FetchTask, SourceAdapter
 from src.sources.content.blog import blog_to_candidates
 from src.sources.news.classify import _strip_source_attribution, classify_news
-from src.sources.news.feeds import NewsItem, bing_news_url, google_news_search_url, google_news_topic_url, google_news_url, parse_feed
+from src.sources.news.feeds import (
+    NewsItem,
+    bing_news_url,
+    google_news_search_url,
+    google_news_topic_url,
+    google_news_url,
+    parse_feed,
+)
 from src.sources.news.serp_config import load_company_feed_cfg, load_google_news_cfg
 from src.sources.registry import register
-
 
 # --------------------------------------------------------------------------
 # Optional relevance rerank (plan Task 3). Disabled by default: when the
@@ -24,7 +29,7 @@ from src.sources.registry import register
 # rerank step therefore returns a {link: score} map and parse() copies it
 # into candidate.evidence_data["relevance"] — natural_key is never touched.
 # --------------------------------------------------------------------------
-_RERANK_CFG_CACHE: Optional[object] = None
+_RERANK_CFG_CACHE: object | None = None
 
 
 def _rerank_cfg(task_meta: dict):

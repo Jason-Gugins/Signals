@@ -30,7 +30,6 @@ from src.core.textutil import truncate
 from src.decide import Decision
 from src.decide.gates import state_hash
 from src.lab import __main__ as lab_main
-from src.lab import report as report_mod
 from src.lab.report import build_report, derive_proposal, write_proposal
 
 # --------------------------------------------------------------------- world

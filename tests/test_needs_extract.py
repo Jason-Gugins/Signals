@@ -1,4 +1,3 @@
-import pytest
 from src.sources.needs.extract import extract_need_statements
 
 

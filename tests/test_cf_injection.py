@@ -141,6 +141,7 @@ def test_tier3_inject_failure_falls_through_to_tier4_headed():
 
 def test_tier3_inject_false_no_headed_fallback_yields_failure():
     from unittest.mock import patch as p
+
     from src.core.http import FetchResult
 
     browser, page, context = _make_browser()

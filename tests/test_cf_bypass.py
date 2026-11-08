@@ -1,5 +1,4 @@
-from types import SimpleNamespace
-from src.sources.techstack.cf_bypass import CloudflareBypass, BypassOutcome
+from src.sources.techstack.cf_bypass import CloudflareBypass
 
 
 class _StubHttp:
@@ -45,7 +44,7 @@ class _StubBrowser:
 
 def test_bypass_uses_cached_cookie_then_http_200(tmp_path):
     from src.core.config import Config
-    from src.core.db import Database, CfCookieStore
+    from src.core.db import CfCookieStore, Database
     cfg = Config()
     db = Database(tmp_path / "s.db")
     cookie_store = CfCookieStore(db)
@@ -63,7 +62,7 @@ def test_bypass_uses_cached_cookie_then_http_200(tmp_path):
 
 def test_bypass_browser_solve_persists_cookie(tmp_path):
     from src.core.config import Config
-    from src.core.db import Database, CfCookieStore
+    from src.core.db import CfCookieStore, Database
     cfg = Config()
     db = Database(tmp_path / "s.db")
     cookie_store = CfCookieStore(db)
@@ -80,7 +79,7 @@ def test_bypass_browser_solve_persists_cookie(tmp_path):
 
 def test_bypass_hard_stop_records_cloudflare_only(tmp_path):
     from src.core.config import Config
-    from src.core.db import Database, CfCookieStore
+    from src.core.db import CfCookieStore, Database
     cfg = Config()
     cfg.cloudflare.solver_provider = None  # no solver
     db = Database(tmp_path / "s.db")

@@ -52,7 +52,6 @@ from src.identity.resolve import normalize_entity
 from src.sources.sec.formd_identity import attach_form_d_account
 from src.sources.sec.parse_formd import parse_form_d
 
-
 COLLISION_FIXTURE = (
     Path(__file__).parent / "fixtures" / "sec" / "company_tickers_collision.json"
 )

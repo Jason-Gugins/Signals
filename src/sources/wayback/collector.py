@@ -1,8 +1,8 @@
 from src.sources.base import FetchTask, SourceAdapter
 from src.sources.registry import register
 from src.sources.wayback.cdx import cdx_url, parse_cdx, pick_snapshots, snapshot_url
-from src.sources.wayback.pricing import diff_pricing
 from src.sources.wayback.positioning import diff_positioning
+from src.sources.wayback.pricing import diff_pricing
 
 
 @register

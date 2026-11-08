@@ -35,7 +35,7 @@ def _body(i: int) -> bytes:
     otherwise)."""
     return (
         f"<article><p>Post {i}. We are consolidating data across teams.</p></article>"
-    ).encode("utf-8")
+    ).encode()
 
 #: The new gap line, and ONLY the new gap line: the pre-existing gap says
 #: "no relevance vocabulary configured: market profile 'default' is empty".

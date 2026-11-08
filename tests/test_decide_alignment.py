@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import copy
 
-from src.decide import Decision, DecideLedger, MockDecider, NullDecider
+from src.decide import DecideLedger, Decision, MockDecider, NullDecider
 from src.decide.alignment import MAX_ALIGN_PAIRS, align_candidates, align_pair, candidate_key
 
 RUN = "run-align-test"

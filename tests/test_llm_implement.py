@@ -605,7 +605,7 @@ def _candidates(pairs, **over):
 
 def test_claims_to_candidates_natural_key_is_a_text_hash():
     cand = _candidates([(Claim(GOOD_1, DOC_ID), _meta())])[0]
-    expected = hashlib.sha256(f"{DOC_ID}:{' '.join(GOOD_1.casefold().split())}".encode("utf-8")).hexdigest()
+    expected = hashlib.sha256(f"{DOC_ID}:{' '.join(GOOD_1.casefold().split())}".encode()).hexdigest()
     assert cand.natural_key == expected
     # Same text, different case/whitespace form => the SAME key (idempotent
     # upsert on re-extraction; the LLM's wording normalization is not a new claim).

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 from src.core.config import ConfigError
 from src.core.models import Signal

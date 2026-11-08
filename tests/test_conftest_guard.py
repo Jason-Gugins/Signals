@@ -11,12 +11,11 @@ import pytest
 
 def test_unmarked_httpx_call_raises():
     """(a) An unmarked test that calls a real HTTP client must be blocked."""
-    with pytest.raises(RuntimeError, match="network access in tests"):
-        with httpx.Client() as client:
-            client.send(
-                httpx.Request("GET", "http://127.0.0.1:1/").stream
-                and httpx.Request("GET", "http://127.0.0.1:1/")
-            )
+    with pytest.raises(RuntimeError, match="network access in tests"), httpx.Client() as client:
+        client.send(
+            httpx.Request("GET", "http://127.0.0.1:1/").stream
+            and httpx.Request("GET", "http://127.0.0.1:1/")
+        )
 
 
 def test_unmarked_urllib_call_raises():

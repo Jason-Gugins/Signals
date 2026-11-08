@@ -1,9 +1,9 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-from src.core.models import Document
-from src.core.http import FetchResult
-from src.sources.base import FetchTask
 
+from src.core.http import FetchResult
+from src.core.models import Document
+from src.sources.base import FetchTask
 
 CHALLENGE_BODY = b"<html><script>var dd={'rt':'c','cid':'x','hsh':'x','t':'fe','s':1,'e':'x','host':'geo.captcha-delivery.com','cookie':'x'}</script><iframe src='https://geo.captcha-delivery.com/captcha/?initialCid=x&hash=x&cid=x&t=fe&referer=x&s=1&e=x'></iframe></html>"
 REAL_BODY = b"<html><body><div class='paper'>Real content</div></body></html>"

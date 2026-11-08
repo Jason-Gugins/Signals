@@ -1,5 +1,4 @@
 from datetime import date
-from pathlib import Path
 
 from src.core.db import Database
 from src.core.models import Account, Signal
@@ -7,7 +6,6 @@ from src.identity.registry import AccountRegistry
 from src.pipeline.watchlist import add, check, import_closed_lost
 from src.signals.store import SignalStore
 from src.signals.taxonomy import Taxonomy
-
 
 TODAY = date(2026, 8, 16)
 

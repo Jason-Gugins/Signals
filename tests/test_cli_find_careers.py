@@ -37,11 +37,11 @@ def test_find_careers_exits_nonzero_when_missing(monkeypatch):
 
 def test_orchestrator_find_careers_wiring(tmp_path):
     """The real Orchestrator.find_careers path, with an injected fake fetcher."""
+    from src.core.config import Config
     from src.core.db import Database
     from src.core.http import FetchResult
     from src.core.models import Document
     from src.pipeline.orchestrator import Orchestrator
-    from src.core.config import Config
 
     pages = {
         "https://acme.com/robots.txt": "Sitemap: https://acme.com/sitemap.xml\n",

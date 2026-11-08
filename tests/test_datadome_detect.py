@@ -1,4 +1,4 @@
-from src.sources.techstack.datadome import is_datadome_challenge, extract_datadome_params
+from src.sources.techstack.datadome import extract_datadome_params, is_datadome_challenge
 
 # Real DataDome challenge body captured from G2
 CHALLENGE_HTML = b"""<html lang="en"><head><title>g2.com</title>

@@ -23,12 +23,12 @@ from typing import Any
 from src.core.textutil import html_to_text
 
 __all__ = [
-    "MAX_TEXT_CHARS",
-    "JOB_WINDOW",
     "JOB_CONTENT_CHARS",
-    "sniff",
+    "JOB_WINDOW",
+    "MAX_TEXT_CHARS",
     "human_text",
     "publisher_matches",
+    "sniff",
 ]
 
 # Bounded implementer input: any text this module returns is capped here.

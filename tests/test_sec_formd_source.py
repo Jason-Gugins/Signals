@@ -13,7 +13,7 @@ from src.sources.sec.formd_source import SecFormDSource
 
 
 def test_sec_formd_registered_and_plan_empty():
-    import src.sources  # noqa: F401
+    import src.sources
 
     assert "sec_formd" in SOURCES
     src = SecFormDSource()

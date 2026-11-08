@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-import src.identity.gkg_client as gkg_client
+from src.identity import gkg_client
 from src.identity.gkg_client import (
     KGSEARCH_URL,
     KnowledgeGraphClient,

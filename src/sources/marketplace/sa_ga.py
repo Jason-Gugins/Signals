@@ -60,7 +60,6 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Optional
 from urllib.parse import urlparse
 
 from src.core.models import Account, Document
@@ -85,7 +84,7 @@ __all__ = [
 
 _LDJSON_SCRIPT_RE = re.compile(
     r"<script[^>]*type\s*=\s*[\"']?application/ld\+json[\"']?[^>]*>(.*?)</script>",
-    re.I | re.S,
+    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -168,23 +167,23 @@ class GartnerReview:
 
     review_id: str
     product_slug: str
-    reviewer_name: Optional[str] = None
-    reviewer_title: Optional[str] = None
-    reviewer_company_size: Optional[str] = None
-    rating: Optional[float] = None
-    review_title: Optional[str] = None
-    review_body: Optional[str] = None
+    reviewer_name: str | None = None
+    reviewer_title: str | None = None
+    reviewer_company_size: str | None = None
+    rating: float | None = None
+    review_title: str | None = None
+    review_body: str | None = None
     pros: list = field(default_factory=list)
     cons: list = field(default_factory=list)
-    posted_at: Optional[str] = None
-    review_url: Optional[str] = None
+    posted_at: str | None = None
+    review_url: str | None = None
     verified_reviewer: bool = False
-    review_source: Optional[str] = None
+    review_source: str | None = None
     # Present in the dataclass contract, but the SA/GA JSON-LD carries no
     # NPS-score or helpful-vote markup (P3 spike), so extraction yields
     # None until real markup maps.
-    nps_score: Optional[int] = None
-    helpful_votes: Optional[int] = None
+    nps_score: int | None = None
+    helpful_votes: int | None = None
 
 
 _ID_BODY_CHARS = 200  # matches the [:200] candidate-summary window
@@ -203,7 +202,7 @@ def _review_id(product_slug: str, reviewer_name, posted_at, body) -> str:
     ).hexdigest()[:16]
 
 
-def _rating_or_none(value) -> Optional[float]:
+def _rating_or_none(value) -> float | None:
     """0-5 float passthrough; absent/unparseable → None (never 0.0)."""
     if value is None:
         return None
@@ -222,11 +221,11 @@ _MONTHS = {
 _MONTH_YEAR_RE = re.compile(
     r"^(January|February|March|April|May|June|July|August|September|October|"
     r"November|December)\s+(\d{4})$",
-    re.I,
+    re.IGNORECASE,
 )
 
 
-def _sa_date(text) -> Optional[str]:
+def _sa_date(text) -> str | None:
     """SA ``datePublished`` → ISO, honest precision. PURE.
 
     "January 15, 2026" → "2026-01-15" (full day, via ``to_iso_date``);
@@ -247,7 +246,7 @@ def _sa_date(text) -> Optional[str]:
     return None
 
 
-def _person_name(author) -> Optional[str]:
+def _person_name(author) -> str | None:
     """``author`` may be a Person dict (``name``) or a bare string."""
     if isinstance(author, dict):
         name = author.get("name")
@@ -424,7 +423,7 @@ class _GartnerNetworkSource(SourceAdapter):
     def _extract(self, body: str, slug: str) -> list[GartnerReview]:
         raise NotImplementedError
 
-    def _account_url(self, account: Account) -> Optional[str]:
+    def _account_url(self, account: Account) -> str | None:
         extra = getattr(account, "extra_data", None) or {}
         url = extra.get(self._url_key)
         if not url:
@@ -438,7 +437,7 @@ class _GartnerNetworkSource(SourceAdapter):
             return str(slug)
         return product_slug_from_url(self._account_url(account))
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         """One FetchTask per seeded product URL; nothing without it."""
         url = self._account_url(account)
         if not url:
@@ -458,7 +457,7 @@ class _GartnerNetworkSource(SourceAdapter):
         ]
 
     @staticmethod
-    def _observed_at(posted: Optional[str], today_str: str) -> str:
+    def _observed_at(posted: str | None, today_str: str) -> str:
         """Full ISO day dates stand as observed_at; month-precision
         ("2026-07") and missing dates fall back to today — decay math
         downstream must never receive a partial date."""

@@ -15,15 +15,14 @@ from __future__ import annotations
 
 import re
 from html import unescape
-from typing import Optional
 from urllib.parse import urljoin, urlparse
 
 from src.core.models import Account, Document
-from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.ats.common import JobPost
+from src.sources.base import FetchTask, SignalCandidate, SourceAdapter
 from src.sources.registry import register
 
-_JOB_HREF = re.compile(r"(?:/jobs?/|/careers?/|/join-us/|/open-roles?/|/positions?/)", re.I)
+_JOB_HREF = re.compile(r"(?:/jobs?/|/careers?/|/join-us/|/open-roles?/|/positions?/)", re.IGNORECASE)
 
 
 def _anchor_text(html: str) -> list[tuple[str, str]]:
@@ -34,7 +33,7 @@ def _anchor_text(html: str) -> list[tuple[str, str]]:
     closing tag is missing.
     """
     out: list[tuple[str, str]] = []
-    for m in re.finditer(r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>", html, re.I):
+    for m in re.finditer(r"<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>", html, re.IGNORECASE):
         start = m.end()
         close = html.find("</a", start)
         if close < 0:
@@ -106,7 +105,7 @@ class CareersPageSource(SourceAdapter):
     cadence_hours = 168
     requires = ()  # no ats_token required — gated OFF at wiring when ATS matches
 
-    def plan(self, account: Account, cursor: Optional[str]) -> list[FetchTask]:
+    def plan(self, account: Account, cursor: str | None) -> list[FetchTask]:
         url = account.careers_url or f"https://{account.domain}/careers"
         return [
             FetchTask(

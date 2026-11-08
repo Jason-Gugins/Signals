@@ -7,8 +7,9 @@ encoding) is the artifact recorded in the ledger so runs stay comparable.
 """
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 from urllib.parse import quote_plus
+
 
 def quote_phrase(phrase: str) -> str:
     p = " ".join((phrase or "").split()).strip('"')

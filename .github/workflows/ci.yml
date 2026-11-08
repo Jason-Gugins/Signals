@@ -38,11 +38,10 @@ jobs:
       - name: Install ruff
         run: pip install ruff==0.17.4
 
-      # Warm-up lane: lint findings are reported but do not fail CI until the codebase is clean.
-      # Pinned 2026-11-08: the effective ruleset is 0.17.4's expanded defaults (captured in
-      # .zcode/ruff-select-0.17.4.txt); an unpinned install drifts the target on every release.
-      - name: Ruff check (warn-only)
-        continue-on-error: true
+      # Blocking since 2026-11-08: all findings adjudicated — fixed or noqa-justified
+      # per site (see docs/todo ruff adjudication record). Ruleset explicit in pyproject
+      # [tool.ruff.lint] (407 codes); version pinned above.
+      - name: Ruff check (lint gate)
         run: ruff check src/ tests/
 
       # Offline lane: no network, no live antibot parity tests.

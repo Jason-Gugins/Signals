@@ -152,7 +152,9 @@ def _model_specs(stack: SimpleNamespace) -> list[tuple[str, Callable[[], Any], b
     ]
 
 
-def _inner_cv(stack: SimpleNamespace, X: Any, y: Any, groups: Any, n_splits: int = 3):
+def _inner_cv(
+    stack: SimpleNamespace, X: Any, y: Any, groups: Any, n_splits: int = 3
+) -> list[tuple[Any, Any]] | None:
     """Leak-free inner CV for recalibration, over the fold's TRAIN side.
 
     With domains supplied the inner splits are GroupKFold (recalibration

@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import cast
 
 from loguru import logger
 
@@ -100,7 +101,10 @@ def doc_gate_hashes(
 
 def _read_json(path: Path) -> dict:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        # json.loads returns Any, and an isinstance(dict) narrow would CHANGE
+        # behavior for non-dict JSON (returning {} instead of the parsed
+        # list/scalar), so cast per the _json_dump house precedent.
+        return cast("dict", json.loads(path.read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError):
         return {}
 

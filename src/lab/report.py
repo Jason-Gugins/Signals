@@ -73,7 +73,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def _fmt(value, nd: int = 3) -> str:
+def _fmt(value: object, nd: int = 3) -> str:
     """One table cell: n/a for None, fixed float for numbers, str otherwise."""
     if value is None:
         return _NA
@@ -98,7 +98,7 @@ def question_slug(question: str) -> str:
 # ------------------------------------------------------------------ sections
 
 
-def _targets_section(targets_stats) -> list[str]:
+def _targets_section(targets_stats: dict | None) -> list[str]:
     lines = ["## Target statistics", ""]
     stats = targets_stats if isinstance(targets_stats, dict) else None
     if not stats or not isinstance(stats.get("per_domain"), dict):
@@ -135,7 +135,7 @@ def _targets_section(targets_stats) -> list[str]:
     return lines
 
 
-def _baselines_section(baselines_out) -> list[str]:
+def _baselines_section(baselines_out: dict | None) -> list[str]:
     lines = ["## Baselines — the bar discovered questions must beat", ""]
     out = baselines_out if isinstance(baselines_out, dict) else {}
     if not out or out.get("error"):
@@ -316,7 +316,7 @@ def _round_section(rd: dict) -> list[str]:
 # ----------------------------------------------------------------- proposal
 
 
-def derive_proposal(round_results) -> dict:
+def derive_proposal(round_results: list[dict]) -> dict:
     """The propose-only decide.yaml diff, derived from the round winners.
 
     Winners: per stage, the best-scored variant that :func:`advance` clears
@@ -434,9 +434,9 @@ def _proposal_section(proposal: dict) -> list[str]:
 
 
 def build_report(
-    round_results,
-    baselines_out,
-    targets_stats,
+    round_results: list[dict],
+    baselines_out: dict | None,
+    targets_stats: dict | None,
     *,
     out_path: str | Path | None = None,
 ) -> str:

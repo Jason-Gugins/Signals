@@ -25,6 +25,14 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Annotation-only: tierprobe's src.decide imports stay call-time (the
+    # lab isolation posture) — these never execute at runtime.
+    from src.decide.gates import DecideLedger
+    from src.decide.jev import Decider
+    from src.decide.shapes import Claim, Decision
 
 # Domains grouped by corpus role: vendor-software (their own marketing
 # prose — reference, not prospects) vs DTC/prospect (the seller's ICP).
@@ -101,7 +109,7 @@ def collect_docs(rows: list[dict], domains: list[str], per_domain: int = 12) -> 
     return out
 
 
-def run_arm(arm: str, model: str, docs: list[dict], decider, *,
+def run_arm(arm: str, model: str, docs: list[dict], decider: Decider, *,
             gates_cfg: dict, out_path: Path,
             bulk_base_url: str = "https://openrouter.ai/api/v1",
             api_key: str | None = None, timeout_s: float = 120.0) -> list[dict]:
@@ -161,8 +169,10 @@ def run_arm(arm: str, model: str, docs: list[dict], decider, *,
     return rows
 
 
-def decide_promotion(decider, promotion_cfg: dict, ledger, run_id: str,
-                     claim, excerpt: str):
+def decide_promotion(
+    decider: Decider, promotion_cfg: dict, ledger: DecideLedger, run_id: str,
+    claim: Claim, excerpt: str,
+) -> tuple[bool, float | None, Decision]:
     """The pipeline's G5 call, verbatim shape (intel.py:954-963): judge the
     claim against the excerpt anchored on its VERIFIED quote span."""
     from src.decide.gates import gate_need_promotion
@@ -196,8 +206,11 @@ MODEL_C = "anthropic/claude-sonnet-5.5"
 COST_PER_DOMAIN_USD = 0.33
 
 
-def extract_rows(db_path: Path, dossiers: Path, raw_dir=None,
-                 domains=None) -> list[dict]:
+# raw_dir defaults to corpus.extract's "data/raw" (never None — the old
+# None default was a latent TypeError into corpus.extract(raw_dir: str | Path)).
+def extract_rows(db_path: Path, dossiers: Path,
+                 raw_dir: str | Path = "data/raw",
+                 domains: list[str] | None = None) -> list[dict]:
     """The corpus-extraction seam (monkeypatched by tests). Opens the
     signals DB READ-ONLY via the lab's stand-in — never migrates."""
     from src.lab import corpus as corpus_mod
@@ -354,7 +367,8 @@ def verify_model_id(model: str, api_key: str) -> str | None:
     return None
 
 
-def _render_summary(docs, domains, summaries: dict, comparison: dict) -> str:
+def _render_summary(docs: list[dict], domains: list[str],
+                    summaries: dict, comparison: dict) -> str:
     lines = [
         "# Implementer tier probe — summary", "",
         f"docs: {len(docs)} across {len(domains)} domains ({', '.join(domains)})",

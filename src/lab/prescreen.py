@@ -45,11 +45,16 @@ import inspect
 import json
 import math
 import time
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from src.decide.gates import state_hash
 from src.decide.shapes import Decision, exception_cause
+
+if TYPE_CHECKING:
+    # Annotation-only (the deciders' shared Protocol, jev.py); never executes.
+    from src.decide.jev import Decider
 
 # The ledger name this screening would carry (mirrors the gates' boundary tags).
 GATE = "lab_prescreen"
@@ -153,7 +158,7 @@ def _noul_questions() -> dict:
     }
 
 
-def _decides_with_gate(decider) -> bool:
+def _decides_with_gate(decider: Decider) -> bool:
     """Does this decider's ``decide()`` accept ``gate=``? (gates.py's rule,
     mirrored here so the lab does not reach into the gates' privates: a
     ``gate`` parameter or **kwargs accepts it, anything else does not.)"""
@@ -167,7 +172,9 @@ def _decides_with_gate(decider) -> bool:
     )
 
 
-def _call(decider, state, questions) -> tuple[Decision, float]:
+def _call(
+    decider: Decider, state: str | dict, questions: dict[str, dict]
+) -> tuple[Decision, float]:
     """One timed decider invocation, gate threaded when the decider accepts it
     (gates.py ``_call``'s shape; the gate is fixed here, not a parameter)."""
     t0 = time.perf_counter()
@@ -179,7 +186,7 @@ def _call(decider, state, questions) -> tuple[Decision, float]:
     return decision, latency_ms
 
 
-def _noul_of(answers, qid: str) -> float | None:
+def _noul_of(answers: dict, qid: str) -> float | None:
     """The numeric noul under ``qid`` (gates.py ``_noul_of`` mirrored) —
     None for a missing, non-numeric, boolean, or NaN answer."""
     ans = (answers or {}).get(qid)
@@ -273,7 +280,7 @@ def _row(
 def prescreen(
     candidates: list,
     sample_states: list,
-    decider,
+    decider: Decider,
     *,
     floors: dict | None = None,
     run_id: str = "lab",
@@ -419,7 +426,7 @@ def _column(scores: object) -> list:
     return out
 
 
-def _pearson(xs: list, ys: list) -> float | None:
+def _pearson(xs: list[float | None], ys: list[float | None]) -> float | None:
     """Pearson r over the rows where BOTH columns answered — None when
     undefined (fewer than 2 overlapping rows, or either side constant:
     zero variance has no correlation to prune on)."""

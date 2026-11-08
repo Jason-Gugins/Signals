@@ -46,6 +46,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -53,6 +54,12 @@ from src.core.config import Config
 from src.decide.jev import DATA_EXIT_CONSENT
 from src.lab import corpus
 from src.llm import implement as llm_implement
+
+if TYPE_CHECKING:
+    # Annotation-only: db/raw_store flow through to corpus.extract and the
+    # read seam — this module never constructs them itself.
+    from src.core.db import Database
+    from src.core.rawstore import RawStore
 
 DEFAULT_OUT_DIR = "data/lab/claims"
 DEFAULT_DOSSIERS_DIR = "data/dossiers"
@@ -149,8 +156,8 @@ def _cache_claims(claims: list) -> list[dict]:
 
 
 def backfill(
-    db,
-    raw_store,
+    db: Database,
+    raw_store: RawStore,
     domains: list[str] | None = None,
     *,
     max_docs: int,

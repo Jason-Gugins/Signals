@@ -101,7 +101,9 @@ def _new_stats(target: str) -> dict:
 
 
 def _stats_for(stats: dict, domain: str) -> dict:
-    return stats["per_domain"].setdefault(domain, _domain_stats())
+    # Typed bind (a bare `dict` bind would re-trigger Any via setdefault).
+    per_domain: dict[str, dict] = stats["per_domain"]
+    return per_domain.setdefault(domain, _domain_stats())
 
 
 def _skip(stats: dict, domain: str, breakdown: str) -> None:

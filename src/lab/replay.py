@@ -78,6 +78,7 @@ import math
 import re
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -103,6 +104,9 @@ from src.lab.variants import (
     STAGE_IMPLEMENTER,
     apply_variant,
 )
+
+if TYPE_CHECKING:  # types only — no runtime lab -> decide/pipeline import edge
+    from src.decide.jev import Decider
 
 #: The shipped weight battery (the plan's config/lab.yaml numbers).
 DEFAULT_WEIGHTS = {"w1": 0.4, "w2": 0.25, "w3": 0.2, "w4": 0.1, "w5": 0.05}
@@ -152,7 +156,7 @@ _CLAIM_KEY_RE = re.compile(r"^claim_(\d+)$")
 # ----------------------------------------------- mirrors of the gates' readers
 
 
-def _noul_of(answers, qid: str) -> float | None:
+def _noul_of(answers: dict | None, qid: str) -> float | None:
     """The numeric noul under ``qid`` (gates.py ``_noul_of`` mirrored — the
     lab does not reach into the gates' privates)."""
     ans = (answers or {}).get(qid)
@@ -167,7 +171,7 @@ def _noul_of(answers, qid: str) -> float | None:
     return None
 
 
-def _choice_of(answers, qid: str) -> str | None:
+def _choice_of(answers: dict | None, qid: str) -> str | None:
     """The lowercased choice label under ``qid`` (gates.py mirrored)."""
     ans = (answers or {}).get(qid)
     if isinstance(ans, dict):
@@ -177,7 +181,7 @@ def _choice_of(answers, qid: str) -> str | None:
     return None
 
 
-def _choice_prob(answers, qid: str, label: str) -> float | None:
+def _choice_prob(answers: dict | None, qid: str, label: str) -> float | None:
     """The probability a choice answer reported for its top ``label``, with
     the raw un-normalized choice text as the fallback key (gates.py
     ``_choice_prob`` mirrored — a case-mismatched answer still routes)."""
@@ -207,7 +211,7 @@ def _threshold(cfg: dict | None, key: str, default: float) -> float:
         return default
 
 
-def _decides_with_gate(decider) -> bool:
+def _decides_with_gate(decider: Decider) -> bool:
     """Does this decider's ``decide()`` accept ``gate=``? (gates.py's rule,
     mirrored — a ``gate`` parameter or **kwargs accepts it.)"""
     try:
@@ -220,7 +224,9 @@ def _decides_with_gate(decider) -> bool:
     )
 
 
-def _call(decider, state, questions, gate: str) -> tuple[Decision, float]:
+def _call(
+    decider: Decider, state: str | dict, questions: dict[str, dict], gate: str
+) -> tuple[Decision, float]:
     """One timed decider invocation under the seam contract — never raises
     (a crashing decider collapses to a failed Decision carrying the
     exception's cause, prescreen.py's belt)."""
@@ -570,7 +576,7 @@ def _effective_weights(weights: dict | None) -> dict:
     return out
 
 
-def _write_rows(out_dir, variant_id: str, rows: list[dict]) -> None:
+def _write_rows(out_dir: str | Path | None, variant_id: str, rows: list[dict]) -> None:
     """One decisions.jsonl-shaped file per variant under ``out_dir``
     (LF-terminated on Windows too — the ledger's write habit)."""
     if not out_dir or not rows:
@@ -600,7 +606,7 @@ def _not_replayable(variant: dict, note: str) -> dict:
 def _replay_doc_gate(
     variant: dict,
     rows: list[dict],
-    decider,
+    decider: Decider,
     meter: _Meter,
     *,
     budget_calls: int | None,
@@ -815,7 +821,7 @@ def _judged_batches(rows: list[dict], meter: _Meter) -> list[tuple]:
 def _replay_g4(
     variant: dict,
     rows: list[dict],
-    decider,
+    decider: Decider,
     meter: _Meter,
     *,
     budget_calls: int | None,
@@ -880,7 +886,13 @@ def _replay_g4(
         # the gate's own first-row attribution convention.
         first = [True]
 
-        def emit(i: int, outcome: str, reason: str | None, answers, error) -> None:
+        def emit(
+            i: int,
+            outcome: str,
+            reason: str | None,
+            answers: dict | None,
+            error: str | None,
+        ) -> None:
             meter.rows.append(
                 {
                     **base,
@@ -1099,10 +1111,10 @@ def _round_robin_by_domain(rows: list[dict]) -> list[dict]:
 def replay_variant(
     variant: dict,
     rows: list[dict],
-    decider,
+    decider: Decider,
     *,
     budget_calls: int | None = None,
-    out_dir=None,
+    out_dir: str | Path | None = None,
     weights: dict | None = None,
     base_cfgs: dict | None = None,
 ) -> dict:
@@ -1193,7 +1205,9 @@ def replay_variant(
     return result
 
 
-def advance(variant_score, incumbent_score, *, epsilon: float = 0.02) -> bool:
+def advance(
+    variant_score: float | None, incumbent_score: float | None, *, epsilon: float = 0.02
+) -> bool:
     """Pure comparison helper: does the variant advance a round? True only
     when ``variant_score - incumbent_score >= epsilon`` (the plan's
     advance-on->=epsilon rule). The margin is rounded to 9 decimals first —

@@ -65,10 +65,16 @@ import sqlite3
 import sys
 import threading
 from collections import Counter
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+
+if TYPE_CHECKING:  # types only — no runtime lab -> decide/pipeline import edge
+    from src.decide.jev import Decider
+    from src.intel.market import MarketProfile
 
 DEFAULT_DOSSIERS_DIR = "data/dossiers"
 DEFAULT_DB = "data/signals.db"
@@ -195,11 +201,11 @@ class _ReadOnlyDB(Database):
         self._lock = threading.RLock()
         self.db_path = path
 
-    def one(self, sql: str, params=()):
+    def one(self, sql: str, params: tuple | list = ()) -> dict | None:
         row = self._conn.execute(sql, params).fetchone()
         return dict(row) if row is not None else None
 
-    def query(self, sql: str, params=()):
+    def query(self, sql: str, params: tuple | list = ()) -> list[dict]:
         return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 
     def close(self) -> None:
@@ -222,7 +228,7 @@ def _load_decide_cfg() -> dict:
         return {}
 
 
-def _lab_decider(decide_cfg: dict):
+def _lab_decider(decide_cfg: dict) -> Decider | None:
     """(TEST SEAM) The lab's live decider, or None — skip honestly.
 
     A LiveDecider is constructed DIRECTLY from the decider block so the lab
@@ -293,7 +299,7 @@ class _CallBudget:
 
 
 @contextlib.contextmanager
-def _counting_proposer_calls(counter: dict):
+def _counting_proposer_calls(counter: dict) -> Iterator[None]:
     """Count every proposer family call by wrapping the implementer seam for
     the duration of one propose_batch (restored after — the seam the test
     fakes ride is the same attribute)."""
@@ -301,7 +307,10 @@ def _counting_proposer_calls(counter: dict):
 
     original = implement.call_implementer
 
-    def counted(*args, **kwargs):
+    def counted(*args: Any, **kwargs: Any) -> dict | None:
+        # Any glue: the seam is monkeypatched by tests (the fakes ride the
+        # same attribute), so the wrapper mirrors whatever call_implementer
+        # is at runtime and just passes through.
         counter["n"] = counter.get("n", 0) + 1
         return original(*args, **kwargs)
 
@@ -312,7 +321,7 @@ def _counting_proposer_calls(counter: dict):
         implement.call_implementer = original
 
 
-def _extract_rows(args) -> list[dict]:
+def _extract_rows(args: argparse.Namespace) -> list[dict]:
     from src.lab import corpus as corpus_mod
 
     db = _ReadOnlyDB(Path(args.db))
@@ -324,7 +333,7 @@ def _extract_rows(args) -> list[dict]:
         db.close()
 
 
-def _question_text(cand) -> str:
+def _question_text(cand: str | dict) -> str:
     if isinstance(cand, str):
         return cand
     if isinstance(cand, dict):
@@ -364,7 +373,7 @@ def _sample_states(rows: list[dict], limit: int = PRESCREEN_SAMPLE) -> list[str]
     return out
 
 
-def _market_profile(rows: list[dict]):
+def _market_profile(rows: list[dict]) -> MarketProfile | None:
     """The dominant market profile for the corpus (for the deterministic
     family's vocabulary), or None — never raises, vocab just goes empty."""
     pids = [r.get("market_profile_id") for r in rows if r.get("market_profile_id")]
@@ -427,7 +436,8 @@ def _discovered_variant(survivor: dict, index: int, round_no: int) -> dict:
 def _best_family(baselines_out: dict, families: dict[str, object]) -> str | None:
     """The best single feature family by baseline AUROC (the bar), falling
     back to deterministic/whatever exists."""
-    best_name, best = None, None
+    best_name: str | None = None
+    best: float | None = None
     if isinstance(baselines_out, dict):
         for name, entry in baselines_out.items():
             if name in ("split", "mandate", "combined") or not isinstance(entry, dict):
@@ -442,7 +452,7 @@ def _best_family(baselines_out: dict, families: dict[str, object]) -> str | None
     return "deterministic" if "deterministic" in families else next(iter(families), None)
 
 
-def _model_folds(labeled: list[dict]):
+def _model_folds(labeled: list[dict]) -> list[dict] | dict | None:
     """Chronological folds (the primary split), degrading to a single
     holdout on thin corpora; None when even that is impossible."""
     from src.lab import splits as splits_mod
@@ -476,7 +486,9 @@ def _round_score(rd: dict) -> float | None:
     return best
 
 
-def _stability(labeled: list[dict], y: list[int], X, names: list[str]):
+def _stability(
+    labeled: list[dict], y: list[int], X: object, names: list[str]
+) -> dict | None:
     """Sign-stability of every feature column's label correlation across up
     to 3 domain slices (models.stability_check's keep rule). None when the
     slices cannot support it — an honest n/a, never a fabricated verdict."""
@@ -532,7 +544,7 @@ def _one_round(
     best_family: str | None,
     target: str,
     budget: _CallBudget,
-    decider,
+    decider: Decider | None,
     decide_cfg: dict,
     base_cfgs: dict,
     run_id: str,
@@ -768,7 +780,10 @@ def _one_round(
 
 
 def _print_dry_run(
-    args, rows: list[dict], decide_cfg: dict, base_variants: list[dict] | None = None
+    args: argparse.Namespace,
+    rows: list[dict],
+    decide_cfg: dict,
+    base_variants: list[dict] | None = None,
 ) -> None:
     from src.decide.jev import DATA_EXIT_CONSENT
     from src.lab import targets as targets_mod
@@ -834,7 +849,7 @@ def _print_dry_run(
     )
 
 
-def _cmd_corpus(args) -> int:
+def _cmd_corpus(args: argparse.Namespace) -> int:
     from src.lab import targets as targets_mod
 
     rows = _extract_rows(args)
@@ -865,7 +880,7 @@ def _cmd_corpus(args) -> int:
     return 0
 
 
-def _cmd_run(args) -> int:
+def _cmd_run(args: argparse.Namespace) -> int:
     from src.lab import baselines as baselines_mod
     from src.lab import features as features_mod
     from src.lab import models as models_mod
@@ -1015,7 +1030,7 @@ def _cmd_run(args) -> int:
     return 0
 
 
-def _cmd_report(args) -> int:
+def _cmd_report(args: argparse.Namespace) -> int:
     from src.lab import report as report_mod
 
     path = Path(args.rounds_jsonl)

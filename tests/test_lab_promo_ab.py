@@ -155,12 +155,45 @@ def test_rescore_v0_pass_uses_the_shipped_text(tmp_path):
     assert seen == [SHIPPED_TEXT]   # the rebaseline is the SHIPPED question
 
 
+def _write_calibration_fixture(ws_path, sample_path):
+    """Self-contained stand-in for the operator's gitignored calibration
+    files (data/probe/ is operator data — absent on fresh clones/CI):
+    same 24-idx schema and referee partition (4 NEED x 6 NOT x 10 CONTEXT
+    x 3 GUARD x 1 ORPHAN). Duty claims carry 'stocking stuffer' so the
+    FakeDecider ranks them above the NOT claims."""
+    need = (4, 22, 23, 24)
+    not_needs = (1, 2, 3, 5, 6, 7)
+    others = (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
+    disposition = {}
+    for i in need:
+        disposition[i] = "[X] NEED"
+    for i in not_needs:
+        disposition[i] = "[X] NOT-A-NEED"
+    for i in others:
+        disposition[i] = "[X] UNSURE"
+    lines = ["# synthetic promotion-gate calibration worksheet"]
+    sample = []
+    for i in range(1, 25):
+        duty = i in need
+        claim = (f"Acme markets stocking stuffers under $16 (claim {i})." if duty
+                 else f"Acme ships wholesale pallets (claim {i}).")
+        lines.append(f"## {i}. [promo_artifact] acme.com\n{claim}\n"
+                     f"Disposition: [ ] NEED   {disposition[i]}   [ ] UNSURE")
+        sample.append({"idx": i, "stratum": "promo_artifact",
+                       "domain": "acme.com", "claim": claim,
+                       "quote_span": claim[:40], "url": "",
+                       "noul_hidden": 0.80 if duty else 0.45})
+    ws_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    sample_path.write_text(json.dumps(sample), encoding="utf-8")
+
+
 def test_probe_main_live_summary_computes_the_cross_regime_column(tmp_path, capsys, monkeypatch):
     """Regression: the post-scoring summary's U_cross comprehension read an
     unbound `j` in its outer condition — a latent NameError that only fires
     on the LIVE path (after all three rescore passes), never in dry-run.
-    Drives the full live path (FakeDecider, zero external calls) over the
-    real 24-claim calibration set through the real gate seam."""
+    Drives the full live path (FakeDecider, zero external calls) over a
+    synthetic 24-claim set with the operator's referee partition —
+    self-contained because data/probe/ is gitignored operator data."""
     import src.lab.__main__ as lab_main
     import src.lab.promo_ab as pa
     from src.decide.jev import Decision
@@ -177,9 +210,12 @@ def test_probe_main_live_summary_computes_the_cross_regime_column(tmp_path, caps
     monkeypatch.setattr(lab_main, "_load_decide_cfg", lambda: {})
     monkeypatch.setattr(lab_main, "_lab_decider", lambda cfg: FakeDecider())
 
+    ws = tmp_path / "ws.md"
+    sample = tmp_path / "sample.json"
+    _write_calibration_fixture(ws, sample)
     rc = pa.probe_main([
-        "--worksheet", "data/probe/PROMO_CALIBRATION_20261107.md",
-        "--sample", "data/probe/PROMO_CALIBRATION_SAMPLE_20261107.json",
+        "--worksheet", str(ws),
+        "--sample", str(sample),
         "--out-dir", str(tmp_path / "out"),
         "--passes", "1",
     ])
@@ -198,9 +234,12 @@ def test_probe_main_live_summary_computes_the_cross_regime_column(tmp_path, caps
 def test_cli_dry_run_prints_partition_and_spends_nothing(tmp_path, capsys):
     import src.lab.promo_ab as pa
 
+    ws = tmp_path / "ws.md"
+    sample = tmp_path / "sample.json"
+    _write_calibration_fixture(ws, sample)
     rc = pa.probe_main([
-        "--dry-run", "--worksheet", "data/probe/PROMO_CALIBRATION_20261107.md",
-        "--sample", "data/probe/PROMO_CALIBRATION_SAMPLE_20261107.json",
+        "--dry-run", "--worksheet", str(ws),
+        "--sample", str(sample),
         "--out-dir", str(tmp_path / "out"),
     ])
     assert rc == 0

@@ -199,7 +199,7 @@ def test_integrity_check_runs_on_startup(tmp_path: Path, monkeypatch: pytest.Mon
     sink_id = db_mod.logger.add(messages.append, level="DEBUG")
 
     path = tmp_path / "ic.db"
-    db = Database(path)
+    Database(path)
     try:
         db_mod.logger.remove(sink_id)
     except ValueError:

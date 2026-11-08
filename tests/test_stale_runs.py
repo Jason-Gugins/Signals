@@ -150,7 +150,7 @@ def test_doctor_reports_a_warn_row(tmp_path):
 
     stale_rows = [(n, s, d) for n, s, d in rows if n == "stale_runs"]
     assert len(stale_rows) == 1
-    name, status, detail = stale_rows[0]
+    _name, status, detail = stale_rows[0]
     assert status == "WARN"
     assert "prune" in detail
     assert all(s in {"OK", "WARN", "FAIL"} for _, s, _ in rows)

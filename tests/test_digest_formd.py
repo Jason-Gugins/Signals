@@ -14,26 +14,26 @@ from src.export.digest import FORMD_SECTION_TITLE, build_digest
 def _stub_sig(**kw) -> Signal:
     """A funding_form_d signal on a Form D stub-account domain."""
     domain = kw.pop("domain", "cik0001791983.edgar")
-    defaults = dict(
-        signal_id=f"{domain}-formd-1",
-        domain=domain,
-        signal_type="funding_form_d",
-        category="funding",
-        origin="sec_formd",
-        catalyst="form_d",
-        polarity="positive",
-        observed_at="2026-09-02",
-        source="sec_formd",
-        title="Acme Form D Series A",
-        summary=None,
-        evidence=None,
-        evidence_data={
+    defaults = {
+        "signal_id": f"{domain}-formd-1",
+        "domain": domain,
+        "signal_type": "funding_form_d",
+        "category": "funding",
+        "origin": "sec_formd",
+        "catalyst": "form_d",
+        "polarity": "positive",
+        "observed_at": "2026-09-02",
+        "source": "sec_formd",
+        "title": "Acme Form D Series A",
+        "summary": None,
+        "evidence": None,
+        "evidence_data": {
             "entity_name": "Acme Labs Inc",
             "amount_usd": 12_000_000,
             "state": "CA",
             "cik": "0001791983",
         },
-    )
+    }
     defaults.update(kw)
     return Signal(**defaults)
 
@@ -46,7 +46,7 @@ def test_stub_signal_appears_with_fields():
     sig = _stub_sig()
     doc = _doc([sig])
     assert f"## {FORMD_SECTION_TITLE}" in doc
-    line = [ln for ln in doc.splitlines() if ln.startswith("- Acme Labs Inc")][0]
+    line = next(ln for ln in doc.splitlines() if ln.startswith("- Acme Labs Inc"))
     assert "$12M" in line
     assert "CA" in line
     assert "filed 2026-09-02" in line

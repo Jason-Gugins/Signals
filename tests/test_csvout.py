@@ -50,7 +50,8 @@ def test_headers_bom_roundtrip_empty_and_filters(tmp_path):
     sig_path = export_signals(db, str(tmp_path / "sig.csv"))
     with Path(sig_path).open(encoding="utf-8-sig", newline="") as fh:
         header = next(csv.reader(fh))
-        recs = list(csv.DictReader(open(sig_path, encoding="utf-8-sig", newline="")))
+    with open(sig_path, encoding="utf-8-sig", newline="") as fh:
+        recs = list(csv.DictReader(fh))
     assert header == SIGNAL_COLUMNS
     assert recs[0]["evidence"] == "hello, world"
     paths = export_all(db, str(tmp_path / "all"))

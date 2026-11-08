@@ -117,7 +117,7 @@ def test_rerun_reports_updated(tmp_path):
     assert second.created == 0
     assert second.updated == 1
     li = build_linkedin(tmp_path / "li.db")
-    a = seed_from_linkedin_db(reg, str(li))
+    seed_from_linkedin_db(reg, str(li))
     b = seed_from_linkedin_db(reg, str(li))
     assert b.created == 0
     assert b.updated >= 1

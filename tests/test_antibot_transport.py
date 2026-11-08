@@ -166,7 +166,7 @@ def test_conditional_disabled_sends_no_validators(fake_engine):
 
 
 def test_temporal_flags_surface_from_engine_json(fake_engine):
-    eng = fake_engine([
+    fake_engine([
         {"status": 200, "headers": {}, "body": b"x", "reused_connection": True},
         {"status": 200, "headers": {}, "body": b"x", "resumed_session": True},
     ])

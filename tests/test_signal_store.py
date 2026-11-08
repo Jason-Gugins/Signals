@@ -14,24 +14,24 @@ TAX = Taxonomy.load(str(Path(__file__).resolve().parents[1] / "config" / "signal
 
 
 def _sig(**kw) -> Signal:
-    data = dict(
-        signal_id=make_signal_id("acme.com", "funding_round", "r1"),
-        domain="acme.com",
-        signal_type="funding_round",
-        category="financial",
-        origin="internal",
-        catalyst="primary",
-        polarity="positive",
-        observed_at="2026-06-01",
-        source="sec_edgar",
-        first_seen_at="2026-08-01",
-        last_seen_at="2026-08-01",
-        confidence=0.6,
-        summary=None,
-        url=None,
-        evidence=None,
-        raw_ref=None,
-    )
+    data = {
+        "signal_id": make_signal_id("acme.com", "funding_round", "r1"),
+        "domain": "acme.com",
+        "signal_type": "funding_round",
+        "category": "financial",
+        "origin": "internal",
+        "catalyst": "primary",
+        "polarity": "positive",
+        "observed_at": "2026-06-01",
+        "source": "sec_edgar",
+        "first_seen_at": "2026-08-01",
+        "last_seen_at": "2026-08-01",
+        "confidence": 0.6,
+        "summary": None,
+        "url": None,
+        "evidence": None,
+        "raw_ref": None,
+    }
     data.update(kw)
     return Signal(**data)
 

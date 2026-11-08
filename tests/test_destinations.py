@@ -105,7 +105,7 @@ def test_webhook_destination_reuses_signed_path(tmp_path, monkeypatch):
     result = dest.deliver([_alert()], cfg)
     assert "webhook" in result
     assert len(client.posts) == 1
-    url, payload, headers, body = client.posts[0]
+    url, _payload, headers, body = client.posts[0]
     assert url == "http://json.example/hook"
     assert headers is not None and "X-Signature" in headers
     assert body is not None
@@ -233,7 +233,7 @@ def test_slack_destination_digest_string_delivered_as_text(tmp_path):
     )
     result = dest.deliver("DIGEST BODY", cfg)
     assert result == "webhook:1"
-    url, payload, headers, body = client.posts[0]
+    url, payload, _headers, _body = client.posts[0]
     assert url == "http://slack.example/hook"
     assert payload == {"text": "DIGEST BODY"}
 

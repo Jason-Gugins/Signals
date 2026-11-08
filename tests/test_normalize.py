@@ -18,13 +18,13 @@ ACCT = Account(domain="acme.com", name="Acme")
 
 
 def _cand(**kw) -> SignalCandidate:
-    data = dict(
-        signal_type="funding_round",
-        observed_at="2026-08-01",
-        natural_key="0001",
-        title="Series B",
-        confidence=0.8,
-    )
+    data = {
+        "signal_type": "funding_round",
+        "observed_at": "2026-08-01",
+        "natural_key": "0001",
+        "title": "Series B",
+        "confidence": 0.8,
+    }
     data.update(kw)
     return SignalCandidate(**data)
 

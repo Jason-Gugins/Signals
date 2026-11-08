@@ -165,7 +165,7 @@ class FakeOrchLlm:
 
     def score(self, **kw):
         self.calls.append(("score", kw))
-        domain = list(kw["domains"])[0]
+        domain = next(iter(kw["domains"]))
         snap = self.snapshot
         if snap is None:
             snap = SimpleNamespace(domain=domain, today=TODAY)
@@ -591,7 +591,7 @@ def test_layer_active_enforce_full_flow(tmp_path, monkeypatch):
     assert "need_promotion" in dossier["decide_shadow_appendix"]
     # S4: the five G4-gated LLM fields reach the dossier, audited shape.
     assert set(dossier["llm_fields"]) == {"operational_need", "why_now"}
-    for field, entry in dossier["llm_fields"].items():
+    for entry in dossier["llm_fields"].values():
         assert entry["llm_authored"] is True
         assert entry["model"] == "test/reasoning"
         assert entry["doc_id"] == "doc-1"

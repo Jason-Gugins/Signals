@@ -115,7 +115,7 @@ class _LogCapture:
     def warning(self, msg, *a, **k):
         try:
             self.warnings.append(msg.format(*a, **k) if a else str(msg))
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fake logger mirrors loguru's tolerant contract: a malformed format call must be recorded as str(msg), never crash the test orchestrator
             self.warnings.append(str(msg))
 
     def __getattr__(self, name):

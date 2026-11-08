@@ -15,7 +15,8 @@ CAREERS_PREFIXES = {"/careers", "/pages/careers", "/about/careers", "/jobs"}
 
 
 def _allow() -> list[dict]:
-    cfg = yaml.safe_load(open("config/default.yaml", encoding="utf-8"))
+    with open("config/default.yaml", encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
     return (cfg.get("http") or {}).get("robots_allow") or []
 
 
@@ -36,6 +37,7 @@ def test_the_override_stays_scoped_to_careers_family_paths():
 
 
 def test_operator_approval_is_recorded_in_the_comment():
-    text = open("config/default.yaml", encoding="utf-8").read()
+    with open("config/default.yaml", encoding="utf-8") as fh:
+        text = fh.read()
     assert "operator-approved 2026-11-06" in text
     assert "CAREERS_HARVEST_20261106" in text

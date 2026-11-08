@@ -315,7 +315,7 @@ def test_unmatched_profiles_truncated_at_25(tmp_path):
         )
         for i in range(1, 27)
     ])
-    report, db, events, _urls, _sleeps = _run(
+    report, _db, events, _urls, _sleeps = _run(
         tmp_path, [SPEC_PEOPLE], [(200, body)], accounts=[ACME]
     )
 
@@ -339,7 +339,7 @@ def test_fully_matched_people_query_writes_empty_unmatched_list(tmp_path):
             "Jane runs growth at Acme.",
         ),
     )
-    report, db, events, _urls, _sleeps = _run(
+    _report, db, events, _urls, _sleeps = _run(
         tmp_path, [SPEC_PEOPLE], [(200, body)], accounts=[ACME]
     )
 
@@ -402,7 +402,7 @@ def test_second_attempt_success_after_challenge(tmp_path):
 
 def test_pace_sleep_before_every_fetch(tmp_path):
     responses = [(200, ORG_COMPANY), (200, ORG_COMPANY)]
-    report, _db, events, urls, sleeps = _run(
+    _report, _db, events, urls, sleeps = _run(
         tmp_path, [SPEC_A, SPEC_B], responses, pace_s=PACE
     )
 
@@ -615,7 +615,7 @@ def test_runner_rejects_unknown_engine(tmp_path):
 def test_challenge_row_carries_body_bytes(tmp_path):
     # _run returns a 5-TUPLE (report, db, events, urls, sleeps) — element 3
     # is ALREADY the load_events() list; there is no ledger path to re-read.
-    report, db, events, _urls, _sleeps = _run(
+    report, _db, events, _urls, _sleeps = _run(
         tmp_path, [SPEC_A], [(200, CHALLENGE_BODY), (200, CHALLENGE_BODY)],
     )
     assert events[0]["status"] == "challenge"
@@ -624,7 +624,7 @@ def test_challenge_row_carries_body_bytes(tmp_path):
 
 
 def test_empty_row_carries_body_bytes_and_parse_error(tmp_path):
-    report, db, events, _urls, _sleeps = _run(
+    _report, _db, events, _urls, _sleeps = _run(
         tmp_path, [SPEC_A], [(200, EMPTY_BODY), (200, EMPTY_BODY)],
     )
     assert events[0]["status"] == "empty"
@@ -638,7 +638,7 @@ def test_cap_reports_skipped_string_count(tmp_path):
     # max_queries=1 with three viable strings: one fetches, TWO are counted
     # skipped — the old break was silent (report showed queries=1 and nothing
     # about the other two).
-    report, db, events, _urls, _sleeps = _run(  # 5-tuple; events already loaded
+    report, _db, _events, _urls, _sleeps = _run(  # 5-tuple; events already loaded
         tmp_path,
         [SPEC_A, SPEC_B, SPEC_C],
         [(200, ORG_COMPANY)],
@@ -656,7 +656,7 @@ def test_body_bytes_counts_utf8_bytes_last_attempt_wins(tmp_path):
     # is compared against recorded byte-size captures). "ü" = 2 bytes /
     # 1 char — the assert pins bytes-vs-chars deliberately.
     final = CHALLENGE_BODY + "ü"
-    report, db, events, _urls, _sleeps = _run(
+    _report, _db, events, _urls, _sleeps = _run(
         tmp_path, [SPEC_A], [(200, CHALLENGE_BODY), (200, final)],
     )
     assert events[0]["status"] == "challenge"
@@ -667,7 +667,7 @@ def test_body_bytes_counts_utf8_bytes_last_attempt_wins(tmp_path):
 def test_error_row_carries_no_body_bytes(tmp_path):
     # A fetch exception has no body — the error event must not pretend it
     # saw one (only challenge/empty rows carry body_bytes).
-    report, db, events, _urls, _sleeps = _run(
+    _report, _db, events, _urls, _sleeps = _run(
         tmp_path, [SPEC_A], [RuntimeError("boom")],
     )
     assert events[0]["status"] == "error"
@@ -687,7 +687,7 @@ def test_run_brave_api_end_to_end(tmp_path):
         ]},
     })
     # _run returns (report, db, events, urls, sleeps) — events already loaded.
-    report, db, events, _urls, _sleeps = _run(
+    report, _db, events, _urls, _sleeps = _run(
         tmp_path, [SPEC_A], [(200, brave_body)], engine="brave_api",
     )
     assert events[0]["status"] == "ok" and events[0]["results"] == 1

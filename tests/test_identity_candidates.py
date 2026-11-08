@@ -14,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -55,7 +56,7 @@ def test_migration_v7_creates_identity_candidates_and_bumps_version(tmp_path: Pa
             "INSERT INTO identity_candidates (name, kind, candidates_json, created_at) "
             "VALUES ('acme', 'account', '[]', '2026-01-01T00:00:00+00:00')"
         )
-        with pytest.raises(Exception):
+        with pytest.raises(sqlite3.IntegrityError):
             db.execute(
                 "INSERT INTO identity_candidates (name, kind, candidates_json, created_at) "
                 "VALUES ('acme', 'account', '[]', '2026-01-01T00:00:00+00:00')"

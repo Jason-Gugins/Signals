@@ -124,7 +124,7 @@ def test_storage_config_exposes_dossiers_dir():
 
 def test_package_writes_all_five_files(tmp_path):
     dossier = _dossier()
-    result, out = _write(dossier, tmp_path)
+    result, _out = _write(dossier, tmp_path)
     assert Path(result["package_dir"]).is_dir()
     written = {Path(v).name for v in result.values()}
     for name in PACKAGE_FILES:
@@ -186,7 +186,7 @@ def test_package_is_self_contained(tmp_path):
 
     assert saved["domain"] == "acme.com"
     assert isinstance(saved["identity"], dict)
-    assert saved["identity"]["domain"] if "domain" in saved["identity"] else True
+    assert saved["identity"].get("domain", True)
     assert saved["signals"]["counts"]["active"] >= 1
     assert saved["coverage"]["rows"], "coverage rows must be embedded verbatim"
     assert manifest["domain"] == "acme.com"
@@ -229,7 +229,7 @@ def test_expired_signals_are_counted_and_never_active():
     assert "old-hiring" not in active_ids
     assert dossier["signals"]["counts"]["expired"] == 1
     assert [s["signal_id"] for s in dossier["signals"]["expired"]] == ["old-hiring"]
-    assert "old-hiring" not in dossier["signals"]["counts"]["by_type"].keys() or True
+    assert "old-hiring" not in dossier["signals"]["counts"]["by_type"] or True
 
 
 # 7 -------------------------------------------------------------------------

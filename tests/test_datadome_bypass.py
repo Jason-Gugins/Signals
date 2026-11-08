@@ -12,16 +12,16 @@ REAL_BODY = b"<html><body><div class='paper'>Real G2 content</div></body></html>
 
 
 def _make_cfg(**overrides):
-    defaults = dict(
-        datadome=SimpleNamespace(
+    defaults = {
+        "datadome": SimpleNamespace(
             enabled=True, bypass_strategy="solver",
             solver_provider="2captcha", solver_api_key="fake_key",
             headed_fallback=False, cookie_ttl_hours=24,
             residential_proxy=None,
         ),
-        browser=SimpleNamespace(proxy_server=None, user_agent="Mozilla/5.0 Chrome/147"),
-        http=SimpleNamespace(user_agent="Mozilla/5.0 Chrome/147"),
-    )
+        "browser": SimpleNamespace(proxy_server=None, user_agent="Mozilla/5.0 Chrome/147"),
+        "http": SimpleNamespace(user_agent="Mozilla/5.0 Chrome/147"),
+    }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 

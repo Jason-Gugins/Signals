@@ -158,7 +158,7 @@ class TestCliResolveCapterra:
     def test_appends_segment_to_g2_slug(self, monkeypatch):
 
         acct = self._account(g2_slug="existing-g2")
-        registry = self._setup(monkeypatch, [acct])
+        self._setup(monkeypatch, [acct])
         self._patch_resolve(monkeypatch, [self._resolved("19319/JIRA")])
         self._invoke(monkeypatch)
         assert acct.g2_slug == "existing-g2,19319/JIRA"

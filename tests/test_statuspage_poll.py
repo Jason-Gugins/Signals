@@ -24,6 +24,10 @@ from src.sources.techstack.dns_probe import statuspage_target
 FIXTURE = Path("tests/fixtures/techstack/statuspage_index.json")
 
 
+class _FakeNxDomain(Exception):
+    """Stands in for dnspython's NXDOMAIN — statuspage_target fails open on any Exception."""
+
+
 class _FakeResolver:
     """Canned resolver: resolve(name, rtype) -> answers for mapped CNAMEs, raise otherwise."""
 
@@ -32,7 +36,7 @@ class _FakeResolver:
 
     def resolve(self, name, rtype):
         if rtype != "CNAME" or name not in self._mapping:
-            raise Exception("NXDOMAIN")
+            raise _FakeNxDomain("NXDOMAIN")
         class _Ans:
             def __init__(self, target: str):
                 self._target = target
@@ -59,7 +63,7 @@ def test_statuspage_target_non_statuspage_cname_returns_none():
 def test_statuspage_target_nxdomain_raises_to_none():
     class _Boom:
         def resolve(self, name, rtype):
-            raise Exception("NXDOMAIN")
+            raise _FakeNxDomain("NXDOMAIN")
 
     assert statuspage_target("acme.com", resolver=_Boom()) is None
 

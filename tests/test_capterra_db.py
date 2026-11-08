@@ -5,6 +5,7 @@ migration; upsert_capterra_reviews writes source='capterra' rows and is
 idempotent (no duplicates on re-upsert).
 """
 import sqlite3
+from typing import ClassVar
 
 from src.core.db import Database
 from src.sources.marketplace.capterra import CapterraReview
@@ -39,22 +40,22 @@ def test_g2_reviews_source_column_migration_on_old_db(tmp_path):
 
 
 def _capterra_review(**overrides):
-    fields = dict(
-        review_id="cap-hash-0001",
-        product_slug="19319/JIRA",
-        reviewer_name="Kim F.",
-        reviewer_title="Manager Appeals",
-        reviewer_company_size=None,
-        rating=5.0,
-        review_title="Task Management Like A PRO!",
-        review_body="An incredible tool to create synergies among the team.",
-        pros=["Seamless project view"],
-        cons=["Minimal issues"],
-        posted_at="2026-06-29",
-        review_url="https://www.capterra.com/p/19319/JIRA/reviews/",
-        verified_reviewer=False,
-        review_source="Incentivized",
-    )
+    fields = {
+        "review_id": "cap-hash-0001",
+        "product_slug": "19319/JIRA",
+        "reviewer_name": "Kim F.",
+        "reviewer_title": "Manager Appeals",
+        "reviewer_company_size": None,
+        "rating": 5.0,
+        "review_title": "Task Management Like A PRO!",
+        "review_body": "An incredible tool to create synergies among the team.",
+        "pros": ["Seamless project view"],
+        "cons": ["Minimal issues"],
+        "posted_at": "2026-06-29",
+        "review_url": "https://www.capterra.com/p/19319/JIRA/reviews/",
+        "verified_reviewer": False,
+        "review_source": "Incentivized",
+    }
     fields.update(overrides)
     return CapterraReview(**fields)
 
@@ -100,8 +101,8 @@ def test_upsert_g2_reviews_defaults_source_to_g2(tmp_path):
         rating = 4.0
         review_title = "Solid"
         review_body = "body"
-        pros = ["x"]
-        cons = ["y"]
+        pros: ClassVar[list] = ["x"]
+        cons: ClassVar[list] = ["y"]
         posted_at = "2026-07-01"
         review_url = "https://www.g2.com/products/sierra/reviews#12345"
         verified_reviewer = True

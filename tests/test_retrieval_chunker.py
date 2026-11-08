@@ -1,6 +1,8 @@
 """Chunker: spans are exact, boundaries never mid-word, overlap present."""
 from __future__ import annotations
 
+from itertools import pairwise
+
 from src.retrieval.chunker import chunk_text
 
 
@@ -29,7 +31,7 @@ def test_chunks_never_split_midword_and_overlap():
     text = " ".join(f"word{i}" for i in range(2000))
     chunks = chunk_text(text, target_tokens=80, overlap_tokens=16)
     assert len(chunks) > 2
-    for a, b in zip(chunks, chunks[1:]):
+    for a, b in pairwise(chunks):
         # overlap: the next chunk starts inside the previous one's span
         assert b.char_start < a.char_end
         # never mid-word: every chunk boundary sits on whitespace in the source

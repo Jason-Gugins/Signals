@@ -36,15 +36,17 @@ def test_solver_via_browser_passes_token():
     cookie_store = MagicMock()
     cookie_store.get.return_value = None
     bypass = CloudflareBypass(cfg, cookie_store, http, browser)
-    with patch("src.sources.techstack.cf_bypass.solve_cloudflare", return_value="fake_token"):
-        with patch.object(bypass, "_extract_turnstile_sitekey", return_value="0x1234"):
-            browser.fetch.side_effect = [
-                FetchResult(True, 200,
-                    Document(doc_id="c", source="techstack", url="https://example.com",
-                             body=b"<html><div class='cf-turnstile' data-sitekey='0x1234'></div></html>"),
-                    False, None, 1, []),
-            ]
-            outcome = bypass.attempt(domain="example.com", url="https://example.com", user_agent="UA")
+    with (
+        patch("src.sources.techstack.cf_bypass.solve_cloudflare", return_value="fake_token"),
+        patch.object(bypass, "_extract_turnstile_sitekey", return_value="0x1234"),
+    ):
+        browser.fetch.side_effect = [
+            FetchResult(True, 200,
+                Document(doc_id="c", source="techstack", url="https://example.com",
+                         body=b"<html><div class='cf-turnstile' data-sitekey='0x1234'></div></html>"),
+                False, None, 1, []),
+        ]
+        outcome = bypass.attempt(domain="example.com", url="https://example.com", user_agent="UA")
     assert outcome.success is True
     assert outcome.method == "solver"
     assert outcome.result is not None and outcome.result.ok

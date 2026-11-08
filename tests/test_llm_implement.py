@@ -598,7 +598,7 @@ def _meta(prob=0.9, verdict="verified", label="supports", quote_found=False) -> 
 
 
 def _candidates(pairs, **over):
-    kwargs = dict(domain="acme.test", fetched_at=FETCHED_AT, model=MODEL)
+    kwargs = {"domain": "acme.test", "fetched_at": FETCHED_AT, "model": MODEL}
     kwargs.update(over)
     return claims_to_candidates(pairs, **kwargs)
 

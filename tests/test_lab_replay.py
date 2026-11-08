@@ -438,7 +438,7 @@ def test_g4_replay_sends_the_gates_own_state_and_questions():
     })
     spy = SpyDecider(lambda state, questions: decision)
     ledger = DecideLedger()
-    accepted, _ = gate_citation_batch(
+    _accepted, _ = gate_citation_batch(
         claims, "doc-g4", G4_DOC, spy, None, ledger, "run-1", "enforce",
         persist_claims=True,
     )
@@ -859,7 +859,7 @@ def test_g5_replay_routes_what_the_gate_routes():
     for noul, expected in ((0.75, "accepted"), (0.32, "reviewed"), (0.10, "dropped")):
         spy = SpyDecider(lambda s, q, _n=noul: ok({"promotion": {"type": "noul", "noul": _n}}))
         ledger = DecideLedger()
-        promote, prob, _ = gate_need_promotion(
+        _promote, _prob, _ = gate_need_promotion(
             "need text", "evidence excerpt", False, spy, None, ledger, "run-1", "enforce",
         )
         row = ledger.rows[-1]

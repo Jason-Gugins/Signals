@@ -201,7 +201,7 @@ def test_decider_crash_is_honest_fail_not_exception():
 
 def test_two_arg_decider_tolerated():
     decider = TwoArgFakeDecider()
-    survivors, rows = prescreen(CANDIDATES, SAMPLE_STATES, decider)
+    survivors, _rows = prescreen(CANDIDATES, SAMPLE_STATES, decider)
 
     assert len(survivors) == 2  # no TypeError: the gate kwarg was withheld
     assert all(c["gate"] == "<not passed>" for c in decider.calls)

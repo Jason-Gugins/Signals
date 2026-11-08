@@ -64,11 +64,11 @@ def test_parse_is_defensive_on_empty_and_garbage():
 # --------------------------------------------------------------- adapter ----
 
 def _account(**kw):
-    defaults = dict(
-        domain="avalara.com",
-        name="Avalara Inc",
-        extra_data={"bbb_url": BBB_URL},
-    )
+    defaults = {
+        "domain": "avalara.com",
+        "name": "Avalara Inc",
+        "extra_data": {"bbb_url": BBB_URL},
+    }
     defaults.update(kw)
     return Account(**defaults)
 

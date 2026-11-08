@@ -49,7 +49,7 @@ def test_dynamic_matches_label_script_src_hosts():
         {}, "https://acme.com/",
     )
     ms = dynamic_matches(ev, domain="acme.com")
-    row = [m for m in ms if m.vendor == "host:ajax.googleapis.com"][0]
+    row = next(m for m in ms if m.vendor == "host:ajax.googleapis.com")
     assert row.evidence == "script_src"
     assert row.confidence == 0.4
     assert row.tier == "unknown"
@@ -59,7 +59,7 @@ def test_dynamic_matches_label_network_hosts():
     # NetworkEvidence: HAR-lite fixture hosts keep the network_host label
     ev = extract_network_evidence(NET_FIX.read_bytes())
     ms = dynamic_matches(ev, domain="scanner.dev")
-    row = [m for m in ms if m.vendor == "host:cdn-cookieyes.com"][0]
+    row = next(m for m in ms if m.vendor == "host:cdn-cookieyes.com")
     assert row.evidence == "network_host"
 
 
@@ -202,7 +202,7 @@ def test_promote_or_observe_promotes_classified_host():
     vendors = [m.vendor for m in ms]
     assert "zendesk" in vendors
     assert "host:acme.zendesk.com" not in vendors
-    row = [m for m in ms if m.vendor == "zendesk"][0]
+    row = next(m for m in ms if m.vendor == "zendesk")
     assert row.evidence == "host_suffix"
     assert row.evidence_data.get("needle") == "zendesk.com"
     assert row.confidence == 0.7
@@ -211,7 +211,7 @@ def test_promote_or_observe_promotes_classified_host():
     assert row.category == ["support"]
     # observe-first contract holds for hosts that classify to None
     assert "host:mystery.example.com" in vendors
-    kept = [m for m in ms if m.vendor == "host:mystery.example.com"][0]
+    kept = next(m for m in ms if m.vendor == "host:mystery.example.com")
     assert kept.confidence == 0.4 and kept.tier == "unknown"
 
 
@@ -294,7 +294,7 @@ def test_host_rows_pruned_after_six_missing_runs(tmp_path):
     }
     assert rows == {"host:cdn.old-vendor.io": 5, "hubspot": 5}
     # 6th miss: host: row DELETED (pruned silently, not in gone), named row kept
-    new, gone = upsert_technologies(db, "acme.com", [], now="2026-09-06")
+    _new, gone = upsert_technologies(db, "acme.com", [], now="2026-09-06")
     rows = {r["vendor"] for r in db.query("SELECT vendor FROM technologies WHERE domain=?", ("acme.com",))}
     assert rows == {"hubspot"}
     assert gone == ["hubspot"]  # named removal still signals (tech_removed path)
@@ -313,7 +313,7 @@ def test_high_ticket_once_per_year():
     # carry only the tier/competitor emissions.
     assert "tech_install_new" not in types and "high_ticket_tech" in types
     # same natural_key year means store would dedupe
-    assert [c.natural_key for c in c1 if c.signal_type == "high_ticket_tech"][0].endswith("2026")
+    assert next(c.natural_key for c in c1 if c.signal_type == "high_ticket_tech").endswith("2026")
 
 
 from src.sources.techstack.fingerprint import classify_cloudflare_challenge

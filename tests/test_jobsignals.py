@@ -114,9 +114,9 @@ def test_iso_keys_stable_within_period():
     w = JobsWindow("acme.com", jobs, set(), {"Sales"}, {})
     a = analyze_jobs(w, today=TODAY, cfg=CFG)
     b = analyze_jobs(w, today=TODAY, cfg=CFG)
-    surge = [c for c in a if c.signal_type == "hiring_surge"][0]
-    assert surge.natural_key == [c for c in b if c.signal_type == "hiring_surge"][0].natural_key
+    surge = next(c for c in a if c.signal_type == "hiring_surge")
+    assert surge.natural_key == next(c for c in b if c.signal_type == "hiring_surge").natural_key
     later = analyze_jobs(w, today=TODAY + timedelta(days=10), cfg=CFG)
-    later_key = [c for c in later if c.signal_type == "hiring_surge"][0].natural_key
+    later_key = next(c for c in later if c.signal_type == "hiring_surge").natural_key
     # 10 days later may be next ISO week
     assert later_key.split(":")[-1]

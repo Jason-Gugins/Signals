@@ -234,7 +234,7 @@ def _page_html(n_chars=600, title="Case Study: Alpha"):
 
 
 def test_parse_emits_content_appearance_marker_above_floor(tmp_path):
-    db, store = _ctx(tmp_path)
+    _db, store = _ctx(tmp_path)
     url = EXPECTED_SORTED[1]
     _store_page(store, url, _page_html().encode("utf-8"))
     doc = store.get(_doc_id_for(store, url))
@@ -256,7 +256,7 @@ def _doc_id_for(store, url):
 
 
 def test_parse_below_floor_emits_nothing(tmp_path):
-    db, store = _ctx(tmp_path)
+    _db, store = _ctx(tmp_path)
     url = EXPECTED_SORTED[1]
     _store_page(store, url, b"<html><body><p>tiny</p></body></html>")
     doc = store.get(_doc_id_for(store, url))
@@ -269,7 +269,7 @@ def test_parse_caps_prose_at_max_chars(tmp_path, monkeypatch):
     monkeypatch.setattr(
         mod, "load_sitecontent_cfg", lambda: {**mod.DEFAULT_CFG, "max_prose_chars": 512}
     )
-    db, store = _ctx(tmp_path)
+    _db, store = _ctx(tmp_path)
     url = EXPECTED_SORTED[1]
     _store_page(store, url, _page_html(n_chars=5000).encode("utf-8"))
     doc = store.get(_doc_id_for(store, url))
@@ -278,7 +278,7 @@ def test_parse_caps_prose_at_max_chars(tmp_path, monkeypatch):
 
 
 def test_parse_natural_key_is_idempotent_per_url(tmp_path):
-    db, store = _ctx(tmp_path)
+    _db, store = _ctx(tmp_path)
     url = EXPECTED_SORTED[1]
     _store_page(store, url, _page_html().encode("utf-8"))
     doc = store.get(_doc_id_for(store, url))
@@ -289,7 +289,7 @@ def test_parse_natural_key_is_idempotent_per_url(tmp_path):
 
 
 def test_parse_never_guesses_observed_at(tmp_path):
-    db, store = _ctx(tmp_path)
+    _db, store = _ctx(tmp_path)
     url = EXPECTED_SORTED[1]
     _store_page(store, url, _page_html().encode("utf-8"))
     doc = store.get(_doc_id_for(store, url))

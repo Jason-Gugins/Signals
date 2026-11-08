@@ -193,7 +193,7 @@ class _FakeOrch:
 
     def score(self, **kw):
         self.calls.append(("score", kw))
-        domain = list(kw["domains"])[0]
+        domain = next(iter(kw["domains"]))
         snap = SimpleNamespace(domain=domain, today=__import__("datetime").date(2026, 9, 15))
         if kw.get("return_snapshots"):
             return {"scored": 1, "snapshots": {domain: snap}}

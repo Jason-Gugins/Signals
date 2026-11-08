@@ -69,7 +69,7 @@ def _count(db_path, table):
 
 
 def test_index_command_runs_offline(tmp_path, monkeypatch):
-    db, rs = _store(tmp_path)
+    _db, _rs = _store(tmp_path)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("src.retrieval.embedder.get_embedder", lambda: FakeEmbedder())
     runner = CliRunner()
@@ -130,7 +130,7 @@ def test_rebuild_fts_restores_shadow(tmp_path, monkeypatch):
 
 
 def test_index_dry_run_plans_only_writes_nothing(tmp_path, monkeypatch):
-    db, rs = _store(tmp_path)
+    _db, _rs = _store(tmp_path)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("src.retrieval.embedder.get_embedder", lambda: FakeEmbedder())
     runner = CliRunner()
@@ -176,7 +176,7 @@ def test_dry_run_rebuild_fts_plans_only_writes_nothing(tmp_path, monkeypatch):
 def test_index_null_embedder_prints_remediation(tmp_path, monkeypatch):
     from src.retrieval.embedder import NullEmbedder
 
-    db, rs = _store(tmp_path)
+    _db, _rs = _store(tmp_path)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("src.retrieval.embedder.get_embedder", lambda: NullEmbedder())
     runner = CliRunner()

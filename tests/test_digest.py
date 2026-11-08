@@ -9,21 +9,21 @@ from src.signals.taxonomy import Taxonomy
 
 
 def _sig(signal_type: str = "funding_round", domain: str = "acme.com", **kw) -> Signal:
-    defaults = dict(
-        signal_id=f"{domain}-{signal_type}-1",
-        domain=domain,
-        signal_type=signal_type,
-        category="test",
-        origin="test",
-        catalyst="catalyst",
-        polarity="positive",
-        observed_at="2026-08-30",
-        source="test",
-        title=f"{signal_type} title",
-        summary=None,
-        evidence=f"evidence for {signal_type}",
-        evidence_data={},
-    )
+    defaults = {
+        "signal_id": f"{domain}-{signal_type}-1",
+        "domain": domain,
+        "signal_type": signal_type,
+        "category": "test",
+        "origin": "test",
+        "catalyst": "catalyst",
+        "polarity": "positive",
+        "observed_at": "2026-08-30",
+        "source": "test",
+        "title": f"{signal_type} title",
+        "summary": None,
+        "evidence": f"evidence for {signal_type}",
+        "evidence_data": {},
+    }
     defaults.update(kw)
     return Signal(**defaults)
 

@@ -69,7 +69,7 @@ def test_extract_jsonld_parses_all_wellformed_blocks():
     assert len(blocks) == 2
     types = {b.get("@type") for b in blocks}
     assert "BreadcrumbList" in types
-    graph_entry = [b for b in blocks if "@graph" in b][0]
+    graph_entry = next(b for b in blocks if "@graph" in b)
     assert graph_entry["@graph"][0]["name"] == "Claritysoft CRM"
 
 
@@ -82,7 +82,7 @@ def test_extract_jsonld_empty_and_garbage_inputs():
 def test_extract_jsonld_getapp_blocks():
     blocks = extract_jsonld(GA_HTML.encode("utf-8"))
     assert len(blocks) == 2
-    app = [b for b in blocks if b.get("@type") == "SoftwareApplication"][0]
+    app = next(b for b in blocks if b.get("@type") == "SoftwareApplication")
     assert app["name"] == "Salesforce Sales Cloud"
     assert app["aggregateRating"]["ratingCount"] == 18807
 
@@ -109,7 +109,7 @@ def test_sa_rating_passthrough_no_scale_conversion():
 
 def test_sa_missing_optional_fields_tolerated():
     """Robin's review has no rating, date, or employer — parsed, never invented."""
-    robin = [r for r in parse_sa_product(SA_HTML, url=SA_URL) if r.reviewer_name == "Robin"][0]
+    robin = next(r for r in parse_sa_product(SA_HTML, url=SA_URL) if r.reviewer_name == "Robin")
     assert robin.rating is None
     assert robin.posted_at is None
     assert robin.reviewer_company_size is None
@@ -146,13 +146,13 @@ def test_sa_review_id_stable_across_parses():
 def test_sa_review_id_differs_for_different_content():
     """A changed review body must change the id (reviewer+date alone can
     collide: SA reviewer names are first names, dates are month-precision)."""
-    robin_a = [r for r in parse_sa_product(SA_HTML, url=SA_URL) if r.reviewer_name == "Robin"][0]
+    robin_a = next(r for r in parse_sa_product(SA_HTML, url=SA_URL) if r.reviewer_name == "Robin")
     edited = SA_HTML.replace("much bigger CRM and our reps", "much smaller CRM and our reps")
-    robin_b = [r for r in parse_sa_product(edited, url=SA_URL) if r.reviewer_name == "Robin"][0]
+    robin_b = next(r for r in parse_sa_product(edited, url=SA_URL) if r.reviewer_name == "Robin")
     assert robin_b.review_id != robin_a.review_id
     # ...while the other reviews keep their ids.
-    mandi_a = [r for r in parse_sa_product(SA_HTML, url=SA_URL) if r.reviewer_name == "Mandi"][0]
-    mandi_b = [r for r in parse_sa_product(edited, url=SA_URL) if r.reviewer_name == "Mandi"][0]
+    mandi_a = next(r for r in parse_sa_product(SA_HTML, url=SA_URL) if r.reviewer_name == "Mandi")
+    mandi_b = next(r for r in parse_sa_product(edited, url=SA_URL) if r.reviewer_name == "Mandi")
     assert mandi_a.review_id == mandi_b.review_id
 
 
@@ -310,7 +310,7 @@ def test_sa_parse_wide_lookback_keeps_full_iso_old_dates():
             "review_lookback_days": 400}
     cands = sa.parse(_sa_doc(), acct, meta)
     assert len(cands) == 5
-    blake = [c for c in cands if "Blake" in (c.title or "")][0]
+    blake = next(c for c in cands if "Blake" in (c.title or ""))
     assert blake.observed_at == "2026-01-15"
 
 

@@ -152,7 +152,7 @@ def test_auth_credentials_from_env(monkeypatch):
         smtp_factory=_factory(log),
     )
     (smtp,) = log
-    login = [c for c in smtp.calls if c[0] == "login"][0]
+    login = next(c for c in smtp.calls if c[0] == "login")
     assert login[1] == "user@example.com"
     assert login[2] == "secret"
 
@@ -354,7 +354,8 @@ def test_brief_email_flag(tmp_path, monkeypatch):
 
 
 def test_env_example_documents_smtp():
-    text = open(".env.example", encoding="utf-8").read()
+    with open(".env.example", encoding="utf-8") as fh:
+        text = fh.read()
     for key in (
         "SIGNALS_SMTP_HOST",
         "SIGNALS_SMTP_PORT",

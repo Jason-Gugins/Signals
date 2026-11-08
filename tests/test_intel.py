@@ -89,7 +89,7 @@ class FakeOrch:
 
     def score(self, **kw):
         self._record("score", kw)
-        domain = list(kw["domains"])[0]
+        domain = next(iter(kw["domains"]))
         snap = self.snapshot
         if snap is None:
             snap = SimpleNamespace(domain=domain, today=date(2026, 8, 16))

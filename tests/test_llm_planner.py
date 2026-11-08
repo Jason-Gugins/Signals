@@ -70,13 +70,13 @@ def _valid_raw() -> dict:
 
 
 def _validate(raw, **over):
-    kwargs = dict(
-        allowed_sources=set(ALLOWED_SOURCES),
-        knob_caps=dict(KNOB_CAPS),
-        max_steps=12,
-        include_fanout=False,
-        fanout_keys=set(FANOUT_KEYS),
-    )
+    kwargs = {
+        "allowed_sources": set(ALLOWED_SOURCES),
+        "knob_caps": dict(KNOB_CAPS),
+        "max_steps": 12,
+        "include_fanout": False,
+        "fanout_keys": set(FANOUT_KEYS),
+    }
     kwargs.update(over)
     return validate_plan(raw, **kwargs)
 
@@ -414,7 +414,7 @@ def test_generate_plan_stale_cache_not_served_when_scope_shrinks(monkeypatch, tm
     _grant_creds(monkeypatch)
     cache = tmp_path / "plan_cache"
 
-    plan, why = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
+    _plan, why = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
     assert why == "generated"
     assert route.call_count == 1
 
@@ -436,7 +436,7 @@ def test_generate_plan_stale_cache_regenerated_against_current_scope(monkeypatch
     _grant_creds(monkeypatch)
     cache = tmp_path / "plan_cache"
     route = respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=_llm_ok_body()))
-    plan, why = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
+    _plan, why = generate_plan(decide_cfg=DECIDE_CFG, cache_dir=cache, **_kwargs())
     assert why == "generated"
     assert route.call_count == 1
 

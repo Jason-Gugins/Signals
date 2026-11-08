@@ -61,7 +61,7 @@ def test_200_stores_document_and_logs(tmp_path, monkeypatch):
     url = "https://example.com/page"
     respx.get(url).mock(return_value=httpx.Response(200, content=b"hello", headers={"content-type": "text/plain"}))
     respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
-    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    fetcher, _store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
     result = fetcher.get(Task(source="news_rss", url=url, domain="example.com"))
     assert result.ok is True
     assert result.status == 200
@@ -78,7 +78,7 @@ def test_304_cached_no_store_write(tmp_path, monkeypatch):
     url = "https://example.com/page"
     respx.get(url).mock(return_value=httpx.Response(304))
     respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
-    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    fetcher, _store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
     result = fetcher.get(Task(source="news_rss", url=url), etag='"abc"')
     assert result.ok is True
     assert result.cached is True
@@ -98,7 +98,7 @@ def test_500_retries_then_200(tmp_path, monkeypatch):
     ]
     respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
     clock = FakeClock()
-    fetcher, store, ctx, db, clock = _fetcher(tmp_path, monkeypatch, clock=clock)
+    fetcher, _store, ctx, db, clock = _fetcher(tmp_path, monkeypatch, clock=clock)
     result = fetcher.get(Task(source="news_rss", url=url))
     assert result.ok is True
     assert result.doc.body == b"ok"
@@ -121,7 +121,7 @@ def test_429_honours_retry_after_and_penalizes(tmp_path, monkeypatch):
     ]
     respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
     clock = FakeClock()
-    fetcher, store, ctx, db, clock = _fetcher(tmp_path, monkeypatch, clock=clock)
+    fetcher, _store, ctx, _db, clock = _fetcher(tmp_path, monkeypatch, clock=clock)
     result = fetcher.get(Task(source="news_rss", url=url))
     assert result.ok is True
     assert 2.0 in clock.sleeps
@@ -134,7 +134,7 @@ def test_404_no_retry(tmp_path, monkeypatch):
     route = respx.get(url)
     route.mock(return_value=httpx.Response(404))
     respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
-    fetcher, store, ctx, db, clock = _fetcher(tmp_path, monkeypatch)
+    fetcher, _store, ctx, _db, _clock = _fetcher(tmp_path, monkeypatch)
     result = fetcher.get(Task(source="news_rss", url=url))
     assert result.ok is False
     assert result.status == 404
@@ -149,7 +149,7 @@ def test_robots_disallow_private_allows_public(tmp_path, monkeypatch):
         return_value=httpx.Response(200, text=robots)
     )
     respx.get("https://example.com/public").mock(return_value=httpx.Response(200, content=b"ok"))
-    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    fetcher, _store, ctx, _db, _ = _fetcher(tmp_path, monkeypatch)
     blocked = fetcher.get(Task(source="news_rss", url="https://example.com/private"))
     assert blocked.ok is False
     assert blocked.error and "robots" in blocked.error.lower()
@@ -163,7 +163,7 @@ def test_ua_contains_contact_email(tmp_path, monkeypatch):
     url = "https://example.com/ua"
     route = respx.get(url).mock(return_value=httpx.Response(200, content=b"ok"))
     respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
-    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    fetcher, _store, ctx, _db, _ = _fetcher(tmp_path, monkeypatch)
     fetcher.get(Task(source="news_rss", url=url))
     sent = route.calls[0].request.headers["user-agent"]
     assert "ops@example.com" in sent
@@ -175,7 +175,7 @@ def test_get_json_non_json_returns_none(tmp_path, monkeypatch):
     url = "https://example.com/notjson"
     respx.get(url).mock(return_value=httpx.Response(200, content=b"not json"))
     respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
-    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    fetcher, _store, ctx, _db, _ = _fetcher(tmp_path, monkeypatch)
     result, payload = fetcher.get_json(Task(source="news_rss", url=url))
     assert result.ok is True
     assert payload is None
@@ -202,7 +202,7 @@ def test_google_news_rss_allowed_despite_robots_disallow_all(tmp_path, monkeypat
     )
     respx.get(rss).mock(return_value=httpx.Response(200, content=b"<rss/>"))
     respx.get(blocked).mock(return_value=httpx.Response(200, content=b"nope"))
-    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    fetcher, _store, ctx, _db, _ = _fetcher(tmp_path, monkeypatch)
     ok = fetcher.get(Task(source="google_news", url=rss, domain="acme.com"))
     assert ok.ok is True
     assert ok.status == 200
@@ -228,7 +228,7 @@ def test_form_body_post_sent_as_content(tmp_path, monkeypatch):
     url = "https://news.google.com/_/DotsSplashUi/data/batchexecute"
     route = respx.post(url).mock(return_value=httpx.Response(200, content=b"ok"))
     respx.get("https://news.google.com/robots.txt").mock(return_value=httpx.Response(404))
-    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    fetcher, _store, ctx, _db, _ = _fetcher(tmp_path, monkeypatch)
     task = Task(
         source="google_news",
         url=url,
@@ -251,7 +251,7 @@ def test_task_without_data_body_unchanged(tmp_path, monkeypatch):
     url = "https://example.com/plain"
     route = respx.get(url).mock(return_value=httpx.Response(200, content=b"ok"))
     respx.get("https://example.com/robots.txt").mock(return_value=httpx.Response(404))
-    fetcher, store, ctx, db, _ = _fetcher(tmp_path, monkeypatch)
+    fetcher, _store, ctx, _db, _ = _fetcher(tmp_path, monkeypatch)
     result = fetcher.get(Task(source="news_rss", url=url))
     assert result.ok is True
     assert result.status == 200

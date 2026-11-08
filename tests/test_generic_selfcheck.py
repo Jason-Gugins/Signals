@@ -53,10 +53,10 @@ def _techstack_profile():
         ev = extract_http_evidence(html.encode("utf-8", "replace"), {}, url)
         return match_fingerprints(ev, rules)
 
-    return dict(url=url, source="techstack", domain="acme.com", extract=extract,
-                markup_hints=[b"__NEXT_DATA__", b"technologies"],
-                detect_challenge=lambda status, body:
-                    classify_cloudflare_challenge(status=status, body=body) is not None)
+    return {"url": url, "source": "techstack", "domain": "acme.com", "extract": extract,
+                "markup_hints": [b"__NEXT_DATA__", b"technologies"],
+                "detect_challenge": lambda status, body:
+                    classify_cloudflare_challenge(status=status, body=body) is not None}
 
 
 def _news_rss_profile():
@@ -66,9 +66,9 @@ def _news_rss_profile():
     def extract(html: str):
         return parse_feed(html.encode("utf-8", "replace"))
 
-    return dict(url=url, source="news_rss", domain="acme.com", extract=extract,
-                markup_hints=[b"<item", b"<entry"],
-                detect_challenge=lambda status, body: b"Just a moment" in body)
+    return {"url": url, "source": "news_rss", "domain": "acme.com", "extract": extract,
+                "markup_hints": [b"<item", b"<entry"],
+                "detect_challenge": lambda status, body: b"Just a moment" in body}
 
 
 def _ats_greenhouse_profile():
@@ -78,9 +78,9 @@ def _ats_greenhouse_profile():
     def extract(html: str):
         return parse_greenhouse(html.encode("utf-8", "replace"))
 
-    return dict(url=url, source="ats_greenhouse", domain="boards-api.greenhouse.io",
-                extract=extract, markup_hints=[b"jobs"],
-                detect_challenge=lambda status, body: b'"maintenance"' in body)
+    return {"url": url, "source": "ats_greenhouse", "domain": "boards-api.greenhouse.io",
+                "extract": extract, "markup_hints": [b"jobs"],
+                "detect_challenge": lambda status, body: b'"maintenance"' in body}
 
 
 PROFILES = {
@@ -90,32 +90,32 @@ PROFILES = {
 }
 
 BODIES = {
-    "techstack": dict(
-        ok=b'<html><script src="https://js.hs-scripts.com/1.js"></script>'
+    "techstack": {
+        "ok": b'<html><script src="https://js.hs-scripts.com/1.js"></script>'
            b'<script>__NEXT_DATA__</script><p>technologies</p></html>',
-        drift=b"<html><p>__NEXT_DATA__ technologies</p></html>",
-        empty=b"<html><p>hello</p></html>",
-        challenge=b"<html><title>Just a moment...</title></html>",
-    ),
-    "news_rss": dict(
-        ok=b"<?xml version='1.0'?><rss><channel>"
+        "drift": b"<html><p>__NEXT_DATA__ technologies</p></html>",
+        "empty": b"<html><p>hello</p></html>",
+        "challenge": b"<html><title>Just a moment...</title></html>",
+    },
+    "news_rss": {
+        "ok": b"<?xml version='1.0'?><rss><channel>"
            b"<item><title>News A</title><link>https://n.example/a</link></item>"
            b"</channel></rss>",
         # <item> markup present, but the entry has no title/link -> 0 parsed.
-        drift=b"<rss><channel><item><nope/></item></channel></rss>",
-        empty=b"<html><p>no feed here</p></html>",
-        challenge=b"<html><title>Just a moment...</title></html>",
-    ),
-    "ats_greenhouse": dict(
-        ok=json.dumps({"jobs": [{"id": 1, "title": "Engineer",
+        "drift": b"<rss><channel><item><nope/></item></channel></rss>",
+        "empty": b"<html><p>no feed here</p></html>",
+        "challenge": b"<html><title>Just a moment...</title></html>",
+    },
+    "ats_greenhouse": {
+        "ok": json.dumps({"jobs": [{"id": 1, "title": "Engineer",
                                  "absolute_url": "https://j/1",
                                  "updated_at": "2026-01-01T00:00:00Z",
                                  "location": {"name": "New York, NY"}}]}).encode(),
         # 'jobs' key present but the list parses to 0 posts.
-        drift=b'{"jobs": [], "paging": {"total": 0}}',
-        empty=b'{"meta": {"total": 0}}',
-        challenge=b'{"maintenance": true}',
-    ),
+        "drift": b'{"jobs": [], "paging": {"total": 0}}',
+        "empty": b'{"meta": {"total": 0}}',
+        "challenge": b'{"maintenance": true}',
+    },
 }
 
 
@@ -154,7 +154,7 @@ def test_challenge_state(profile):
 
 
 def test_error_state_when_fetch_raises(profile):
-    name, p = profile
+    _name, p = profile
     from src.core.selfcheck import run_source_selfcheck
     f = MagicMock()
     f.fetch.side_effect = RuntimeError("connection reset")
@@ -163,7 +163,7 @@ def test_error_state_when_fetch_raises(profile):
 
 
 def test_error_state_when_fetch_returns_no_document(profile):
-    name, p = profile
+    _name, p = profile
     from src.core.selfcheck import run_source_selfcheck
     r = run_source_selfcheck(_fetcher(None, ok=False, status=503), **p)
     assert r.state == "error"

@@ -31,8 +31,7 @@ RUN = "run-align-test"
 # The three ordered level wordings (the middle one is the tuning knob).
 LEVELS = [
     "different company",
-    "closely related, may or may not be the same — a subsidiary, parent, "
-    "similarly-named company, or a product line that could plausibly refer to either",
+    "closely related, may or may not be the same — a subsidiary, parent, similarly-named company, or a product line that could plausibly refer to either",
     "one and the same company",
 ]
 
@@ -316,7 +315,7 @@ def test_align_candidates_walks_list_order_under_the_cap():
     # Exactly the TOP THREE of the producer's ranking got the budget...
     assert decider.n_calls == 3
     assert set(out) == {"cand0.com", "cand1.com", "cand2.com"}
-    for key, alignment in out.items():
+    for alignment in out.values():
         assert alignment["outcome"] == "related"
         assert alignment["fields"]["same_name"] == 0.9
     assert len(ledger.rows) == 3
@@ -333,8 +332,8 @@ def test_align_candidates_default_cap_is_the_module_constant():
 
 def test_align_candidates_bad_max_pairs_falls_back_to_default():
     decider = _link_decider()
-    out = align_candidates({"name": "Acme"}, _candidates(2), decider,
-                           {"max_pairs": "lots"}, DecideLedger(), RUN, "enforce")
+    align_candidates({"name": "Acme"}, _candidates(2), decider,
+                     {"max_pairs": "lots"}, DecideLedger(), RUN, "enforce")
     assert decider.n_calls == 2
 
 

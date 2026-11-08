@@ -69,7 +69,7 @@ def _make_lists(tmp_path, names):
 
 
 def _lists_row(rows):
-    return [r for r in rows if r[0] == "lists"][0]
+    return next(r for r in rows if r[0] == "lists")
 
 
 def test_lists_ok_when_all_referenced_files_present(tmp_path, monkeypatch):
@@ -154,7 +154,7 @@ def test_lists_tolerates_extra_unknown_references(tmp_path, monkeypatch):
 
 
 def _gkg_row(rows):
-    return [r for r in rows if r[0] == "gkg_credentials"][0]
+    return next(r for r in rows if r[0] == "gkg_credentials")
 
 
 def _import_blocks_google(monkeypatch):

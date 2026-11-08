@@ -1,12 +1,14 @@
 """Task 2: sources.yaml config lint — doctor warns on unconsumed keys."""
 
+from typing import ClassVar
+
 from src.pipeline.health import doctor, lint_source_config
 
 
 class FakeAdapter:
     key = "fake_src"
     cadence_hours = 24
-    requires = []
+    requires: ClassVar[list] = []
 
 
 def test_clean_config_no_warnings():
@@ -83,6 +85,6 @@ def test_doctor_aggregated_check(tmp_path):
         rows = doctor(cfg, Database(tmp_path / "s.db"), check_network=False)
     lint_rows = [(n, s, d) for n, s, d in rows if n == "config_lint"]
     assert len(lint_rows) == 1
-    name, status, detail = lint_rows[0]
+    _name, status, detail = lint_rows[0]
     assert status == "WARN"
     assert "fake_src.bogus_key" in detail

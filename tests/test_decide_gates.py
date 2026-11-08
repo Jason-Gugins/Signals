@@ -307,7 +307,7 @@ def test_promotion_question_carries_the_operational_burden_semantics():
     deliberate, reviewed change."""
     ledger = DecideLedger()
     gate_need_promotion(NEED, EVIDENCE, False, _noul("promotion", 0.9), {}, ledger, RUN, "enforce")
-    gate, questions = ledger.rows[0]["gate"], None
+    gate = ledger.rows[0]["gate"]
     assert gate == "need_promotion"
     # the question rides the gate's recorded state hash inputs — assert the
     # live question construction through a fresh call with a calls-tracking
@@ -463,7 +463,7 @@ def test_plan_step_low_noul_drops_to_deterministic_default():
 
 def test_plan_step_error_on_error_drop_llm():
     ledger = DecideLedger()
-    action, decision = gate_plan_step(STEP, "icp text", _error("step"), {}, ledger, RUN, "enforce")
+    action, _decision = gate_plan_step(STEP, "icp text", _error("step"), {}, ledger, RUN, "enforce")
     assert action == "drop_llm"
     row = ledger.rows[0]
     assert row["error"] is not None

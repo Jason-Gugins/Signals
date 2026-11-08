@@ -101,7 +101,7 @@ def _make_run_recorder():
 
 
 def test_one_subprocess_per_batch_seed_csv_no_headed(scraper_env, tmp_path, monkeypatch):
-    cwd, exe, db_path = scraper_env
+    cwd, exe, _db_path = scraper_env
     cfg = _config_with_cwd(cwd)
     fake_run, calls = _make_run_recorder()
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -110,7 +110,7 @@ def test_one_subprocess_per_batch_seed_csv_no_headed(scraper_env, tmp_path, monk
         Account(domain="notion.so", name="Notion"),
         Account(domain="acme.example", name="Acme"),
     ]
-    out = LinkedinSlugResolver(cfg, registry).resolve_all(accts)
+    LinkedinSlugResolver(cfg, registry).resolve_all(accts)
     assert len(calls) == 1  # batched: ONE subprocess for two accounts
     argv = calls[0]["argv"]
     assert str(exe) in argv
@@ -123,10 +123,6 @@ def test_one_subprocess_per_batch_seed_csv_no_headed(scraper_env, tmp_path, monk
     assert not seed_path.exists()
     # Verify the content contract by re-writing with the real method:
     import csv as _csv
-    import io
-
-    buf = io.StringIO()
-    real_open = open
 
     class _Recorder:
         pass
@@ -137,7 +133,6 @@ def test_one_subprocess_per_batch_seed_csv_no_headed(scraper_env, tmp_path, monk
     ]
     # Re-derive the expected content deterministically:
     expected_rows = {"notion.so", "acme.example"}
-    resolver = LinkedinSlugResolver(cfg, FakeRegistry())
     import tempfile
 
     with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8", newline="") as tmp:
@@ -153,9 +148,9 @@ def test_one_subprocess_per_batch_seed_csv_no_headed(scraper_env, tmp_path, monk
 
 
 def test_matching_domain_row_fills_slug_and_upserts(scraper_env, monkeypatch):
-    cwd, exe, db_path = scraper_env
+    cwd, _exe, _db_path = scraper_env
     cfg = _config_with_cwd(cwd)
-    fake_run, calls = _make_run_recorder()
+    fake_run, _calls = _make_run_recorder()
     monkeypatch.setattr(subprocess, "run", fake_run)
     registry = FakeRegistry()
     acct = Account(domain="notion.so", name="Notion")
@@ -167,7 +162,7 @@ def test_matching_domain_row_fills_slug_and_upserts(scraper_env, monkeypatch):
 
 
 def test_no_matching_row_returns_none(scraper_env, monkeypatch):
-    cwd, exe, db_path = scraper_env
+    cwd, _exe, _db_path = scraper_env
     cfg = _config_with_cwd(cwd)
 
     def fake_run(argv, **kw):
@@ -188,7 +183,7 @@ def test_no_matching_row_returns_none(scraper_env, monkeypatch):
 
 
 def test_subprocess_failure_returns_none_no_raise(scraper_env, monkeypatch):
-    cwd, exe, db_path = scraper_env
+    cwd, _exe, _db_path = scraper_env
     cfg = _config_with_cwd(cwd)
 
     def fake_run(argv, **kw):
@@ -203,7 +198,7 @@ def test_subprocess_failure_returns_none_no_raise(scraper_env, monkeypatch):
 
 
 def test_nonzero_returncode_returns_none(scraper_env, monkeypatch):
-    cwd, exe, db_path = scraper_env
+    cwd, _exe, _db_path = scraper_env
     cfg = _config_with_cwd(cwd)
 
     def fake_run(argv, **kw):
@@ -223,7 +218,7 @@ def test_nonzero_returncode_returns_none(scraper_env, monkeypatch):
 
 
 def test_missing_checkout_returns_empty_with_warning(scraper_env):
-    cwd, exe, db_path = scraper_env
+    cwd, _exe, _db_path = scraper_env
     cfg = Config.load()
     cfg.external_dbs.linkedin_cli_cwd = str(cwd.parent / "Nope")
     registry = FakeRegistry()
@@ -233,7 +228,7 @@ def test_missing_checkout_returns_empty_with_warning(scraper_env):
 
 
 def test_accounts_with_existing_slug_not_in_seed_csv(scraper_env, monkeypatch):
-    cwd, exe, db_path = scraper_env
+    cwd, _exe, _db_path = scraper_env
     cfg = _config_with_cwd(cwd)
     fake_run, calls = _make_run_recorder()
     monkeypatch.setattr(subprocess, "run", fake_run)

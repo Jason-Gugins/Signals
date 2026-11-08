@@ -56,7 +56,7 @@ def _prev(stars: int, archived: bool = False) -> dict:
 def test_repo_delta_new_repo_recently_created():
     out = repo_delta({}, [_repo("acme/new-app", stars=3, created="2026-08-20T10:00:00Z")], today=TODAY)
     assert [k for k, _ in out] == ["new_repo"]
-    kind, ev = out[0]
+    _kind, ev = out[0]
     assert ev["repo"] == "acme/new-app"
     assert ev["stars"] == 3
     assert ev["stars_prev"] is None
@@ -101,7 +101,7 @@ def test_repo_delta_star_surge_percentage_boundary():
     assert repo_delta(prev, [_repo("acme/tool", stars=124)], today=TODAY) == []
     surge = repo_delta(prev, [_repo("acme/tool", stars=125)], today=TODAY)
     assert [k for k, _ in surge] == ["star_surge"]
-    kind, ev = surge[0]
+    _kind, ev = surge[0]
     assert ev["repo"] == "acme/tool"
     assert ev["stars"] == 125
     assert ev["stars_prev"] == 100
@@ -713,7 +713,7 @@ def test_non_recoverable_404_still_raises(tmp_path, monkeypatch):
     from src.pipeline.runner import RunnerStats, _now
 
     stub = _NoRecoverStub()
-    runner, db, ctx, _stats_path = _runner(
+    runner, _db, ctx, _stats_path = _runner(
         tmp_path, monkeypatch,
         fetch_factory=lambda store: _StatusFetch(
             store, fail_urls={"https://api.github.com/orgs/acme"},
@@ -805,7 +805,7 @@ def test_recoverable_500_still_raises(tmp_path, monkeypatch):
     from src.pipeline.runner import RunnerStats, _now
 
     stub = _RecoverPairStub()
-    runner, db, ctx, _stats_path = _runner(
+    runner, _db, ctx, _stats_path = _runner(
         tmp_path, monkeypatch,
         fetch_factory=lambda store: _StatusFetch(
             store,

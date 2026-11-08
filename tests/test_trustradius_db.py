@@ -9,22 +9,22 @@ from src.sources.marketplace.trustradius import TrustRadiusReview
 
 
 def _tr_review(**overrides):
-    fields = dict(
-        review_id="slack-2026-08-05-00-29-43",
-        product_slug="slack",
-        reviewer_name="Rushikesh Vasande",
-        reviewer_title="Full-stack developer in Information Technology at SDLC Corp",
-        reviewer_company_size="501-1000 employees",
-        rating=4.5,
-        review_title="Well Organized and Easy to Manage",
-        review_body="My team uses Slack every day for communication.",
-        pros=["Keep project discussions organized with separate channels."],
-        cons=["Too many notification can be distracting"],
-        posted_at="2026-08-10",
-        review_url="https://www.trustradius.com/reviews/slack-2026-08-05-00-29-43",
-        verified_reviewer=True,
-        review_source=None,
-    )
+    fields = {
+        "review_id": "slack-2026-08-05-00-29-43",
+        "product_slug": "slack",
+        "reviewer_name": "Rushikesh Vasande",
+        "reviewer_title": "Full-stack developer in Information Technology at SDLC Corp",
+        "reviewer_company_size": "501-1000 employees",
+        "rating": 4.5,
+        "review_title": "Well Organized and Easy to Manage",
+        "review_body": "My team uses Slack every day for communication.",
+        "pros": ["Keep project discussions organized with separate channels."],
+        "cons": ["Too many notification can be distracting"],
+        "posted_at": "2026-08-10",
+        "review_url": "https://www.trustradius.com/reviews/slack-2026-08-05-00-29-43",
+        "verified_reviewer": True,
+        "review_source": None,
+    }
     fields.update(overrides)
     return TrustRadiusReview(**fields)
 

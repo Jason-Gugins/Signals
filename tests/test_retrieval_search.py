@@ -75,7 +75,7 @@ def test_legs_return_none_not_error_when_empty(tmp_path):
 
 
 def test_select_stage_docs_returns_doc_order_and_coverage(indexed):
-    db, rs = indexed
+    db, _rs = indexed
     sel = search.select_stage_docs(
         db, "acme.com", query="hiring head of sales", ce_query="hiring head of sales",
         embedder=FakeEmbedder(), scorer=None,  # scorer None: cross-encoder leg skipped
@@ -91,7 +91,7 @@ def test_select_stage_docs_returns_doc_order_and_coverage(indexed):
 
 
 def test_select_stage_docs_falls_back_when_uncovered(indexed):
-    db, rs = indexed
+    db, _rs = indexed
     sel = search.select_stage_docs(
         db, "other.com", query="x", ce_query="x", embedder=FakeEmbedder(), scorer=None,
         cfg={"min_index_coverage": 0.8, "stage_docs": 5},

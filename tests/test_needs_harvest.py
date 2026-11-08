@@ -207,7 +207,7 @@ def test_plain_text_body_is_unchanged_by_rendering(tmp_path):
 
 
 def test_missing_body_is_skipped_without_raising(tmp_path):
-    db, store, account, meta = _harness(tmp_path)
+    db, _store, account, meta = _harness(tmp_path)
     ghost = Document(
         doc_id="a" * 64,
         source="company_feed",

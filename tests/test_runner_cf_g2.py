@@ -41,7 +41,7 @@ def test_cf_bypass_routes_marketplace_g2(tmp_path):
     task = FetchTask(source="marketplace_g2", url="https://www.g2.com/products/slack/reviews",
                      domain="g2.com", meta={"kind": "reviews"})
 
-    result = runner._fetch_one(task, None, None)
+    runner._fetch_one(task, None, None)
 
     # The bypass should have been called for marketplace_g2
     assert bypass.attempt.called, "cloudflare_bypass.attempt() should be called for marketplace_g2"

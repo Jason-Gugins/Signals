@@ -33,7 +33,7 @@ def test_inject_turnstile_token_signature():
 def test_inject_sets_cf_clearance_cookie_with_domain_and_path():
     from src.core.browser import inject_turnstile_token
 
-    browser, page, context = _make_browser()
+    browser, _page, context = _make_browser()
     ok = inject_turnstile_token(browser, "https://example.com/challenge", "tok123")
     assert ok is True
     cookies = context.add_cookies.call_args[0][0]
@@ -48,7 +48,7 @@ def test_inject_sets_cf_clearance_cookie_with_domain_and_path():
 def test_inject_navigates_and_reloads():
     from src.core.browser import inject_turnstile_token
 
-    browser, page, context = _make_browser()
+    browser, page, _context = _make_browser()
     ok = inject_turnstile_token(browser, "https://example.com/challenge", "tok123")
     assert ok is True
     assert page.goto.call_count == 1
@@ -59,7 +59,7 @@ def test_inject_navigates_and_reloads():
 def test_inject_returns_false_on_timeout_without_clearing():
     from src.core.browser import inject_turnstile_token
 
-    browser, page, context = _make_browser(title="Just a moment...")
+    browser, _page, _context = _make_browser(title="Just a moment...")
     ok = inject_turnstile_token(browser, "https://example.com/challenge", "tok123",
                                 timeout_ms=1, poll_ms=1)
     assert ok is False
@@ -68,7 +68,7 @@ def test_inject_returns_false_on_timeout_without_clearing():
 def test_inject_never_raises_on_navigation_error():
     from src.core.browser import inject_turnstile_token
 
-    browser, page, context = _make_browser()
+    browser, page, _context = _make_browser()
     page.goto.side_effect = RuntimeError("net::ERR_CONNECTION_REFUSED")
     ok = inject_turnstile_token(browser, "https://example.com/challenge", "tok123")
     assert ok is False
@@ -124,7 +124,7 @@ def test_tier3_inject_failure_falls_through_to_tier4_headed():
     from src.core.http import FetchResult
     from src.core.models import Document
 
-    browser, page, context = _make_browser()
+    browser, _page, _context = _make_browser()
     doc = Document(doc_id="b", source="techstack", url="https://example.com", body=b"<html>ok</html>")
     headed = FetchResult(True, 200, doc, False, None, 1,
                          [{"name": "cf_clearance", "value": "manual", "domain": ".example.com", "path": "/"}])
@@ -144,7 +144,7 @@ def test_tier3_inject_false_no_headed_fallback_yields_failure():
 
     from src.core.http import FetchResult
 
-    browser, page, context = _make_browser()
+    browser, _page, _context = _make_browser()
     browser.fetch = MagicMock(
         return_value=FetchResult(False, 403, None, False, "challenge", 1, []))
     bypass = _make_bypass(browser, headed_fallback=False)

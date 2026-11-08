@@ -195,7 +195,7 @@ def test_cursor_advances_only_on_success_and_304_skips_parse(tmp_path):
             return super().parse(doc, account, task_meta)
 
     by_url = {"https://ok.test/acme.com": b"ok"}
-    runner, stats, db = _harness(tmp_path, [acct], [CountParse()], by_url)
+    runner, _stats, db = _harness(tmp_path, [acct], [CountParse()], by_url)
     row = db.one("SELECT cursor, fail_count FROM source_cursors WHERE source='ok' AND key='acme.com'")
     assert row["fail_count"] == 0
     assert row["cursor"]
@@ -209,7 +209,7 @@ def test_cursor_advances_only_on_success_and_304_skips_parse(tmp_path):
 def test_two_pass_and_fanout_and_dry_run(tmp_path):
     accts = [Account(domain="acme.com"), Account(domain="beta.com")]
     by_url = {"https://two.test/index": b"i", "https://two.test/doc": b"d", "https://fan.test/all": b"f"}
-    _, stats, db = _harness(tmp_path, accts, [TwoPass(), FanoutAdapter()], by_url, max_passes=2)
+    _, _stats, db = _harness(tmp_path, accts, [TwoPass(), FanoutAdapter()], by_url, max_passes=2)
     assert db.one("SELECT COUNT(*) AS n FROM signals")["n"] >= 3  # two fan + one two-pass
     runner, stats2, _ = _harness(tmp_path / "d", accts, [OkAdapter()], {"https://ok.test/acme.com": b"x", "https://ok.test/beta.com": b"x"}, dry_run=True)
     assert stats2.fetched == 0
@@ -359,7 +359,7 @@ class HarvestAdapter(OkAdapter):
 def test_hooks_jobs_follow_and_today(tmp_path):
     acct = Account(domain="acme.com")
     by_url = {"https://ok.test/acme.com": b"idx", "https://ok.test/follow": b"f"}
-    _, stats, db = _harness(tmp_path, [acct], [HarvestAdapter()], by_url, max_passes=2)
+    _, _stats, db = _harness(tmp_path, [acct], [HarvestAdapter()], by_url, max_passes=2)
     assert db.one("SELECT COUNT(*) AS n FROM jobs")["n"] == 1
     types = {r["title"] for r in db.query("SELECT title FROM signals")}
     assert "F" in types and "I" in types

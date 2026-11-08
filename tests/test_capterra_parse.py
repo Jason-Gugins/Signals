@@ -78,6 +78,6 @@ def test_month_name_dates_normalized_to_iso():
     reviews = extract_capterra_reviews(FIXTURE.read_text(encoding="utf-8"), "jira")
     for r in reviews:
         if r.posted_at:
-            year, month, day = r.posted_at.split("-")
+            year, month, _day = r.posted_at.split("-")
             assert 1 <= int(month) <= 12
             assert len(year) == 4

@@ -88,7 +88,7 @@ def test_missing_next_due_at_means_due():
 
 def test_catchup_after_downtime():
     """Cadence elapsed while the process was down → immediately due."""
-    db, s = make_sched(rng=SeqRng(0.5))
+    _db, s = make_sched(rng=SeqRng(0.5))
     s.record_success("ok", now=NOW)
     assert [a.key for a in s.decide_due([A()], now=NOW + timedelta(days=30))] == ["ok"]
 

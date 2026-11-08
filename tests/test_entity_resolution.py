@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -102,7 +103,7 @@ def test_migration_v4_creates_entity_aliases_and_bumps_version(tmp_path: Path) -
         db.execute(
             "INSERT INTO entity_aliases (alias, domain) VALUES ('acme', 'acme.com')"
         )
-        with pytest.raises(Exception):
+        with pytest.raises(sqlite3.IntegrityError):
             db.execute(
                 "INSERT INTO entity_aliases (alias, domain) VALUES ('acme', 'other.com')"
             )
@@ -425,10 +426,10 @@ def _resolve_orch(tmp_path: Path, *, with_alias_file: bool) -> Orchestrator:
 
 
 def _ats_only_kwargs() -> dict:
-    return dict(
-        ats=True, cik=False, feeds=False, icp=False, g2=False,
-        appstore=False, bbb=False, linkedin=False,
-    )
+    return {
+        "ats": True, "cik": False, "feeds": False, "icp": False, "g2": False,
+        "appstore": False, "bbb": False, "linkedin": False,
+    }
 
 
 def test_resolve_loads_entity_aliases_from_config(tmp_path: Path) -> None:

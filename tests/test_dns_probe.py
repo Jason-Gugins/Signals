@@ -32,13 +32,16 @@ def test_dns_matches():
 
 
 def test_probe_dns_fake_resolver():
+    class _NxDomain(Exception):
+        pass
+
     class R:
         def resolve(self, name, rtype):
             if rtype == "MX":
                 class A:
                     exchange = "aspmx.l.google.com."
                 return [A()]
-            raise Exception("NXDOMAIN")
+            raise _NxDomain("NXDOMAIN")
     ev = probe_dns("acme.com", resolver=R())
     assert ev.mx == ["aspmx.l.google.com"]
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -100,7 +101,7 @@ class TestMergeOrder:
         class FakeResp:
             status_code = 200
             content = b"<html>ok</html>"
-            headers = {"content-type": "text/html", "etag": None, "last-modified": None}
+            headers: ClassVar[dict] = {"content-type": "text/html", "etag": None, "last-modified": None}
 
         class FakeClient:
             def get(self, url):
@@ -153,7 +154,7 @@ class TestMergeOrder:
         class FakeResp:
             status_code = 200
             content = b"<html>ok</html>"
-            headers = {"content-type": "text/html"}
+            headers: ClassVar[dict] = {"content-type": "text/html"}
 
         class FakeClient:
             def get(self, url):
@@ -199,7 +200,7 @@ class TestMergeOrder:
         class FakeResp:
             status_code = 200
             content = b"<html>ok</html>"
-            headers = {"content-type": "text/html", "set-cookie": "fresh=respval; Domain=example.com; Path=/"}
+            headers: ClassVar[dict] = {"content-type": "text/html", "set-cookie": "fresh=respval; Domain=example.com; Path=/"}
 
         class FakeClient:
             def get(self, url):
@@ -247,7 +248,7 @@ class TestDisabledByDefault:
         class FakeResp:
             status_code = 200
             content = b"<html>ok</html>"
-            headers = {"content-type": "text/html"}
+            headers: ClassVar[dict] = {"content-type": "text/html"}
 
         class FakeClient:
             def get(self, url):
@@ -438,7 +439,7 @@ class TestBrowserJarHook:
         class FakeCfg:
             class browser:
                 enabled = True
-                viewport = {"width": 1280, "height": 720}
+                viewport: ClassVar[dict] = {"width": 1280, "height": 720}
                 locale = "en-US"
                 timezone = "UTC"
                 user_agent = "UA"
@@ -515,7 +516,7 @@ class TestBrowserJarHook:
         class FakeCfg:
             class browser:
                 enabled = True
-                viewport = {"width": 1280, "height": 720}
+                viewport: ClassVar[dict] = {"width": 1280, "height": 720}
                 locale = "en-US"
                 timezone = "UTC"
                 user_agent = "UA"
@@ -587,7 +588,7 @@ class TestBrowserJarHook:
         class FakeCfg:
             class browser:
                 enabled = True
-                viewport = {"width": 1280, "height": 720}
+                viewport: ClassVar[dict] = {"width": 1280, "height": 720}
                 locale = "en-US"
                 timezone = "UTC"
                 user_agent = "UA"

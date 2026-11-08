@@ -96,7 +96,7 @@ def test_parse_awards_fixture_rows():
     assert first["end_date"] == "2025-02-15"
     # spike capture requested no Description field — must tolerate absence
     assert first["description"] is None
-    described = [r for r in rows if r["award_id"] == "47QFCA25F0123"][0]
+    described = next(r for r in rows if r["award_id"] == "47QFCA25F0123")
     assert described["description"].startswith("AGILE SOFTWARE DELIVERY")
     # extra keys (internal_id, generated_internal_id, ...) are ignored
     assert set(rows[0]) == {

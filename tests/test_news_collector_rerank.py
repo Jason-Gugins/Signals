@@ -176,7 +176,6 @@ def test_domain_proof_query_boost(monkeypatch):
     reranker query becomes 'Name domain official' instead of 'Name keyword'."""
     fake = FakeScorer([0.9, 0.2, 0.8])
     monkeypatch.setattr(collector_mod, "get_scorer", lambda: fake)
-    src = GoogleNewsSource()
     meta = {"kind": "search", "query": "Acme Corp", "today": TODAY,
             "rerank": {"enabled": True}}
     # Feed items whose publisher_domain matches the account domain.

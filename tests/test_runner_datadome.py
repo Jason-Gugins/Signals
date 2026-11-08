@@ -50,6 +50,6 @@ def test_runner_routes_datadome_to_bypass(tmp_path):
     task = FetchTask(source="marketplace_g2", url="https://www.g2.com/products/slack/reviews",
                      domain="g2.com", meta={"kind": "reviews"})
 
-    result = runner._fetch_one(task, None, None)
+    runner._fetch_one(task, None, None)
 
     assert datadome_bypass.attempt.called, "datadome_bypass.attempt() should be called"

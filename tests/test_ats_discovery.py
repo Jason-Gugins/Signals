@@ -61,7 +61,7 @@ def test_no_match_empty():
 def test_iframe_beats_comment():
     html = (FIXTURES / "careers_mixed.html").read_text(encoding="utf-8")
     matches = detect_ats(html, "https://nvidia.com/careers")
-    assert [m.vendor for m in matches][0] == "workday"
+    assert next(m.vendor for m in matches) == "workday"
     assert matches[0].confidence > next(m.confidence for m in matches if m.vendor == "greenhouse")
 
 
@@ -176,7 +176,7 @@ def test_discover_persists_sitemap_careers_url_without_ats(tmp_path):
         "https://acme.com/company/careers": "<html><body>No openings</body></html>",
         "https://acme.com/": "<html><body>Home</body></html>",
     }
-    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    disc, reg, acct, _fake = _ats_discovery(tmp_path, pages)
     assert disc.discover(acct) is None
     stored = reg.get("acme.com")
     assert stored.careers_url == "https://acme.com/company/careers"
@@ -202,7 +202,7 @@ def test_discover_keeps_stored_careers_url_when_both_fetches_fail(tmp_path):
         "https://acme.com/sitemap.xml": SITEMAP_INDEX,
         "https://acme.com/sitemap-jobs.xml": SITEMAP_CAREERS,
     }
-    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    disc, reg, acct, _fake = _ats_discovery(tmp_path, pages)
     acct.careers_url = "https://acme.com/good-careers"
     reg.upsert(acct)
     assert disc.discover(reg.get("acme.com")) is None
@@ -216,7 +216,7 @@ def test_discover_keeps_careers_index_when_ats_link_is_on_homepage(tmp_path):
         "https://acme.com/company/careers": "<html><body>No openings</body></html>",
         "https://acme.com/": CAREERS_HTML_LEVER,
     }
-    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    disc, reg, acct, _fake = _ats_discovery(tmp_path, pages)
     match = disc.discover(acct)
     assert match is not None and match.vendor == "lever"
     stored = reg.get("acme.com")
@@ -252,7 +252,7 @@ def test_discover_stamps_real_workable_token_and_keeps_careers_host(tmp_path):
             '<html><a href="https://apply.workable.com/acme/">Open roles</a></html>'
         ),
     }
-    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    disc, reg, acct, _fake = _ats_discovery(tmp_path, pages)
     disc.discover(acct)
     stored = reg.get("acme.com")
     assert stored.ats_vendor == "workable"
@@ -267,7 +267,7 @@ def test_discover_persists_homepage_hop_url_without_ats(tmp_path):
         "https://acme.com/": '<html><a href="/company/careers">Careers</a></html>',
         "https://acme.com/company/careers": "<html><body>No openings listed</body></html>",
     }
-    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    disc, reg, acct, _fake = _ats_discovery(tmp_path, pages)
     assert disc.discover(acct) is None
     stored = reg.get("acme.com")
     assert stored.careers_url == "https://acme.com/company/careers"
@@ -280,7 +280,7 @@ def test_discover_never_replaces_a_working_careers_url_without_ats(tmp_path):
         "https://acme.com/": '<html><a href="/careers">Careers</a></html>',
         "https://acme.com/careers": "<html><body>Another careers page</body></html>",
     }
-    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    disc, reg, acct, _fake = _ats_discovery(tmp_path, pages)
     acct.careers_url = "https://acme.com/good-careers"
     reg.upsert(acct)
     assert disc.discover(reg.get("acme.com")) is None
@@ -462,7 +462,7 @@ def test_discover_candidate_ladder_stamps_verified_alias_token(tmp_path):
         "https://acme.com/careers": "<p>we are hiring</p>",  # marker-free shell
         "https://boards-api.greenhouse.io/v1/boards/oldname/jobs?content=true": '{"jobs":[{"id":1}]}',
     }
-    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    disc, reg, acct, _fake = _ats_discovery(tmp_path, pages)
     acct.careers_url = "https://acme.com/careers"
     acct.name = "Acme Co"
     reg.upsert(acct)
@@ -483,7 +483,7 @@ def test_discover_ladder_hit_never_stamps_site_root(tmp_path):
         "https://acme.com/": "<html><body>we are hiring</body></html>",
         "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true": '{"jobs":[{"id":1}]}',
     }
-    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    disc, reg, acct, _fake = _ats_discovery(tmp_path, pages)
     match = disc.discover(acct, alias_names=[])
     assert match and match.vendor == "greenhouse" and match.token == "acme"
     stored = reg.get("acme.com")
@@ -501,7 +501,7 @@ def test_discover_ladder_miss_still_persists_careers_url(tmp_path):
         "https://acme.com/": '<html><a href="/company/careers">Careers</a></html>',
         "https://acme.com/company/careers": "<html><body>No openings listed</body></html>",
     }
-    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    disc, reg, acct, _fake = _ats_discovery(tmp_path, pages)
     assert disc.discover(acct, alias_names=[]) is None
     stored = reg.get("acme.com")
     assert stored.careers_url == "https://acme.com/company/careers"
@@ -514,7 +514,7 @@ def test_discover_candidate_ladder_skipped_after_marker_hit(tmp_path, monkeypatc
     import src.identity.ats_discovery as ats_discovery_module
 
     pages = {"https://acme.com/careers": CAREERS_HTML_LEVER}
-    disc, reg, acct, fake = _ats_discovery(tmp_path, pages)
+    disc, reg, acct, _fake = _ats_discovery(tmp_path, pages)
     acct.careers_url = "https://acme.com/careers"
     reg.upsert(acct)
 

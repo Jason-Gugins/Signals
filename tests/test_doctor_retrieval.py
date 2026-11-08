@@ -43,7 +43,7 @@ def _make_config(tmp_path, *, enabled: bool) -> Config:
 
 
 def _row(rows):
-    return [r for r in rows if r[0] == "retrieval_readiness"][0]
+    return next(r for r in rows if r[0] == "retrieval_readiness")
 
 
 def _seed_chunks(db, n: int = 1) -> None:

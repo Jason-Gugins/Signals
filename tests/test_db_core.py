@@ -109,7 +109,7 @@ def test_query_returns_dicts(tmp_path):
 def test_wal_enabled(tmp_path):
     db = Database(tmp_path / "signals.db")
     mode = db.one("PRAGMA journal_mode")
-    assert list(mode.values())[0].lower() == "wal"
+    assert next(iter(mode.values())).lower() == "wal"
     db.close()
 
 

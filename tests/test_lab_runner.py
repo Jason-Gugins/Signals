@@ -357,7 +357,7 @@ def test_report_variant_rows_carry_split_labels_and_registry_ids(tmp_path, offli
 def test_discovered_questions_become_replayed_variants(tmp_path, offline_seams):
     world = make_world(tmp_path)
     assert lab_main.main(run_args(world, "--rounds", "1", "--budget-calls", "200")) == 0
-    rounds = sorted(world["out_dir"].glob("rounds-*.jsonl"))[0]
+    rounds = min(world["out_dir"].glob("rounds-*.jsonl"))
     round_line = next(
         json.loads(l) for l in rounds.read_text(encoding="utf-8").splitlines()
         if json.loads(l).get("kind") == "round"
@@ -370,7 +370,7 @@ def test_discovered_questions_become_replayed_variants(tmp_path, offline_seams):
     assert round_dirs and any(round_dirs[0].glob("discovered_*.jsonl"))
     # and the survivor rides the proposal as a question addition
     proposal = yaml.safe_load(
-        sorted(world["out_dir"].glob("proposal-*.yaml"))[0].read_text(encoding="utf-8")
+        min(world["out_dir"].glob("proposal-*.yaml")).read_text(encoding="utf-8")
     )
     additions = proposal.get("question_additions") or []
     assert any(GOOD_QUESTION[:30] in str(a.get("instructions")) for a in additions)
@@ -491,7 +491,7 @@ def test_block_flag_restricts_the_round_to_one_axis(tmp_path, offline_seams):
             "status": "complete",
         }
 
-    offline_seams  # fixture wired
+    _ = offline_seams  # fixture wired
     import src.lab.replay as replay_mod
 
     original = replay_mod.replay_variant
@@ -552,7 +552,7 @@ def test_run_skips_network_steps_honestly_without_key_or_consent(
     assert "skipped" in text
     # incumbents are zero-call: they still score honestly
     assert "doc_incumbent" in text and "g4_incumbent" in text
-    rounds = sorted(world["out_dir"].glob("rounds-*.jsonl"))[0]
+    rounds = min(world["out_dir"].glob("rounds-*.jsonl"))
     round_line = next(
         json.loads(l) for l in rounds.read_text(encoding="utf-8").splitlines()
         if json.loads(l).get("kind") == "round"
@@ -581,7 +581,7 @@ def test_never_raises_past_a_round(tmp_path, offline_seams, monkeypatch):
 def test_report_subcommand_rerenders_from_rounds_jsonl(tmp_path, offline_seams):
     world = make_world(tmp_path)
     assert lab_main.main(run_args(world, "--rounds", "1", "--budget-calls", "200")) == 0
-    rounds = sorted(world["out_dir"].glob("rounds-*.jsonl"))[0]
+    rounds = min(world["out_dir"].glob("rounds-*.jsonl"))
     out = tmp_path / "re-rendered.md"
     rc = lab_main.main(["report", str(rounds), "--out", str(out)])
     assert rc == 0

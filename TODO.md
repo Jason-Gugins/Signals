@@ -1235,6 +1235,41 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   test = REGIME PIN). Post-land: shadow funnel check on the next intel
   run (review-band volume + promote rate); floor question reopens only
   with new ground truth. Watch item recorded in decide-lab addendum 11.
+- [ ] **FUTURE FEATURE: profile-aware promotion gating (fork (b) from the
+  2026-11-08 fork decision)** — feed the market profile into the G5
+  promotion question so nouls become "valuable to THIS seller" rather
+  than generic operational burden. **Deferred deliberately**: fork (a)
+  landed (profile-blind, A/B-validated p=0.005 on the operator's labels —
+  decide-lab addendum 11), and making the gate profile-aware would
+  invalidate that calibration and multiply the labeling burden per
+  profile. **Where (b) genuinely wins — revisit when ANY of these fire:**
+  (1) single-seller long-term commitment AND the review queue becomes the
+  bottleneck (profile-clean queue at the source); (2) the downstream
+  profile matcher can't be repaired (vocab features stay empty — see the
+  re-tagging box below); (3) post-V1 labels/dossier outcomes show
+  profile-fit needs consistently ranking below profile-irrelevant
+  burdens. **Implementation sketch if triggered:** thread the market
+  profile into `gate_need_promotion`'s state + question ("would this
+  matter to a company selling {profile.seller}?") — a state-shape change,
+  so regime marking applies; reuse the promo-A/B harness
+  (`src/lab/promo_ab.py`) per profile with fresh labels per profile
+  (the A/B methodology is the reusable asset, not the wording); the
+  taxonomy gate's type-then-gate route is the lighter alternative if the
+  labels show ranking is fine and only commerce/irrelevant-typed claims
+  leak. Also carries the landing guards: regime marking + shadow funnel
+  check per profile.
+- [ ] **Corpus profile re-tagging (the fork-(a) premise repair)** — the
+  dossier corpus rows carry the RETIRED `ab_ai_infra_gtm` profile id, so
+  every lab run logs `market profile unavailable -> empty vocabulary` and
+  the downstream profile matcher (TF-IDF vocab, profile features, combos)
+  runs degraded — this is the one gap that makes fork (a)'s "profile fit
+  is handled downstream" promise only half-true today. Decide the
+  policy (re-tag to the active profile vs dual-tag vs archive the
+  retired-tag rows), re-tag, and re-verify: the deterministic family's
+  `profile_tfidf_cosine`/`profile_vocab_hits` features (unstable/absent
+  in every stability table so far) should light up. Prerequisite for
+  ever evaluating fork (b) fairly, and for the "new scoring combos +
+  re-pricing" box above it.
 - [ ] **Automatic alias / name-variant discovery from EDGAR/news strings** —
   the highest wrong-company attribution risk; deliberately not attempted.
 - [ ] **New scoring combos + re-pricing `need_statement` /

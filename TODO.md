@@ -1223,34 +1223,19 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   The noul leg stays flat (max 0.66, p90 0.35 = baseline, 0
   floor-crossers) — the harvest moves the MATERIAL leg of the wall; the
   promotion question's intent bar is the remaining leg (box below).
-- [ ] **G5 wall, next lever: the promotion question's intent bar — now
-  LABEL-JUSTIFIED** (2026-11-07): the user adjudicated the 24-claim
-  calibration worksheet (`data/probe/PROMO_CALIBRATION_20261107.md`) and
-  the shipped question's ranking is INVERTED — P[human-NEED noul >
-  human-NOT noul] = 0.36 (worse than coin flip); NOT median 0.28 > NEED
-  median 0.24; all 18 human-NEED claims score below 0.60 while 2 of the 6
-  human-NOTs score above 0.70. Duty-bearing descriptions score highest
-  among NEEDs (0.46-0.59) — the gate sees duty content but not enough;
-  Operator revision (same day): the careers-role labels are
-  CONTEXT-DEPENDENT — hiring's value "is largely contextual on the
-  product/service being offered" (a CX Manager hire matters to a helpdesk
-  seller; a Photo Production Assistant does not). Clean referee set:
-  **4 duty-bearing NEEDs + 6 NOTs + 9 context-dependent announcements**
-  (clean-set AUC 0.67, dragged by the two commerce artifacts). Execute
-  the promo-A/B (plan `.zcode/plans/2026-11-07_013000-promotion-question
-  -redesign.md`, label-refereed: duty-NEED lift + artifact suppression +
-  requisitions NOT inflated — ~48 decider calls, pennies). Architecture
-  fork to pick before landing: G5 stays profile-blind (burden measured;
-  ICP fit downstream — recommended default) vs profile-aware promotion
-  question. THEN re-measure the careers corpus against the winner.
-- [x] **Robots override: APPLIED (operator-approved 2026-11-06 session
-  sign-off)** — `config/default.yaml` http.robots_allow gained 4
-  careers-family prefixes per host for the 7 blanket-disallow domains
-  (scoped: /careers, /pages/careers, /about/careers, /jobs only — never
-  product/store paths; guard test `tests/test_careers_robots_guard.py`
-  pins the scope; the harvest honors the same list the production fetch
-  layer reads). Coverage 10→12/23 domains; the other 5 render careers via
-  JS widgets the raw HTML cannot see.
+- [x] **G5 promotion question: A/B EXECUTED — V1 (perspective-anchored
+  operational-burden semantics) WINS all four legs** (2026-11-07/08,
+  `data/probe/promo-ab-*/summary.md`, decide-lab addendum 11, 216 calls
+  k=3): within-variant AUC 0.625 (V0 shipped, p=0.31 no separation) ->
+  **1.000 (V1, U=24/24, exact p=0.005)**; commerce artifacts 0.68/0.54 ->
+  0.08; duty mean lifted 0.353 -> 0.405; requisitions not inflated (guard
+  max 0.53). V2 (narrower duty clause) separates equally but
+  over-suppresses — PARTIAL. **Landing V1 in gates.py:1221 is the
+  operator's call** (fork (a) profile-blind recommended; the text is
+  committed verbatim in `src/lab/promo_ab.py` VARIANTS["V1"]); post-land:
+  regime marking + shadow funnel check, and the floor question reopens
+  with a correctly-ranking question (absolute nouls stay below 0.70 —
+  ranking fixed, floor unchanged).
 - [ ] **Automatic alias / name-variant discovery from EDGAR/news strings** —
   the highest wrong-company attribution risk; deliberately not attempted.
 - [ ] **New scoring combos + re-pricing `need_statement` /

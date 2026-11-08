@@ -86,10 +86,12 @@ disable_error_code = ["arg-type", "union-attr"]
 [[tool.mypy.overrides]]
 # Strict set: modules born (or already) fully annotated stay that way.
 # Convention: new src/ modules join this set by default; exemptions carry
-# a reason comment. src.core.* graduated 2026-11-07 — 42 annotation
-# completions on linux (+1 win32-only: filelock's no-any-return) triaged
-# at seed time (see docs/todo strict-set record).
-module = ["src.core.*"]
+# a reason comment. Graduations: src.core.* 2026-11-07 (42+1 completions);
+# src.decide.* + src.lab.* 2026-11-07 (76+10 completions, incl. promo_ab
+# precondition fixes — see docs/todo strict-set records). decide+lab were
+# pinned BEFORE the calibration layer completed, so its code lives under
+# the strict flags.
+module = ["src.core.*", "src.decide.*", "src.lab.*"]
 disallow_untyped_defs = true
 warn_return_any = true
 disallow_untyped_calls = true

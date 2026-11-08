@@ -140,11 +140,11 @@ class HttpFetcher:
         if client is not None:
             self.client = client
         else:
-            client_kwargs: dict[str, Any] = dict(
-                timeout=config.http.timeout_seconds,
-                verify=config.http.verify_tls,
-                follow_redirects=True,
-            )
+            client_kwargs: dict[str, Any] = {
+                "timeout": config.http.timeout_seconds,
+                "verify": config.http.verify_tls,
+                "follow_redirects": True,
+            }
             proxy_url = (
                 getattr(config.browser, "proxy_server", None)
                 if hasattr(config, "browser") and config.browser.proxy_server
@@ -243,7 +243,6 @@ class HttpFetcher:
             headers["If-Modified-Since"] = last_modified
 
         max_retries = self.config.http.max_retries
-        backoff_base = self.config.http.backoff_base
         last_error = None
         status = 0
         attempts = 0
@@ -276,7 +275,7 @@ class HttpFetcher:
                     if self.cookie_jar is not None:
                         try:
                             self.cookie_jar.set_from_response(url, dict(response.headers))
-                        except Exception:
+                        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: jar accumulation is a best-effort hook; a Set-Cookie parse failure must not abort the successful fetch already in hand
                             pass
                     doc: Document | None = self.store.put(
                         source=getattr(task, "source", "http"),
@@ -362,7 +361,7 @@ class HttpFetcher:
         if result.doc is not None and result.doc.body:
             try:
                 body_hint = result.doc.body.decode("utf-8", "replace")
-            except Exception:  # pragma: no cover - defensive
+            except Exception:  # pragma: no cover - defensive  # noqa: BLE001 -- fail-open tolerance: decode failure degrades the body hint to None; error classification still proceeds from status/error
                 body_hint = None
         error_class = classify_fetch_error(result.status, error, body_hint)
         self.ctx.log_fetch(

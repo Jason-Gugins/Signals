@@ -115,7 +115,7 @@ class PatchrightBrowserFetcher:
         if cookies:
             try:
                 context.add_cookies(cookies)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- fail-open tolerance: a rejected cookie must not abort the fetch; the navigation below proceeds unauthenticated (logged)
                 logger.warning("Failed to inject cookies: {}", e)
 
         # Behavioral warm-up: visit homepage, scroll, wait
@@ -128,13 +128,13 @@ class PatchrightBrowserFetcher:
                 time.sleep(0.5)
                 page.mouse.wheel(0, 300)
                 time.sleep(max(warmup_ms / 1000 - 2, 1))  # remaining dwell
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 -- fail-open tolerance: the warm-up is behavioral tuning; failure just skips it and the real navigation still runs (logged)
                 logger.warning("Warm-up navigation failed: {}", e)
 
         # Navigate to target
         try:
             page.goto(url, wait_until="domcontentloaded")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- fail-open tolerance: a failed navigation IS the FetchResult(ok=False) error contract; the caller records the fetch failure instead of crashing
             return FetchResult(ok=False, status=0, doc=None, cached=False,
                              error=f"Navigation failed: {e}", elapsed_ms=0)
 
@@ -157,9 +157,9 @@ class PatchrightBrowserFetcher:
                         try:
                             el.click(timeout=2000)
                             page.wait_for_timeout(300)
-                        except Exception:
+                        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: a dead/stale element must not abort the expansion sweep; the remaining elements are still clicked
                             pass
-                except Exception:
+                except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: a failing selector query must not abort the sweep; the capture below still proceeds
                     pass
 
         # Extract page content
@@ -191,17 +191,17 @@ class PatchrightBrowserFetcher:
         try:
             if self._context:
                 self._context.close()
-        except Exception:
+        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: teardown isolation — each close step runs even if an earlier one failed, so the process always releases
             pass
         try:
             if self._browser:
                 self._browser.close()
-        except Exception:
+        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: teardown isolation — each close step runs even if an earlier one failed, so the process always releases
             pass
         try:
             if self._playwright:
                 self._playwright.stop()
-        except Exception:
+        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: teardown isolation — a stop failure must not mask the shutdown sequence
             pass
         self._page = None
         self._context = None

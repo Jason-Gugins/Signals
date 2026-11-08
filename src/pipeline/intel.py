@@ -179,7 +179,7 @@ def _load_decide_cfg(cfg) -> dict:
         return cfg.load_yaml("decide") or {}
     except FileNotFoundError:
         return {}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: unreadable decide.yaml means the decide layer is off; the layer can never crash the run (logged)
         logger.warning("decide layer: config/decide.yaml unreadable ({}); treating as off", exc)
         return {}
 
@@ -449,7 +449,7 @@ def _implement_pass(
                     f"python -m src.cli index --domain {domain}; "
                     "staging fell back to recency"
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: retrieval failure falls back to the recency tail so staging never blocks the run (logged + gap recorded)
             logger.exception("retrieval staging failed for {}; recency fallback", domain)
             retrieval_info = {"staged_by": "error", "error": str(exc)}
             result["gaps"].append(f"retrieval staging failed ({exc}); staged by recency")
@@ -477,7 +477,7 @@ def _implement_pass(
         if doc_id:
             try:
                 full = raw_store.get(doc_id)
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: an unreadable blob just stages without a body (dropped as empty) instead of failing the implement pass
                 logger.debug("llm implementers: body unreadable for {}", doc_id)
                 full = None
         text = _decode_body(getattr(full, "body", None) if full is not None else None)
@@ -991,7 +991,7 @@ def _implement_pass(
         )
         for _cand, why in rejected:
             logger.debug("llm candidate rejected by normalize: {}", why)
-        new, _updated = signal_store.upsert_many(valid)
+        _new, _updated = signal_store.upsert_many(valid)
         result["promoted"] = len(valid)
     elif promotable:
         logger.debug("llm candidates gated for promotion but no taxonomy/signal store; dropped")
@@ -1202,7 +1202,7 @@ def _load_profile(profile_id, gaps):
     """
     try:
         profile = load_market_profile(profile_id, path=MARKETS_PATH)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: unknown/unreadable profile is NOT fatal — the run continues with needs emitting nothing and a gap explains why
         gaps.append(
             f"no relevance vocabulary configured: market profile {profile_id!r} "
             f"could not be loaded ({exc}); nothing can be promoted"
@@ -1276,7 +1276,7 @@ def _first_party_doc_count(db, domain: str) -> int | None:
         from src.sources.needs.collector import _first_party_doc_ids
 
         return len(_first_party_doc_ids(db, domain))
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: the gap refuses to claim a count rather than guessing one (logged)
         logger.exception("first-party document count failed for {}", domain)
         return None
 
@@ -1295,7 +1295,7 @@ def _jobs_summary(db, domain: str) -> dict | None:
             "SELECT department, country, closed_at FROM jobs WHERE domain = ?",
             (domain,),
         ) or []
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a database problem degrades to jobs: not supplied instead of failing the package stage (logged)
         logger.exception("jobs summary query failed for {}", domain)
         return None
 
@@ -1330,16 +1330,16 @@ def _account_count(orc) -> int | None:
         return None
     try:
         row = db.one("SELECT COUNT(*) AS n FROM accounts")
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: the fanout-honesty delta reports None rather than failing the dossier
         row = None
     if row is not None:
         try:
             return int(row["n"] if hasattr(row, "__getitem__") else row)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable count row degrades the report to None instead of failing the dossier
             return None
     try:
         return len(db.query("SELECT domain FROM accounts"))
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: the fanout-honesty delta reports None rather than failing the dossier
         return None
 
 
@@ -1474,7 +1474,7 @@ def run_intel(
             decider = decide_policy.attach_decider(
                 get_decider({**decide_cfg, "mode": decide_mode})
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: a dead decider must not kill the run; gates degrade to not-applicable via NullDecider (logged + gap)
             logger.exception("decide layer: decider attach failed for {}", domain)
             gaps.append(f"decide layer decider unavailable ({exc}); gates run not applicable")
             decider = NullDecider()
@@ -1501,7 +1501,7 @@ def run_intel(
             # ats_vendor, cik, icp_fit) are visible to later stages.
             account = registry.get(domain) or account
             record("identity", "ran", resolved=resolved if isinstance(resolved, dict) else {})
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one failed stage must not abort the dossier; recorded in errors and the run proceeds to the next stage (logged)
             logger.exception("intel identity stage failed for {}", domain)
             errors["identity"] = str(exc)
             record("identity", "failed", reason=str(exc))
@@ -1624,7 +1624,7 @@ def run_intel(
                 )
             else:
                 record("plan", "ran", steps=0, note="no qualified steps; deterministic scope")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one failed stage must not abort the dossier; recorded in errors and the run proceeds with the deterministic scope (logged)
             logger.exception("intel plan sub-stage failed for {}", domain)
             errors["plan"] = str(exc)
             record("plan", "failed", reason=str(exc))
@@ -1703,7 +1703,7 @@ def run_intel(
                     tasks=tasks_total,
                     signals_new=signals_total,
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one failed stage must not abort the dossier; recorded in errors and the run proceeds to the next stage (logged)
             logger.exception("intel collect stage failed for {}", domain)
             errors["collect"] = str(exc)
             record("collect", "failed", reason=str(exc))
@@ -1735,7 +1735,7 @@ def run_intel(
                 invocation_id,
                 decide_mode,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: the audit is informational and shadow-only; failure must not affect the collected run (logged + gap)
             logger.exception("decide layer: posture audit failed for {}", domain)
             gaps.append(f"posture audit failed: {exc}")
 
@@ -1788,7 +1788,7 @@ def run_intel(
                 sources=list(LOCAL_DERIVED_SOURCES),
                 signals_new=_stat(derived, "signals_new"),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one failed stage must not abort the dossier; recorded in errors and the run proceeds to the next stage (logged)
             logger.exception("intel derive stage failed for {}", domain)
             errors["derive"] = str(exc)
             record("derive", "failed", reason=str(exc))
@@ -1853,8 +1853,7 @@ def run_intel(
                     cfg=cfg,
                     market_profile=market_profile,
                 )
-                for gap_line in impl.get("gaps", ()):
-                    gaps.append(gap_line)
+                gaps.extend(impl.get("gaps", ()))
                 llm_fields = impl.get("llm_fields") or {}
                 if impl.get("degraded"):
                     # Whole-run token-budget degradation: from here on the
@@ -1911,7 +1910,7 @@ def run_intel(
                         else {}
                     ),
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one failed stage must not abort the dossier; recorded in errors and the run proceeds to the next stage (logged)
             logger.exception("intel implement sub-stage failed for {}", domain)
             errors["implement"] = str(exc)
             record("implement", "failed", reason=str(exc))
@@ -1940,7 +1939,7 @@ def run_intel(
                     "ran",
                     scored=(scored.get("scored") if isinstance(scored, dict) else None),
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one failed stage must not abort the dossier; recorded in errors and the run proceeds to the next stage (logged)
             logger.exception("intel score stage failed for {}", domain)
             errors["score"] = str(exc)
             record("score", "failed", reason=str(exc))
@@ -2049,7 +2048,7 @@ def run_intel(
                 written=bool(write),
                 coverage_rows=len(coverage_rows),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one failed stage must not abort the dossier; recorded in errors and the result dict still returns (logged)
             logger.exception("intel package stage failed for {}", domain)
             errors["package"] = str(exc)
             record("package", "failed", reason=str(exc))

@@ -220,17 +220,17 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
     try:
         import httpx
         add("deps", "OK", "httpx lxml yaml")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — a broken dependency IS the reported FAIL row; the report must always complete
         add("deps", "FAIL", str(exc))
     try:
         db.one("SELECT 1")
         add("db", "OK", "reachable")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — an unreachable DB IS the reported FAIL row; the report must always complete
         add("db", "FAIL", str(exc))
     try:
         config.load_yaml("signals")
         add("config", "OK", "signals.yaml")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — an unparseable config IS the reported FAIL row; the report must always complete
         add("config", "FAIL", str(exc))
     # sources.yaml config lint: one aggregated check for unconsumed keys.
     try:
@@ -245,7 +245,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
             add("config_lint", "OK", "sources.yaml")
     except FileNotFoundError:
         add("config_lint", "OK", "sources.yaml absent")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — a lint failure is a WARN row, never a crash of the report
         add("config_lint", "WARN", f"lint skipped: {exc}")
     # Optional native antibot engine: WARN (never FAIL) when absent —
     # curl_cffi covers the runtime need; consistent with the
@@ -254,7 +254,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
         import signals_antibot  # noqa: F401
 
         add("antibot_engine", "OK", "native engine available")
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — the absent engine IS the reported WARN row (curl_cffi covers the runtime need)
         add("antibot_engine", "WARN", "signals_antibot not built — curl_cffi fallback")
     # Playwright chromium install: WARN with remedy when the browser
     # binary is missing or playwright itself is not installed.
@@ -267,7 +267,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
                 add("browser", "OK", str(exe))
             else:
                 add("browser", "WARN", "chromium executable not found — run playwright install chromium")
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — the missing browser IS the reported WARN row with the install remedy
         add("browser", "WARN", "playwright unavailable — run playwright install chromium")
     if not getattr(config, "contact_email", None):
         add("contact_email", "FAIL", "SIGNALS_CONTACT_EMAIL unset — SEC will 403")
@@ -287,7 +287,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
         try:
             dir_path.mkdir(parents=True, exist_ok=True)
             add(f"write:{d}", "OK", "writable")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — an unwritable dir IS the reported FAIL row; the report must always complete
             add(f"write:{d}", "FAIL", str(exc))
     # Referenced list files (plan T8): parse icp.yaml and WARN for every
     # domain_in_file path that does not exist. Path resolution mirrors
@@ -300,7 +300,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
     lists_dir = Path(config.config_dir) / "lists"
     try:
         icp_doc = config.load_yaml("icp")
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — an unreadable icp.yaml skips the referenced-list check (the loader itself fails open)
         add("lists", "OK", "icp.yaml not readable — referenced-list check skipped")
     else:
         refs = sorted(_domain_in_file_refs(icp_doc))
@@ -329,7 +329,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
             )
         else:
             add("identity_candidates_pending", "OK", "no pending identity candidates")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — a failed probe is a WARN row, never a crash of the report
         add("identity_candidates_pending", "WARN", f"check skipped: {exc}")
     # GKG identity-discovery credentials (plan T13): the gkg_ids waterfall
     # stage is a credential-gated no-op — backend "ekg" (default) needs
@@ -343,7 +343,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
                 import google.auth  # noqa: F401
 
                 have_auth = True
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — a missing optional extra reads as unconfigured and is reported WARN
                 have_auth = False
             creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
             if have_auth and creds:
@@ -381,7 +381,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
                 f"unknown gkg_backend {backend!r} — expected 'ekg' or 'kgsearch'; "
                 "the GKG stage would be recorded as a stage error",
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — a failed probe is a WARN row, never a crash of the report
         add("gkg_credentials", "WARN", f"check skipped: {exc}")
     # Intel hybrid-retrieval readiness (retrieval wave, plan T10): WARN when
     # the retrieval block is ENABLED but a prerequisite is missing — the
@@ -408,7 +408,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
                 probe.execute("CREATE VIRTUAL TABLE fts5_probe USING fts5(a)")
             finally:
                 probe.close()
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: the FTS5 probe failure IS the finding being reported (readiness problem), not a crash
             readiness_problems.append("SQLite build lacks FTS5; BM25 leg unavailable")
         chunks = 0
         if enabled:
@@ -416,7 +416,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
                 import onnxruntime  # noqa: F401
 
                 have_ort = True
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — the missing [rerank] extra IS the reported readiness WARN
                 have_ort = False
             if not have_ort:
                 readiness_problems.append(
@@ -440,7 +440,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
                 if enabled
                 else "retrieval disabled — intel stages the recency tail",
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — a failed probe is a WARN row, never a crash of the report
         add("retrieval_readiness", "WARN", f"check skipped: {exc}")
     if check_network:
         try:
@@ -448,7 +448,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
 
             httpx.Client(timeout=5).head("https://www.sec.gov/", follow_redirects=True)
             add("network", "OK", "sec.gov")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — an unreachable network IS the reported WARN row; the report must always complete
             add("network", "WARN", str(exc))
     add("disk", "OK", "raw store")
     try:
@@ -460,7 +460,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
                 quota["status"],
                 f"raw {quota['used_mb']}MB / quota {quota['quota_mb']}MB",
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — a failed probe is a WARN row, never a crash of the report
         add("raw_quota", "WARN", f"quota check skipped: {exc}")
     try:
         stale = len(stale_running_runs(db))
@@ -471,7 +471,7 @@ def doctor(config, db, *, check_network: bool = True) -> list[tuple[str, str, st
                 f"{stale} run(s) still marked 'running' past the cutoff "
                 "(repair: python -m src.cli prune)",
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: doctor check isolation — a failed probe is a WARN row, never a crash of the report
         add("stale_runs", "WARN", f"check skipped: {exc}")
     for _, status, _ in out:
         assert status in {"OK", "WARN", "FAIL"}

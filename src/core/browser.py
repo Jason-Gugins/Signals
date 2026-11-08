@@ -6,7 +6,7 @@ import json
 import random
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 from urllib.parse import urlsplit, urlunsplit
 
 from loguru import logger
@@ -64,7 +64,7 @@ def _challenge_cleared(
             title = (page.title() or "").lower()
             if not any(t in title for t in _CHALLENGE_TITLES):
                 return True
-        except Exception:
+        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: a transient Playwright error on one poll must not abort the challenge wait; the next poll retries
             pass
         # Secondary: cf_clearance cookie present (but page may not have reloaded yet)
         # — used only to confirm progress, not to declare success.
@@ -84,7 +84,7 @@ def _wait_for_real_content(page: Page, *, timeout_ms: int = 10000, poll_ms: int 
                 # Title cleared — give the body a moment to render, then done.
                 page.wait_for_timeout(500)
                 return
-        except Exception:
+        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: a transient Playwright error on one poll must not abort the content wait; the next poll retries
             pass
         page.wait_for_timeout(poll_ms)
 
@@ -121,10 +121,10 @@ def inject_turnstile_token(
             return False
         try:
             _wait_for_real_content(page, timeout_ms=5000, poll_ms=poll_ms)
-        except Exception:
+        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: the post-clear content wait is cosmetic; the token is set and the challenge cleared, so the caller must still get True
             pass
         return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- fail-open tolerance: never raises by contract — any failure yields False so the caller falls through to the next bypass tier (logged)
         logger.warning("inject_turnstile_token failed for {}: {}", url, e)
         return False
 
@@ -162,7 +162,7 @@ class BrowserFetcher:
                 args["storage_state"] = str(session_path)
         return args
 
-    def start(self) -> BrowserFetcher:
+    def start(self) -> Self:
         if not self.config.browser.enabled:
             raise BrowserDisabled("browser tier is disabled (config.browser.enabled=false)")
         from playwright.sync_api import sync_playwright
@@ -210,7 +210,7 @@ class BrowserFetcher:
                             for c in seed
                         ]
                     )
-            except Exception:
+            except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: jar seeding is a best-effort head start; failure just starts the solve without pre-seeded cookies
                 pass
         ctx.add_init_script(STEALTH_INIT_SCRIPT)
         page = ctx.new_page()
@@ -283,11 +283,11 @@ class BrowserFetcher:
                                 try:
                                     el.click(timeout=2000)
                                     page.wait_for_timeout(300)
-                                except Exception:
+                                except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: a dead/stale element must not abort the expansion sweep; the remaining elements are still clicked
                                     pass
-                        except Exception:
+                        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: a failing selector query must not abort the sweep; the remaining selectors are still tried
                             pass
-                except Exception:
+                except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: Show More expansion is optional; failure leaves the page un-expanded and the capture still proceeds
                     pass
             if inject_turnstile_token:
                 try:
@@ -302,7 +302,7 @@ class BrowserFetcher:
                         }}
                     """)
                     page.wait_for_timeout(3000)
-                except Exception:
+                except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: token injection is best-effort; failure leaves the page as-is and the fetch still proceeds
                     pass
             if capture_html:
                 # Use a fresh context (no stale storage_state) when a real
@@ -333,7 +333,7 @@ class BrowserFetcher:
                             if any(t in title for t in _CHALLENGE_TITLES):
                                 solve_page.goto(url, wait_until="domcontentloaded")
                                 _wait_for_real_content(solve_page, timeout_ms=10000, poll_ms=500)
-                        except Exception:
+                        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: the title re-check is belt-and-braces; the captured body below is the real evidence
                             pass
                     body = solve_page.content().encode("utf-8")
                     ctype = "text/html"
@@ -354,19 +354,19 @@ class BrowserFetcher:
                                             c.get("domain", "") or (domain or ""),
                                             expires=c.get("expires"),
                                         )
-                                    except Exception:
+                                    except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: one bad cookie must not abort extraction of the rest of the jar
                                         pass
-                    except Exception:
+                    except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: cookie extraction is supplementary evidence; the capture proceeds without extracted cookies
                         pass
                 finally:
                     if solve_ctx is not None:
                         try:
                             solve_page.close()
-                        except Exception:
+                        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: finally-block cleanup; a close failure must not mask the captured result
                             pass
                         try:
                             solve_ctx.close()
-                        except Exception:
+                        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: finally-block cleanup; a close failure must not mask the captured result
                             pass
             elif capture_network:
                 payload = {"page_url": url, "requests": _select_har_requests(reqs[:200], domain=domain, limit=80)}
@@ -421,7 +421,7 @@ class BrowserFetcher:
     def close(self) -> None:
         try:
             self.save_state()
-        except Exception:
+        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: session persistence is best-effort; teardown must proceed to release the browser process
             pass
         if self._page:
             self._page.close()
@@ -436,7 +436,7 @@ class BrowserFetcher:
             self._playwright.stop()
             self._playwright = None
 
-    def __enter__(self) -> BrowserFetcher:
+    def __enter__(self) -> Self:
         return self.start()
 
     def __exit__(self, *exc: object) -> None:

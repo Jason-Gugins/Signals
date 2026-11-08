@@ -116,7 +116,7 @@ def resolve(ctx, cik, ats, feeds, icp, g2, capterra, appstore, bbb, linkedin, li
     try:
         out = orch.resolve(cohort=ctx.obj["cohort"], limit=limit, ats=ats, cik=cik, feeds=feeds, icp=icp, g2=g2, appstore=appstore, bbb=bbb, linkedin=linkedin)
         click.echo(f"resolved accounts={out.get('accounts', 0)}")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one resolver crash degrades to a "resolve degraded" echo instead of killing the interactive CLI session
         click.echo(f"resolve degraded: {exc}")
 
 
@@ -466,7 +466,7 @@ def _deliver_alert_destinations(ctx) -> list[str]:
                 except ValueError:
                     continue
         alerts = [a for a in alerts if _natural_key(a) not in seen]
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable alerts.jsonl dedupe history delivers all alerts rather than silently dropping the run
         logger.exception("alerts.jsonl dedupe read failed; delivering all")
     if not alerts:
         return []
@@ -474,7 +474,7 @@ def _deliver_alert_destinations(ctx) -> list[str]:
     for dest in load_destinations(cfg):
         try:
             results.append(dest.deliver(alerts, cfg))
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: one dead delivery destination is logged while the remaining destinations still deliver
             logger.exception("destination {} failed", type(dest).__name__)
     return results
 
@@ -654,7 +654,7 @@ def index_cmd(ctx, domain, limit, stats, rebuild_fts):
                 overlap_tokens=overlap_tokens,
                 limit=limit,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: per-domain indexing failure is logged and the multi-domain loop continues; the exit code stays honest
             # Per-domain failures are logged and never crash the multi-domain
             # run; the exit code stays honest instead.
             logger.exception("index: domain {} failed", dom)
@@ -955,7 +955,7 @@ def _run_discover(ctx, names: list[str], *, ddg: bool = False) -> None:
     for name in names:
         try:
             result = orch.discover(name, ddg=ddg)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one name's discovery failure is echoed per-name and the loop moves on to the remaining names
             click.echo(f"{name}: discovery failed: {exc}", err=True)
             continue
         status = result.get("status")
@@ -1000,7 +1000,7 @@ def _run_competitors(ctx, names: list[str]) -> None:
     for name in names:
         try:
             result = orch.discover_competitors(name)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one name's competitor-mining failure is echoed per-name and the loop moves on to the remaining names
             click.echo(f"{name}: competitor mining failed: {exc}", err=True)
             continue
         competitors = result.get("competitors") or []
@@ -1536,7 +1536,7 @@ def _decide_doctor_lines(cfg) -> list[str]:
         decide_cfg = cfg.load_yaml("decide") or {}
     except FileNotFoundError:
         return []
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: an unreadable decide.yaml leaves the decide layer off — its status banner has nothing honest to report
         return []
     from src.decide.jev import DATA_EXIT_CONSENT
     from src.decide.policy import resolve_mode

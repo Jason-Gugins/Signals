@@ -103,7 +103,7 @@ def _decide_cfg_of(config: Config) -> dict:
         return config.load_yaml("decide") or {}
     except FileNotFoundError:
         return {}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: unreadable decide.yaml means the decide layer is off; a config error must never crash the run (logged)
         logger.warning("decide layer: config/decide.yaml unreadable ({}); treating as off", exc)
         return {}
 
@@ -145,7 +145,7 @@ class Orchestrator:
             # 1.0 default when config/icp.yaml is missing/empty.
             try:
                 icp_rules = self.config.load_yaml("icp") or {}
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable icp.yaml seeds with the 1.0 default instead of failing the stage
                 icp_rules = {}
             if csv:
                 part = seed_from_csv(self.registry, csv, cohort=cohort, icp_rules=icp_rules)
@@ -201,7 +201,7 @@ class Orchestrator:
                         entries[k] = v
                     if entries:
                         self.registry.load_entity_aliases_from_config(entries)
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: alias seeding is fail-open by contract; a broken file must never block resolve (logged)
                 logger.warning("entity_aliases.yaml load failed; continuing")
             if ats:
                 from src.identity.ats_discovery import AtsDiscovery
@@ -214,7 +214,7 @@ class Orchestrator:
                         aliases = self.registry.entity_aliases_for(acct.domain)
                         if disc.discover(acct, alias_names=aliases):
                             out["ats"] += 1
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one domain's discovery failure must not abort the resolve sweep (logged)
                         logger.warning("ats discover failed for {}: {}", acct.domain, exc)
             if cik:
                 from src.identity.edgar_ids import EdgarIdentityResolver
@@ -225,7 +225,7 @@ class Orchestrator:
                         resolver = EdgarIdentityResolver(self.fetcher or self._http_fetcher(ctx), self.registry)
                         found = resolver.resolve_all(need)
                         out["cik"] = sum(1 for v in found.values() if v)
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: CIK resolution is enrichment; failure leaves accounts un-resolved without failing resolve (logged)
                         logger.warning("cik resolve failed: {}", exc)
             if appstore:
                 from src.identity.appstore_ids import AppStoreIdResolver
@@ -236,7 +236,7 @@ class Orchestrator:
                         appstore_resolver = AppStoreIdResolver(self.fetcher or self._http_fetcher(ctx), self.registry)
                         found = appstore_resolver.resolve_all(need)
                         out["appstore"] = sum(1 for v in found.values() if v)
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: App Store id resolution is enrichment; failure leaves ids unset without failing resolve (logged)
                         logger.warning("appstore resolve failed: {}", exc)
             if bbb:
                 from src.identity.bbb_ids import BbbProfileResolver
@@ -247,7 +247,7 @@ class Orchestrator:
                         bbb_resolver = BbbProfileResolver(self.fetcher or self._http_fetcher(ctx), self.registry)
                         found = bbb_resolver.resolve_all(need)
                         out["bbb"] = sum(1 for v in found.values() if v)
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: BBB profile resolution is enrichment; failure leaves ids unset without failing resolve (logged)
                         logger.warning("bbb resolve failed: {}", exc)
             if linkedin:
                 from src.identity.linkedin_ids import LinkedinSlugResolver
@@ -258,7 +258,7 @@ class Orchestrator:
                         linkedin_resolver = LinkedinSlugResolver(self.config, self.registry)
                         found = linkedin_resolver.resolve_all(need)
                         out["linkedin"] = sum(1 for v in found.values() if v)
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: LinkedIn slug resolution is enrichment; failure leaves slugs unset without failing resolve (logged)
                         logger.warning("linkedin resolve failed: {}", exc)
             if feeds:
                 from src.identity.feed_discovery import FeedDiscovery
@@ -268,12 +268,12 @@ class Orchestrator:
                     try:
                         if fdisc.discover(acct):
                             out["feeds"] += 1
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one domain's feed discovery failure must not abort the resolve sweep (logged)
                         logger.warning("feed discover failed for {}: {}", acct.domain, exc)
             if icp:
                 try:
                     rules = self.config.load_yaml("icp")
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable icp.yaml evaluates with empty rules instead of failing the stage
                     rules = {}
                 for acct in accounts:
                     try:
@@ -284,7 +284,7 @@ class Orchestrator:
                         acct.disqualify_reason = result.disqualify_reason
                         self.registry.upsert(acct)
                         out["icp"] += 1
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one account's ICP evaluation failure must not abort the resolve sweep (logged)
                         logger.warning("icp failed for {}: {}", acct.domain, exc)
             if g2:
                 from src.identity.g2_resolve import (
@@ -320,7 +320,7 @@ class Orchestrator:
                                 acct.name,
                                 [c.get("slug") for c in resolved.candidates],
                             )
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one domain's G2 resolution failure must not abort the resolve sweep (logged)
                         logger.warning("g2 resolve failed for {}: {}", acct.domain, exc)
             return out
 
@@ -375,7 +375,7 @@ class Orchestrator:
                 name,
                 run_id,
             )
-        except Exception:  # never fail the sweep for the decide layer
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: the sweep never fails for the decide layer; annotation is optional and candidates pass through unannotated (traceback rides the log)
             # logger.exception keeps the sweep-never-fails posture but makes
             # a systematic bug diagnosable (the traceback rides the log).
             logger.exception("entity alignment skipped for {!r}", name)
@@ -485,7 +485,7 @@ class Orchestrator:
             if cookie_jar is not None and getattr(fetcher, "cookie_jar", "missing") == "missing":
                 try:
                     fetcher.cookie_jar = cookie_jar
-                except Exception:
+                except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: jar attach is optional cross-run persistence; fetchers without the attribute or failing attach just proceed without it
                     pass
             jars = [cookie_jar]
             stats = RunnerStats()
@@ -582,7 +582,7 @@ class Orchestrator:
                     from src.core.patchright_browser import PatchrightBrowserFetcher
 
                     stealth_browser = PatchrightBrowserFetcher(self.config, self.raw)
-                except Exception:
+                except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: patchright is an optional dependency; import/launch failure degrades to the tier-less bypass instead of failing collect
                     pass  # patchright not installed — stealth tier disabled
                 dd_bypass = DataDomeBypass(
                     self.config, dd_store, curl_fetcher,
@@ -600,7 +600,7 @@ class Orchestrator:
                     shadow = SignalsTransport(
                         user_agent=self.config.browser.user_agent, proxy=proxy,
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: antibot engine is optional; import failure leaves shadow unset and the waterfall tiers unchanged
                     shadow = None  # engine not built / import failed — tiers unchanged
                 if shadow is not None:
                     if dd_bypass is not None:
@@ -613,7 +613,7 @@ class Orchestrator:
                     from src.antibot.python.routing import RouteState
 
                     routing = RouteState()  # data/antibot/routing.json
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: cookie-lifetime learning is optional; failure runs with no routing state and unchanged behavior
                     routing = None
             try:
                 runner = CollectorRunner(
@@ -669,7 +669,7 @@ class Orchestrator:
                         url = (doc.url or "").lower()
                         if "primary_doc.xml" in url or url.endswith(".xml"):
                             meta["kind"] = "form_d"
-                        elif "8-k" in url or url.endswith(".htm") or url.endswith(".html"):
+                        elif "8-k" in url or url.endswith((".htm", ".html")):
                             meta["kind"] = "8k"
                         else:
                             meta["kind"] = "submissions"
@@ -684,12 +684,12 @@ class Orchestrator:
                     if adapter.key == "federal_register":
                         try:
                             meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
-                        except Exception:
+                        except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable regulations.yaml leaves watches empty; the reparse itself still proceeds
                             meta["watches"] = []
                     if adapter.key == "company_feed":
                         meta.setdefault("kind", _company_feed_kind(doc, account))
                     cands = adapter.parse(doc, account, meta)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: one corrupt doc must not abort reparse of the rest; counted in stats.failed (logged)
                     logger.warning("reparse {} {}: {}", row["source"], row["doc_id"], exc)
                     stats.failed += 1
                     continue
@@ -711,7 +711,7 @@ class Orchestrator:
             calibration_stats = load_stats(self.db)
             try:
                 icp_rules = self.config.load_yaml("icp") or {}
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable icp.yaml scores with empty rules instead of failing the stage
                 icp_rules = {}
             today = _today()
             n = 0
@@ -929,7 +929,7 @@ class Orchestrator:
         """
         try:
             table = self.config.load_yaml("sources") or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable sources.yaml means no per-source rate overrides (global default applies)
             return {}
         entries = table.get("sources", table)
         out: dict[str, float] = {}
@@ -989,7 +989,7 @@ class Orchestrator:
             jar = PersistentCookieJar(scope=scope)
             jar.load()
             return jar
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: the jar is an opt-in feature; load failure means no cookie persistence, collect unchanged
             return None
 
     def _save_cookie_jars(self, jars) -> None:
@@ -999,5 +999,5 @@ class Orchestrator:
                 continue
             try:
                 jar.save()
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: best-effort persistence in the finally path; a save failure must not fail the completed collect (logged)
                 logger.exception("cookie jar save failed for scope={}", getattr(jar, "scope", "?"))

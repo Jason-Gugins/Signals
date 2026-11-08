@@ -8,13 +8,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field, fields
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
-
-_T = TypeVar("_T", bound="DataclassInstance")
-
 
 def _json_dump(value: Any) -> str | None:
     if value is None:
@@ -40,7 +37,7 @@ def _json_load(value: Any, default: Any) -> Any:
         return default
 
 
-def _row_to_dataclass(cls: type[_T], row: dict) -> _T:
+def _row_to_dataclass[T: DataclassInstance](cls: type[T], row: dict) -> T:
     data = dict(row)
     valid = {f.name for f in fields(cls)}
     data = {k: v for k, v in data.items() if k in valid}

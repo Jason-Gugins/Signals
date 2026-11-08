@@ -162,7 +162,7 @@ class CollectorRunner:
                         cookie_file = site_cfg.get("session_cookie_file")
                         if cookie_file and hasattr(adapter, "_session_cookie_file"):
                             adapter._session_cookie_file = cookie_file
-                    except Exception:
+                    except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: optional per-site session-cookie config; a malformed marketplace YAML entry must not abort the whole run
                         pass
             for adapter in adapters:
                 eligible = []
@@ -221,7 +221,7 @@ class CollectorRunner:
                 if getattr(adapter, "fanout", False) and eligible:
                     try:
                         self._run_fanout(adapter, eligible, stats, force=force, dry_run=dry_run, now=now)
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: isolation boundary; one fanout adapter's failure must not abort the run — already logged and stamped into backoff via _record_fail
                         logger.exception("fanout adapter {} failed", adapter.key)
                         self._record_fail(adapter.key, "global", exc, cadence_hours=getattr(adapter, "cadence_hours", 24))
                         stats.failed += 1
@@ -232,7 +232,7 @@ class CollectorRunner:
                 for account in eligible:
                     try:
                         self._run_pair(adapter, account, stats, force=force, dry_run=dry_run, max_passes=max_passes, limit_per_source=limit_per_source, now=now, local_context=local_context)
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: isolation boundary; one (adapter, account) failure must not abort the run — already logged and stamped via _record_fail
                         logger.exception("adapter {} failed for {}", adapter.key, account.domain)
                         self._record_fail(adapter.key, account.domain, exc, cadence_hours=getattr(adapter, "cadence_hours", 24))
                         stats.failed += 1
@@ -244,7 +244,7 @@ class CollectorRunner:
             if stealth is not None:
                 try:
                     stealth.close()
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: finally-block cleanup; a close failure must not mask the run's own result (logged)
                     logger.warning("stealth browser close() failed")
         return stats
 
@@ -303,7 +303,7 @@ class CollectorRunner:
             try:
                 site_cfg = self.config.load_yaml("marketplace").get("sites", {}).get(site, {})
                 max_passes = int(site_cfg.get("max_review_pages", pages_default)) + 1
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable sites.<site> YAML falls back to the built-in page budget
                 max_passes = pages_default + 1
         # Generic opt-in: an adapter whose follow tasks are emitted PER PAGE
         # (Workday) needs one more pass wave than the default 2-wave model
@@ -316,7 +316,7 @@ class CollectorRunner:
         if callable(_follow):
             try:
                 _follow = _follow()
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: duck-typed hook; failure degrades to the default pass count instead of failing the account (logged)
                 logger.exception("follow_passes hook failed for {}", adapter.key)
                 _follow = None
         if isinstance(_follow, int) and not isinstance(_follow, bool):
@@ -339,7 +339,7 @@ class CollectorRunner:
                 described_external_ids = {
                     str(r["external_id"]) for r in rows if r["external_id"]
                 }
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: DB lookup failure degrades detail rotation to positional instead of failing the account (logged)
                 logger.exception(
                     "described-jobs lookup failed for {} ({})",
                     adapter.key, account.domain,
@@ -356,7 +356,7 @@ class CollectorRunner:
                 _gn = ((self.config.load_yaml("sources") or {}).get("sources") or {}).get("google_news") or {}
                 _raw = _gn.get("max_link_decodes")
                 _max_decodes = 8 if _raw is None else int(_raw)
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable google_news config falls back to the default 8-decode budget
                 _max_decodes = 8
             from src.sources.news.resolve import DomainResolver
 
@@ -372,7 +372,7 @@ class CollectorRunner:
             _raw_budget = getattr(adapter, "detail_budget", None)
             if _raw_budget is not None:
                 detail_budget = int(_raw_budget)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: duck-typed hook; failure restores the legacy unbounded detail budget instead of failing the account (logged)
             logger.exception("detail_budget hook failed for {}", adapter.key)
             detail_budget = None
         detail_allowed = 0
@@ -511,7 +511,7 @@ class CollectorRunner:
                 if adapter.key == "federal_register" and "watches" not in meta:
                     try:
                         meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
-                    except Exception:
+                    except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable regulations.yaml leaves watches empty; the fetch itself still proceeds
                         meta["watches"] = []
                 if adapter.key == "wayback" and (task.meta or {}).get("kind") == "pricing":
                     # Pricing change detection needs the PREVIOUS pricing
@@ -525,7 +525,7 @@ class CollectorRunner:
                         meta["prev_pricing_html"] = self._prev_pricing_html(
                             (task.domain or ""), exclude_doc_id=result.doc.doc_id
                         )
-                    except Exception:
+                    except Exception:  # noqa: BLE001 -- fail-open tolerance: lookup failure skips the pricing diff rather than fabricating a comparison or failing the account (logged)
                         logger.exception("prev pricing lookup failed for {}", task.domain)
                 if adapter.key == "wayback" and (task.meta or {}).get("kind") == "snapshot":
                     # Homepage positioning diff: identical mechanism to the
@@ -538,7 +538,7 @@ class CollectorRunner:
                         meta["prev_homepage_html"] = self._prev_homepage_html(
                             (task.domain or ""), exclude_doc_id=result.doc.doc_id
                         )
-                    except Exception:
+                    except Exception:  # noqa: BLE001 -- fail-open tolerance: lookup failure skips the homepage diff rather than fabricating a comparison or failing the account (logged)
                         logger.exception("prev homepage lookup failed for {}", task.domain)
                 if adapter.key == "crtsh" and "prev_crtsh_names" not in meta:
                     # Subdomain delta: the PREVIOUS stored crt.sh doc for this
@@ -551,7 +551,7 @@ class CollectorRunner:
                         meta["prev_crtsh_names"] = self._prev_crtsh_names(
                             (task.domain or ""), exclude_doc_id=result.doc.doc_id
                         )
-                    except Exception:
+                    except Exception:  # noqa: BLE001 -- fail-open tolerance: lookup failure injects nothing so the adapter conservatively emits nothing instead of failing the account (logged)
                         logger.exception("prev crtsh lookup failed for {}", task.domain)
                 if domain_resolver is not None:
                     meta["domain_resolver"] = domain_resolver
@@ -574,7 +574,7 @@ class CollectorRunner:
                         # null config value is preserved (legacy bound-free).
                         if site_cfg.get("deep_reviews", False):
                             meta.setdefault("deep_reviews_bound", site_cfg.get("deep_reviews_bound", "extreme"))
-                    except Exception:
+                    except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable sites.<site> YAML falls back to the built-in lookback/page defaults
                         meta.setdefault("review_lookback_days", lookback_d)
                 cands = adapter.parse(result.doc, account, meta)
                 all_cands.extend(cands)
@@ -630,7 +630,7 @@ class CollectorRunner:
                                         self.empty_log.record_reviews(mslug, msource)
                                     else:
                                         self.empty_log.record_empty(mslug, msource)
-                            except Exception:
+                            except Exception:  # noqa: BLE001 -- fail-open tolerance: bookkeeping failure leaves backoff stale but must not abort the review harvest (logged, never silent)
                                 # Fail-open, but never silent: dropped empty/
                                 # review records leave backoff stale.
                                 logger.exception(
@@ -716,7 +716,7 @@ class CollectorRunner:
                                                 },
                                             )
                                         )
-                            except Exception:
+                            except Exception:  # noqa: BLE001 -- fail-open tolerance: ICP enrichment is optional; failure emits no icp candidates while the core review harvest survives (logged)
                                 logger.exception(
                                     "reviewer ICP match failed for {}", account.domain
                                 )
@@ -778,7 +778,7 @@ class CollectorRunner:
                     rt_cfg = (self.config.load_yaml("marketplace") or {}).get(
                         "review_trend", {}
                     )
-                except Exception:  # pragma: no cover - defensive
+                except Exception:  # pragma: no cover - defensive  # noqa: BLE001 -- fail-open tolerance: unreadable review_trend config falls back to the default trend thresholds
                     rt_cfg = {}
                 # appstore_reviews is NOT a marketplace site: keep the full
                 # adapter key as the stats source name (the marketplace_
@@ -835,7 +835,7 @@ class CollectorRunner:
                     ht_cfg = (self.config.load_yaml("jobsignals") or {}).get(
                         "hiring_trend", {}
                     )
-                except Exception:  # pragma: no cover - defensive
+                except Exception:  # pragma: no cover - defensive  # noqa: BLE001 -- fail-open tolerance: unreadable hiring_trend config falls back to the default surge thresholds
                     ht_cfg = {}
                 # Single-process assumption: the load→mutate→save cycle below
                 # touches a shared JSON file, so it is serialized against a
@@ -934,7 +934,7 @@ class CollectorRunner:
                                     "topics": sorted({t.casefold() for t in repo.get("topics") or []}),
                                 }
                         save_stats(stats_state)
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: diff failure emits no momentum signals this cycle while the harvest itself survives (logged)
                     logger.exception("github momentum diff failed for {}", account.domain)
             # npm momentum signals (community_npm): diff this cycle's
             # per-domain owned-package snapshot against the previous cycle's
@@ -1015,7 +1015,7 @@ class CollectorRunner:
                                     "seen_at": today_iso,
                                 }
                         save_stats(stats_state, NPM_STATS_PATH)
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: diff failure emits no momentum signals this cycle while the harvest itself survives (logged)
                     logger.exception("npm momentum diff failed for {}", account.domain)
             # Challenge-unsolved guard: when the primary HTML evidence channel
             # ended cloudflare_unsolved, harvest_tech collapses to a
@@ -1043,7 +1043,7 @@ class CollectorRunner:
                     prev_rows = self.db.query(
                         "SELECT vendor, first_seen_at FROM technologies WHERE domain=?", (account.domain,)
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: DB read failure yields an empty prior vendor set — a conservative no-churn cycle (logged)
                     logger.exception("technologies lookup failed for {}", account.domain)
                     prev_rows = []
                 # Diff against the previous cycle's vendor set for this domain
@@ -1074,7 +1074,7 @@ class CollectorRunner:
                         for t, cand in tech_changes
                         if t == "tech_churn"
                     }
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: diff failure makes this a no-evidence cycle (churned stays None) instead of crashing the harvest (logged)
                     logger.exception(
                         "techstack diff failed for {}", account.domain
                     )
@@ -1098,7 +1098,7 @@ class CollectorRunner:
                             extra["tech_flap"] = sorted(churned)
                             base.extra_data = extra
                             self.registry.upsert(base)
-                    except Exception:
+                    except Exception:  # noqa: BLE001 -- fail-open tolerance: flap-guard write failure must neither block the harvest nor discard the diff already computed (logged)
                         logger.exception(
                             "tech flap persistence failed for {}", account.domain
                         )
@@ -1126,12 +1126,12 @@ class CollectorRunner:
                     mig_cands = infer_migrations(
                         curr_vendors - prev_vendors,
                         prev_vendors - curr_vendors,
-                        lambda v: cat_map.get(v, set()),
+                        lambda v: cat_map.get(v, set()),  # noqa: B023 -- consumed within the same iteration
                         domain=account.domain,
                         today=_iso(now)[:10],
                         flap_guard=prior_flap,
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: inference failure emits nothing this cycle while the harvest survives (logged)
                     logger.exception(
                         "tech migration inference failed for {}", account.domain
                     )
@@ -1156,7 +1156,7 @@ class CollectorRunner:
                         now.date(),
                         load_fingerprint_rules(),
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: estimation failure emits nothing this cycle while the harvest survives (logged)
                     logger.exception(
                         "renewal window estimation failed for {}", account.domain
                     )
@@ -1188,7 +1188,7 @@ class CollectorRunner:
                         for v in gone
                         if not str(v).startswith("host:")
                     ]
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: candidate-build failure emits nothing this cycle while the harvest survives (logged)
                     logger.exception(
                         "techstack removal candidates failed for {}", account.domain
                     )
@@ -1218,7 +1218,7 @@ class CollectorRunner:
                     drought_cands = drought_candidates(
                         fd_rows, domain=account.domain, today=_iso(now)[:10]
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: drought-check failure emits nothing this cycle while the harvest survives (logged)
                     logger.exception("funding drought check failed for {}", account.domain)
                     drought_cands = []
                 if drought_cands:
@@ -1326,7 +1326,7 @@ class CollectorRunner:
                 if adapter.key == "federal_register" and "watches" not in meta:
                     try:
                         meta["watches"] = (self.config.load_yaml("regulations").get("watches") or [])
-                    except Exception:
+                    except Exception:  # noqa: BLE001 -- fail-open tolerance: unreadable regulations.yaml leaves watches empty; the fetch itself still proceeds
                         meta["watches"] = []
                 cands = adapter.parse(result.doc, account, meta)
                 stats.candidates += len(cands)
@@ -1400,7 +1400,7 @@ class CollectorRunner:
             if classify_cloudflare_challenge(status=result.status, body=body):
                 try:
                     ua = self.config.resolved_user_agent()
-                except Exception:
+                except Exception:  # noqa: BLE001 -- fail-open tolerance: UA resolution failure falls back to the configured static user agent
                     ua = self.config.http.user_agent
                 proxy = getattr(self.config.browser, "proxy_server", None) or "direct"
                 try:
@@ -1409,7 +1409,7 @@ class CollectorRunner:
                         source=task.source,
                         click_show_more=bool((task.meta or {}).get("click_show_more")),
                     )
-                except Exception as exc:  # pragma: no cover - defensive
+                except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001 -- fail-open tolerance: bypass is best-effort by design; failure logs and falls through to handling the raw 403
                     logger.warning("cloudflare bypass failed for {}: {}", task.domain, exc)
                     outcome = None
                 if outcome is not None:
@@ -1427,7 +1427,7 @@ class CollectorRunner:
         ):
             try:
                 ua = self.config.resolved_user_agent()
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: UA resolution failure falls back to the configured static user agent
                 ua = self.config.http.user_agent
             proxy = getattr(self.config.browser, "proxy_server", None) or "direct"
             try:
@@ -1435,7 +1435,7 @@ class CollectorRunner:
                     domain=task.domain, url=task.url,
                     user_agent=ua, proxy=proxy,
                 )
-            except Exception as exc:  # pragma: no cover - defensive
+            except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001 -- fail-open tolerance: bypass is best-effort by design; failure logs and falls through to handling the raw challenge
                 logger.warning("datadome bypass failed for {}: {}", task.domain, exc)
                 dd_outcome = None
             if dd_outcome is not None and dd_outcome.success and dd_outcome.result_body:
@@ -1472,7 +1472,7 @@ class CollectorRunner:
         if datadome_bypass is not None:
             try:
                 stealth = getattr(datadome_bypass, "stealth", None)
-            except Exception:  # pragma: no cover - defensive
+            except Exception:  # pragma: no cover - defensive  # noqa: BLE001 -- fail-open tolerance: bypass-shim introspection is best-effort; failure just skips the stealth path
                 stealth = None
         browser = stealth if stealth is not None else getattr(self, "browser", None)
         if browser is None:
@@ -1493,7 +1493,7 @@ class CollectorRunner:
             browser_cfg = getattr(browser, "config", None)
             if browser_cfg is not None and getattr(browser_cfg, "browser", None) is not None:
                 browser_cfg.browser.headless = False
-        except Exception:  # pragma: no cover - defensive
+        except Exception:  # pragma: no cover - defensive  # noqa: S110, BLE001 -- fail-open tolerance: headed-mode mutation is warm-up tuning only; failure leaves headless as configured and the fetch still runs
             pass
         # The behavioral warm-up (~4s of homepage dwell = extra DataDome
         # exposure) only pays for itself on the first page of a session;
@@ -1511,7 +1511,7 @@ class CollectorRunner:
                 if routing.decide("g2.com") == "SkipToSolve":
                     skip_warmup = True
                     logger.info("skipping warm-up (cookies known-stale) for {}", task.domain)
-            except Exception:  # pragma: no cover - defensive
+            except Exception:  # pragma: no cover - defensive  # noqa: S110, BLE001 -- fail-open tolerance: RouteState consult is best-effort; failure keeps the default warm-up behavior
                 pass
         warmup_kwargs = (
             {"warmup_url": "https://www.g2.com/", "warmup_ms": 4000}
@@ -1523,7 +1523,7 @@ class CollectorRunner:
                 url, source=task.source, domain=task.domain,
                 wait_ms=4000, scroll=True, **warmup_kwargs,
             )
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001 -- fail-open tolerance: fragment fetch failure falls back to the challenge->bypass->curl waterfall (logged)
             logger.warning("g2 fragment fetch failed for {}: {}", task.domain, exc)
             return None
         if result is not None and result.ok and result.doc is not None and result.doc.body:
@@ -1543,7 +1543,7 @@ class CollectorRunner:
                 if routing is not None:
                     try:
                         routing.expire("g2.com")
-                    except Exception:  # pragma: no cover - defensive
+                    except Exception:  # pragma: no cover - defensive  # noqa: S110, BLE001 -- fail-open tolerance: cookie-staleness expiry is best-effort bookkeeping; failure keeps the current routing state
                         pass
                 return None  # fall back to the challenge->bypass->curl waterfall
             reviews_count = len(extract_g2_reviews(body.decode("utf-8", "replace"), slug))
@@ -1559,14 +1559,14 @@ class CollectorRunner:
                         self.empty_log.record_empty(str(slug), "g2")
                     else:
                         self.empty_log.record_reviews(str(slug), "g2")
-            except Exception:  # pragma: no cover - defensive
+            except Exception:  # pragma: no cover - defensive  # noqa: S110, BLE001 -- fail-open tolerance: empty-since bookkeeping failure leaves backoff stale but must not fail the rendered fetch
                 pass
             if reviews_count == 0:
                 logger.info("g2 slug {} has zero reviews (new/quiet product) — not a block", slug)
             if routing is not None:
                 try:
                     routing.record_solve("g2.com", cookies=["datadome"])
-                except Exception:  # pragma: no cover - defensive
+                except Exception:  # pragma: no cover - defensive  # noqa: S110, BLE001 -- fail-open tolerance: solve recording is best-effort bookkeeping; failure changes nothing about the returned result
                     pass
             return result
         return None
@@ -1796,19 +1796,19 @@ def _attach_fetch_context(exc: BaseException, result) -> None:
     """
     try:
         # dynamic attach: _record_fail reads these back via getattr(exc, ...)
-        setattr(exc, "fetch_status", result.status if getattr(result, "status", None) else None)
-        setattr(exc, "fetch_error", getattr(result, "error", None))
+        setattr(exc, "fetch_status", result.status if getattr(result, "status", None) else None)  # noqa: B010 -- deliberate dynamic attach: arbitrary exceptions lack these attrs statically; direct assignment breaks the mypy attr-defined gate
+        setattr(exc, "fetch_error", getattr(result, "error", None))  # noqa: B010 -- deliberate dynamic attach: arbitrary exceptions lack these attrs statically; direct assignment breaks the mypy attr-defined gate
         doc = getattr(result, "doc", None)
         body = getattr(doc, "body", None) if doc is not None else None
         if body:
-            setattr(
+            setattr(  # noqa: B010 -- deliberate dynamic attach: arbitrary exceptions lack these attrs statically; direct assignment breaks the mypy attr-defined gate
                 exc,
                 "fetch_body_hint",
                 body.decode("utf-8", "replace")
                 if isinstance(body, (bytes, bytearray))
                 else str(body),
             )
-    except Exception:  # pragma: no cover - defensive
+    except Exception:  # pragma: no cover - defensive  # noqa: S110, BLE001 -- fail-open tolerance: context attach must never mask the original exception being raised
         pass
 
 

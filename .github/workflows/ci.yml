@@ -36,9 +36,11 @@ jobs:
         run: pip install -e ".[rerank,lab]"
 
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.17.4
 
       # Warm-up lane: lint findings are reported but do not fail CI until the codebase is clean.
+      # Pinned 2026-11-08: the effective ruleset is 0.17.4's expanded defaults (captured in
+      # .zcode/ruff-select-0.17.4.txt); an unpinned install drifts the target on every release.
       - name: Ruff check (warn-only)
         continue-on-error: true
         run: ruff check src/ tests/

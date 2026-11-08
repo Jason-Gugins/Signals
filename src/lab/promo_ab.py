@@ -231,7 +231,8 @@ def probe_main(argv: list[str] | None = None) -> int:
                                out_path=out_dir / f"{vid.lower()}-rows.jsonl",
                                passes=args.passes)
 
-    v0_by_idx = {r["idx"]: r for r in v0_rows}
+    by_pass = {vid: {r["idx"]: r for r in results[vid]} for vid in results}
+    v0_by_idx = by_pass["V0"]
     duty_mean_v0 = _mean([v0_by_idx[i]["v0_noul"] for i in (4, 22, 23, 24)])
     lines = ["# Promotion-question A/B — summary", "",
              "Generalization limits: G5 ranking quality on flash-extracted DTC",
@@ -244,30 +245,41 @@ def probe_main(argv: list[str] | None = None) -> int:
              "| idx | referee | operator | V0 | V1 | V2 |", "|---|---|---|---|---|---|"]
     for c in claims:
         i = c["idx"]
-        vals = [results[p][i][f"{p.lower()}_noul"] for p in ("V0", "V1", "V2")]
+        vals = [by_pass[p][i][f"{p.lower()}_noul"] for p in ("V0", "V1", "V2")]
         lines.append(f"| {i} | {c['referee']} | {c['operator_label']} | "
                      f"{vals[0]:.2f} | {vals[1]:.2f} | {vals[2]:.2f} |")
     lines += ["", "| pass | duty_mean | promo_max | ctx_max | guard_max | U | verdict |",
               "|---|---|---|---|---|---|---|"]
     verdicts = {}
+    by_variant_u = {}
     for vid in ("V1", "V2"):
-        by_idx = {r["idx"]: r for r in results[vid]}
+        by_idx = by_pass[vid]
         key = f"{vid.lower()}_noul"
         duty_mean = _mean([by_idx[i][key] for i in (4, 22, 23, 24)])
         promo_max = max(by_idx[i][key] for i in (1, 3))
         ctx_max = max(by_idx[i][key] for i in (9, 10, 14, 15, 16, 17, 18, 19, 20, 21))
         guard_max = max(by_idx[i][key] for i in (11, 12, 13))
+        # U is WITHIN-variant (variant duty vs variant NOT — the permutation
+        # null permutes labels over one scoring pass; cross-regime pairing
+        # against V0 nouls would undercount a variant that suppresses the
+        # artifacts' inflated scores). The cross-regime U is reported as a
+        # secondary column for transparency.
         U = sum(1 for i in (4, 22, 23, 24)
-                if by_idx[i][key] > v0_by_idx[i]["v0_noul"]
-                and all(by_idx[i][key] > v0_by_idx[j]["v0_noul"]
-                        for j in (1, 2, 3, 5, 6, 7)))
+                if all(by_idx[i][key] > by_idx[j][key]
+                       for j in (1, 2, 3, 5, 6, 7)))
+        U_cross = sum(1 for i in (4, 22, 23, 24)
+                      if by_idx[i][key] > v0_by_idx[j]["v0_noul"]
+                      and all(by_idx[i][key] > v0_by_idx[j]["v0_noul"]
+                              for j in (1, 2, 3, 5, 6, 7)))
+        by_variant_u[vid] = (U, U_cross)
         v = referee_verdict(U=U, promo_max=promo_max, ctx_max=ctx_max,
                             duty_mean=duty_mean,
                             duty_mean_v0_rebaseline=duty_mean_v0,
                             guard_max=guard_max)
         verdicts[vid] = v
         lines.append(f"| {vid} | {duty_mean:.2f} | {promo_max:.2f} | {ctx_max:.2f} "
-                     f"| {guard_max:.2f} | {U}/24 | {v['verdict']} |")
+                     f"| {guard_max:.2f} | {U}/24 (cross-regime {by_variant_u[vid][1]}/24) "
+                     f"| {v['verdict']} |")
     lines += ["", "Permutation p-table (exact, C(10,4)=210): U=20: 0.057, "
               "U=21: 0.033, U=22: 0.019, U=24: 0.0048. Ties = losses.", ""]
     summary_path = out_dir / "summary.md"

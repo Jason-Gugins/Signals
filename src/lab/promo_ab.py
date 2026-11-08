@@ -130,7 +130,7 @@ def referee_verdict(*, U: int, promo_max: float, ctx_max: float,
 
 
 def rescore(claims: list[dict], pass_name: str, decider, *,
-            gate_cfg: dict, out_path: Path, passes: int = 1) -> list[dict]:
+            gates_cfg: dict, out_path: Path, passes: int = 1) -> list[dict]:
     """One scoring pass: re-ask the promotion question over pre-extracted
     claims with `question_override` riding gate_need_promotion. pass_name
     "V0" = the SHIPPED question (the quote-rebaseline); "V1"/"V2" = the
@@ -139,7 +139,7 @@ def rescore(claims: list[dict], pass_name: str, decider, *,
     is NOT touched (claims are pre-extracted)."""
     from src.decide.gates import DecideLedger, gate_need_promotion
 
-    promotion_cfg = gate_cfg.get("need_promotion") or {}
+    promotion_cfg = gates_cfg.get("need_promotion") or {}
     override = ({"type": "noul", "instructions": SHIPPED_TEXT}
                 if pass_name == "V0" else VARIANTS[pass_name])
     ledger = DecideLedger()

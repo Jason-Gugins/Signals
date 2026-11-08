@@ -119,7 +119,7 @@ def test_rescore_uses_the_variant_question_and_unwraps_gate_cfg(tmp_path):
          "quote_span": "owns the full P&L", "noul_hidden": 0.59},
     ]
     rows = pa.rescore(claims, "V1", FakeDecider(),
-                      gate_cfg={"citation_soundness": {"floor": 0.70},
+                      gates_cfg={"citation_soundness": {"floor": 0.70},
                                 "need_promotion": {"floor": 0.70, "band_low": 0.30}},
                       out_path=tmp_path / "v1.jsonl")
     assert len(rows) == 2
@@ -150,7 +150,7 @@ def test_rescore_v0_pass_uses_the_shipped_text(tmp_path):
 
     claims = [{"idx": 1, "referee": "NOT", "domain": "d",
                "claim": "c1", "quote_span": "q1", "noul_hidden": 0.5}]
-    pa.rescore(claims, "V0", FakeDecider(), gate_cfg={"need_promotion": {}},
+    pa.rescore(claims, "V0", FakeDecider(), gates_cfg={"need_promotion": {}},
                out_path=tmp_path / "v0.jsonl")
     assert seen == [SHIPPED_TEXT]   # the rebaseline is the SHIPPED question
 

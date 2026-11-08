@@ -1,3 +1,4 @@
 # Ruff autofix mega-commit — git blame ignores these lines via:
 #   git config blame.ignoreRevsFile .git-blame-ignore-revs
 # (sha appended after the autofix lands)
+3b4a032036e5ac4c4e28124ebfe4b1bb39373713

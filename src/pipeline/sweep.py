@@ -132,7 +132,7 @@ def run_sweep(
         try:
             out = orch.resolve(domains=[domain], ats=True, cik=True, feeds=True, icp=True, g2=False)
             resolved = {k: out.get(k, 0) for k in ("cik", "ats", "feeds", "icp")}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- fail-open tolerance: resolver failures must never fail the sweep (logged; sweep proceeds un-resolved)
             logger.warning("sweep resolver pass failed for {}: {}", domain, exc)
             resolved = {}
         else:
@@ -153,8 +153,10 @@ def run_sweep(
         }
 
     reminders = [
-        "LinkedIn people data is deepen-driven: run `python -m src.cli deepen --domain "
-        f"{domain}` when you want profiles scraped (manual-only posture)."
+        (
+            "LinkedIn people data is deepen-driven: run `python -m src.cli deepen --domain "
+            f"{domain}` when you want profiles scraped (manual-only posture)."
+        )
     ]
     result = {
         "domain": domain,

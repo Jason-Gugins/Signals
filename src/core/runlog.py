@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
+from typing import Self
 
 from loguru import logger
 
@@ -35,7 +36,7 @@ def _resolve_logs_dir() -> str:
             logs_dir = (data.get("logging") or {}).get("logs_dir")
             if logs_dir:
                 return str(logs_dir)
-    except Exception:
+    except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: the config read is best-effort; logging setup must never crash a run (falls back to data/logs)
         pass
     return "data/logs"
 
@@ -55,7 +56,7 @@ class RunContext:
         self.errors = 0
         self._sink_id: int | None = None
 
-    def __enter__(self) -> RunContext:
+    def __enter__(self) -> Self:
         self.db.execute(
             """
             INSERT INTO runs(run_id, stage, started_at, status,
@@ -68,7 +69,7 @@ class RunContext:
         # never crash a run.
         try:
             self._sink_id = attach_file_sink(self.run_id, _resolve_logs_dir())
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-safe: a failed log-sink attach must not crash the run; proceed with no file sink
             self._sink_id = None
         return self
 
@@ -82,7 +83,7 @@ class RunContext:
         if self._sink_id is not None:
             try:
                 logger.remove(self._sink_id)
-            except Exception:
+            except Exception:  # noqa: S110, BLE001 -- fail-safe: sink detach is best-effort; it must not mask the run outcome recorded below
                 pass
             self._sink_id = None
         status = "failed" if exc_type is not None else "completed"

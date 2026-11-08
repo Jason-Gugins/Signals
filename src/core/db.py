@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
+    from typing import Self
+
     from src.core.rawstore import RawStore
 
 
@@ -596,11 +598,11 @@ class Database:
             try:
                 rows = conn.execute("PRAGMA integrity_check").fetchall()
                 detail = "; ".join(str(r[0]) for r in rows)
-            except Exception:
+            except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: corrupt-DB diagnosis is best-effort; a failed integrity probe must not mask the RuntimeError below
                 pass
             try:
                 conn.close()
-            except Exception:
+            except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: best-effort close of an already-corrupt connection; the raised error already carries the detail
                 pass
         self._conn = None
         return RuntimeError(
@@ -717,7 +719,7 @@ class Database:
                 self._conn.close()
                 self._conn = None
 
-    def __enter__(self) -> Database:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> None:

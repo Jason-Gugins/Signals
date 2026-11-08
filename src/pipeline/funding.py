@@ -231,7 +231,7 @@ def follow_funding(doc: Document, task_meta: dict, *, filt: FormDFilter) -> list
         wanted = {"D", "D/A"} if filt.include_amendments else {"D"}
         try:
             _, filings = parse_submissions(doc.body)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a malformed submissions payload skips just this document; the sweep continues with the rest
             return []
         for filing in filings:
             if filing.form not in wanted:
@@ -273,7 +273,7 @@ def parse_funding_doc(
         return []
     try:
         fd = parse_form_d(doc.body)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: a malformed form-D body skips just this document; the parse pass must never raise
         return []
     if not keep_form_d(fd, filt):
         return []
@@ -458,9 +458,12 @@ class FundingTracker:
                 meta.setdefault("today", today.isoformat())
                 rows = parse_funding_doc(result.doc, meta, today=today, filt=filt)
                 for fd, _filing, cand in rows:
-                    if peel_root and peel_hints is not None:
-                        if not issuer_matches_page(fd, peel_hints, brand=brand):
-                            continue
+                    if (
+                        peel_root
+                        and peel_hints is not None
+                        and not issuer_matches_page(fd, peel_hints, brand=brand)
+                    ):
+                        continue
                     account = attach_form_d_account(
                         fd, self.registry, cohort=cohort, prefer_domain=peel_root
                     )
@@ -473,7 +476,7 @@ class FundingTracker:
                                 "UPDATE documents SET domain=? WHERE doc_id=?",
                                 (override, result.doc.doc_id),
                             )
-                        except Exception:
+                        except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: the domain backfill is a best-effort UPDATE; failure must not abort the funding sweep mid-loop
                             pass
                     if persist:
                         valid, _ = normalize_batch(

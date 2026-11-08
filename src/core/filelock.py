@@ -20,13 +20,12 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Union
 
 from loguru import logger
 
 __all__ = ["exclusive_lock"]
 
-_LockPath = Union[str, os.PathLike]
+_LockPath = str | os.PathLike
 
 # Bound on stale-break retries: a lock we cannot actually remove (e.g. a
 # Windows permission race) must fall through to the timeout, not spin.

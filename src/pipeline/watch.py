@@ -49,7 +49,7 @@ def _record_outcomes(scheduler, due, stats, *, now: datetime) -> None:
                 scheduler.record_failure(adapter.key, now=now, error="collection failures")
             else:
                 scheduler.record_success(adapter.key, now=now)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: a bookkeeping failure for one source must not abort outcome recording for the rest (logged)
             logger.exception("scheduler bookkeeping failed for {}", adapter.key)
 
 
@@ -95,13 +95,13 @@ def watch_loop(
                                 stats = orch.collect(
                                     sources=[adapter.key], domains=src_domains or None, force=False
                                 )
-                            except Exception:
+                            except Exception:  # noqa: BLE001 -- fail-open tolerance: one adapter raising must not skip the rest of this tick's due sources (logged)
                                 logger.exception("watch: adapter {} failed", adapter.key)
                                 try:
                                     scheduler.record_failure(
                                         adapter.key, now=now_fn(), error="collect error"
                                     )
-                                except Exception:
+                                except Exception:  # noqa: BLE001 -- fail-open tolerance: post-failure bookkeeping must not abort the tick; the remaining sources still collect (logged)
                                     logger.exception(
                                         "scheduler bookkeeping failed for {}", adapter.key
                                     )
@@ -109,7 +109,7 @@ def watch_loop(
                             collected_any = True
                             try:
                                 _record_outcomes(scheduler, [adapter], stats, now=now_fn())
-                            except Exception:
+                            except Exception:  # noqa: BLE001 -- fail-open tolerance: per-source outcome recording must not crash the watch loop (logged)
                                 logger.exception("scheduler bookkeeping failed for {}", adapter.key)
                         if collected_any:
                             orch.score(domains=domains or None)
@@ -122,12 +122,12 @@ def watch_loop(
                 from src.signals.taxonomy import Taxonomy
 
                 check(orch.db, taxonomy=Taxonomy.load(), today=now_fn().date())
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: watchlist alerts are auxiliary; their failure must not kill the watch loop (logged)
                 logger.exception("watchlist check failed")
         except KeyboardInterrupt:
             logger.info("watch stopped after {} iterations", n)
             return n
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: the durable loop survives any unexpected per-iteration error and keeps scheduling (logged)
             logger.exception("watch iteration failed")
         n += 1
         if once or (max_iterations is not None and n >= max_iterations):

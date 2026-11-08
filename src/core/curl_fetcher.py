@@ -90,7 +90,7 @@ class CurlCffiFetcher:
             for name, value in cookie_dict.items():
                 try:
                     self.cookie_jar.update(name, value, host)
-                except Exception:
+                except Exception:  # noqa: S110, BLE001 -- fail-open tolerance: jar persistence is a best-effort side effect; it must not fail an already-successful fetch
                     pass
 
         return CurlCffiResponse(

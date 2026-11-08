@@ -112,7 +112,7 @@ def sniff(content_type: str, body: str) -> str:
     if s.startswith("{"):
         try:
             data = json.loads(s)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- fail-open tolerance: malformed JSON in the sniffer falls through to the next content probe; sniffing never raises
             data = None
         if isinstance(data, dict):
             if isinstance(data.get("jobs"), list):
@@ -264,7 +264,7 @@ def _rss(body: str) -> dict:
     # `<?xml encoding=...?>` declaration, which real feeds ship.
     try:
         root = ET.fromstring(body.encode("utf-8", "replace"))
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: malformed XML parses to no items; feed parsing must never raise into the collection pipeline
         root = None
     lines: list[str] = []
     if root is not None:
@@ -365,7 +365,7 @@ def human_text(content_type: str, body: str, *, publisher_hint: str | None) -> d
             return _json_jobs(body, publisher_hint)
         if kind == "json_results":
             return _json_results(body, publisher_hint)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- fail-open tolerance: content that sniffed json but fails to parse degrades to text passthrough, never raise
         # Malformed JSON that sniffed json ⇒ text passthrough, never raise.
         return _result("text", body)
     if kind == "rss":

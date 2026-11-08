@@ -178,7 +178,7 @@ class RawStore:
                 self.db.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
                 if path.exists():
                     path.unlink()
-            except Exception:
+            except Exception:  # noqa: BLE001 -- fail-open tolerance: one bad document must not abort the prune loop; logged and the remaining documents are still pruned
                 logger.warning(
                     "prune: retrieval-row cleanup failed for document {}", doc_id
                 )

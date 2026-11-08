@@ -48,6 +48,7 @@ from loguru import logger
 from src.core.textutil import truncate
 from src.decide.gates import DecideLedger
 from src.decide.gates import _call, _noul_of, _row  # single-source row conventions
+from src.decide.jev import Decider
 from src.decide.shapes import exception_cause
 
 __all__ = ["MAX_ALIGN_PAIRS", "align_candidates", "align_pair", "candidate_key"]
@@ -208,7 +209,7 @@ def _max_pairs(gate_cfg: dict | None) -> int:
 def align_pair(
     mention: dict | None,
     company: dict | None,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -305,7 +306,7 @@ def align_pair(
 def align_candidates(
     mention: dict | None,
     candidates: list[dict] | None,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,

@@ -1576,10 +1576,17 @@ def run_intel(
                 for step in llm_plan.steps:
                     if not plan_gate_enabled or ledger is None:
                         break  # gate disabled by config: no verdict, nothing binds
+                    # Bind-then-narrow: this branch only runs when the decide
+                    # layer is on (a decider is attached above), so the None
+                    # case is unreachable at runtime; the guard narrows the
+                    # type without changing any reachable-path behavior.
+                    gate_decider = decider
+                    if gate_decider is None:
+                        break  # no decider attached: no verdict, nothing binds
                     action, decision = decide_gates.gate_plan_step(
                         step,
                         icp_excerpt,
-                        decider,
+                        gate_decider,
                         _gate_cfg(decide_cfg, "plan_qualification"),
                         ledger,
                         invocation_id,

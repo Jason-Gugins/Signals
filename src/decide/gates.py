@@ -69,11 +69,14 @@ import time
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
 from src.core.textutil import truncate
+from src.decide.jev import Decider
 from src.decide.shapes import Claim, Decision, PlanStep
+from src.signals.taxonomy import Taxonomy
 
 # Floors + threshold: module-constant defaults so missing config keys are safe.
 PLAN_FLOOR = 0.70
@@ -142,8 +145,12 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-def state_hash(state) -> str:
-    """sha256 of the normalized state — lets a re-run spot identical inputs."""
+def state_hash(state: str | dict | list) -> str:
+    """sha256 of the normalized state — lets a re-run spot identical inputs.
+
+    ``state`` is whatever JSON-serializable payload the caller built: the
+    gates hash dicts, lab/prescreen's fingerprint pass hashes a list of
+    states."""
     payload = json.dumps(state, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -337,7 +344,7 @@ class DecideLedger:
             "detail": list(agg["detail"]),
         }
 
-    def write(self, path) -> None:
+    def write(self, path: str | Path) -> None:
         """Append every row as one JSON line (utf-8), creating parent dirs."""
         p = Path(path)
         if str(p.parent):
@@ -356,7 +363,10 @@ def _bounded_row(row: dict) -> dict:
     """Capped copy of a row for aggregate detail: string fields (incl. inside
     dicts/lists) truncated to 400 chars; other scalars ride through."""
 
-    def cap(value):
+    # (value: Any) -> Any — the fall-through returns whatever non-str/dict/
+    # list JSON scalar came in, so a precise union would collapse to Any
+    # anyway; the recursion only reshapes the three container cases.
+    def cap(value: Any) -> Any:
         if isinstance(value, str):
             return value[:_ANSWER_TEXT_LIMIT]
         if isinstance(value, dict):
@@ -368,34 +378,34 @@ def _bounded_row(row: dict) -> dict:
     return {k: cap(v) for k, v in row.items()}
 
 
-def _model_name(decider) -> str:
+def _model_name(decider: Decider) -> str:
     return getattr(decider, "model", None) or type(decider).__name__
 
 
 def _row(
     gate: str,
-    state,
-    decider,
+    state: dict,
+    decider: Decider,
     run_id: str,
     *,
-    answers,
-    deterministic_action,
-    agree,
-    agree_direction,
-    error,
-    latency_ms,
-    raw_tokens,
-    called,
-    outcome=None,
-    noul=None,
-    reason=None,
-    claims=None,
+    answers: dict | None,
+    deterministic_action: str,
+    agree: bool | None,
+    agree_direction: str | None,
+    error: str | None,
+    latency_ms: float,
+    raw_tokens: int,
+    called: bool,
+    outcome: str | None = None,
+    noul: float | None = None,
+    reason: str | None = None,
+    claims: list[dict[str, str | None]] | None = None,
 ) -> dict:
     """One invariant-5 ledger row (gates may add the called/outcome/noul/
     reason extras the aggregates read; ``claims`` is the opt-in lab payload —
     ``lab.persist_claims`` — attached only where a row is BUILT, never
     post-hoc; None keeps the row byte-identical to the pre-switch flow)."""
-    row = {
+    row: dict = {
         "gate": gate,
         "boundary": gate,  # one boundary tag per gate in v1
         "state_hash": state_hash(state),
@@ -422,7 +432,10 @@ def _row(
 
 
 def _call(
-    decider, state, questions, gate: str | None = None
+    decider: Decider,
+    state: str | dict,
+    questions: dict[str, dict],
+    gate: str | None = None,
 ) -> tuple[Decision, float]:
     """Time one decider invocation; never raises past the seam (jev.py's
     contract collapses failures into ok=False Decisions).
@@ -449,7 +462,7 @@ def _call(
 _GATE_PARAM_CACHE: dict[type, bool] = {}
 
 
-def _decides_with_gate(decider) -> bool:
+def _decides_with_gate(decider: Decider) -> bool:
     try:
         params = inspect.signature(decider.decide).parameters
     except (TypeError, ValueError):  # exotic callables: assume the old shape
@@ -514,7 +527,7 @@ def _screen_active(screen_cfg: dict | None) -> bool:
     return bool(screen_cfg.get("enabled", True))
 
 
-def _noul_of(answers, qid: str) -> float | None:
+def _noul_of(answers: dict | None, qid: str) -> float | None:
     ans = (answers or {}).get(qid)
     if isinstance(ans, dict):
         value = ans.get("noul")
@@ -527,7 +540,7 @@ def _noul_of(answers, qid: str) -> float | None:
     return None
 
 
-def _choice_of(answers, qid: str) -> str | None:
+def _choice_of(answers: dict | None, qid: str) -> str | None:
     ans = (answers or {}).get(qid)
     if isinstance(ans, dict):
         value = ans.get("choice")
@@ -536,7 +549,7 @@ def _choice_of(answers, qid: str) -> str | None:
     return None
 
 
-def _choice_prob(answers, qid: str, label: str) -> float | None:
+def _choice_prob(answers: dict | None, qid: str, label: str) -> float | None:
     """The probability Jev reported for a choice answer's top ``label``
     (None when the answer carries no usable probability for it). The RAW
     (un-normalized) choice text is tried as a fallback key when the
@@ -561,7 +574,7 @@ def _choice_prob(answers, qid: str, label: str) -> float | None:
 def gate_plan_step(
     step: PlanStep,
     icp_excerpt: str,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -661,9 +674,9 @@ def gate_plan_step(
 
 
 def gate_posture_audit(
-    source,
+    source: str,
     fetch_scope_desc: str,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -718,7 +731,7 @@ def gate_posture_audit(
 
 def gate_routing(
     doc_tokens: int,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -829,7 +842,7 @@ def gate_citation_batch(
     claims: list[Claim],
     doc_id: str,
     doc_text: str | None,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -1166,7 +1179,7 @@ def gate_need_promotion(
     need_text: str,
     evidence_excerpt: str,
     deterministic_promote: bool,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -1311,7 +1324,7 @@ def gate_document(
     doc_id: str,
     doc_text: str | None,
     account_name: str,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -1526,7 +1539,7 @@ def rerank_cap_row(
     doc_id: str,
     doc_text: str | None,
     account_name: str,
-    decider,
+    decider: Decider,
     run_id: str,
 ) -> dict:
     """One ledger row marking a document EXCLUDED from the implement loop by
@@ -1591,7 +1604,7 @@ def gate_completeness(
     doc_id: str,
     doc_text: str | None,
     five_fields_result: dict | None,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -1841,8 +1854,8 @@ def separation_ratio(probabilities: dict) -> float:
 def classify_claims(
     claims: list[Claim],
     doc_text: str | None,
-    taxonomy,
-    decider,
+    taxonomy: Taxonomy,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -2190,7 +2203,7 @@ def _assemble_date(year: int, month: int, day: int) -> date | None:
         return None
 
 
-def _answer_confidence(answers, qid: str, label: str | None) -> float | None:
+def _answer_confidence(answers: dict | None, qid: str, label: str | None) -> float | None:
     """The confidence one date answer carries: the answer's own
     ``confidence`` field when it holds a usable number (the date cookbook's
     per-question confidence), else the top-choice probability from the
@@ -2207,7 +2220,7 @@ def extract_event_date(
     doc_id: str,
     doc_text: str | None,
     doc_fetched_at: str | None,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -2687,7 +2700,7 @@ def _normalize_span(span: str) -> dict:
 
 def extract_claim_amount(
     claim_text: str,
-    decider,
+    decider: Decider,
     gate_cfg: dict | None,
     ledger: DecideLedger,
     run_id: str,
@@ -2742,7 +2755,7 @@ def extract_claim_amount(
         # call, no row, nothing logged (the claim simply has no amounts).
         return None
     state = {"claim": claim_text, "candidates": list(spans)}
-    questions = {
+    questions: dict[str, dict] = {
         "amount_pick": {
             "type": "choice",
             "instructions": (

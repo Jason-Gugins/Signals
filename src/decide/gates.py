@@ -1172,6 +1172,7 @@ def gate_need_promotion(
     run_id: str,
     mode: str,
     quote_span: str | None = None,
+    question_override: dict | None = None,
 ) -> tuple[bool, float | None, Decision]:
     """G5 — gate promotion of an extracted need (implement -> score boundary).
 
@@ -1219,7 +1220,7 @@ def gate_need_promotion(
         "evidence_excerpt": anchor_window(evidence_excerpt, anchor),
     }
     questions = {
-        "promotion": {
+        "promotion": question_override or {
             "type": "noul",
             "instructions": (
                 "Does this extracted need represent genuine buying intent? Answer noul."

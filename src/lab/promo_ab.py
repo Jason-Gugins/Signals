@@ -22,7 +22,12 @@ from __future__ import annotations
 
 import json
 import random
+from collections.abc import Iterable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.decide.jev import Decider
 
 _FLOOR = 0.70
 _U_WIN = 22          # exact permutation p = 0.019 on C(10,4)=210
@@ -68,7 +73,8 @@ REFEREE_MAP = {
 PERM_P = {20: 0.057, 21: 0.033, 22: 0.019, 23: 0.0095, 24: 0.0048}
 
 
-def load_labeled_claims(worksheet_path, sample_path) -> list[dict]:
+def load_labeled_claims(worksheet_path: str | Path,
+                        sample_path: str | Path) -> list[dict]:
     """Parse the operator's [X] dispositions (idx-keyed), join the sample's
     hidden nouls/quote_spans, attach the referee class per REFEREE_MAP."""
     import re
@@ -94,13 +100,15 @@ def load_labeled_claims(worksheet_path, sample_path) -> list[dict]:
     return out
 
 
-def _pctl(sorted_vals, q):
+def _pctl(sorted_vals: Sequence[float], q: float) -> float | None:
     if not sorted_vals:
         return None
     return sorted_vals[min(len(sorted_vals) - 1, max(0, round(q * (len(sorted_vals) - 1))))]
 
 
-def summarize_nouls(nouls):
+def summarize_nouls(nouls: Iterable[object]) -> dict[str, int | float | None]:
+    """nouls may carry non-numeric junk (failed gates -> None etc.); only
+    the int/float members feed the distribution."""
     vs = sorted(v for v in nouls if isinstance(v, (int, float)))
     return {"n": len(vs), "max": vs[-1] if vs else None,
             "p50": _pctl(vs, 0.5), "p90": _pctl(vs, 0.9),
@@ -129,7 +137,7 @@ def referee_verdict(*, U: int, promo_max: float, ctx_max: float,
             "duty_lift": round(duty_mean - duty_mean_v0_rebaseline, 3)}
 
 
-def rescore(claims: list[dict], pass_name: str, decider, *,
+def rescore(claims: list[dict], pass_name: str, decider: Decider, *,
             gates_cfg: dict, out_path: Path, passes: int = 1) -> list[dict]:
     """One scoring pass: re-ask the promotion question over pre-extracted
     claims with `question_override` riding gate_need_promotion. pass_name
@@ -268,9 +276,8 @@ def probe_main(argv: list[str] | None = None) -> int:
                 if all(by_idx[i][key] > by_idx[j][key]
                        for j in (1, 2, 3, 5, 6, 7)))
         U_cross = sum(1 for i in (4, 22, 23, 24)
-                      if by_idx[i][key] > v0_by_idx[j]["v0_noul"]
-                      and all(by_idx[i][key] > v0_by_idx[j]["v0_noul"]
-                              for j in (1, 2, 3, 5, 6, 7)))
+                      if all(by_idx[i][key] > v0_by_idx[j]["v0_noul"]
+                             for j in (1, 2, 3, 5, 6, 7)))
         by_variant_u[vid] = (U, U_cross)
         v = referee_verdict(U=U, promo_max=promo_max, ctx_max=ctx_max,
                             duty_mean=duty_mean,
@@ -290,7 +297,7 @@ def probe_main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _mean(xs):
+def _mean(xs: Sequence[float]) -> float:
     return sum(xs) / len(xs) if xs else 0.0
 
 

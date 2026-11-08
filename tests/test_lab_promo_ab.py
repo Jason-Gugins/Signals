@@ -155,6 +155,46 @@ def test_rescore_v0_pass_uses_the_shipped_text(tmp_path):
     assert seen == [SHIPPED_TEXT]   # the rebaseline is the SHIPPED question
 
 
+def test_probe_main_live_summary_computes_the_cross_regime_column(tmp_path, capsys, monkeypatch):
+    """Regression: the post-scoring summary's U_cross comprehension read an
+    unbound `j` in its outer condition — a latent NameError that only fires
+    on the LIVE path (after all three rescore passes), never in dry-run.
+    Drives the full live path (FakeDecider, zero external calls) over the
+    real 24-claim calibration set through the real gate seam."""
+    import src.lab.__main__ as lab_main
+    import src.lab.promo_ab as pa
+    from src.decide.jev import Decision
+
+    class FakeDecider:
+        model = "jev-fake"
+
+        def decide(self, state, questions, gate=None):
+            noul = 0.80 if "stocking stuffer" in state["need"] else 0.45
+            return Decision(applies=True, ok=True,
+                            answers={"promotion": {"type": "noul", "noul": noul}},
+                            raw_tokens=4)
+
+    monkeypatch.setattr(lab_main, "_load_decide_cfg", lambda: {})
+    monkeypatch.setattr(lab_main, "_lab_decider", lambda cfg: FakeDecider())
+
+    rc = pa.probe_main([
+        "--worksheet", "data/probe/PROMO_CALIBRATION_20261107.md",
+        "--sample", "data/probe/PROMO_CALIBRATION_SAMPLE_20261107.json",
+        "--out-dir", str(tmp_path / "out"),
+        "--passes", "1",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "VERDICTS" in out and "V1 = " in out and "V2 = " in out
+    summaries = list((tmp_path / "out").glob("promo-ab-*/summary.md"))
+    assert len(summaries) == 1
+    text = summaries[0].read_text(encoding="utf-8")
+    assert "cross-regime" in text          # the U_cross column rendered
+    assert "| V1 |" in text and "| V2 |" in text
+    # the within-variant U column is the primary stat out of 24 pairs
+    assert "/24 (cross-regime" in text
+
+
 def test_cli_dry_run_prints_partition_and_spends_nothing(tmp_path, capsys):
     import src.lab.promo_ab as pa
 

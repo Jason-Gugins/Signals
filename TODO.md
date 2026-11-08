@@ -246,6 +246,67 @@ errors — the next natural graduation target); federal observed: Any +
 SignalCandidate.observed_at retype still parked. No strict mode, no
 disallow-any, never tests/.
 
+## strict set — decide+lab graduated (2026-11-07)
+
+**Status: DELIVERED (2026-11-07)** — 5 commits across 6 tasks, executed via
+subagent-driven development (parallel disjoint-file wave; two-stage review
+on the wave); offline suite green at every gate.
+
+- [x] **The concurrency story** — the calibration chat landed
+  `src/lab/promo_ab.py` DURING this plan's verification (inside the
+  graduation glob, 10 strict errors, flag-off mypy red). The plan was
+  amended pre-dispatch: Task 0 coordinates and absorbs promo_ab; all
+  checkpoints re-derived at dispatch.
+- [x] **Task 0 — promo_ab precondition** (`3487ba4`) — re-measured at
+  dispatch: 85 strict decide+lab errors (the anchor 76 + promo_ab's 9; the
+  audited 10 was stale — the rescore `gates_cfg=` kwarg bug had ALREADY
+  been fixed by the calibration chat's `df9c754`). The U_cross
+  `Name "j" is not defined` at :271 was REAL (git archaeology: `b55a0de`'s
+  edit mangled `v0_by_idx[i]` into `v0_by_idx[j]`) — repaired to the
+  documented cross-regime pairing form, red→green regression test driving
+  probe_main's full live path added. All 9 promo_ab strict errors
+  annotated (Decider Protocol via TYPE_CHECKING; no Any needed).
+- [x] **decide — the 27** (`9f8796d`) — gates.py 25 + alignment 2,
+  annotations only (sanctity verified: module docstring untouched, no
+  row-shape/batching hunks). `cap` → `(value: Any) -> Any` (honest glue);
+  `state_hash` widened `str | dict | list` (prescreen passes a list — the
+  one sanctioned caller-visible change); all `decider` params →
+  non-Optional `Decider` Protocol; `classify_claims(taxonomy: Taxonomy)`.
+  Sanctioned out-of-package edit: the intel.py G1 bind-then-narrow guard
+  (behavior-identical; unreachable when the decide layer is off —
+  attach_decider never returns None).
+- [x] **lab core — the 30** (`d9ea6d5`) — `__main__` 19 + replay 11;
+  `_ReadOnlyDB.one/query` mirror graduated `Database` signatures exactly
+  (read-only contract + deferred import intact); :441 fixed via pure local
+  annotations; all lab→decide/pipeline references TYPE_CHECKING-only
+  (isolation green).
+- [x] **lab small — the 19** (`646cecd`) — audit-corrected fix shapes
+  (targets bind-then-annotate `dict[str, dict]`; prescreen `_pearson`
+  param annotations `list[float | None]`; corpus `cast("dict", …)` — an
+  isinstance narrow would have CHANGED behavior for non-dict JSON);
+  sanctioned dead-path fix: tierprobe `extract_rows` default
+  `raw_dir=None → "data/raw"` (None hit `Path(None)` TypeError in
+  RawStore). My own transient arg-type ripple (report `baselines_out`)
+  caught by mypy mid-task and fixed honestly (`dict | None` — the runner
+  passes a possibly-absent JSONL field).
+- [x] **Seed** (`64c85a2`) — strict-set override extended to
+  `["src.core.*", "src.decide.*", "src.lab.*"]`; clean under the committed
+  config on BOTH platforms; suite EXIT:0.
+- [x] **Bookkeeping** — this entry.
+
+Baseline: 85 strict decide+lab errors at dispatch (76 anchor + 9 promo_ab)
+/ 0 after; strict flags now ON for **core + decide + lab** on both
+platforms (262 files, Success). Two-stage review verdicts: PASS (both),
+zero blockers/majors; U_cross repair proven pre-fix-NameError by execution
+probe. **OPERATOR FLAG (pre-existing, predates this wave, unchanged by
+it):** the quality reviewer found promo_ab's `U` statistic sweeps ≤4 duty
+claims but is rendered `{U}/24` and refereed against `_U_WIN=22` /
+PERM_P 20–24 — the documented pre-registered WIN band appears unreachable
+by the computed statistic. The U_cross repair mirrors the unchanged
+within-U structure faithfully; the band-vs-statistic tension belongs to
+the calibration chat's verdict review, not this wave. Remaining strict
+bulk: sources + pipeline (graduate on their own rewrite triggers).
+
 ## Antibot engine Linux port — DELIVERED (2026-11-06)
 
 **Status: DELIVERED (2026-11-06)** — 5 commits across 7 tasks (same

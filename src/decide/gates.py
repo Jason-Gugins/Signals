@@ -1223,7 +1223,13 @@ def gate_need_promotion(
         "promotion": question_override or {
             "type": "noul",
             "instructions": (
-                "Does this extracted need represent genuine buying intent? Answer noul."
+                "Perspective: the company in the excerpt is the SUBJECT. Judge "
+                "whether the excerpt shows the SUBJECT carrying an OPERATIONAL "
+                "BURDEN that outside software or services could relieve — duties "
+                "someone must run, tooling being evaluated or outgrown, processes "
+                "straining at scale, staffing a function that needs support. The "
+                "SUBJECT selling its own products (prices, promotions, launches, "
+                "marketing) is NOT a need. Answer noul."
             ),
         }
     }

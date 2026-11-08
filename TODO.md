@@ -1230,12 +1230,11 @@ offline lane (`-m "not antibot_live and not allow_network and not live_fetch"`).
   **1.000 (V1, U=24/24, exact p=0.005)**; commerce artifacts 0.68/0.54 ->
   0.08; duty mean lifted 0.353 -> 0.405; requisitions not inflated (guard
   max 0.53). V2 (narrower duty clause) separates equally but
-  over-suppresses — PARTIAL. **Landing V1 in gates.py:1221 is the
-  operator's call** (fork (a) profile-blind recommended; the text is
-  committed verbatim in `src/lab/promo_ab.py` VARIANTS["V1"]); post-land:
-  regime marking + shadow funnel check, and the floor question reopens
-  with a correctly-ranking question (absolute nouls stay below 0.70 —
-  ranking fixed, floor unchanged).
+  over-suppresses — PARTIAL. **LANDED 2026-11-08 (operator go, fork (a)
+  profile-blind)**: V1 is the shipped promotion question (gates.py; pin
+  test = REGIME PIN). Post-land: shadow funnel check on the next intel
+  run (review-band volume + promote rate); floor question reopens only
+  with new ground truth. Watch item recorded in decide-lab addendum 11.
 - [ ] **Automatic alias / name-variant discovery from EDGAR/news strings** —
   the highest wrong-company attribution risk; deliberately not attempted.
 - [ ] **New scoring combos + re-pricing `need_statement` /

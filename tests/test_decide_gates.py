@@ -297,6 +297,30 @@ def test_anchor_window_folds_curly_quotes():
 # --- DecideLedger -------------------------------------------------------------
 
 
+def test_promotion_question_carries_the_operational_burden_semantics():
+    """REGIME PIN (2026-11-08 landing, promo-A/B winner V1): the shipped
+    promotion question is perspective-anchored (SUBJECT carries an
+    OPERATIONAL BURDEN; the SUBJECT selling its own products is NOT a
+    need). The label-refereed A/B (decide-lab addendum 11) showed the
+    shipped 'genuine buying intent' wording inverted the ranking
+    (P[NEED > NOT] = 0.36). Any widening of this question's scope is a
+    deliberate, reviewed change."""
+    ledger = DecideLedger()
+    gate_need_promotion(NEED, EVIDENCE, False, _noul("promotion", 0.9), {}, ledger, RUN, "enforce")
+    gate, questions = ledger.rows[0]["gate"], None
+    assert gate == "need_promotion"
+    # the question rides the gate's recorded state hash inputs — assert the
+    # live question construction through a fresh call with a calls-tracking
+    # decider (MockDecider.deepcopy-captures (state, questions)).
+    decider = CountingDecider({"promotion": Decision(applies=True, ok=True,
+                                                     answers={"promotion": {"noul": 0.9}}, raw_tokens=50)})
+    gate_need_promotion(NEED, EVIDENCE, False, decider, {}, ledger, RUN, "enforce")
+    captured = decider.calls[-1][1]["promotion"]["instructions"]
+    assert "OPERATIONAL BURDEN" in captured
+    assert "NOT a need" in captured
+    assert "genuine buying intent" not in captured
+
+
 def test_ledger_row_shape_has_all_invariant_keys():
     ledger = DecideLedger()
     gate_need_promotion(NEED, EVIDENCE, False, _noul("promotion", 0.9), {}, ledger, RUN, "enforce")

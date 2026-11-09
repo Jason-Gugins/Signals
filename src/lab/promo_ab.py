@@ -265,14 +265,18 @@ def probe_main(argv: list[str] | None = None) -> int:
         promo_max = max(by_idx[i][key] for i in (1, 3))
         ctx_max = max(by_idx[i][key] for i in (9, 10, 14, 15, 16, 17, 18, 19, 20, 21))
         guard_max = max(by_idx[i][key] for i in (11, 12, 13))
-        # U is WITHIN-variant (variant duty vs variant NOT — the permutation
-        # null permutes labels over one scoring pass; cross-regime pairing
-        # against V0 nouls would undercount a variant that suppresses the
-        # artifacts' inflated scores). The cross-regime U is reported as a
-        # secondary column for transparency.
-        U = sum(1 for i in (4, 22, 23, 24)
-                if all(by_idx[i][key] > by_idx[j][key]
-                       for j in (1, 2, 3, 5, 6, 7)))
+        # U is the PRE-REGISTERED pairwise statistic (rule v2): duty-vs-NOT
+        # pair wins out of 24, ties = losses — the Mann-Whitney U the
+        # C(10,4)=210 permutation null and the 20/22 bars were derived for
+        # (exact enumeration reproduces PERM_P at all five thresholds:
+        # >=20:12/210, >=21:7/210, >=22:4/210, >=23:2/210, >=24:1/210).
+        # The all-NOTs sweep is a stricter secondary reading; the cross-
+        # regime U (vs V0, also a sweep count) stays as transparency.
+        U = sum(1 for i in (4, 22, 23, 24) for j in (1, 2, 3, 5, 6, 7)
+                if by_idx[i][key] > by_idx[j][key])
+        U_sweep = sum(1 for i in (4, 22, 23, 24)
+                      if all(by_idx[i][key] > by_idx[j][key]
+                             for j in (1, 2, 3, 5, 6, 7)))
         U_cross = sum(1 for i in (4, 22, 23, 24)
                       if all(by_idx[i][key] > v0_by_idx[j]["v0_noul"]
                              for j in (1, 2, 3, 5, 6, 7)))
@@ -283,7 +287,8 @@ def probe_main(argv: list[str] | None = None) -> int:
                             guard_max=guard_max)
         verdicts[vid] = v
         lines.append(f"| {vid} | {duty_mean:.2f} | {promo_max:.2f} | {ctx_max:.2f} "
-                     f"| {guard_max:.2f} | {U}/24 (cross-regime {by_variant_u[vid][1]}/24) "
+                     f"| {guard_max:.2f} | {U}/24 (sweep {U_sweep}/4, cross-regime "
+                     f"{by_variant_u[vid][1]}/4) "
                      f"| {v['verdict']} |")
     lines += ["", ("Permutation p-table (exact, C(10,4)=210): U=20: 0.057, "
                    "U=21: 0.033, U=22: 0.019, U=24: 0.0048. Ties = losses."), ""]

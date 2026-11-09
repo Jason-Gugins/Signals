@@ -229,7 +229,12 @@ def test_probe_main_live_summary_computes_the_cross_regime_column(tmp_path, caps
     assert "cross-regime" in text          # the U_cross column rendered
     assert "| V1 |" in text and "| V2 |" in text
     # the within-variant U column is the primary stat out of 24 pairs
-    assert "/24 (cross-regime" in text
+    assert "/24 (sweep" in text and "/4)" in text
+    # pre-registered rule v2: U is PAIRWISE (duty x NOT, out of 24, ties =
+    # losses) — perfect separation means U=24 >= _U_WIN=22, so the referee
+    # must clear the separation band. (The sweep-U implementation emitted
+    # NO-CHANGE here — the OPERATOR-FLAGGED dead-branch bug.)
+    assert "separation cleared" in text or text.count("WIN") >= 1
 
 
 def test_cli_dry_run_prints_partition_and_spends_nothing(tmp_path, capsys):

@@ -255,3 +255,68 @@ def test_cli_dry_run_prints_partition_and_spends_nothing(tmp_path, capsys):
     assert "3 GUARD" in out and "1 ORPHAN" in out
     assert "216" in out                      # 24 claims x 3 variants x 3 passes
     assert not (tmp_path / "out").exists() or not list((tmp_path / "out").glob("*rows*.jsonl"))
+
+
+def test_recorded_promo_ab_verdict_reproduces_through_the_fixed_referee():
+    """Verdict-fidelity pin: the RECORDED 2026-11-08 probe nouls
+    (data/probe/promo-ab-20261108T001007Z/{v0,v1,v2}-rows.jsonl —
+    gitignored operator data, so the values are inlined here and CI must
+    pass without the files), re-refereed through the FIXED pairwise-U
+    instrument, reproduce the recorded verdict: V1 WIN (U = 24/24, exact
+    p = 0.0048, all four legs) and V2 PARTIAL (separation cleared, duty
+    lift failed: 0.314 < 0.353). Values are rescore's round(mean, 4) —
+    transcribed verbatim; duty_lift == 0.052 depends on them exactly."""
+    from src.lab.promo_ab import referee_verdict
+
+    # v{n}_noul per idx 1..24, verbatim from the recorded rows files
+    v0_nouls = {1: 0.68, 2: 0.2833, 3: 0.5367, 4: 0.3467,
+                5: 0.12, 6: 0.2567, 7: 0.2533, 8: 0.12,
+                9: 0.22, 10: 0.1367, 11: 0.2733, 12: 0.2833,
+                13: 0.3033, 14: 0.26, 15: 0.4233, 16: 0.1967,
+                17: 0.2067, 18: 0.25, 19: 0.23, 20: 0.1933,
+                21: 0.2733, 22: 0.28, 23: 0.47, 24: 0.3167}
+    v1_nouls = {1: 0.08, 2: 0.0733, 3: 0.08, 4: 0.4767,
+                5: 0.0867, 6: 0.0733, 7: 0.1367, 8: 0.16,
+                9: 0.49, 10: 0.21, 11: 0.3233, 12: 0.5333,
+                13: 0.3867, 14: 0.44, 15: 0.7367, 16: 0.48,
+                17: 0.5267, 18: 0.4633, 19: 0.4567, 20: 0.4467,
+                21: 0.4633, 22: 0.2733, 23: 0.4333, 24: 0.4367}
+    v2_nouls = {1: 0.05, 2: 0.05, 3: 0.05, 4: 0.31,
+                5: 0.0567, 6: 0.0467, 7: 0.0767, 8: 0.1433,
+                9: 0.12, 10: 0.1467, 11: 0.1433, 12: 0.1767,
+                13: 0.1233, 14: 0.17, 15: 0.2767, 16: 0.14,
+                17: 0.13, 18: 0.2, 19: 0.1433, 20: 0.1567,
+                21: 0.1867, 22: 0.1633, 23: 0.46, 24: 0.3233}
+    # by_pass in the summary loop's shape: vid -> idx -> row
+    by_pass = {"V0": {i: {"v0_noul": v} for i, v in v0_nouls.items()},
+               "V1": {i: {"v1_noul": v} for i, v in v1_nouls.items()},
+               "V2": {i: {"v2_noul": v} for i, v in v2_nouls.items()}}
+    v0_by_idx = by_pass["V0"]
+    duty_mean_v0 = sum(v0_by_idx[i]["v0_noul"] for i in (4, 22, 23, 24)) / 4
+    v1 = v2 = None
+    for vid in ("V1", "V2"):
+        by_idx = by_pass[vid]
+        key = f"{vid.lower()}_noul"
+        duty_mean = sum(by_idx[i][key] for i in (4, 22, 23, 24)) / 4
+        promo_max = max(by_idx[i][key] for i in (1, 3))
+        ctx_max = max(by_idx[i][key]
+                      for i in (9, 10, 14, 15, 16, 17, 18, 19, 20, 21))
+        guard_max = max(by_idx[i][key] for i in (11, 12, 13))
+        # the fixed pairwise U — the summary loop's comprehension exactly
+        u_pair = sum(1 for i in (4, 22, 23, 24) for j in (1, 2, 3, 5, 6, 7)
+                     if by_idx[i][key] > by_idx[j][key])
+        v = referee_verdict(U=u_pair, promo_max=promo_max, ctx_max=ctx_max,
+                            duty_mean=duty_mean,
+                            duty_mean_v0_rebaseline=duty_mean_v0,
+                            guard_max=guard_max)
+        if vid == "V1":
+            v1 = v
+        else:
+            v2 = v
+
+    # Recorded 2026-11-08 verdict (data/probe/promo-ab-20261108T001007Z),
+    # now reproduced by the instrument rather than by hand:
+    assert v1["verdict"].startswith("WIN")          # U_pair=24/24, p=0.0048,
+    assert v1["duty_lift"] == 0.052                 # 0.405 - 0.353; legs: suppressed,
+                                                    # guard_ok, lifted all True
+    assert v2["verdict"].startswith("PARTIAL")      # duty lift failed (0.314 < 0.353)

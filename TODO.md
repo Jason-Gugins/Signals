@@ -304,7 +304,15 @@ claims but is rendered `{U}/24` and refereed against `_U_WIN=22` /
 PERM_P 20–24 — the documented pre-registered WIN band appears unreachable
 by the computed statistic. The U_cross repair mirrors the unchanged
 within-U structure faithfully; the band-vs-statistic tension belongs to
-the calibration chat's verdict review, not this wave. Remaining strict
+the calibration chat's verdict review, not this wave.
+RESOLVED (2026-11-09): root-caused as a design-vs-implementation
+divergence — rule v2 was pre-registered PAIRWISE (U out of 24,
+C(10,4)=210 bars; exact enumeration reproduces PERM_P at all five
+thresholds), the implementation computed SWEEP-U (max 4), making the
+WIN/PARTIAL branches dead code. The recorded verdict was SOUND (manual
+pairwise re-derivation, openly documented in the recorded summary); the
+instrument is now fixed and reproduces it — see the promo_ab referee-fix
+record below. Remaining strict
 bulk: sources + pipeline (graduate on their own rewrite triggers).
 
 ## ruff adjudication — DELIVERED (2026-11-08)
@@ -364,6 +372,42 @@ preserved as-is (predate the campaign); B023/TRY002 site counts drifted
 from briefings (10/2 actual vs 12/3 briefed — all present sites verified).
 Finish line: new findings fail CI; new rules arrive only as deliberate
 select changes; `ruff format` adoption remains deliberately deferred.
+
+## promo_ab referee fix — DELIVERED (2026-11-09)
+
+**Status: DELIVERED (2026-11-09)** — 3 commits, audit-simulated plan
+(red→green + recorded-verdict reproduction verified in a temp clone
+before dispatch); both gates green at every task.
+
+- [x] **The instrument fixed** (`bbcb152`) — root cause: rule v2 was
+  pre-registered PAIRWISE (U out of 24 duty×NOT pairs, ties = losses —
+  the Mann-Whitney U the C(10,4)=210 permutation null and the 20/22 bars
+  were derived for; exact enumeration reproduces PERM_P at all five
+  thresholds), but the summary loop computed SWEEP-U (each duty claim
+  beating ALL 6 NOTs — max 4), so referee_verdict's WIN and both PARTIAL
+  branches were dead code and every possible run emitted NO-CHANGE. Fix:
+  pairwise U as the primary statistic, sweep-U demoted to an honestly
+  labeled /4 secondary column, cross-regime rendering corrected from the
+  wrong /24 to /4. Red→green proven at the real seam: the synthetic
+  perfect-separation fixture read "NO-CHANGE — U <= 19" before,
+  "PARTIAL — separation cleared (U >= 22) with a leg failed" after (the
+  lifted leg fails by fixture design — shared FakeDecider).
+- [x] **The recorded verdict confirmed** (`46bc540`) — all 72 recorded
+  nouls (data/probe/promo-ab-20261108T001007Z rows) inlined verbatim as
+  4-decimal literals and re-refereed through the fixed instrument:
+  V1 → U=24/24, duty_lift 0.052, **WIN** (all four legs); V2 → U=24/24,
+  duty_lift −0.039, **PARTIAL** (duty lift failed). Reproduced on first
+  run without tuning — the hand-derived verdict in the recorded summary
+  is now instrument-reproducible, and the landed promotion question's
+  justification stands on a referee that works.
+- [x] **Bookkeeping** — the graduation record's OPERATOR FLAG resolved
+  (above); this entry.
+
+Recorded data files untouched (history); the landed question
+(gates.py) and its regime pin test untouched and green. Gates: mypy
+Success 262 / ruff All checks passed! / full offline suite EXIT:0.
+Finish line: future A/B runs referee through the fixed instrument
+automatically — WIN/PARTIAL/NO-CHANGE verdicts bind as pre-registered.
 
 ## Antibot engine Linux port — DELIVERED (2026-11-06)
 
